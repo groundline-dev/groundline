@@ -1,0 +1,20 @@
+[project]
+name = "groundline"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+authors = [
+    { name = "Shannon Mulloy", email = "smulloy21@gmail.com" },
+    { name = "Avinash Darshan", email = "avidars2@gmail.com" },
+    { name = "Nathalia Gibson", email = "natgibson@gmail.com" },
+    { name = "Deborah (YY) Chang", email = "yydchang@gmail.com" },
+]
+requires-python = ">=3.13"
+dependencies = []
+
+[project.scripts]
+groundline = "groundline:main"
+
+[build-system]
+requires = ["uv_build>=0.12.13,<0.13.0"]
+build-backend = "uv_build"

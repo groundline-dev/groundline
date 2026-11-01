@@ -1,0 +1,22 @@
+#!/bin/sh
+# Adds a Co-authored-by trailer for every team member except the committer.
+# Enable once per clone with: git config core.hooksPath .githooks
+
+msg_file="$1"
+
+# Leave empty messages alone so git still aborts the commit.
+grep -qv '^[[:space:]]*\(#.*\)\{0,1\}$' "$msg_file" || exit 0
+
+me=$(git config user.email | tr '[:upper:]' '[:lower:]')
+
+while IFS= read -r member; do
+	email=$(printf '%s\n' "$member" | sed -n 's/.*<\(.*\)>.*/\1/p' | tr '[:upper:]' '[:lower:]')
+	[ "$email" = "$me" ] && continue
+	git interpret-trailers --in-place --if-exists addIfDifferent \
+		--trailer "Co-authored-by: $member" "$msg_file"
+done <<'EOF'
+Shannon Mulloy <smulloy21@gmail.com>
+Avinash Darshan <avidars2@gmail.com>
+Nathalia Gibson <natgibson@gmail.com>
+Deborah (YY) Chang <yydchang@gmail.com>
+EOF
