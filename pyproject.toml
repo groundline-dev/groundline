@@ -27,3 +27,6 @@ dev = [
 [tool.ruff.lint]
 # pycodestyle errors and warnings, pyflakes, and import sorting.
 select = ["E", "W", "F", "I"]
+
+[tool.fastapi]
+entrypoint = "groundline.app:app"

@@ -15,7 +15,7 @@ Run `uv sync` again whenever `uv.lock` changes after a pull. Use `uv run <comman
 Start the API with auto-reload at http://127.0.0.1:8000 (interactive docs at `/docs`):
 
 ```sh
-uv run fastapi dev src/groundline/app.py
+uv run fastapi dev
 ```
 
 Run the tests:
