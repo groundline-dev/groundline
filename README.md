@@ -2,7 +2,15 @@
 
 ## Setup
 
-After cloning, enable the shared git hooks:
+This project uses [uv](https://docs.astral.sh/uv/getting-started/installation/). After cloning, create the virtualenv and install dependencies:
+
+```sh
+uv sync
+```
+
+Run `uv sync` again whenever `uv.lock` changes after a pull. Use `uv run <command>` to run things inside the environment without activating it.
+
+Then enable the shared git hooks:
 
 ```sh
 git config core.hooksPath .githooks
