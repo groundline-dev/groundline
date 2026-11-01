@@ -10,7 +10,23 @@ uv sync
 
 Run `uv sync` again whenever `uv.lock` changes after a pull. Use `uv run <command>` to run things inside the environment without activating it.
 
-Then enable the shared git hooks:
+## Development
+
+Start the API with auto-reload at http://127.0.0.1:8000 (interactive docs at `/docs`):
+
+```sh
+uv run fastapi dev src/groundline/app.py
+```
+
+Run the tests:
+
+```sh
+uv run pytest
+```
+
+## Contributing
+
+Enable the shared git hooks:
 
 ```sh
 git config core.hooksPath .githooks
