@@ -20,6 +20,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "pyright>=1.1.414",
     "pytest>=9.2.0",
     "ruff>=0.17.3",
 ]
@@ -30,3 +31,9 @@ select = ["E", "W", "F", "I"]
 
 [tool.fastapi]
 entrypoint = "groundline.app:app"
+
+[tool.pyright]
+include = ["src", "tests"]
+venvPath = "."
+venv = ".venv"
+typeCheckingMode = "strict"

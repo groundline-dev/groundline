@@ -31,6 +31,12 @@ uv run ruff check
 uv run ruff format
 ```
 
+Type-check with [pyright](https://microsoft.github.io/pyright/):
+
+```sh
+uv run pyright
+```
+
 ## Contributing
 
 Enable the shared git hooks:
