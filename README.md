@@ -24,6 +24,13 @@ Run the tests:
 uv run pytest
 ```
 
+Lint and format with [ruff](https://docs.astral.sh/ruff/):
+
+```sh
+uv run ruff check
+uv run ruff format
+```
+
 ## Contributing
 
 Enable the shared git hooks:

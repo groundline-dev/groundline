@@ -21,4 +21,9 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "pytest>=9.2.0",
+    "ruff>=0.17.3",
 ]
+
+[tool.ruff.lint]
+# pycodestyle errors and warnings, pyflakes, and import sorting.
+select = ["E", "W", "F", "I"]
