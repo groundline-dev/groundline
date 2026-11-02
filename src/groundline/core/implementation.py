@@ -8,6 +8,7 @@ settings are validated (unknown ones are rejected), have defaults, and can be
 described as a JSON schema for a future pipeline-builder UI, with no extra code.
 """
 
+import time
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -17,6 +18,7 @@ from pydantic import BaseModel, ConfigDict
 
 from groundline.core.calls import CallRecord
 from groundline.core.inputs import InputName, Inputs
+from groundline.core.model_client import Effort, ModelClient
 
 
 @dataclass(frozen=True)
@@ -32,6 +34,7 @@ class StageContext:
     step: str
     uses: tuple[InputName, ...]
     outputs: Mapping[str, BaseModel]
+    client: ModelClient | None = None
     calls: list[CallRecord] = field(default_factory=list[CallRecord])
 
     @property
@@ -48,6 +51,27 @@ class StageContext:
                 f"stage '{self.step}' read the {name} but didn't declare it in `uses`"
             )
         return self.inputs.text(name)
+
+    async def complete(
+        self, prompt: str, *, model: str, effort: Effort, max_tokens: int
+    ) -> str:
+        """Send a prompt to the run's model client, record the call, and return
+        the reply text."""
+        if self.client is None:
+            raise RuntimeError(
+                f"stage '{self.step}' calls a model, but the run has no model client"
+            )
+        started = time.perf_counter()
+        reply = await self.client.complete(
+            prompt, model=model, effort=effort, max_tokens=max_tokens
+        )
+        self.record_call(
+            model=reply.model,
+            input_tokens=reply.input_tokens,
+            output_tokens=reply.output_tokens,
+            seconds=round(time.perf_counter() - started, 3),
+        )
+        return reply.text
 
     def record_call(
         self, *, model: str, input_tokens: int, output_tokens: int, seconds: float = 0

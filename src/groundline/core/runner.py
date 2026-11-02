@@ -23,6 +23,7 @@ from groundline.core.cache import Cache, stable_hash
 from groundline.core.calls import CallRecord, Usage, summarize_usage
 from groundline.core.implementation import StageContext
 from groundline.core.inputs import Inputs
+from groundline.core.model_client import ModelClient
 from groundline.core.spec import Pipeline, PipelineStage
 
 
@@ -62,8 +63,13 @@ class RunResult:
 
 
 async def run_pipeline(
-    pipeline: Pipeline, inputs: Inputs, cache: Cache | None = None
+    pipeline: Pipeline,
+    inputs: Inputs,
+    *,
+    cache: Cache | None = None,
+    client: ModelClient | None = None,
 ) -> RunResult:
+    """Run every stage. `client` is needed only if a stage calls a model."""
     outputs: dict[str, BaseModel] = {}
     runs: dict[str, StageRun] = {}
     calls: dict[str, list[CallRecord]] = {}
@@ -80,6 +86,7 @@ async def run_pipeline(
             step=stage.step,
             uses=impl.uses,
             outputs={needed: outputs[needed] for needed in impl.reads},
+            client=client,
         )
         upstream = {needed: keys[needed] for needed in impl.reads}
         started = time.perf_counter()
