@@ -1,3 +1,4 @@
+import stat
 from pathlib import Path
 
 import pytest
@@ -55,3 +56,27 @@ def test_a_failed_write_leaves_the_old_entry_and_no_temporary_files(
 
     assert cache.get("extract", "abc") == {"output": {"facts": ["old"]}, "calls": []}
     assert [p.name for p in (tmp_path / "extract").iterdir()] == ["abc.json"]
+
+
+def test_entries_are_private_to_their_owner(tmp_path: Path):
+    root = tmp_path / "cache"
+    FileCache(root).put("extract", "abc", {"output": {}, "calls": []})
+
+    assert stat.S_IMODE(root.stat().st_mode) == 0o700
+    assert stat.S_IMODE((root / "extract").stat().st_mode) == 0o700
+    assert stat.S_IMODE((root / "extract" / "abc.json").stat().st_mode) == 0o600
+
+
+@pytest.mark.parametrize(
+    "step,key", [("../x", "abc"), ("extract", "../../x"), ("a/b", "abc"), ("", "abc")]
+)
+def test_names_cannot_reach_outside_the_cache_folder(
+    tmp_path: Path, step: str, key: str
+):
+    cache = FileCache(tmp_path / "cache")
+
+    with pytest.raises(ValueError, match="not a safe cache name"):
+        cache.put(step, key, {"output": {}, "calls": []})
+    with pytest.raises(ValueError, match="not a safe cache name"):
+        cache.get(step, key)
+    assert list(tmp_path.iterdir()) == []
