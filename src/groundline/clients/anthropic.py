@@ -8,10 +8,18 @@ Notes for Claude Opus 5.5:
   raised as an error instead.
 """
 
+import anthropic
 import httpx2
 from anthropic import AsyncAnthropic
 
-from groundline.core import Effort, ModelError, ModelRefusal, ModelReply
+from groundline.core import (
+    APIKeyRejectedError,
+    Effort,
+    ModelError,
+    ModelRefusal,
+    ModelReply,
+    as_object,
+)
 
 
 class AnthropicClient:
@@ -19,9 +27,12 @@ class AnthropicClient:
         self,
         api_key: str,
         *,
+        key_source: str = "ANTHROPIC_API_KEY",
         max_retries: int = 4,
         http_client: httpx2.AsyncClient | None = None,
     ) -> None:
+        """`key_source` says where the key came from, for error messages."""
+        self._key_source = key_source
         # The SDK retries connection errors, 408, 409, 429 and 5xx with backoff.
         self._sdk = AsyncAnthropic(
             api_key=api_key, max_retries=max_retries, http_client=http_client
@@ -30,12 +41,29 @@ class AnthropicClient:
     async def complete(
         self, prompt: str, *, model: str, effort: Effort, max_tokens: int
     ) -> ModelReply:
-        message = await self._sdk.messages.create(
-            model=model,
-            max_tokens=max_tokens,
-            output_config={"effort": effort},
-            messages=[{"role": "user", "content": prompt}],
-        )
+        try:
+            message = await self._sdk.messages.create(
+                model=model,
+                max_tokens=max_tokens,
+                output_config={"effort": effort},
+                messages=[{"role": "user", "content": prompt}],
+            )
+        except anthropic.AuthenticationError as error:
+            raise APIKeyRejectedError(
+                f"ANTHROPIC_API_KEY was rejected by the Anthropic API "
+                f"({error.status_code}: {_detail(error)}).\n"
+                f"  Key from: {self._key_source}\n"
+                "  Fix: check the key is complete, hasn't been revoked, "
+                "and belongs to the workspace you expect."
+            ) from error
+        except anthropic.PermissionDeniedError as error:
+            raise APIKeyRejectedError(
+                f"ANTHROPIC_API_KEY doesn't have access to {model} "
+                f"({error.status_code}: {_detail(error)}).\n"
+                f"  Key from: {self._key_source}\n"
+                "  Fix: use a key from a workspace that can use this model, "
+                "or change the stage's model setting."
+            ) from error
         if message.stop_reason == "refusal":
             details = message.stop_details
             category = (
@@ -59,3 +87,11 @@ class AnthropicClient:
 
     async def close(self) -> None:
         await self._sdk.close()
+
+
+def _detail(error: anthropic.APIStatusError) -> str:
+    """The API's own explanation, such as "invalid x-api-key", if it gave one."""
+    body = as_object(error.body)
+    inner = as_object(body.get("error")) if body else None
+    message = inner.get("message") if inner else None
+    return message if isinstance(message, str) else error.message

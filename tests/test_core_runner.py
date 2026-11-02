@@ -9,6 +9,7 @@ from groundline.core import (
     Pipeline,
     PipelineSpec,
     RunResult,
+    SetupError,
     StageError,
     StageSpec,
     build_pipeline,
@@ -82,6 +83,11 @@ def test_a_failing_stage_stops_the_run_and_names_the_step():
     assert "model unavailable" in str(error.value)
     assert isinstance(error.value.__cause__, RuntimeError)
     assert time.perf_counter() - started < 1  # the slow stage was cancelled
+
+
+def test_setup_errors_are_not_reported_as_a_stage_failure():
+    with pytest.raises(SetupError, match="key was rejected"):
+        run(pipeline({"step": "left", "implementation": "left.setup"}))
 
 
 def test_a_stage_cannot_read_an_output_it_did_not_declare():

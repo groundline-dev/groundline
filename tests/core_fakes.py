@@ -5,7 +5,13 @@ from typing import ClassVar
 
 from pydantic import BaseModel
 
-from groundline.core import Implementation, InputName, Registry, StageContext
+from groundline.core import (
+    Implementation,
+    InputName,
+    Registry,
+    SetupError,
+    StageContext,
+)
 
 EXECUTED: list[str] = []
 """Steps that actually ran (not cached), in order. Tests clear it first."""
@@ -102,6 +108,16 @@ class Boom(Implementation):
         raise RuntimeError("model unavailable")
 
 
+class SetupProblem(Implementation):
+    """Step `left`, failing because of the environment, not the stage."""
+
+    name: ClassVar[str] = "left.setup"
+    step: ClassVar[str] = "left"
+
+    async def run(self, ctx: StageContext) -> Text:
+        raise SetupError("key was rejected")
+
+
 class Peeker(Implementation):
     """Step `upper`, reading the summary without declaring it."""
 
@@ -140,6 +156,17 @@ def make_registry() -> Registry:
     registry = Registry()
     for step in ("upper", "join", "polish", "left", "right", "both"):
         registry.define_step(step, Text)
-    for impl in (Upper, Join, Polish, SlowLeft, SlowRight, Both, Boom, Sneaky, Peeker):
+    for impl in (
+        Upper,
+        Join,
+        Polish,
+        SlowLeft,
+        SlowRight,
+        Both,
+        Boom,
+        Sneaky,
+        Peeker,
+        SetupProblem,
+    ):
         registry.register(impl)
     return registry

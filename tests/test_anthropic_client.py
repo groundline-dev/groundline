@@ -9,7 +9,7 @@ import pytest
 from anthropic import DefaultAsyncHttpxClient
 
 from groundline.clients.anthropic import AnthropicClient
-from groundline.core import ModelError, ModelRefusal, ModelReply
+from groundline.core import APIKeyRejectedError, ModelError, ModelRefusal, ModelReply
 
 
 def message(**overrides: Any) -> dict[str, Any]:
@@ -29,16 +29,19 @@ def message(**overrides: Any) -> dict[str, Any]:
     }
 
 
-def complete(reply: dict[str, Any]) -> tuple[ModelReply, httpx2.Request]:
+def complete(
+    reply: dict[str, Any], status: int = 200
+) -> tuple[ModelReply, httpx2.Request]:
     sent: list[httpx2.Request] = []
 
     def handler(request: httpx2.Request) -> httpx2.Response:
         sent.append(request)
-        return httpx2.Response(200, json=reply)
+        return httpx2.Response(status, json=reply)
 
     async def go() -> ModelReply:
         client = AnthropicClient(
             "sk-test",
+            key_source="/repo/.env",
             http_client=DefaultAsyncHttpxClient(
                 transport=httpx2.MockTransport(handler)
             ),
@@ -100,3 +103,24 @@ def test_a_refusal_is_an_error_naming_its_category():
 def test_a_reply_cut_off_at_max_tokens_is_an_error():
     with pytest.raises(ModelError, match="max_tokens"):
         complete(message(stop_reason="max_tokens"))
+
+
+def api_error(kind: str, message: str) -> dict[str, Any]:
+    return {"type": "error", "error": {"type": kind, "message": message}}
+
+
+def test_a_rejected_key_gets_a_clear_message():
+    with pytest.raises(APIKeyRejectedError) as error:
+        complete(api_error("authentication_error", "invalid x-api-key"), status=401)
+
+    message = str(error.value)
+    assert message.startswith("ANTHROPIC_API_KEY was rejected by the Anthropic API")
+    assert "invalid x-api-key" in message
+    assert "Key from: /repo/.env" in message
+
+
+def test_a_key_without_access_to_the_model_gets_a_clear_message():
+    with pytest.raises(
+        APIKeyRejectedError, match="doesn't have access to claude-opus-5-5"
+    ):
+        complete(api_error("permission_error", "not allowed"), status=403)

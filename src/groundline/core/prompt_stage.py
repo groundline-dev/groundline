@@ -23,6 +23,9 @@ class PromptImplementation(Implementation):
     effort: Effort = "high"
     max_tokens: int = 16000
 
+    def models(self) -> tuple[str, ...]:
+        return (self.model,)
+
     async def ask[T](
         self, ctx: StageContext, prompt: str, parse: Callable[[str], T]
     ) -> T:

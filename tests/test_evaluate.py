@@ -14,12 +14,14 @@ from groundline.core import (
     DomainProfile,
     PipelineSpec,
     SpecError,
+    StageSpec,
     load_spec,
     with_settings,
 )
 from groundline.evaluators.omissions.models import AlarmOutput, ScoreOutput
 from groundline.profiles import load_builtin_profile
 from groundline.settings import MissingAPIKeyError
+from tests.core_fakes import make_registry
 from tests.fakes import FakeClient
 from tests.omission_helpers import (
     EXTRACTED,
@@ -149,6 +151,35 @@ def test_without_a_client_or_api_key_it_fails_before_any_call(
 
     with pytest.raises(MissingAPIKeyError):
         asyncio.run(evaluate(SOURCE, SUMMARY))
+
+
+def test_the_missing_key_message_names_the_stages_and_model(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(MissingAPIKeyError) as error:
+        asyncio.run(evaluate(SOURCE, SUMMARY))
+
+    assert "Needed by: extract, rank, check, refute (claude-opus-5-5)" in str(
+        error.value
+    )
+
+
+def test_a_pipeline_that_calls_no_model_needs_no_key(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.chdir(tmp_path)
+    spec = PipelineSpec(
+        name="no-models",
+        stages=[StageSpec(step="upper", implementation="upper.basic")],
+    )
+
+    result = asyncio.run(evaluate(SOURCE, SUMMARY, spec=spec, registry=make_registry()))
+
+    assert result.run.stages["upper"].status == "ran"
 
 
 def test_evaluate_sync_blocks_until_done():

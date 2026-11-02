@@ -68,11 +68,16 @@ async def evaluate(
     if profile is None and spec.profile is not None:
         profile = load_builtin_profile(spec.profile)
     pipeline = build_pipeline(spec, registry, profile)
-    validated, warnings = _compare_with_presets(pipeline, registry)
+    validated, warnings = _compare_with_presets(pipeline)
 
     own_client = None
-    if client is None:
-        client = own_client = AnthropicClient(Settings().anthropic_key())
+    needed_by = _model_users(pipeline)
+    if client is None and needed_by:
+        settings = Settings()
+        client = own_client = AnthropicClient(
+            settings.anthropic_key(needed_by=needed_by),
+            key_source=settings.anthropic_key_source(),
+        )
     try:
         run = await run_pipeline(
             pipeline,
@@ -117,18 +122,30 @@ def evaluate_sync(
     )
 
 
-def _compare_with_presets(
-    pipeline: Pipeline, registry: Registry
-) -> tuple[str | None, list[str]]:
+def _model_users(pipeline: Pipeline) -> str:
+    """Which stages call which models, e.g. "extract, rank (claude-opus-5-5)";
+    empty if no enabled stage calls a model."""
+    steps_by_model: dict[str, list[str]] = {}
+    for stage in pipeline.stages:
+        if stage.enabled:
+            for model in stage.implementation.models():
+                steps_by_model.setdefault(model, []).append(stage.step)
+    return "; ".join(
+        f"{', '.join(steps)} ({model})" for model, steps in steps_by_model.items()
+    )
+
+
+def _compare_with_presets(pipeline: Pipeline) -> tuple[str | None, list[str]]:
     """Which preset this pipeline matches exactly, if any; otherwise warnings for
     calibrated settings (like alarm thresholds) copied from a preset it differs
     from."""
     fingerprint = pipeline_fingerprint(pipeline)
+    builtins = default_registry()  # presets use only built-in stages
     presets: dict[str, Pipeline] = {}
     for name in builtin_presets():
         spec = load_preset(name)
         profile = load_builtin_profile(spec.profile) if spec.profile else None
-        presets[name] = build_pipeline(spec, registry, profile)
+        presets[name] = build_pipeline(spec, builtins, profile)
         if pipeline_fingerprint(presets[name]) == fingerprint:
             return name, []
 

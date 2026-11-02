@@ -151,6 +151,11 @@ class Implementation(BaseModel, ABC):
     Reusing them in a pipeline that differs from the one they were calibrated
     on produces a warning."""
 
+    def models(self) -> tuple[str, ...]:
+        """The models this stage calls, if any. Used to check before a run that
+        the keys they need are available."""
+        return ()
+
     def profile_texts(self) -> tuple[str, ...]:
         """Names of the domain-profile texts this stage uses, usually chosen by
         its settings (e.g. `prompt: extract_coarse_v1`). A pipeline is checked

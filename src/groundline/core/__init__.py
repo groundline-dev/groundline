@@ -2,6 +2,7 @@
 
 from groundline.core.cache import Cache, FileCache, stable_hash
 from groundline.core.calls import PRICES, CallRecord, Price, Usage, summarize_usage
+from groundline.core.errors import APIKeyRejectedError, SetupError
 from groundline.core.implementation import Implementation, StageContext
 from groundline.core.inputs import InputName, Inputs
 from groundline.core.model_client import (
@@ -44,6 +45,7 @@ from groundline.core.templates import fill
 __all__ = [
     "PRICES",
     "RETRY_NOTE",
+    "APIKeyRejectedError",
     "Cache",
     "CallRecord",
     "DomainProfile",
@@ -67,6 +69,7 @@ __all__ = [
     "Registry",
     "ReplyError",
     "RunResult",
+    "SetupError",
     "SpecError",
     "StageContext",
     "StageError",

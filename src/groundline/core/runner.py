@@ -21,6 +21,7 @@ from pydantic import BaseModel, ValidationError
 
 from groundline.core.cache import Cache, stable_hash
 from groundline.core.calls import CallRecord, Usage, summarize_usage
+from groundline.core.errors import SetupError
 from groundline.core.implementation import StageContext
 from groundline.core.inputs import Inputs
 from groundline.core.model_client import ModelClient
@@ -122,7 +123,7 @@ async def run_pipeline(
                                 "calls": [c.model_dump() for c in stage_calls],
                             },
                         )
-        except StageError:
+        except (StageError, SetupError):
             raise
         except Exception as error:
             raise StageError(stage.step, str(error)) from error
