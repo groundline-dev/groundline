@@ -1,0 +1,26 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: 3e8a8703264a2f4a69428a0aa4dcb512790b2c8c # v6.0.0
+    hooks:
+      - id: check-added-large-files
+        args: [--enforce-all]
+        exclude: ^uv\.lock$
+
+  - repo: local
+    hooks:
+      - id: ruff-check
+        name: ruff check (run make fix)
+        entry: uv run ruff check
+        language: system
+        types_or: [python, pyi]
+      - id: ruff-format
+        name: ruff format (run make fix)
+        entry: uv run ruff format --check
+        language: system
+        types_or: [python, pyi]
+      - id: pyright
+        name: pyright
+        entry: uv run pyright
+        language: system
+        types_or: [python, pyi]
+        pass_filenames: false

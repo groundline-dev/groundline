@@ -1,0 +1,5 @@
+#!/bin/sh
+# Runs the checks in .pre-commit-config.yaml on staged files.
+# `pre-commit install` refuses to run while core.hooksPath is set, so call it from here instead.
+
+exec uv run pre-commit run
