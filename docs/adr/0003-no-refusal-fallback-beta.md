@@ -1,0 +1,3 @@
+# No refusal-fallback beta
+
+The pipeline groundline was ported from used Anthropic's refusal-fallback beta (`server-side-fallback-2026-07-01`), which hands a refused request to another model. groundline doesn't use it, because it isn't on Anthropic's HIPAA feature-eligibility list, and beta features aren't covered by the BAA unless they're listed. groundline is meant to handle clinical data in production. Dropping it didn't change the measured results: all 10,261 cached Opus calls from the measured runs were answered by Opus itself, so the fallback never took over. A refusal now stops the run as an error instead. Don't add the beta back unless it appears on the eligibility list.

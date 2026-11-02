@@ -64,6 +64,10 @@ src/groundline/
 tests/                   offline tests; test_live.py is marked live
 ```
 
+## Vocabulary and decisions
+
+[CONTEXT.md](CONTEXT.md) is the glossary: the project's words for things, and the words to avoid. [docs/adr/](docs/adr/) records the decisions that would surprise a newcomer, and why they were made. Read both before changing the design, and update them as you go: the `/grill-with-docs` skill from the Skills For Real Engineers plugin does this during a design session.
+
 ## Commits
 
 Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/), e.g. `feat(parser): support nested groups`.
