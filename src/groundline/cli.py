@@ -11,6 +11,7 @@ any unexpected error). Only a finished check that flags the summary exits with 1
 import json
 import os
 import time
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Annotated
 
@@ -18,6 +19,7 @@ import platformdirs
 import typer
 
 from groundline.core import (
+    CallRecord,
     FileCache,
     ModelClient,
     ProfileError,
@@ -26,6 +28,7 @@ from groundline.core import (
     StageError,
     load_profile,
     load_spec,
+    summarize_usage,
     with_settings,
 )
 from groundline.evaluate import DEFAULT_PRESET, evaluate_sync
@@ -126,14 +129,12 @@ def omissions(
         code = _check_omissions(
             source, summary, threshold, pipeline, profile, cache, json_path
         )
-    except (
-        SetupError,
-        SpecError,
-        ProfileError,
-        StageError,
-        ValueError,
-        OSError,
-    ) as error:
+    except StageError as error:
+        typer.echo(f"error: {error}", err=True)
+        if error.calls:
+            typer.echo(f"  Cost before stopping: {_cost(error.calls)}", err=True)
+        code = EXIT_ERROR
+    except (SetupError, SpecError, ProfileError, ValueError, OSError) as error:
         typer.echo(f"error: {error}", err=True)
         code = EXIT_ERROR
     except Exception as error:
@@ -198,3 +199,14 @@ def _check_omissions(
                 f"{error.strerror or error}"
             ) from error
     return EXIT_FLAGGED if flagged else EXIT_NOT_FLAGGED
+
+
+def _cost(calls: Sequence[CallRecord]) -> str:
+    usage = summarize_usage(calls)
+    cost = (
+        f"${usage.cost_usd:.2f} · {usage.calls} calls · "
+        f"{usage.input_tokens:,} input / {usage.output_tokens:,} output tokens"
+    )
+    if usage.unpriced_models:
+        cost += f" (no price for {', '.join(usage.unpriced_models)})"
+    return cost

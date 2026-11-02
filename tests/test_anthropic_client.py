@@ -96,13 +96,20 @@ def test_a_refusal_is_an_error_naming_its_category():
         stop_details={"type": "refusal", "category": "bio", "explanation": None},
     )
 
-    with pytest.raises(ModelRefusal, match="declined to answer.*bio"):
+    with pytest.raises(ModelRefusal, match="declined to answer.*bio") as error:
         complete(refusal)
+
+    # Billed, so it's kept for the cost report.
+    assert error.value.reply is not None
+    assert error.value.reply.output_tokens == 340
 
 
 def test_a_reply_cut_off_at_max_tokens_is_an_error():
-    with pytest.raises(ModelError, match="max_tokens"):
+    with pytest.raises(ModelError, match="max_tokens") as error:
         complete(message(stop_reason="max_tokens"))
+
+    assert error.value.reply is not None
+    assert error.value.reply.input_tokens == 1200
 
 
 def api_error(kind: str, message: str) -> dict[str, Any]:

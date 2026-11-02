@@ -108,6 +108,18 @@ class Boom(Implementation):
         raise RuntimeError("model unavailable")
 
 
+class PaidBoom(Implementation):
+    """Step `left`, after `upper`: makes a model call, then fails."""
+
+    name: ClassVar[str] = "left.paid_boom"
+    step: ClassVar[str] = "left"
+    reads: ClassVar[tuple[str, ...]] = ("upper",)
+
+    async def run(self, ctx: StageContext) -> Text:
+        ctx.record_call(model="fake-model", input_tokens=50, output_tokens=5)
+        raise RuntimeError("reply unusable")
+
+
 class SetupProblem(Implementation):
     """Step `left`, failing because of the environment, not the stage."""
 
@@ -164,6 +176,7 @@ def make_registry() -> Registry:
         SlowRight,
         Both,
         Boom,
+        PaidBoom,
         Sneaky,
         Peeker,
         SetupProblem,

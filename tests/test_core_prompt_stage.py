@@ -6,9 +6,12 @@ from pydantic import BaseModel
 
 from groundline.core import (
     RETRY_NOTE,
+    Effort,
     InputName,
     Inputs,
     ModelClient,
+    ModelError,
+    ModelReply,
     ParseError,
     PipelineSpec,
     PromptImplementation,
@@ -147,3 +150,20 @@ def test_fill_inserts_values_exactly_as_written():
     assert filled == (
         "<transcript>They typed {facts} and {note}.</transcript>\n<facts>f1</facts>"
     )
+
+
+class CutOffClient:
+    """Every reply is cut off at max_tokens, after being billed."""
+
+    async def complete(
+        self, prompt: str, *, model: str, effort: Effort, max_tokens: int
+    ) -> ModelReply:
+        reply = ModelReply(text="", model=model, input_tokens=7, output_tokens=900)
+        raise ModelError("reply cut off at max_tokens", reply=reply)
+
+
+def test_a_billed_call_that_fails_is_still_recorded():
+    with pytest.raises(StageError) as error:
+        run(CutOffClient())
+
+    assert [(c.step, c.output_tokens) for c in error.value.calls] == [("answer", 900)]

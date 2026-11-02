@@ -30,10 +30,15 @@ from groundline.core.spec import Pipeline, PipelineStage
 
 
 class StageError(Exception):
-    """A stage failed. The original exception is kept as `__cause__`."""
+    """A stage failed. The original exception is kept as `__cause__`.
+
+    `calls` holds every live model call the run made before it stopped,
+    including those of the failed stage and of stages cancelled because of it,
+    so a failed run's cost can still be reported."""
 
     def __init__(self, step: str, message: str) -> None:
         self.step = step
+        self.calls: tuple[CallRecord, ...] = ()
         super().__init__(f"stage '{step}' failed: {message}")
 
 
@@ -77,6 +82,7 @@ async def run_pipeline(
     calls: dict[str, list[CallRecord]] = {}
     keys: dict[str, str] = {}
     tasks: dict[str, asyncio.Task[None]] = {}
+    contexts: dict[str, StageContext] = {}
 
     async def run_stage(stage: PipelineStage) -> None:
         impl = stage.implementation
@@ -94,6 +100,7 @@ async def run_pipeline(
             else Placeholders(),
             client=client,
         )
+        contexts[stage.step] = ctx
         upstream = {needed: keys[needed] for needed in impl.reads}
         started = time.perf_counter()
         try:
@@ -142,6 +149,13 @@ async def run_pipeline(
         # Report the first failure; the other stages were cancelled because of it.
         # Keep its original cause, and hide the task group's wrapper.
         first = failed.exceptions[0]
+        if isinstance(first, StageError):
+            first.calls = tuple(
+                call
+                for stage in pipeline.stages
+                if stage.step in contexts
+                for call in contexts[stage.step].calls
+            )
         raise first from first.__cause__
 
     return RunResult(

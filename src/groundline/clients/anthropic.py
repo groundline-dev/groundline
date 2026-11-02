@@ -64,26 +64,31 @@ class AnthropicClient:
                 "  Fix: use a key from a workspace that can use this model, "
                 "or change the stage's model setting."
             ) from error
+        text = "".join(block.text for block in message.content if block.type == "text")
+        reply = ModelReply(
+            text=text,
+            model=message.model,
+            input_tokens=message.usage.input_tokens,
+            output_tokens=message.usage.output_tokens,
+        )
+        # A refusal or a cut-off reply is still billed, so the errors carry the
+        # reply's usage for the cost report.
         if message.stop_reason == "refusal":
             details = message.stop_details
             category = (
                 details.category if details and details.category else "none given"
             )
             raise ModelRefusal(
-                f"{message.model} declined to answer (refusal category: {category})"
+                f"{message.model} declined to answer (refusal category: {category})",
+                reply=reply,
             )
         if message.stop_reason == "max_tokens":
             raise ModelError(
                 f"reply cut off at max_tokens={max_tokens}; "
-                "raise the stage's max_tokens"
+                "raise the stage's max_tokens",
+                reply=reply,
             )
-        text = "".join(block.text for block in message.content if block.type == "text")
-        return ModelReply(
-            text=text,
-            model=message.model,
-            input_tokens=message.usage.input_tokens,
-            output_tokens=message.usage.output_tokens,
-        )
+        return reply
 
     async def close(self) -> None:
         await self._sdk.close()

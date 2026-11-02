@@ -18,7 +18,7 @@ from pydantic import BaseModel, ConfigDict
 
 from groundline.core.calls import CallRecord
 from groundline.core.inputs import InputName, Inputs
-from groundline.core.model_client import Effort, ModelClient
+from groundline.core.model_client import Effort, ModelClient, ModelError, ModelReply
 from groundline.core.profile import Placeholders
 from groundline.core.templates import fill
 
@@ -86,16 +86,24 @@ class StageContext:
                 f"stage '{self.step}' calls a model, but the run has no model client"
             )
         started = time.perf_counter()
-        reply = await self.client.complete(
-            prompt, model=model, effort=effort, max_tokens=max_tokens
-        )
+        try:
+            reply = await self.client.complete(
+                prompt, model=model, effort=effort, max_tokens=max_tokens
+            )
+        except ModelError as error:
+            if error.reply is not None:  # failed, but billed
+                self._record_reply(error.reply, started)
+            raise
+        self._record_reply(reply, started)
+        return reply.text
+
+    def _record_reply(self, reply: ModelReply, started: float) -> None:
         self.record_call(
             model=reply.model,
             input_tokens=reply.input_tokens,
             output_tokens=reply.output_tokens,
             seconds=round(time.perf_counter() - started, 3),
         )
-        return reply.text
 
     def record_call(
         self, *, model: str, input_tokens: int, output_tokens: int, seconds: float = 0

@@ -135,6 +135,7 @@ def test_an_unusable_reply_exits_with_2(
 
     assert result.exit_code == 2
     assert result.stderr.startswith("error: stage 'extract' failed")
+    assert "Cost before stopping: $0.00 · 2 calls · " in result.stderr
 
 
 def test_a_missing_input_file_exits_with_2(

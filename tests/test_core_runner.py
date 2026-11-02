@@ -85,6 +85,18 @@ def test_a_failing_stage_stops_the_run_and_names_the_step():
     assert time.perf_counter() - started < 1  # the slow stage was cancelled
 
 
+def test_a_failed_run_still_reports_the_calls_it_paid_for():
+    p = pipeline(UPPER, {"step": "left", "implementation": "left.paid_boom"})
+
+    with pytest.raises(StageError) as error:
+        run(p)
+
+    assert [(c.step, c.input_tokens) for c in error.value.calls] == [
+        ("upper", 100),
+        ("left", 50),
+    ]
+
+
 def test_setup_errors_are_not_reported_as_a_stage_failure():
     with pytest.raises(SetupError, match="key was rejected"):
         run(pipeline({"step": "left", "implementation": "left.setup"}))
