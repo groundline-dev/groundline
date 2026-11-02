@@ -35,7 +35,9 @@ class CheckLLMBatch(PromptImplementation):
     uses: ClassVar[tuple[InputName, ...]] = ("summary",)
 
     prompt: str = "check_batch_v1"
+    """The profile prompt to use."""
     effort: Effort = "medium"
+    """How much effort the model spends: low, medium, high, xhigh or max."""
 
     def profile_texts(self) -> tuple[str, ...]:
         return (self.prompt,)

@@ -34,7 +34,9 @@ class RankLLM(PromptImplementation):
     can_disable: ClassVar[bool] = True
 
     prompt: str = "rank_v1"
+    """The profile prompt to use."""
     rubric: str = "severity_v1"
+    """The profile's severity rubric to grade with."""
 
     def profile_texts(self) -> tuple[str, ...]:
         return (self.prompt, self.rubric)

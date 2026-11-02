@@ -33,6 +33,8 @@ class AlarmCriticalMax(Implementation):
     calibrated_settings: ClassVar[tuple[str, ...]] = ("thresholds",)
 
     thresholds: dict[str, float] = {"strict": 0.90, "moderate": 0.425}
+    """Named alarm scores at or above which the summary is flagged. Only
+    meaningful for the pipeline they were calibrated on."""
     level: str = "strict"
     """Which of `thresholds` to flag at."""
 

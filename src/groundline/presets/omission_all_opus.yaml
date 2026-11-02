@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=pipeline.schema.json
 # The all-Opus omission check, with the clinical profile.
 #
 # This is the configuration omission-pipeline measured, so its results only hold

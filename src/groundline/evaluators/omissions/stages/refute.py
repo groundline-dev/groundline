@@ -48,6 +48,7 @@ class RefuteLLM(PromptImplementation):
     can_disable: ClassVar[bool] = True
 
     prompt: str = "refute_v1"
+    """The profile prompt to use."""
 
     def profile_texts(self) -> tuple[str, ...]:
         return (self.prompt,)

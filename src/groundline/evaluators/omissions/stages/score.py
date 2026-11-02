@@ -25,7 +25,9 @@ class ScoreBasic(Implementation):
     reads: ClassVar[tuple[str, ...]] = ("rank", "refute")
 
     weighted: bool = True
+    """Whether to also report the severity-weighted missing ratio."""
     weights: dict[Severity, int] = {"critical": 3, "supporting": 2, "peripheral": 1}
+    """How much a fact of each severity counts in the weighted ratio."""
 
     async def run(self, ctx: StageContext) -> ScoreOutput:
         return score_verdicts(

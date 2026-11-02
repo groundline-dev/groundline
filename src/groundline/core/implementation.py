@@ -137,7 +137,10 @@ class Implementation(BaseModel, ABC):
     """One way to do a step. Subclasses set the class variables below, add their
     settings as fields, and implement `run`."""
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
+    # Docstrings under settings become their descriptions in the pipeline schema.
+    model_config = ConfigDict(
+        frozen=True, extra="forbid", use_attribute_docstrings=True
+    )
 
     name: ClassVar[str]
     """Unique name, `<step>.<variant>`, e.g. `check.opus_batch`."""

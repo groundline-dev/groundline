@@ -34,12 +34,18 @@ uv run pytest -m live -s
 
 `tests/test_parity.py` replays a recorded run of the measured pipeline and checks that groundline sends byte-identical prompts and reaches identical results. If you change a prompt, the rubric or a step's logic, expect it to fail. That means the `omission_all_opus` preset no longer matches the measured results.
 
-## Profile schema
+## Editor schemas
 
-Editors check `profile.yaml` files against [profile.schema.json](src/groundline/profiles/profile.schema.json), which each built-in profile names on its first line. The schema is generated from the profile model; after changing the model, regenerate it (a test fails until you do):
+Editors check the YAML files against JSON schemas, which each file names on its first line:
+
+- profiles (`profile.yaml`) against [profile.schema.json](src/groundline/profiles/profile.schema.json), generated from the profile model;
+- pipeline specs and presets against [pipeline.schema.json](src/groundline/presets/pipeline.schema.json), generated from the registry, so each stage's settings are checked against its implementation. A setting's docstring becomes its description.
+
+After changing the profile model, adding an implementation, or changing an implementation's settings, regenerate them (a test fails until you do):
 
 ```sh
 uv run python -m groundline.profiles.schema
+uv run python -m groundline.presets.schema
 ```
 
 ## Lint, format and type checks

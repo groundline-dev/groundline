@@ -21,6 +21,7 @@ class ExtractLLM(PromptImplementation):
     uses: ClassVar[tuple[InputName, ...]] = ("source",)
 
     prompt: str = "extract_coarse_v1"
+    """The profile prompt to use."""
 
     def profile_texts(self) -> tuple[str, ...]:
         return (self.prompt,)

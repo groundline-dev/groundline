@@ -11,6 +11,7 @@ from typing import Any
 
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic.json_schema import models_json_schema
 
 from groundline.core.cache import stable_hash
 from groundline.core.implementation import Implementation
@@ -19,22 +20,77 @@ from groundline.core.registry import Registry
 
 
 class StageSpec(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", use_attribute_docstrings=True)
 
     step: str
+    """The step this stage fills, such as `extract` or `check`."""
     implementation: str
+    """How to do the step, such as `check.llm_batch`."""
     enabled: bool = True
+    """Whether the stage runs. Only some stages can be switched off."""
     settings: dict[str, Any] = Field(default_factory=dict[str, Any])
+    """The implementation's settings, such as its model and prompt."""
 
 
 class PipelineSpec(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(
+        extra="forbid", use_attribute_docstrings=True, title="groundline pipeline spec"
+    )
 
     name: str
+    """The pipeline's name, such as `omission_all_opus`."""
     description: str = ""
+    """What the pipeline is for."""
     profile: str | None = None
     """The domain profile this pipeline is meant for, such as `clinical`."""
     stages: list[StageSpec]
+    """The stages, in order. A stage may only read steps that come before it."""
+
+
+def spec_json_schema(registry: Registry) -> dict[str, Any]:
+    """The JSON schema of a pipeline spec, for editors and the pipeline-builder
+    UI. Each stage's settings are checked against the model of the
+    implementation it names, which the plain `PipelineSpec` schema can't do.
+
+    It can't check what depends on other files, such as whether a prompt exists
+    in the profile; `build_pipeline` checks those before a run."""
+    names = registry.implementations()
+    impls = [registry.implementation(name) for name in names]
+    refs, settings_defs = models_json_schema(
+        [(impl, "validation") for impl in impls if impl is not None],
+        ref_template="#/$defs/{model}",
+    )
+
+    schema = PipelineSpec.model_json_schema(ref_template="#/$defs/{model}")
+    defs: dict[str, Any] = schema["$defs"]
+    stage: dict[str, Any] = defs["StageSpec"]
+    stage["properties"]["step"]["enum"] = registry.steps()
+    stage["properties"]["implementation"]["enum"] = names
+    rules: list[dict[str, Any]] = []
+    for name, impl in zip(names, impls, strict=True):
+        assert impl is not None
+        then: dict[str, Any] = {
+            "step": {"const": impl.step},
+            "settings": refs[(impl, "validation")],
+        }
+        if not impl.can_disable:
+            then["enabled"] = {"const": True}
+        rules.append(
+            {
+                "if": {
+                    "properties": {"implementation": {"const": name}},
+                    "required": ["implementation"],
+                },
+                "then": {"properties": then},
+            }
+        )
+    stage["allOf"] = rules
+
+    for key, value in settings_defs.get("$defs", {}).items():
+        if key in defs:
+            raise ValueError(f"two schema definitions are both named '{key}'")
+        defs[key] = value
+    return schema
 
 
 def load_spec(path: str | Path) -> PipelineSpec:

@@ -20,8 +20,11 @@ class PromptImplementation(Implementation):
     """Base for implementations that call a model. Its settings choose the model."""
 
     model: str = "claude-opus-5-5"
+    """The model to call."""
     effort: Effort = "high"
+    """How much effort the model spends: low, medium, high, xhigh or max."""
     max_tokens: int = 16000
+    """The longest reply allowed, in tokens. A reply cut off here is an error."""
 
     def models(self) -> tuple[str, ...]:
         return (self.model,)

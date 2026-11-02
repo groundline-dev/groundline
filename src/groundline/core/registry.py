@@ -36,6 +36,9 @@ class Registry:
     def implementation(self, name: str) -> type[Implementation] | None:
         return self._implementations.get(name)
 
+    def steps(self) -> list[str]:
+        return list(self._steps)
+
     def output_type(self, step: str) -> type[BaseModel]:
         return self._steps[step]
 
