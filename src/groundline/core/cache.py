@@ -6,8 +6,10 @@ summaries and what was extracted from them, so never cache sensitive data.
 
 import hashlib
 import json
+import os
+import tempfile
 from pathlib import Path
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 
 
 def stable_hash(value: Any) -> str:
@@ -31,13 +33,25 @@ class FileCache:
         return self.root / step / f"{key}.json"
 
     def get(self, step: str, key: str) -> dict[str, Any] | None:
-        path = self._path(step, key)
-        if not path.exists():
+        """The stored entry, or None if there isn't one or it can't be read.
+        The cache is only an optimisation, so a damaged entry is a miss, and
+        the next `put` replaces it."""
+        try:
+            entry = json.loads(self._path(step, key).read_text(encoding="utf-8"))
+        except (OSError, UnicodeDecodeError, json.JSONDecodeError):
             return None
-        entry: dict[str, Any] = json.loads(path.read_text())
-        return entry
+        return cast(dict[str, Any], entry) if isinstance(entry, dict) else None
 
     def put(self, step: str, key: str, entry: dict[str, Any]) -> None:
+        """Write to a temporary file, then rename it into place, so an
+        interrupted write never leaves a half-written entry."""
         path = self._path(step, key)
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps(entry, indent=2, ensure_ascii=False))
+        fd, temp = tempfile.mkstemp(dir=path.parent, prefix=f".{key}.", suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as file:
+                json.dump(entry, file, indent=2, ensure_ascii=False)
+            os.replace(temp, path)
+        except BaseException:
+            Path(temp).unlink(missing_ok=True)
+            raise

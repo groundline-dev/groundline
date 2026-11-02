@@ -1,4 +1,5 @@
 import asyncio
+import json
 from pathlib import Path
 from typing import Any
 
@@ -116,3 +117,19 @@ def test_records_calls_and_usage():
 def test_a_stage_cannot_read_an_input_it_did_not_declare():
     with pytest.raises(StageError, match="didn't declare it in `uses`"):
         run({"step": "upper", "implementation": "upper.peeker"})
+
+
+def test_a_damaged_cache_file_is_rerun_and_rewritten(tmp_path: Path):
+    cache = FileCache(tmp_path)
+    run(UPPER, cache=cache)
+    (entry,) = (tmp_path / "upper").iterdir()
+    entry.write_text('{"output": {"te')  # cut off partway through
+    EXECUTED.clear()
+
+    second = run(UPPER, cache=cache)
+
+    assert statuses(second) == {"upper": "ran"}
+    assert EXECUTED == ["upper"]
+    assert json.loads(entry.read_text())["output"] == second.output(
+        "upper", Text
+    ).model_dump(mode="json")

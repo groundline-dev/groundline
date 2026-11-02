@@ -202,5 +202,5 @@ def _read_cache(
             CallRecord.model_validate({**c, "cached": True}) for c in entry["calls"]
         ]
     except (KeyError, TypeError, ValidationError):
-        return None  # an unreadable entry counts as a miss and is overwritten
+        return None  # the wrong shape counts as a miss, and is overwritten
     return output, calls
