@@ -111,11 +111,14 @@ def test_retries_once_with_the_parse_error_appended():
     assert len(result.calls) == 2
 
 
-def test_gives_up_after_one_retry():
+def test_gives_up_after_one_retry_without_showing_the_reply():
+    # A reply can quote the source, so its text stays out of error messages.
+    reply = '{"value": "the patient said x"}'
     with pytest.raises(StageError, match="unusable reply after 1 retry") as error:
-        run(FakeClient(['{"value": "x"}', '{"value": "y"}']))
+        run(FakeClient(['{"value": "x"}', reply]))
 
-    assert 'Reply began: \'{"value": "y"}\'' in str(error.value)
+    assert "patient" not in str(error.value)
+    assert f"the reply was {len(reply)} characters" in str(error.value)
 
 
 def test_a_stage_that_calls_a_model_needs_a_client():

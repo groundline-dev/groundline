@@ -39,9 +39,10 @@ class PromptImplementation(Implementation):
             try:
                 return parse(reply)
             except ParseError as second:
+                # Not the reply's text: it can quote the source or summary.
                 raise ReplyError(
-                    f"unusable reply after 1 retry: {second}. "
-                    f"Reply began: {reply[:200]!r}"
+                    f"unusable reply after 1 retry: {second} "
+                    f"(the reply was {len(reply):,} characters)"
                 ) from second
 
     async def _complete(self, ctx: StageContext, prompt: str) -> str:
