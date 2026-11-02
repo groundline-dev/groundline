@@ -2,48 +2,43 @@
 
 ## Setup
 
-This project uses [uv](https://docs.astral.sh/uv/getting-started/installation/). After cloning, create the virtualenv and install dependencies:
+This project uses [uv](https://docs.astral.sh/uv/getting-started/installation/). After cloning, create the virtualenv, install dependencies and enable the shared git hooks:
 
 ```sh
-uv sync
+make setup
 ```
 
-Run `uv sync` again whenever `uv.lock` changes after a pull. Use `uv run <command>` to run things inside the environment without activating it.
+`make` targets sync automatically; run `uv sync` after a pull if your editor shows missing imports. Use `uv run <command>` to run anything else inside the environment without activating it.
 
 ## Development
 
 Start the API with auto-reload at http://127.0.0.1:8000 (interactive docs at `/docs`):
 
 ```sh
-uv run fastapi dev
+make dev
 ```
 
 Run the tests:
 
 ```sh
-uv run pytest
+make test
 ```
 
-Lint and format with [ruff](https://docs.astral.sh/ruff/):
+Run everything CI runs: [ruff](https://docs.astral.sh/ruff/), [pyright](https://microsoft.github.io/pyright/), the large-file check and the tests. This doesn't change any files:
 
 ```sh
-uv run ruff check
-uv run ruff format
+make check
 ```
 
-Type-check with [pyright](https://microsoft.github.io/pyright/):
+Apply ruff's lint fixes and formatting:
 
 ```sh
-uv run pyright
+make fix
 ```
 
 ## Contributing
 
-Enable the shared git hooks:
-
-```sh
-git config core.hooksPath .githooks
-```
+The `pre-commit` hook runs the checks in [.pre-commit-config.yaml](.pre-commit-config.yaml) on staged files. If ruff fails, run `make fix` and stage the result.
 
 Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/), e.g. `feat(parser): support nested groups`.
 
