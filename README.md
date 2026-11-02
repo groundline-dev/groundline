@@ -1,6 +1,6 @@
 # groundline
 
-groundline checks an AI-written summary against its source and reports which important facts the summary leaves out, how much each one matters, and whether the summary should be flagged. Its first domain is clinical notes checked against the consultation transcript.
+groundline checks an AI-written summary against its source and reports which important facts the summary leaves out, how much each one matters, and whether the summary should be flagged. Its first domain is clinical notes checked against the consultation transcript. A second check, for commissions (often called hallucinations): statements in the summary that the source doesn't support, is planned.
 
 **Status:** early development. It is research code, **not for clinical use**, and must not be used with real patient data yet (see [Caching and sensitive data](#caching-and-sensitive-data)).
 
