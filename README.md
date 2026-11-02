@@ -10,7 +10,36 @@ uv sync
 
 Run `uv sync` again whenever `uv.lock` changes after a pull. Use `uv run <command>` to run things inside the environment without activating it.
 
-Then enable the shared git hooks:
+## Development
+
+Start the API with auto-reload at http://127.0.0.1:8000 (interactive docs at `/docs`):
+
+```sh
+uv run fastapi dev
+```
+
+Run the tests:
+
+```sh
+uv run pytest
+```
+
+Lint and format with [ruff](https://docs.astral.sh/ruff/):
+
+```sh
+uv run ruff check
+uv run ruff format
+```
+
+Type-check with [pyright](https://microsoft.github.io/pyright/):
+
+```sh
+uv run pyright
+```
+
+## Contributing
+
+Enable the shared git hooks:
 
 ```sh
 git config core.hooksPath .githooks

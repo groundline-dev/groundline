@@ -10,8 +10,30 @@ authors = [
     { name = "Deborah (YY) Chang", email = "yydchang@gmail.com" },
 ]
 requires-python = ">=3.13"
-dependencies = []
+dependencies = [
+    "fastapi[standard]>=0.162.0",
+]
 
 [build-system]
 requires = ["uv_build>=0.12.13,<0.13.0"]
 build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pyright>=1.1.414",
+    "pytest>=9.2.0",
+    "ruff>=0.17.3",
+]
+
+[tool.ruff.lint]
+# pycodestyle errors and warnings, pyflakes, and import sorting.
+select = ["E", "W", "F", "I"]
+
+[tool.fastapi]
+entrypoint = "groundline.app:app"
+
+[tool.pyright]
+include = ["src", "tests"]
+venvPath = "."
+venv = ".venv"
+typeCheckingMode = "strict"
