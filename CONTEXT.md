@@ -35,7 +35,7 @@ A fact the summary leaves out or only partly records.
 _Avoid_: gap, miss
 
 **Commission**:
-A statement in the summary that the source doesn't support, whether it contradicts the source or isn't in it at all. A fact recorded wrongly, such as a wrong dose, is a commission, not an omission.
+A statement in the summary that the source doesn't support, whether it contradicts the source or isn't in it at all. A fact recorded wrongly, such as a wrong dose, is a commission; the omission check may also report the correct fact as partial or absent.
 _Avoid_: hallucination, inaccuracy, accuracy error
 
 **Severity**:
