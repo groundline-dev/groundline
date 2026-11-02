@@ -134,3 +134,13 @@ def test_fill_replaces_only_named_placeholders():
     template = 'Note: {note}\nReply like {"facts": [{"id": "f1"}]}'
 
     assert fill(template, note="N") == 'Note: N\nReply like {"facts": [{"id": "f1"}]}'
+
+
+def test_fill_inserts_values_exactly_as_written():
+    template = "<transcript>{transcript}</transcript>\n<facts>{facts}</facts>"
+
+    filled = fill(template, transcript="They typed {facts} and {note}.", facts="f1")
+
+    assert filled == (
+        "<transcript>They typed {facts} and {note}.</transcript>\n<facts>f1</facts>"
+    )
