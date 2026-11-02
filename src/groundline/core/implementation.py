@@ -10,28 +10,62 @@ described as a JSON schema for a future pipeline-builder UI, with no extra code.
 
 from abc import ABC, abstractmethod
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import ClassVar
 
 from pydantic import BaseModel, ConfigDict
 
-from groundline.core.inputs import Inputs
+from groundline.core.calls import CallRecord
+from groundline.core.inputs import InputName, Inputs
 
 
 @dataclass(frozen=True)
 class StageContext:
-    """What a stage can see while it runs: the inputs, and the outputs of the
-    steps it declared in `reads` (and only those)."""
+    """What a stage can see while it runs: the inputs it declared in `uses`, and
+    the outputs of the steps it declared in `reads` (and only those).
+
+    Undeclared access is an error because it would make caching unsafe: a
+    stage's cache key covers only what it declares.
+    """
 
     inputs: Inputs
     step: str
+    uses: tuple[InputName, ...]
     outputs: Mapping[str, BaseModel]
+    calls: list[CallRecord] = field(default_factory=list[CallRecord])
+
+    @property
+    def source(self) -> str:
+        return self._input("source")
+
+    @property
+    def summary(self) -> str:
+        return self._input("summary")
+
+    def _input(self, name: InputName) -> str:
+        if name not in self.uses:
+            raise LookupError(
+                f"stage '{self.step}' read the {name} but didn't declare it in `uses`"
+            )
+        return self.inputs.text(name)
+
+    def record_call(
+        self, *, model: str, input_tokens: int, output_tokens: int, seconds: float = 0
+    ) -> None:
+        """Record a model call this stage made, for cost reports and the cache."""
+        self.calls.append(
+            CallRecord(
+                step=self.step,
+                model=model,
+                input_tokens=input_tokens,
+                output_tokens=output_tokens,
+                seconds=seconds,
+            )
+        )
 
     def output[T: BaseModel](self, step: str, kind: type[T]) -> T:
         """The output of an earlier step, checked to be of the expected type."""
         if step not in self.outputs:
-            # Undeclared reads would make caching unsafe: a stage's cache key
-            # covers only the steps it declares.
             raise LookupError(
                 f"stage '{self.step}' read '{step}' but didn't declare it in `reads`"
             )
@@ -57,6 +91,8 @@ class Implementation(BaseModel, ABC):
     """Bump when behaviour changes, so cached outputs stop matching."""
     reads: ClassVar[tuple[str, ...]] = ()
     """Steps whose outputs this stage needs. They must come earlier in a pipeline."""
+    uses: ClassVar[tuple[InputName, ...]] = ()
+    """Inputs this stage reads: "source", "summary" or both."""
     can_disable: ClassVar[bool] = False
     """Whether a pipeline may switch this stage off (it then uses `passthrough`)."""
 

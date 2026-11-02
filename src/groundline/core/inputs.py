@@ -1,6 +1,11 @@
 """What every evaluation starts from: a source and a summary of it."""
 
+import hashlib
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict
+
+InputName = Literal["source", "summary"]
 
 
 class Inputs(BaseModel):
@@ -11,3 +16,10 @@ class Inputs(BaseModel):
 
     source: str
     summary: str
+
+    def text(self, name: InputName) -> str:
+        return self.source if name == "source" else self.summary
+
+    def sha256(self, name: InputName) -> str:
+        """Identifies an input in cache keys without storing its text there."""
+        return hashlib.sha256(self.text(name).encode()).hexdigest()

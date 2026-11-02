@@ -5,7 +5,10 @@ from typing import ClassVar
 
 from pydantic import BaseModel
 
-from groundline.core import Implementation, Registry, StageContext
+from groundline.core import Implementation, InputName, Registry, StageContext
+
+EXECUTED: list[str] = []
+"""Steps that actually ran (not cached), in order. Tests clear it first."""
 
 
 class Text(BaseModel):
@@ -17,9 +20,12 @@ class Upper(Implementation):
 
     name: ClassVar[str] = "upper.basic"
     step: ClassVar[str] = "upper"
+    uses: ClassVar[tuple[InputName, ...]] = ("source",)
 
     async def run(self, ctx: StageContext) -> Text:
-        return Text(value=ctx.inputs.source.upper())
+        EXECUTED.append(self.step)
+        ctx.record_call(model="fake-model", input_tokens=100, output_tokens=10)
+        return Text(value=ctx.source.upper())
 
 
 class Join(Implementation):
@@ -28,12 +34,14 @@ class Join(Implementation):
     name: ClassVar[str] = "join.basic"
     step: ClassVar[str] = "join"
     reads: ClassVar[tuple[str, ...]] = ("upper",)
+    uses: ClassVar[tuple[InputName, ...]] = ("summary",)
 
     sep: str = "+"
 
     async def run(self, ctx: StageContext) -> Text:
+        EXECUTED.append(self.step)
         upper = ctx.output("upper", Text)
-        return Text(value=f"{upper.value}{self.sep}{ctx.inputs.summary}")
+        return Text(value=f"{upper.value}{self.sep}{ctx.summary}")
 
 
 class Polish(Implementation):
@@ -45,6 +53,7 @@ class Polish(Implementation):
     can_disable: ClassVar[bool] = True
 
     async def run(self, ctx: StageContext) -> Text:
+        EXECUTED.append(self.step)
         return Text(value=ctx.output("join", Text).value + "!")
 
     def passthrough(self, ctx: StageContext) -> Text:
@@ -93,6 +102,16 @@ class Boom(Implementation):
         raise RuntimeError("model unavailable")
 
 
+class Peeker(Implementation):
+    """Step `upper`, reading the summary without declaring it."""
+
+    name: ClassVar[str] = "upper.peeker"
+    step: ClassVar[str] = "upper"
+
+    async def run(self, ctx: StageContext) -> Text:
+        return Text(value=ctx.summary)
+
+
 class Sneaky(Implementation):
     """Step `join`, reading `upper` without declaring it."""
 
@@ -121,6 +140,6 @@ def make_registry() -> Registry:
     registry = Registry()
     for step in ("upper", "join", "polish", "left", "right", "both"):
         registry.define_step(step, Text)
-    for impl in (Upper, Join, Polish, SlowLeft, SlowRight, Both, Boom, Sneaky):
+    for impl in (Upper, Join, Polish, SlowLeft, SlowRight, Both, Boom, Sneaky, Peeker):
         registry.register(impl)
     return registry
