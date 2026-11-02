@@ -11,9 +11,10 @@ domain (finance, say) needs a new profile folder but no code changes.
 """
 
 from pathlib import Path
+from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 
 class ProfileError(ValueError):
@@ -26,8 +27,16 @@ class Placeholders(BaseModel):
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    source: str = "source"
-    summary: str = "summary"
+    source: str = Field(
+        default="source",
+        description="The placeholder the prompts use for the source, without "
+        "braces: `transcript` means the prompts say {transcript}.",
+    )
+    summary: str = Field(
+        default="summary",
+        description="The placeholder the prompts use for the summary, without "
+        "braces: `note` means the prompts say {note}.",
+    )
 
 
 class DomainProfile(BaseModel):
@@ -43,12 +52,22 @@ class DomainProfile(BaseModel):
 class _ProfileFile(BaseModel):
     """The shape of `profile.yaml`: like a profile, but texts are file paths."""
 
-    model_config = ConfigDict(extra="forbid")
+    model_config = ConfigDict(extra="forbid", title="groundline domain profile")
 
-    name: str
-    description: str = ""
-    placeholders: Placeholders
-    texts: dict[str, str]
+    name: str = Field(description="The profile's name, such as `clinical`.")
+    description: str = Field(default="", description="What the profile is for.")
+    placeholders: Placeholders = Field(
+        description="The placeholders the prompts use for the source and summary."
+    )
+    texts: dict[str, str] = Field(
+        description="The prompts and rubrics the pipeline stages can use: a name "
+        "for each, and its file path relative to this folder."
+    )
+
+
+def profile_file_schema() -> dict[str, Any]:
+    """The JSON schema of `profile.yaml`, for editors to check profiles with."""
+    return _ProfileFile.model_json_schema()
 
 
 def load_profile(folder: str | Path) -> DomainProfile:

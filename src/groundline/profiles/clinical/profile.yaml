@@ -1,3 +1,4 @@
+# yaml-language-server: $schema=../profile.schema.json
 # The clinical domain profile: what matters in a clinical note.
 #
 # The source is a consultation transcript and the summary is the clinical note

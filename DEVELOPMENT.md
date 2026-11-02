@@ -34,6 +34,14 @@ uv run pytest -m live -s
 
 `tests/test_parity.py` replays a recorded run of the measured pipeline and checks that groundline sends byte-identical prompts and reaches identical results. If you change a prompt, the rubric or a step's logic, expect it to fail. That means the `omission_all_opus` preset no longer matches the measured results.
 
+## Profile schema
+
+Editors check `profile.yaml` files against [profile.schema.json](src/groundline/profiles/profile.schema.json), which each built-in profile names on its first line. The schema is generated from the profile model; after changing the model, regenerate it (a test fails until you do):
+
+```sh
+uv run python -m groundline.profiles.schema
+```
+
 ## Lint, format and type checks
 
 Lint and format with [ruff](https://docs.astral.sh/ruff/):
