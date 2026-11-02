@@ -4,7 +4,8 @@
 
 Exit codes: 0 = checked and not flagged, 1 = checked and flagged,
 2 = couldn't check (bad arguments or files, invalid pipeline or profile,
-missing or rejected API key, or a failed stage).
+missing or rejected API key, a failed stage, an unwritable --json path, or
+any unexpected error). Only a finished check that flags the summary exits with 1.
 """
 
 import json
@@ -122,34 +123,9 @@ def omissions(
 ) -> None:
     """Find the facts a summary leaves out, and whether to flag it."""
     try:
-        spec = load_spec(pipeline) if pipeline else load_preset(DEFAULT_PRESET)
-        missing = [
-            s for s in REQUIRED_STEPS if s not in {st.step for st in spec.stages}
-        ]
-        if missing:
-            raise ValueError(
-                f"pipeline '{spec.name}' needs 'score' and 'alarm' stages "
-                f"for the omissions report (missing: {', '.join(missing)})"
-            )
-        if threshold:
-            spec = with_settings(spec, "alarm", level=threshold)
-        domain = load_profile(profile) if profile else None
-
-        stage_cache = None
-        if cache:
-            stage_cache = FileCache(cache_dir())
-            typer.echo(CACHE_WARNING.format(path=stage_cache.root), err=True)
-
-        started = time.perf_counter()
-        result = evaluate_sync(
-            source.read_text(),
-            summary.read_text(),
-            spec=spec,
-            profile=domain,
-            cache=stage_cache,
-            client=make_client(),
+        code = _check_omissions(
+            source, summary, threshold, pipeline, profile, cache, json_path
         )
-        seconds = time.perf_counter() - started
     except (
         SetupError,
         SpecError,
@@ -159,13 +135,66 @@ def omissions(
         OSError,
     ) as error:
         typer.echo(f"error: {error}", err=True)
-        raise typer.Exit(EXIT_ERROR) from error
+        code = EXIT_ERROR
+    except Exception as error:
+        # Exit code 1 means "flagged", so nothing else may end with it, not even
+        # a bug. Python's own exit code for an uncaught error is 1.
+        typer.echo(
+            f"error: unexpected {type(error).__name__}: {error}\n"
+            "  This is a bug in groundline; please report it.",
+            err=True,
+        )
+        code = EXIT_ERROR
+    raise typer.Exit(code)
 
+
+def _check_omissions(
+    source: Path,
+    summary: Path,
+    threshold: str | None,
+    pipeline: Path | None,
+    profile: Path | None,
+    cache: bool,
+    json_path: Path | None,
+) -> int:
+    """Run the check, print the report, and return the exit code."""
+    spec = load_spec(pipeline) if pipeline else load_preset(DEFAULT_PRESET)
+    missing = [s for s in REQUIRED_STEPS if s not in {st.step for st in spec.stages}]
+    if missing:
+        raise ValueError(
+            f"pipeline '{spec.name}' needs 'score' and 'alarm' stages "
+            f"for the omissions report (missing: {', '.join(missing)})"
+        )
+    if threshold:
+        spec = with_settings(spec, "alarm", level=threshold)
+    domain = load_profile(profile) if profile else None
+
+    stage_cache = None
+    if cache:
+        stage_cache = FileCache(cache_dir())
+        typer.echo(CACHE_WARNING.format(path=stage_cache.root), err=True)
+
+    started = time.perf_counter()
+    result = evaluate_sync(
+        source.read_text(),
+        summary.read_text(),
+        spec=spec,
+        profile=domain,
+        cache=stage_cache,
+        client=make_client(),
+    )
+    seconds = time.perf_counter() - started
+
+    flagged = result.run.output("alarm", AlarmOutput).flagged
     typer.echo(
         render_report(result, source=source.name, summary=summary.name, seconds=seconds)
     )
     if json_path:
-        json_path.write_text(json.dumps(result_json(result), indent=2) + "\n")
-
-    flagged = result.run.output("alarm", AlarmOutput).flagged
-    raise typer.Exit(EXIT_FLAGGED if flagged else EXIT_NOT_FLAGGED)
+        try:
+            json_path.write_text(json.dumps(result_json(result), indent=2) + "\n")
+        except OSError as error:
+            raise OSError(
+                f"couldn't write the JSON result to {json_path}: "
+                f"{error.strerror or error}"
+            ) from error
+    return EXIT_FLAGGED if flagged else EXIT_NOT_FLAGGED

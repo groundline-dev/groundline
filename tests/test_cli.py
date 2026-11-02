@@ -228,3 +228,31 @@ def test_help_lists_the_omissions_command():
 
     assert result.exit_code == 0
     assert "omissions" in result.stdout
+
+
+def test_an_unwritable_json_path_exits_with_2_not_1(
+    files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+):
+    use_client(monkeypatch, Script(**NOT_FLAGGED.replies))
+    out_path = files[0].parent / "no-such-folder" / "result.json"
+
+    result = omissions(files, "--json", str(out_path))
+
+    assert result.exit_code == 2
+    assert result.stderr.startswith("error: couldn't write the JSON result")
+    assert "Traceback" not in result.output
+
+
+def test_an_unexpected_error_exits_with_2_not_1(
+    files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+):
+    def broken(*args: object, **kwargs: object) -> None:
+        raise KeyError("a bug")
+
+    monkeypatch.setattr(cli, "evaluate_sync", broken)
+
+    result = omissions(files)
+
+    assert result.exit_code == 2
+    assert result.stderr.startswith("error: unexpected KeyError: 'a bug'")
+    assert "Traceback" not in result.output
