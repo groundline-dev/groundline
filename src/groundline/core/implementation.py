@@ -19,12 +19,15 @@ from pydantic import BaseModel, ConfigDict
 from groundline.core.calls import CallRecord
 from groundline.core.inputs import InputName, Inputs
 from groundline.core.model_client import Effort, ModelClient
+from groundline.core.profile import Placeholders
+from groundline.core.templates import fill
 
 
 @dataclass(frozen=True)
 class StageContext:
-    """What a stage can see while it runs: the inputs it declared in `uses`, and
-    the outputs of the steps it declared in `reads` (and only those).
+    """What a stage can see while it runs: the inputs it declared in `uses`, the
+    outputs of the steps it declared in `reads`, and the profile texts it named
+    in `profile_texts` (and only those).
 
     Undeclared access is an error because it would make caching unsafe: a
     stage's cache key covers only what it declares.
@@ -34,8 +37,29 @@ class StageContext:
     step: str
     uses: tuple[InputName, ...]
     outputs: Mapping[str, BaseModel]
+    texts: Mapping[str, str] = field(default_factory=dict[str, str])
+    placeholders: Placeholders = Placeholders()
     client: ModelClient | None = None
     calls: list[CallRecord] = field(default_factory=list[CallRecord])
+
+    def text(self, name: str) -> str:
+        """A text from the domain profile, such as a prompt or rubric."""
+        if name not in self.texts:
+            raise LookupError(
+                f"stage '{self.step}' used text '{name}' "
+                "but didn't declare it in `profile_texts`"
+            )
+        return self.texts[name]
+
+    def fill(self, template: str, **values: str) -> str:
+        """Fill a profile template: the inputs this stage uses go into the
+        profile's placeholders for them (e.g. the source into `{transcript}`),
+        then any other `values` by name."""
+        inputs = {
+            getattr(self.placeholders, name): self.inputs.text(name)
+            for name in self.uses
+        }
+        return fill(template, **inputs, **values)
 
     @property
     def source(self) -> str:
@@ -119,6 +143,12 @@ class Implementation(BaseModel, ABC):
     """Inputs this stage reads: "source", "summary" or both."""
     can_disable: ClassVar[bool] = False
     """Whether a pipeline may switch this stage off (it then uses `passthrough`)."""
+
+    def profile_texts(self) -> tuple[str, ...]:
+        """Names of the domain-profile texts this stage uses, usually chosen by
+        its settings (e.g. `prompt: extract_coarse_v1`). A pipeline is checked
+        for them before it runs, and their contents are part of the cache key."""
+        return ()
 
     @abstractmethod
     async def run(self, ctx: StageContext) -> BaseModel:

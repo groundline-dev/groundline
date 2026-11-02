@@ -12,12 +12,13 @@ from groundline.core.model_client import (
     ModelReply,
 )
 from groundline.core.parsing import ParseError, evidence_in, parse_json_object, words
-from groundline.core.prompt_stage import (
-    RETRY_NOTE,
-    PromptImplementation,
-    ReplyError,
-    fill,
+from groundline.core.profile import (
+    DomainProfile,
+    Placeholders,
+    ProfileError,
+    load_profile,
 )
+from groundline.core.prompt_stage import RETRY_NOTE, PromptImplementation, ReplyError
 from groundline.core.registry import Registry
 from groundline.core.runner import RunResult, StageError, StageRun, run_pipeline
 from groundline.core.spec import (
@@ -28,12 +29,14 @@ from groundline.core.spec import (
     StageSpec,
     build_pipeline,
 )
+from groundline.core.templates import fill
 
 __all__ = [
     "PRICES",
     "RETRY_NOTE",
     "Cache",
     "CallRecord",
+    "DomainProfile",
     "Effort",
     "FileCache",
     "Implementation",
@@ -47,7 +50,9 @@ __all__ = [
     "Pipeline",
     "PipelineSpec",
     "PipelineStage",
+    "Placeholders",
     "Price",
+    "ProfileError",
     "PromptImplementation",
     "Registry",
     "ReplyError",
@@ -61,6 +66,7 @@ __all__ = [
     "build_pipeline",
     "evidence_in",
     "fill",
+    "load_profile",
     "parse_json_object",
     "run_pipeline",
     "stable_hash",

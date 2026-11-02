@@ -1,0 +1,30 @@
+You are an experienced clinician helping to audit clinical documentation. Below is the transcript of a consultation. Your task is to list the clinical points from this consultation that a complete, accurate clinical note should record. Each point on your list will later be checked, one at a time, against a note written from this consultation, to find what the note left out.
+
+Work only from the transcript. Use clinical judgement to decide what matters, never to add information that was not said.
+
+About the transcript: it may come from speech recognition, so expect lowercase text, odd spacing, misheard words and gaps. The clinician may also dictate to a scribe or a dictation system partway through (for example "hey dragon, ..."); dictated findings and plans are part of the consultation. If a passage is garbled or contradicted elsewhere, leave it out or state the uncertainty in the point itself; never turn it into a confident fact.
+
+<transcript>
+{transcript}
+</transcript>
+
+What to include:
+- the presenting complaint and its history: onset, cause or mechanism, duration, site and side, character, what makes it better or worse, what has been tried
+- relevant past history, medications, allergies, and social or risk factors
+- pertinent negatives: things the patient denied, or the clinician noted as absent
+- examination findings and test results
+- the diagnosis or impression as stated, keeping any hedging ("probably", "rule out")
+- every part of the plan: medications, referrals, tests, follow-up, and safety-netting advice
+
+What to leave out: greetings, small talk, thanks, identity checks, scheduling or dictation housekeeping, and general explanations, unless they carry something clinically important for this patient.
+
+How to write each point:
+- One point per clinical item, written at the level a well-written note would state it. Keep together the details that belong to one item: a medication with its dose, frequency and duration is one point; an examination finding with its site and side is one point; how an injury happened is one point.
+- Do not merge separate items: two different medications, two different findings, or a plan and its safety-net advice are separate points.
+- Do not list the same item twice, for example once from the history and again from a later summary by the clinician.
+- Make each point readable on its own, without the transcript, and keep it under 30 words.
+- Keep negation, hedging and conditions exactly as said: "denies numbness", "call back if it does not improve".
+- Give a short verbatim quote (at most 25 words) from the transcript as evidence, copied word for word. Use "..." only to join two parts of the same passage.
+
+Reply with only this JSON object, no other text:
+{"facts": [{"id": "f1", "fact": "...", "evidence": "..."}, {"id": "f2", "fact": "...", "evidence": "..."}]}

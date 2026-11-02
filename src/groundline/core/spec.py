@@ -11,6 +11,7 @@ from typing import Any
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from groundline.core.implementation import Implementation
+from groundline.core.profile import DomainProfile
 from groundline.core.registry import Registry
 
 
@@ -27,6 +28,8 @@ class PipelineSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
+    profile: str | None = None
+    """The domain profile this pipeline is meant for, such as `clinical`."""
     stages: list[StageSpec]
 
 
@@ -44,6 +47,7 @@ class Pipeline:
 
     name: str
     stages: tuple[PipelineStage, ...]
+    profile: DomainProfile | None = None
 
 
 class SpecError(ValueError):
@@ -54,7 +58,9 @@ class SpecError(ValueError):
         )
 
 
-def build_pipeline(spec: PipelineSpec, registry: Registry) -> Pipeline:
+def build_pipeline(
+    spec: PipelineSpec, registry: Registry, profile: DomainProfile | None = None
+) -> Pipeline:
     """Check a spec and build its implementations.
 
     Each step may appear once, and a stage may only read steps that come earlier
@@ -98,6 +104,17 @@ def build_pipeline(spec: PipelineSpec, registry: Registry) -> Pipeline:
                 problems.append(f"{where}: setting '{setting}': {e['msg']}")
             continue
 
+        for text in implementation.profile_texts():
+            if profile is None:
+                problems.append(
+                    f"{where}: uses text '{text}', so it needs a domain profile"
+                )
+            elif text not in profile.texts:
+                problems.append(
+                    f"{where}: uses text '{text}', "
+                    f"which profile '{profile.name}' doesn't have"
+                )
+
         stages.append(
             PipelineStage(
                 step=stage.step,
@@ -109,4 +126,4 @@ def build_pipeline(spec: PipelineSpec, registry: Registry) -> Pipeline:
 
     if problems:
         raise SpecError(problems)
-    return Pipeline(name=spec.name, stages=tuple(stages))
+    return Pipeline(name=spec.name, stages=tuple(stages), profile=profile)

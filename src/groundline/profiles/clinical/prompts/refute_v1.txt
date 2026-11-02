@@ -1,0 +1,21 @@
+You are an experienced clinician double-checking an audit of a clinical note. A first reviewer judged that the note leaves out, or only partly records, each fact listed below. Check each judgement against the note yourself.
+
+<note>
+{note}
+</note>
+
+<flagged_facts>
+{flagged_facts}
+</flagged_facts>
+
+For each fact, read the whole note, including sections where you would not expect it, and decide:
+- "full": the note records the fact and everything clinically important about it, possibly paraphrased or in another section.
+- "partial": the note records part of the fact but loses something that matters, such as a dose, frequency, duration, side, timing or condition.
+- "no": the note does not record the fact, or says something different.
+
+The first reviewer may be right. Do not stretch a loosely related sentence to cover a fact: a different instruction, finding or time frame is not the same fact.
+
+For "full" or "partial", give as "quote" the passage of the note that records the fact, copied word for word. For "no", set "quote" to null. Answer every fact id exactly once.
+
+Reply with only this JSON object, no other text:
+{"facts": [{"id": "f2", "found": "full", "quote": "..."}, {"id": "f5", "found": "no", "quote": null}]}

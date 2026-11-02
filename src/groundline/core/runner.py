@@ -24,6 +24,7 @@ from groundline.core.calls import CallRecord, Usage, summarize_usage
 from groundline.core.implementation import StageContext
 from groundline.core.inputs import Inputs
 from groundline.core.model_client import ModelClient
+from groundline.core.profile import Placeholders
 from groundline.core.spec import Pipeline, PipelineStage
 
 
@@ -86,6 +87,10 @@ async def run_pipeline(
             step=stage.step,
             uses=impl.uses,
             outputs={needed: outputs[needed] for needed in impl.reads},
+            texts=_texts(pipeline, stage),
+            placeholders=pipeline.profile.placeholders
+            if pipeline.profile
+            else Placeholders(),
             client=client,
         )
         upstream = {needed: keys[needed] for needed in impl.reads}
@@ -100,7 +105,7 @@ async def run_pipeline(
                 output = _checked(stage, impl.passthrough(ctx))
                 stage_calls, status = [], "disabled"
             else:
-                key = keys[stage.step] = _cache_key(stage, inputs, upstream)
+                key = keys[stage.step] = _cache_key(pipeline, stage, inputs, upstream)
                 hit = _read_cache(cache, stage, key) if cache else None
                 if hit is not None:
                     output, stage_calls = hit
@@ -156,17 +161,32 @@ def _checked(stage: PipelineStage, output: BaseModel) -> BaseModel:
     return output
 
 
-def _cache_key(stage: PipelineStage, inputs: Inputs, upstream: dict[str, str]) -> str:
+def _texts(pipeline: Pipeline, stage: PipelineStage) -> dict[str, str]:
+    """The profile texts a stage declared (validation checked they exist)."""
+    names = stage.implementation.profile_texts()
+    if not names or pipeline.profile is None:
+        return {}
+    return {name: pipeline.profile.texts[name] for name in names}
+
+
+def _cache_key(
+    pipeline: Pipeline, stage: PipelineStage, inputs: Inputs, upstream: dict[str, str]
+) -> str:
     impl = stage.implementation
-    return stable_hash(
-        {
-            "implementation": impl.name,
-            "version": impl.version,
-            "settings": impl.model_dump(mode="json"),
-            "inputs": {name: inputs.sha256(name) for name in impl.uses},
-            "upstream": upstream,
-        }
-    )
+    texts = _texts(pipeline, stage)
+    key: dict[str, object] = {
+        "implementation": impl.name,
+        "version": impl.version,
+        "settings": impl.model_dump(mode="json"),
+        "inputs": {name: inputs.sha256(name) for name in impl.uses},
+        "upstream": upstream,
+    }
+    if texts and pipeline.profile:
+        # The full text, so editing a prompt or rubric re-runs the stages using
+        # it; and the placeholder names, which decide how the text is filled.
+        key["texts"] = texts
+        key["placeholders"] = pipeline.profile.placeholders.model_dump()
+    return stable_hash(key)
 
 
 def _read_cache(
