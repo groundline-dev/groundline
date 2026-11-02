@@ -60,7 +60,7 @@ Cost             $0.29 · 4 calls · 31,620 input / 8,140 output tokens · 48.3 
 **Exit codes:**
 - **0:** checked, not flagged.
 - **1:** checked and flagged.
-- **2:** couldn't check: bad arguments or files, an invalid pipeline or profile, a missing or rejected API key, or a failed stage. The command prints a one-line `error:` message.
+- **2:** couldn't check: bad arguments or files, an invalid pipeline or profile, a missing or rejected API key, a failed stage, an unwritable `--json` path, or an unexpected error. The command prints a one-line `error:` message, and if a stage failed after making model calls, what those calls cost.
 
 **Options:**
 
