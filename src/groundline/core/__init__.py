@@ -11,7 +11,14 @@ from groundline.core.model_client import (
     ModelRefusal,
     ModelReply,
 )
-from groundline.core.parsing import ParseError, evidence_in, parse_json_object, words
+from groundline.core.parsing import (
+    ParseError,
+    as_object,
+    evidence_in,
+    get_list,
+    parse_json_object,
+    words,
+)
 from groundline.core.profile import (
     DomainProfile,
     Placeholders,
@@ -63,9 +70,11 @@ __all__ = [
     "StageRun",
     "StageSpec",
     "Usage",
+    "as_object",
     "build_pipeline",
     "evidence_in",
     "fill",
+    "get_list",
     "load_profile",
     "parse_json_object",
     "run_pipeline",

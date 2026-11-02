@@ -100,8 +100,14 @@ def build_pipeline(
             implementation = impl_type.model_validate(stage.settings)
         except ValidationError as error:
             for e in error.errors():
+                # A check across several settings has no single setting to name.
                 setting = ".".join(str(part) for part in e["loc"])
-                problems.append(f"{where}: setting '{setting}': {e['msg']}")
+                message = e["msg"].removeprefix("Value error, ")
+                problems.append(
+                    f"{where}: setting '{setting}': {message}"
+                    if setting
+                    else f"{where}: settings: {message}"
+                )
             continue
 
         for text in implementation.profile_texts():

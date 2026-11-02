@@ -35,6 +35,17 @@ def parse_json_object(text: str) -> dict[str, Any]:
     )
 
 
+def get_list(obj: dict[str, Any], key: str) -> list[Any] | None:
+    """`obj[key]` if it's a JSON array, else None."""
+    value = obj.get(key)
+    return cast(list[Any], value) if isinstance(value, list) else None
+
+
+def as_object(value: Any) -> dict[str, Any] | None:
+    """`value` if it's a JSON object, else None."""
+    return cast(dict[str, Any], value) if isinstance(value, dict) else None
+
+
 def words(text: str) -> list[str]:
     """Lower-cased alphanumeric words; punctuation and spacing ignored."""
     return re.findall(r"[a-z0-9]+", text.lower())
