@@ -143,6 +143,13 @@ class Implementation(BaseModel, ABC):
     """Inputs this stage reads: "source", "summary" or both."""
     can_disable: ClassVar[bool] = False
     """Whether a pipeline may switch this stage off (it then uses `passthrough`)."""
+    selectable_settings: ClassVar[tuple[str, ...]] = ()
+    """Settings a user may change per run without departing from a validated
+    configuration, such as which pre-registered alarm threshold to use."""
+    calibrated_settings: ClassVar[tuple[str, ...]] = ()
+    """Settings calibrated for one whole pipeline, such as alarm thresholds.
+    Reusing them in a pipeline that differs from the one they were calibrated
+    on produces a warning."""
 
     def profile_texts(self) -> tuple[str, ...]:
         """Names of the domain-profile texts this stage uses, usually chosen by

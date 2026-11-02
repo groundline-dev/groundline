@@ -1,0 +1,48 @@
+# The all-Opus omission check, with the clinical profile.
+#
+# This is the configuration omission-pipeline measured, so its results only hold
+# while every setting here, and the clinical profile's prompts and rubric, stay
+# unchanged. Choosing the moderate alarm level instead of strict is fine: both
+# thresholds were fixed in advance on 60 calibration notes.
+#
+# Measured on 50 held-out OmissionBench notes, thresholds fixed beforehand:
+#   strict (0.90): 16/50 omissions caught, 1/50 clean notes flagged, ~$0.28 per note.
+#
+# Every setting is written out, so the preset doesn't change if a default does.
+
+name: omission_all_opus
+profile: clinical
+description: >-
+  All-Opus omission check (extract, rank, batched check, refute, score, alarm).
+  Measured on 50 held-out OmissionBench notes at the strict level: 16/50
+  omissions caught, 1/50 clean notes flagged, about $0.28 per note.
+
+stages:
+  - step: extract
+    implementation: extract.llm
+    settings: {model: claude-opus-5-5, effort: high, max_tokens: 16000, prompt: extract_coarse_v1}
+
+  - step: rank
+    implementation: rank.llm
+    settings:
+      {model: claude-opus-5-5, effort: high, max_tokens: 16000, prompt: rank_v1, rubric: severity_v1}
+
+  - step: check
+    implementation: check.llm_batch
+    settings: {model: claude-opus-5-5, effort: medium, max_tokens: 16000, prompt: check_batch_v1}
+
+  - step: refute
+    implementation: refute.llm
+    settings: {model: claude-opus-5-5, effort: high, max_tokens: 16000, prompt: refute_v1}
+
+  - step: score
+    implementation: score.basic
+    settings:
+      weighted: true
+      weights: {critical: 3, supporting: 2, peripheral: 1}
+
+  - step: alarm
+    implementation: alarm.critical_max
+    settings:
+      thresholds: {strict: 0.90, moderate: 0.425}
+      level: strict

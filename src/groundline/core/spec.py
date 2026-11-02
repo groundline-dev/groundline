@@ -6,10 +6,13 @@ problem at once, so a UI can show them all together.
 """
 
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
+import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from groundline.core.cache import stable_hash
 from groundline.core.implementation import Implementation
 from groundline.core.profile import DomainProfile
 from groundline.core.registry import Registry
@@ -28,9 +31,33 @@ class PipelineSpec(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     name: str
+    description: str = ""
     profile: str | None = None
     """The domain profile this pipeline is meant for, such as `clinical`."""
     stages: list[StageSpec]
+
+
+def load_spec(path: str | Path) -> PipelineSpec:
+    """Load a spec from a YAML or JSON file (JSON is valid YAML)."""
+    path = Path(path)
+    try:
+        return PipelineSpec.model_validate(yaml.safe_load(path.read_text()))
+    except (OSError, yaml.YAMLError, ValidationError) as error:
+        raise ValueError(f"{path}: {error}") from error
+
+
+def with_settings(spec: PipelineSpec, step: str, **settings: Any) -> PipelineSpec:
+    """A copy of `spec` with some of one stage's settings changed, e.g.
+    `with_settings(spec, "alarm", level="moderate")`."""
+    if not any(s.step == step for s in spec.stages):
+        raise ValueError(f"pipeline '{spec.name}' has no '{step}' stage")
+    stages = [
+        s.model_copy(update={"settings": {**s.settings, **settings}})
+        if s.step == step
+        else s
+        for s in spec.stages
+    ]
+    return spec.model_copy(update={"stages": stages})
 
 
 @dataclass(frozen=True)
@@ -133,3 +160,45 @@ def build_pipeline(
     if problems:
         raise SpecError(problems)
     return Pipeline(name=spec.name, stages=tuple(stages), profile=profile)
+
+
+def pipeline_fingerprint(pipeline: Pipeline) -> str:
+    """Identifies what a pipeline does, so two pipelines can be compared.
+
+    Covers each stage's implementation, version, on/off state and settings
+    (except selectable ones, such as which alarm level to use), plus the profile
+    texts the stages use and the profile's placeholders. Names aren't included:
+    a renamed copy that does the same thing has the same fingerprint.
+    """
+    stages: list[dict[str, Any]] = []
+    used_texts: set[str] = set()
+    for stage in pipeline.stages:
+        impl = stage.implementation
+        settings = {
+            name: value
+            for name, value in impl.model_dump(mode="json").items()
+            if name not in impl.selectable_settings
+        }
+        stages.append(
+            {
+                "step": stage.step,
+                "implementation": impl.name,
+                "version": impl.version,
+                "enabled": stage.enabled,
+                "settings": settings,
+            }
+        )
+        used_texts.update(impl.profile_texts())
+
+    profile = pipeline.profile
+    return stable_hash(
+        {
+            "stages": stages,
+            "profile": None
+            if profile is None
+            else {
+                "placeholders": profile.placeholders.model_dump(),
+                "texts": {name: profile.texts[name] for name in sorted(used_texts)},
+            },
+        }
+    )

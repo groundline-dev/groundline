@@ -29,6 +29,8 @@ class AlarmCriticalMax(Implementation):
     name: ClassVar[str] = "alarm.critical_max"
     step: ClassVar[str] = "alarm"
     reads: ClassVar[tuple[str, ...]] = ("rank", "refute")
+    selectable_settings: ClassVar[tuple[str, ...]] = ("level",)
+    calibrated_settings: ClassVar[tuple[str, ...]] = ("thresholds",)
 
     thresholds: dict[str, float] = {"strict": 0.90, "moderate": 0.425}
     level: str = "strict"

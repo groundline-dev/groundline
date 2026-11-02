@@ -35,6 +35,9 @@ from groundline.core.spec import (
     SpecError,
     StageSpec,
     build_pipeline,
+    load_spec,
+    pipeline_fingerprint,
+    with_settings,
 )
 from groundline.core.templates import fill
 
@@ -76,9 +79,12 @@ __all__ = [
     "fill",
     "get_list",
     "load_profile",
+    "load_spec",
     "parse_json_object",
+    "pipeline_fingerprint",
     "run_pipeline",
     "stable_hash",
     "summarize_usage",
+    "with_settings",
     "words",
 ]
