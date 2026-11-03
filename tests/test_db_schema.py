@@ -5,6 +5,7 @@ PostgreSQL 18 running locally, and an OS user that's a Postgres superuser, as
 DEVELOPMENT.md describes. Each run uses a throwaway role and database.
 """
 
+import getpass
 import uuid
 from collections.abc import Iterator
 from datetime import UTC, datetime
@@ -16,7 +17,12 @@ from sqlalchemy import Engine, create_engine, insert, select
 from sqlalchemy.exc import IntegrityError
 
 from groundline.db import api_keys, metadata
-from groundline.db.setup import drop_database, migrate, setup_database
+from groundline.db.setup import (
+    DatabaseSetupError,
+    drop_database,
+    migrate,
+    setup_database,
+)
 
 pytestmark = pytest.mark.db
 
@@ -50,6 +56,14 @@ def add_key(engine: Engine, **values: object) -> dict[str, object]:
 
 def test_setup_is_safe_to_rerun(url: str):
     setup_database(url)
+
+
+def test_setup_refuses_a_superuser_role():
+    # Your OS user is a superuser on a developer machine, as DEVELOPMENT.md sets up.
+    me = getpass.getuser()
+
+    with pytest.raises(DatabaseSetupError, match="superuser"):
+        setup_database(f"postgresql+psycopg://{me}:new-password@localhost/{me}_x")
 
 
 def test_the_migrations_match_the_table_definition(engine: Engine):

@@ -1,0 +1,40 @@
+"""The setup script's checks that need no database."""
+
+import pytest
+from sqlalchemy import make_url
+
+from groundline.db.setup import (
+    DatabaseSetupError,
+    admin_env,
+    psql_major,
+    setup_database,
+)
+
+
+def test_the_example_password_is_refused():
+    with pytest.raises(DatabaseSetupError, match="CHANGE_ME"):
+        setup_database("postgresql+psycopg://groundline:CHANGE_ME@localhost/groundline")
+
+
+@pytest.mark.parametrize(
+    "output,major",
+    [
+        ("psql (PostgreSQL) 18.3 (Homebrew)\n", 18),
+        ("psql (PostgreSQL) 14.11 (Ubuntu 14.11-0ubuntu0.22.04.1)\n", 14),
+        ("something else\n", None),
+    ],
+)
+def test_reads_the_psql_version(output: str, major: int | None):
+    assert psql_major(output) == major
+
+
+def test_libpq_settings_in_the_shell_are_ignored(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setenv("PGHOST", "db.example.com")
+    monkeypatch.setenv("PGPORT", "6543")
+    monkeypatch.setenv("PGUSER", "someone")
+    url = make_url("postgresql+psycopg://gl:pw@localhost:5432/gl")
+
+    env = admin_env(url)
+
+    assert not any(name.startswith("PG") for name in env)
+    assert env["GROUNDLINE_DB_ROLE"] == "gl"

@@ -7,6 +7,7 @@ a Postgres superuser (true by default for Homebrew; see DEVELOPMENT.md for Linux
 """
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -20,6 +21,13 @@ from groundline.core.errors import SetupError
 from groundline.settings import Settings
 
 LOCAL_HOSTS = {None, "localhost", "127.0.0.1", "::1"}
+EXAMPLE_PASSWORD = "CHANGE_ME"
+MIN_PSQL = 15  # for \getenv
+
+IS_SUPERUSER = r"""
+\getenv role GROUNDLINE_DB_ROLE
+SELECT rolsuper FROM pg_roles WHERE rolname = :'role'
+"""
 
 CREATE = r"""
 \getenv role GROUNDLINE_DB_ROLE
@@ -46,6 +54,13 @@ class DatabaseSetupError(SetupError):
 
 def setup_database(raw: str) -> None:
     url = _local_url(raw)
+    if _run_admin_sql(IS_SUPERUSER, url).strip() == "t":
+        # Setting its password would change a superuser's login, and the API
+        # would then run with every privilege.
+        raise DatabaseSetupError(
+            f"{url.username} is a Postgres superuser; DATABASE_URL needs a role of "
+            "its own,\n  such as groundline, which db-setup creates"
+        )
     _run_admin_sql(CREATE, url)
     migrate(raw, "head")
 
@@ -79,30 +94,65 @@ def _local_url(raw: str) -> URL:
             "DATABASE_URL needs a user, a password and a database name, such as\n"
             "  postgresql+psycopg://groundline:PASSWORD@localhost:5432/groundline"
         )
+    if url.password == EXAMPLE_PASSWORD:
+        raise DatabaseSetupError(
+            f"DATABASE_URL still has the example password, {EXAMPLE_PASSWORD}; "
+            "choose your own in .env"
+        )
     return url
 
 
-def _run_admin_sql(script: str, url: URL) -> None:
-    psql = shutil.which("psql")
-    if psql is None:
-        raise DatabaseSetupError(
-            "psql not found: install PostgreSQL 18 (see DEVELOPMENT.md)"
-        )
+def psql_major(version: str) -> int | None:
+    """The major version in `psql --version` output, such as 18."""
+    match = re.search(r"\(PostgreSQL\) (\d+)", version)
+    return int(match.group(1)) if match else None
+
+
+def admin_env(url: URL) -> dict[str, str]:
+    """psql's environment: the values the setup SQL reads, and no PG* settings
+    from the shell, which could point psql at another server or user."""
     env = {
-        **os.environ,
+        name: value for name, value in os.environ.items() if not name.startswith("PG")
+    }
+    return env | {
         "GROUNDLINE_DB_ROLE": str(url.username),
         "GROUNDLINE_DB_PASSWORD": str(url.password),
         "GROUNDLINE_DB_NAME": str(url.database),
     }
-    # No host: connect through the local socket, as the current OS user.
-    args = [psql, "--no-psqlrc", "--quiet", "--set=ON_ERROR_STOP=1"]
+
+
+def _psql() -> str:
+    psql = shutil.which("psql")
+    if psql is None:
+        raise DatabaseSetupError(
+            "psql not found: install PostgreSQL 18, and on macOS link it "
+            "(see DEVELOPMENT.md)"
+        )
+    output = subprocess.run([psql, "--version"], capture_output=True, text=True).stdout
+    major = psql_major(output)
+    if major is None or major < MIN_PSQL:
+        raise DatabaseSetupError(
+            f"{psql} is {output.strip() or 'an unknown version'}; db-setup needs "
+            f"psql {MIN_PSQL} or later. Install PostgreSQL 18 and put its psql "
+            "first on your PATH (see DEVELOPMENT.md)"
+        )
+    return psql
+
+
+def _run_admin_sql(script: str, url: URL) -> str:
+    """Run `script` through the local socket as the current OS user; its output."""
+    args = [_psql(), "--no-psqlrc", "--quiet", "--tuples-only", "--no-align"]
+    args.append("--set=ON_ERROR_STOP=1")
     args.append("--dbname=postgres")
     if url.port:
         args.append(f"--port={url.port}")
-    result = subprocess.run(args, input=script, env=env, capture_output=True, text=True)
+    result = subprocess.run(
+        args, input=script, env=admin_env(url), capture_output=True, text=True
+    )
     if result.returncode != 0:
         detail = result.stderr.strip().replace(str(url.password), "***")
         raise DatabaseSetupError(f"psql failed:\n  {detail}")
+    return result.stdout
 
 
 def main() -> None:
