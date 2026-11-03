@@ -27,6 +27,7 @@ Install and start PostgreSQL 18:
 ```sh
 # macOS
 brew install postgresql@18
+brew link postgresql@18   # Homebrew doesn't put versioned Postgres on the PATH by itself
 brew services start postgresql@18
 
 # Ubuntu/Debian (with the PostgreSQL apt repository: https://www.postgresql.org/download/linux/)
@@ -40,7 +41,7 @@ Then set `DATABASE_URL` in `.env` (copy the line from `.env.example` and choose 
 scripts/db-setup
 ```
 
-It creates the role and database the URL names, sets the role's password to the one in the URL, and applies the migrations. It's safe to rerun, and rerunning it is how you apply new migrations after a pull. It only works on a database on this machine.
+It creates the role and database the URL names, sets the role's password to the one in the URL, and applies the migrations. It's safe to rerun, and rerunning it is how you apply new migrations after a pull. It only works on a database on this machine, and it refuses a superuser role or the example password. It needs psql 15 or later: if another Postgres is linked (`psql --version`), unlink it first.
 
 When the API starts, it checks the connection. If it can't connect, it logs an error under `groundline.db`, saying where and why but never the password, and keeps running.
 
