@@ -63,7 +63,7 @@ How sure the check is that a fact is missing from the summary, from 0 to 1.
 _Avoid_: p_missing, probability, score
 
 **Refute**:
-A second look at facts judged partial or absent, which can only clear them, and only with a quote verified in the summary.
+A second look at facts judged partial or absent, or at claims judged unsupported or contradicted, which can only clear them, and only with a quote verified in the text that would back them up: the summary for a fact, the source for a claim.
 _Avoid_: verify, re-check, appeal
 
 **Alarm score**:
