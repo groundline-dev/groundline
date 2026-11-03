@@ -7,12 +7,16 @@
 
 ## Domain language and decisions
 
+Before changing the design, read `CONTEXT.md` and `docs/adr/`, and raise it before going against a recorded decision.
+
+The rules below apply only when discussing or changing the design. In other work (bug fixes, reviews, refactors), don't edit `CONTEXT.md` or `docs/adr/` and don't stop to ask about wording; mention a suggested addition at the end instead.
+
 ### Glossary (`CONTEXT.md`, repo root)
-- When a domain term is resolved in conversation, add it to `CONTEXT.md` immediately; don't batch.
+- When a domain term is resolved in a design discussion, add it to `CONTEXT.md` immediately; don't batch.
 - Only project-specific domain terms. No general programming concepts.
-- Format: `**Term**:` then a 1-2 sentence definition of what it is, then `_Avoid_: synonym, synonym`. Pick one word per concept.
+- Format: `**Term**:` then a 1-2 sentence definition of what it is, then `_Avoid_: synonym, synonym`, optionally followed by a bracketed reason. Pick one word per concept.
 - No implementation details or specs in `CONTEXT.md`.
-- If a user's wording conflicts with the glossary or is vague, flag it and ask which term they mean.
+- In a design discussion, if a user's wording conflicts with the glossary or is vague, flag it and ask which term they mean.
 
 ### Decisions (`docs/adr/`)
 - Offer to write an ADR only when the decision is (1) hard to reverse, (2) surprising without context, and (3) a real trade-off between alternatives. Otherwise skip it.
