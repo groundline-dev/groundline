@@ -14,10 +14,9 @@ from importlib.resources import files
 
 from alembic import command
 from alembic.config import Config
-from sqlalchemy import URL
+from sqlalchemy import URL, make_url
 
 from groundline.core.errors import SetupError
-from groundline.db.connection import database_url
 from groundline.settings import Settings
 
 LOCAL_HOSTS = {None, "localhost", "127.0.0.1", "::1"}
@@ -62,7 +61,7 @@ def migrate(raw: str, revision: str) -> None:
     config.set_main_option(
         "script_location", str(files("groundline.db") / "migrations")
     )
-    config.attributes["database_url"] = database_url(raw)
+    config.attributes["database_url"] = make_url(raw)
     if revision == "base" or revision.startswith("-"):
         command.downgrade(config, revision)
     else:
@@ -70,7 +69,7 @@ def migrate(raw: str, revision: str) -> None:
 
 
 def _local_url(raw: str) -> URL:
-    url = database_url(raw)
+    url = make_url(raw)
     if url.host not in LOCAL_HOSTS:
         raise DatabaseSetupError(
             f"db-setup only sets up a database on this machine, not on {url.host}"

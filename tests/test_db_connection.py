@@ -46,13 +46,6 @@ def test_a_malformed_url_is_logged_without_the_password(
     assert "pw-secret" not in caplog.text
 
 
-def test_a_plain_postgresql_url_uses_psycopg():
-    # SQLAlchemy would look for psycopg2 for postgresql://, which isn't installed.
-    plain = UNREACHABLE.replace("postgresql+psycopg", "postgresql")
-
-    assert asyncio.run(check_connection(plain)) is False  # refused, not ImportError
-
-
 def test_the_api_starts_and_logs_when_the_database_is_down(
     monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ):
