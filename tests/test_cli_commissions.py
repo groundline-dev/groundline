@@ -156,7 +156,8 @@ def test_the_cost_is_priced_for_haiku(
     result = commissions(files)
 
     assert "no price for" not in result.stdout
-    assert "Cost              $0.00 · 1 calls" in result.stdout
+    # A Haiku call this small costs a hundredth of a cent, which must not read as free.
+    assert "Cost              $0.0001 · 1 calls" in result.stdout
 
 
 def test_the_default_level_can_be_named_with_threshold(
@@ -207,7 +208,7 @@ def test_an_unusable_reply_exits_with_2(
 
     assert result.exit_code == 2
     assert result.stderr.startswith("error: stage 'commissions_check' failed")
-    assert "Cost before stopping: $0.00 · 2 calls · " in result.stderr
+    assert "Cost before stopping: $0.0001 · 2 calls · " in result.stderr
 
 
 def test_a_missing_input_file_exits_with_2(

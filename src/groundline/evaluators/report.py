@@ -17,6 +17,17 @@ def number(value: float) -> str:
     return text[:-1] if text.endswith("0") else text
 
 
+def format_cost(dollars: float) -> str:
+    """A dollar amount for a report: cents normally, but four decimals under a
+    cent, so a cheap run doesn't read as free. Exactly zero (a fully cached run)
+    stays $0.00, and anything too small for four decimals says so."""
+    if dollars == 0 or dollars >= 0.01:
+        return f"${dollars:.2f}"
+    if dollars < 0.00005:
+        return "<$0.0001"
+    return f"${dollars:.4f}"
+
+
 def pipeline_line(result: EvaluationResult) -> str:
     """The pipeline's name, its profile, and whether it is a validated preset."""
     validated = (
@@ -45,7 +56,7 @@ def cost_line(result: EvaluationResult, seconds: float) -> str:
     if usage.cached_calls:
         calls += f" ({usage.cached_calls} cached)"
     cost = (
-        f"${usage.cost_usd:.2f} · {calls} · {usage.input_tokens:,} input / "
+        f"{format_cost(usage.cost_usd)} · {calls} · {usage.input_tokens:,} input / "
         f"{usage.output_tokens:,} output tokens · {seconds:.1f} s"
     )
     if usage.unpriced_models:

@@ -42,7 +42,7 @@ from groundline.evaluate import (
 from groundline.evaluators.commissions import report as commissions_report
 from groundline.evaluators.models import AlarmOutput
 from groundline.evaluators.omissions import report as omissions_report
-from groundline.evaluators.report import result_json
+from groundline.evaluators.report import format_cost, result_json
 from groundline.presets import load_preset
 
 app = typer.Typer(
@@ -286,7 +286,7 @@ def _write_json(path: Path, result: EvaluationResult) -> None:
 def _cost(calls: Sequence[CallRecord]) -> str:
     usage = summarize_usage(calls)
     cost = (
-        f"${usage.cost_usd:.2f} · {usage.calls} calls · "
+        f"{format_cost(usage.cost_usd)} · {usage.calls} calls · "
         f"{usage.input_tokens:,} input / {usage.output_tokens:,} output tokens"
     )
     if usage.unpriced_models:
