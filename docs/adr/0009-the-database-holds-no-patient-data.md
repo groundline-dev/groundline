@@ -1,0 +1,3 @@
+# The database holds no patient data
+
+groundline's Postgres database stores operational data only, starting with API keys. It doesn't store sources, summaries, or anything derived from them, such as facts, verdicts or reports. Keeping patient data out keeps the database outside the clinical-data rules: it can be backed up, copied between developers and inspected without the controls patient data would need. Storing results there would be convenient for history and dashboards. If that's ever wanted, it's a new decision that supersedes this one, made alongside the review ADR 0006 calls for, not a column added in passing.
