@@ -7,6 +7,7 @@ is shared with the omission check; this check supplies its own implementation.
 from pydantic import BaseModel
 
 from groundline.core import Implementation, Registry
+from groundline.evaluators import define_shared_steps
 from groundline.evaluators.commissions.models import (
     CommissionsCheckOutput,
     CommissionsRefuteOutput,
@@ -21,8 +22,8 @@ STEPS: dict[str, type[BaseModel]] = {
     "commissions_check": CommissionsCheckOutput,
     "commissions_refute": CommissionsRefuteOutput,
 }
-"""The steps this check defines. `alarm` is defined by the omission check and
-shared, so it isn't listed here."""
+"""The steps this check defines. `alarm` is shared with the omission check, so
+`define_shared_steps` defines it."""
 
 IMPLEMENTATIONS: list[type[Implementation]] = [
     CommissionsCheckLLMQuick,
@@ -32,9 +33,8 @@ IMPLEMENTATIONS: list[type[Implementation]] = [
 
 
 def register_commissions(registry: Registry) -> None:
-    """Define the commission steps and register their implementations. The
-    shared `alarm` step must already be defined, so register the omission check
-    first."""
+    """Define the commission steps and register their implementations."""
+    define_shared_steps(registry)
     for step, output_type in STEPS.items():
         registry.define_step(step, output_type)
     for implementation in IMPLEMENTATIONS:

@@ -103,3 +103,22 @@ def test_a_missing_key_is_reported_before_any_call(
 
     with pytest.raises(MissingAPIKeyError, match="commissions_check"):
         asyncio.run(evaluate(SOURCE, SUMMARY, spec=PRESET))
+
+
+@pytest.mark.parametrize("order", ["omissions first", "commissions first", "alone"])
+def test_evaluators_can_be_registered_in_any_order_or_alone(order: str):
+    from groundline.core import Registry
+    from groundline.evaluators.commissions import register_commissions
+    from groundline.evaluators.omissions import register_omissions
+
+    registries = {
+        "omissions first": [register_omissions, register_commissions],
+        "commissions first": [register_commissions, register_omissions],
+        "alone": [register_commissions],
+    }[order]
+    registry = Registry()
+    for register in registries:
+        register(registry)
+
+    assert registry.steps().count("alarm") == 1
+    assert "alarm.critical_unsupported_max" in registry.implementations("alarm")

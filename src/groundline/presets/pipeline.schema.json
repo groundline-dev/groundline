@@ -9,12 +9,12 @@
           "title": "Step",
           "type": "string",
           "enum": [
+            "alarm",
             "extract",
             "rank",
             "check",
             "refute",
             "score",
-            "alarm",
             "commissions_check",
             "commissions_refute"
           ]

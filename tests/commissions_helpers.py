@@ -16,7 +16,6 @@ from groundline.core import (
     run_pipeline,
 )
 from groundline.evaluators.commissions import register_commissions
-from groundline.evaluators.omissions import register_omissions
 from groundline.profiles import load_builtin_profile
 from tests.fakes import FakeClient
 from tests.omission_helpers import SOURCE
@@ -72,7 +71,6 @@ def run(
     cache: FileCache | None = None,
 ) -> tuple[RunResult, FakeClient]:
     registry = Registry()
-    register_omissions(registry)
     register_commissions(registry)
     spec = PipelineSpec(
         name="test", profile="clinical", stages=[StageSpec(**s) for s in stages]
