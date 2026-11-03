@@ -102,7 +102,7 @@ Not supported by the source (severity order):
 Cost              $0.00 · 1 calls · 347 input / 40 output tokens · 4.1 s
 ```
 
-The exit codes and options are the same as for omissions. `--threshold` names an alarm level in the pipeline, and the preset's only level is `default` (0.85). If a pipeline switches refute on, the report adds a `Cleared by refute` line.
+The exit codes and options are the same as for omissions. `--threshold` names an alarm level in the pipeline, and the preset's only level is `default` (0.85). If the model's quote of the source passage isn't found word for word in the source, the report still shows it, marked `(not found word for word in the source)`. If a pipeline switches refute on, the report adds a `Cleared by refute` line.
 
 ## Using it from Python
 

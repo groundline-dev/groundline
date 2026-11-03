@@ -1,7 +1,10 @@
 """Presenting a commission check: a terminal report."""
 
 from groundline.evaluate import EvaluationResult
-from groundline.evaluators.commissions.models import CommissionsRefuteOutput
+from groundline.evaluators.commissions.models import (
+    Commission,
+    CommissionsRefuteOutput,
+)
 from groundline.evaluators.models import SEVERITIES, AlarmOutput
 from groundline.evaluators.report import (
     cost_line,
@@ -45,8 +48,8 @@ def render_report(
                 f"  {commission.severity:<10}  {commission.support_verdict:<12}  "
                 f"{number(commission.unsupported_confidence):<10}  {commission.quote}"
             )
-            if commission.support_verdict == "contradicted" and commission.evidence:
-                lines.append(f'{CLAIM_INDENT}source: "{commission.evidence}"')
+            if commission.support_verdict == "contradicted":
+                lines.append(f"{CLAIM_INDENT}{_source_line(commission)}")
     else:
         lines.append("  none")
 
@@ -59,3 +62,14 @@ def render_report(
 
 def _row(label: str, value: str) -> str:
     return row(label, value, width=LABEL_WIDTH)
+
+
+def _source_line(commission: Commission) -> str:
+    """The source passage a contradicted claim conflicts with, and whether it
+    could be verified."""
+    if not commission.evidence:
+        return "source: no passage quoted"
+    line = f'source: "{commission.evidence}"'
+    if commission.evidence_found is False:
+        line += " (not found word for word in the source)"
+    return line

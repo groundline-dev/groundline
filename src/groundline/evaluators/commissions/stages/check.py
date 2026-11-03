@@ -5,7 +5,8 @@ The model is asked to list only the problems. For each it gives the words in the
 summary that make the claim (verified here), whether the source contradicts it
 or just doesn't say it, a 0-100 confidence that the source doesn't support it,
 how much it would matter if it were wrong, and, for a contradicted claim, the
-passage of the source that contradicts it. confidence / 100 is the unsupported
+passage of the source that contradicts it, which is kept even when it isn't found
+word for word in the source, and marked. confidence / 100 is the unsupported
 confidence the alarm thresholds apply to.
 
 The reply's own keys (`issues`, `label`, `confidence`, `importance`) are the
@@ -99,8 +100,7 @@ def parse_commissions(
 
         evidence = item.get("evidence")
         evidence = evidence.strip() if isinstance(evidence, str) else None
-        if evidence and not evidence_in(evidence, source):
-            evidence = None  # a quote that isn't in the source isn't evidence
+        evidence = evidence or None
 
         commissions.append(
             Commission(
@@ -109,7 +109,8 @@ def parse_commissions(
                 support_verdict=verdict,
                 unsupported_confidence=round(confidence / 100, 4),
                 severity=severity,
-                evidence=evidence or None,
+                evidence=evidence,
+                evidence_found=evidence_in(evidence, source) if evidence else None,
             )
         )
     return CommissionsCheckOutput(commissions=commissions)

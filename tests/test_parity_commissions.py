@@ -11,9 +11,9 @@ apply to groundline's preset. See the fixture's ATTRIBUTION.md.
 The expected results were checked by hand against the transcript. They come from
 groundline's own parsing of the recorded reply, not from omission-pipeline.
 
-The model's source quote for the contradiction is not kept: the transcript marks the
-word "is" as `<UNSURE>is</UNSURE>`, so the quote doesn't match word for word and is
-dropped, as the check is designed to do. The claim is still flagged.
+The model's source quote for the contradiction is kept but marked as not found: the
+transcript marks the word "is" as `<UNSURE>is</UNSURE>`, so the quote doesn't match
+word for word. The commission is still flagged.
 """
 
 import asyncio

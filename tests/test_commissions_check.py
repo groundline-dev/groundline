@@ -48,14 +48,14 @@ def test_lists_each_commission_with_its_details():
     dose, exam = out.commissions
     assert (dose.id, dose.quote, dose.support_verdict) == ("q1", DOSE, "contradicted")
     assert (dose.unsupported_confidence, dose.severity) == (0.95, "critical")
-    assert dose.evidence == DOSE_SOURCE
+    assert (dose.evidence, dose.evidence_found) == (DOSE_SOURCE, True)
     assert (exam.id, exam.support_verdict, exam.severity) == (
         "q2",
         "unsupported",
         "supporting",
     )
     assert exam.unsupported_confidence == 0.7
-    assert exam.evidence is None
+    assert (exam.evidence, exam.evidence_found) == (None, None)
 
 
 def test_a_summary_with_no_problems_has_no_commissions():
@@ -64,13 +64,30 @@ def test_a_summary_with_no_problems_has_no_commissions():
     assert out.commissions == []
 
 
-def test_evidence_that_is_not_in_the_source_is_dropped():
+def test_evidence_that_is_not_in_the_source_is_kept_and_marked():
     made_up = issue(DOSE, "contradicted", 90, "critical", "the doctor said 400 mg")
     out, _ = check(issues_reply(made_up))
 
     (only,) = out.commissions
     assert only.support_verdict == "contradicted"
-    assert only.evidence is None
+    assert (only.evidence, only.evidence_found) == ("the doctor said 400 mg", False)
+
+
+def test_evidence_matches_the_source_word_for_word_ignoring_punctuation():
+    punctuated = issue(DOSE, "contradicted", 90, "critical", "Take Motrin, 600 mg")
+    out, _ = check(issues_reply(punctuated))
+
+    assert out.commissions[0].evidence_found is True
+
+
+def test_a_blank_evidence_counts_as_none_quoted():
+    blank = issue(DOSE, "contradicted", 90, "critical", "   ")
+    out, _ = check(issues_reply(blank))
+
+    assert (out.commissions[0].evidence, out.commissions[0].evidence_found) == (
+        None,
+        None,
+    )
 
 
 def test_a_quote_that_is_not_in_the_summary_gets_one_retry():

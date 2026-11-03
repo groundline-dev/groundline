@@ -22,7 +22,8 @@
         "support_verdict": "contradicted",
         "unsupported_confidence": 0.92,
         "severity": "critical",
-        "evidence": null
+        "evidence": "our presumptive, working diagnosis is, mini-stroke or TIA, OK.",
+        "evidence_found": false
       }
     ]
   }

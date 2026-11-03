@@ -15,6 +15,7 @@ from tests.commissions_helpers import (
     ISSUES,
     SUMMARY,
     Script,
+    issue,
     issues_reply,
     support_reply,
 )
@@ -76,6 +77,42 @@ def test_commissions_are_listed_by_severity_then_confidence(
     result = commissions(files)
 
     assert result.stdout.index(DOSE) < result.stdout.index(EXAM)
+
+
+def test_a_quote_not_found_in_the_source_is_shown_and_marked(
+    files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+):
+    made_up = issue(DOSE, "contradicted", 95, "critical", "the doctor said 400 mg")
+    use_client(monkeypatch, Script(commissions_check=issues_reply(made_up)))
+
+    result = commissions(files)
+
+    assert (
+        'source: "the doctor said 400 mg" (not found word for word in the source)'
+        in result.stdout
+    )
+
+
+def test_a_contradicted_claim_with_no_quoted_passage_says_so(
+    files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+):
+    bare = issue(DOSE, "contradicted", 95, "critical", None)
+    use_client(monkeypatch, Script(commissions_check=issues_reply(bare)))
+
+    result = commissions(files)
+
+    assert "source: no passage quoted" in result.stdout
+
+
+def test_a_verified_quote_has_no_marker(
+    files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+):
+    use_client(monkeypatch, Script(commissions_check=ISSUES))
+
+    result = commissions(files)
+
+    assert "not found word for word" not in result.stdout
+    assert "no passage quoted" not in result.stdout
 
 
 def test_only_a_contradicted_claim_shows_a_source_line(

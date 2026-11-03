@@ -31,8 +31,11 @@ class Commission(_Frozen):
     severity: Severity
     """How much it would matter if the claim were wrong."""
     evidence: str | None = None
-    """For a contradicted claim, the passage of the source that contradicts it,
-    when the model quoted one that really is in the source."""
+    """For a contradicted claim, the passage of the source the model quoted as
+    contradicting it, if it quoted one."""
+    evidence_found: bool | None = None
+    """Whether that quote really is in the source word for word. None when no
+    quote was given."""
 
 
 class ClearedCommission(_Frozen):
