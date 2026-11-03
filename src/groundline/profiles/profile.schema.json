@@ -1,0 +1,59 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "Placeholders": {
+      "additionalProperties": false,
+      "description": "The placeholder names a profile's prompts use for the inputs, such as\n`{transcript}` for the source and `{note}` for the summary.",
+      "properties": {
+        "source": {
+          "default": "source",
+          "description": "The placeholder the prompts use for the source, without braces: `transcript` means the prompts say {transcript}.",
+          "title": "Source",
+          "type": "string"
+        },
+        "summary": {
+          "default": "summary",
+          "description": "The placeholder the prompts use for the summary, without braces: `note` means the prompts say {note}.",
+          "title": "Summary",
+          "type": "string"
+        }
+      },
+      "title": "Placeholders",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "The shape of `profile.yaml`: like a profile, but texts are file paths.",
+  "properties": {
+    "name": {
+      "description": "The profile's name, such as `clinical`.",
+      "title": "Name",
+      "type": "string"
+    },
+    "description": {
+      "default": "",
+      "description": "What the profile is for.",
+      "title": "Description",
+      "type": "string"
+    },
+    "placeholders": {
+      "$ref": "#/$defs/Placeholders",
+      "description": "The placeholders the prompts use for the source and summary."
+    },
+    "texts": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "description": "The prompts and rubrics the pipeline stages can use: a name for each, and its file path relative to this folder.",
+      "title": "Texts",
+      "type": "object"
+    }
+  },
+  "required": [
+    "name",
+    "placeholders",
+    "texts"
+  ],
+  "title": "groundline domain profile",
+  "type": "object"
+}

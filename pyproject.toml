@@ -11,8 +11,16 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
+    "anthropic>=2.3.0",
     "fastapi[standard]>=0.162.0",
+    "platformdirs>=4.14.3",
+    "pydantic-settings>=2.16.2",
+    "pyyaml>=6.0.3",
+    "typer>=0.27.3",
 ]
+
+[project.scripts]
+groundline = "groundline.cli:app"
 
 [build-system]
 requires = ["uv_build>=0.12.13,<0.13.0"]
@@ -20,9 +28,12 @@ build-backend = "uv_build"
 
 [dependency-groups]
 dev = [
+    "jsonschema>=4.26.0",
     "pyright>=1.1.414",
     "pytest>=9.2.0",
     "ruff>=0.17.3",
+    "types-jsonschema>=4.26.0.20261006",
+    "types-pyyaml>=6.0.12.20261030",
 ]
 
 [tool.ruff.lint]
@@ -37,3 +48,7 @@ include = ["src", "tests"]
 venvPath = "."
 venv = ".venv"
 typeCheckingMode = "strict"
+
+[tool.pytest.ini_options]
+markers = ["live: calls the real model API and costs money (run with: pytest -m live)"]
+addopts = "-m 'not live'"

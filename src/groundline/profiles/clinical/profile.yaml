@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=../profile.schema.json
+# The clinical domain profile: what matters in a clinical note.
+#
+# The source is a consultation transcript and the summary is the clinical note
+# written from it. The prompts and rubric are the ones omission-pipeline was
+# measured with, unchanged; editing them invalidates the measured results.
+
+name: clinical
+description: Clinical notes checked against the consultation transcript.
+
+# The placeholders the prompts use for the source and the summary.
+placeholders:
+  source: transcript
+  summary: note
+
+# Texts the pipeline stages can use, by name.
+texts:
+  extract_coarse_v1: prompts/extract_coarse_v1.txt
+  rank_v1: prompts/rank_v1.txt
+  check_batch_v1: prompts/check_batch_v1.txt
+  refute_v1: prompts/refute_v1.txt
+  severity_v1: rubrics/severity_v1.md

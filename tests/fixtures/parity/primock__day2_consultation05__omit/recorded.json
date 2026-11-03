@@ -1,0 +1,606 @@
+{
+  "pair_id": "primock|day2_consultation05|omit",
+  "note": "errored",
+  "calls": [
+    {
+      "step": "extract",
+      "prompt": "You are an experienced clinician helping to audit clinical documentation. Below is the transcript of a consultation. Your task is to list the clinical points from this consultation that a complete, accurate clinical note should record. Each point on your list will later be checked, one at a time, against a note written from this consultation, to find what the note left out.\n\nWork only from the transcript. Use clinical judgement to decide what matters, never to add information that was not said.\n\nAbout the transcript: it may come from speech recognition, so expect lowercase text, odd spacing, misheard words and gaps. The clinician may also dictate to a scribe or a dictation system partway through (for example \"hey dragon, ...\"); dictated findings and plans are part of the consultation. If a passage is garbled or contradicted elsewhere, leave it out or state the uncertainty in the point itself; never turn it into a confident fact.\n\n<transcript>\nDoctor: Hi there. Good morning. I'm Doctor <INAUDIBLE_SPEECH/> <UNSURE>from GP at Hand</UNSURE>. Nice to see you.\nPatient: <UNSURE>Hi</UNSURE>.\nDoctor: OK. So, um, before we start your appointment. Could I confirm your full name and date of birth please?\nPatient: <UNSURE>Yeah</UNSURE>, it's John Smith, and I am thirty two years old.\nDoctor: Sorry, I didn't catch your date of birth.\nPatient: I'm thirty two years old.\nDoctor: Thirty two years old, OK. Could you tell me the first line of your address, and <UNSURE>your</UNSURE> postcode please?\nPatient: It's four Park Avenue, and it's AB one CB two.\nDoctor: That's great, thank you so much for that. Are you in a private place where you're OK to speak at the moment?\nPatient: Yes.\nDoctor: OK. So how can I help you today? You've been having some problems with your asthma. Is that right?\nPatient: Sorry, say that <UNIN/>.\nDoctor: How can I help you today?\nPatient: So, um, I've been experiencing very weird symptoms, over the past month or so.\nPatient: And I <UNSURE>don't know</UNSURE> what's causing them. I have googled it and, um, nothing's coming up, so I thought I'd come and speak to you about it.\nDoctor: OK.\nDoctor: OK. So, tell me a bit more about these weird symptoms you've been having.\nPatient: So, it started with, feeling very tired, but for a couple of days, and then I get back to normal.\nDoctor: <INAUDIBLE_SPEECH/>\nPatient: And then I started losing feeling, in my hands and arms. I get a weird sensation like, uh, I guess, pins and needles.\nDoctor: <UNSURE>Right</UNSURE> <INAUDIBLE_SPEECH/> again, the connection's not so great. You've been getting pins and needles in the hand. Is that right?\nPatient: And.\nPatient: Yeah, that's correct.\nDoctor: OK. Is that the right or left hand?\nPatient: My right hand.\nDoctor: Is it always the right?\nPatient: Yes.\nDoctor: OK. Um, we've lost video now, maybe is there a, a, a button you can press?\nDoctor: OK.\nDoctor: Are you happy for us to carry on without the video? I can't see you at the moment.\nPatient: Yes, that's fine.\nDoctor: All right. Um, so, you've been having these pins and needles, <UNSURE>and</UNSURE> episodes of numbness, in the right hand. Is it just the hand, or does it go up the arm as well?\nPatient: Uh, the pins and needles are in the hand, but I feel like my arm is getting weaker, but it only lasts few days and then goes back to normal. So, it's very weird.\nDoctor: Right, OK. Um, is <UNSURE>there</UNSURE> any involvement of your leg at all?\nPatient: Uh, my, colleague said, I'm walking slightly differently to normal.\nPatient: And again, it's only for three days, or three or four days.\nDoctor: OK. You, you said you've been having weird symptoms for about a month.\nPatient: Yes.\nDoctor: <UNIN/>, so, what has been happening from the beginning of the month? What else has been <UNSURE>happening</UNSURE>?\nPatient: Um, I generally feel tired, and weak.\nPatient: And, sometimes I feel nauseous, and I don't feel like I want to do anything.\nDoctor: Right, OK.\nDoctor: Um, and, um.\nDoctor: You know, <UNIN/>, your colleague said you've, you've not been walking normally.\nPatient: Yes.\nDoctor: Do you feel anything different, on either side, in terms of your legs? Can <UNIN/>, have you noticed anything different?\nPatient: <UNSURE>Yeah</UNSURE>, so, at the same time I get my arm symptoms, my leg feels weaker.\nDoctor: Right, OK.\nDoctor: And.\nDoctor: You know you, the abnormal gait. Has that been present, outside of these episodes?\nPatient: No, it has not. So normally, I'm, fit and well actually.\nDoctor: Right, <UNIN/>.\nDoctor: All right, OK. Um, and, these, these episodes. How often have they been happening?\nPatient: They have been getting more regular. So at the start, it would be maybe once a week, uh, to every once <UNIN/>, once a month, but now it's getting uh, uh, a couple of times a day.\nDoctor: Right, OK. And, how long have these episodes been going on for? When, when did it all start? Was it a month ago?\nPatient: <UNIN/>, probably a month and a half, maybe two months.\nDoctor: Right, OK.\nDoctor: OK. And, along with these symptoms, of the weakness and numbness. Do you have any other symptoms at the same time? Like swallowing, or difficulty speaking, or vision problems?\nPatient: So, recently I've noticed, I can't hold my cup of coffee.\nPatient: And when I, do drink coffee, it's slightly harder to drink.\nPatient: And that's only been in the last couple of days, I guess.\nDoctor: Right. Is that during these episodes, or outside of these episodes?\nPatient: Only during the episodes.\nDoctor: OK.\nDoctor: Do you have any difficulty swallowing at all?\nPatient: Not currently, no.\nDoctor: <UNIN/>. During the episodes, do you have any difficulty swallowing?\nPatient: I, I, I feel like there's something in my throat.\nDoctor: OK. What about, <UNIN/> um, difficulty speaking during these episodes? Any, any issues with that at all?\nPatient: No, I can speak fine.\nDoctor: OK. And any visual problems during these episodes?\nPatient: <UNSURE>I</UNSURE>, I don't think so, but I wear glasses.\nDoctor: OK, all right. Now um, can I just ask? <UNIN/>, has, uh, is there any history of stroke, or mini-strokes in your family?\nPatient: Uh, yes. My, father has had a, operation to the side of his neck, to reduce the risk of stroke.\nDoctor: Right, OK.\nDoctor: Um, and, uh, how about yourself? Have you had any history of, mini-strokes or anything like that, along those lines? I know you're quite young.\nPatient: No, so after my, dad had his operation, I was required to be checked, and my cholesterol <UNIN/>, was fine.\nDoctor: Good, excellent. So you had a, a blood test done. And did they check for diabetes as well?\nPatient: Yeah.\nPatient: They checked my diabetes, my blood pressure and my, cholesterol, and the doctor said it was all OK.\nDoctor: Fantastic, OK. Now, do you have any other illnesses at all?\nPatient: No.\nDoctor: No. Are you on any medication?\nPatient: I take an aspirin, seventy five milligrams, once a day, but that's, because of something I read on the internet.\nDoctor: OK. So, so, why is that? Why do you take that?\nPatient: I think it's, meant to reduce your risk of stroke and heart attack.\nDoctor: OK. Do, have you ever told a doctor before, your GP, that you're on Aspirin?\nPatient: Yes I took, I started to <UNIN/>, taking it after my, father had his operation, but that wasn't the doctor telling me.\nDoctor: OK. Uh, and, has any GP ever spoken to you about, the risks of Aspirin, and whether you should be on it? Or have you not <UNIN/>, told the <UNIN/>, the GP in the past?\nPatient: No, I haven't.\nDoctor: You haven't, OK. Um, all right. Um. Now, um, in terms of your uh, your kind of social situation. Um, are you working at the moment?\nPatient: Yes, I am.\nDoctor: <UNIN/>, what do you work as?\nPatient: Uh, I'm, uh, I'm actually a doctor.\nDoctor: You're a <UNIN/>, a, a medical doctor?\nPatient: Yes.\nDoctor: OK. Uh, which, <UNSURE>specialty</UNSURE> are you in?\nPatient: I work in, <UNSURE>uh</UNSURE>, plastic surgery.\nDoctor: Plastic surgery, OK, great. And, um, do you, have any, um, allergies to any medication at all?\nPatient: I'm allergic to penicillin only.\nDoctor: OK. And, um, are you, um, living alone?\nPatient: No, I live with my wife.\nDoctor: Right, OK. Um, fantastic. Uh <UNIN/>, do you smoke at all?\nPatient: No, I don't.\nDoctor: Right, OK. Um, that's fine. Now, obviously you're a, you're a medic yourself. Did you have any thoughts as to what might be going on?\nPatient: Uh, I've <UNSURE>actually</UNSURE>, got no idea.\nDoctor: Right, OK. Um, well the, the way you're describing these episodes. They make me concerned about, mini-strokes or TIAs, <UNIN/>, transient ischemic attacks. Um.\nPatient: <UNSURE>OK</UNSURE>.\nDoctor: And so, that's something quite urgent. And given that you've got a family history of um, stroke.\nDoctor: Um, even though you're quite young, I think um, it's something that we need to exclude. So, what I'm probably going to do, uh, in fact what I am going to do, is I'm going to, refer you to a stroke, a TIA clinic.\nDoctor: Um, now just to double-check. Do you have the symptoms right now?\nPatient: No, I'm perfectly fine at the moment.\nDoctor: OK. So, so, what I'm gonna do, is I'm uh, I'm gonna refer you to a, a mini-stroke clinic, or a TIA clinic.\nDoctor: Um, I send that referral off now, and then you can attend them, they, they'll usually, call you in within the next one to two days, OK.\nDoctor: Because it's something relatively urgent. Now, today it's Wednesday, so we've got a few days <UNIN/>, before the weekend. So, um, uh, basically the deadline should be, Thursday, Friday.\nDoctor: We're expecting you to be seen by the time, that's the kind of turnaround we're, we're looking at.\nDoctor: And in that clinic, they'll be doing a number of things. Um, they'll be checking, they'll be doing <UNSURE>a</UNSURE> ultrasound of the, carotid arteries, like your, your father had. Um, and, they'll be doing a, maybe a, they might do a scan of your brain as well, to check if there's <UNSURE>any</UNSURE> signs of a bleed there.\nDoctor: But, um, they'll be doing a range of tests in a short time frame, in order to exclude whether, you have um, any illness. OK, whether you <UNSURE>have</UNSURE> got any kind of stroke or, mini-stroke.\nPatient: Sure.\nDoctor: Now, if your symptoms return and they persist, <UNSURE>they're prolonged</UNSURE>. Then um, you may need to attend A and E.\nDoctor: OK, because um, our presumptive, working diagnosis <UNSURE>is</UNSURE>, mini-stroke or TIA, OK.\nDoctor: And if, a mini-stroke is prolonged then uh, then we end up thinking that this might be a stroke and in that case, that becomes even more of an emergency. So, we're not talking about waiting one or two days, we want you to go to hospital in that instance, as soon as possible, OK.\nPatient: Sure.\nDoctor: Now if <UNIN/>, things happen again, feel free to contact us, we can assess you over the phone, we can give you direction and guidance over the phone. That's, that's, that's not a problem, you know, you, you've got easy access to us.\nDoctor: OK. So, um, this is the plan going forward. Um, I'm going to, um, do that referral.\nDoctor: You should hear back from the hospital, relatively soon.\nDoctor: The hospital, you can actually ring them, on um, uh, the <UNSURE>PALS</UNSURE> number, and then there's also the TIA clinic number.\nDoctor: I'm going to leave that number in the notes for this consultation, OK. So you'll have all the information you need, to chase this appointment.\nPatient: OK.\nDoctor: And um, if you want, you can ring them, either today or tomorrow morning.\nDoctor: <UNIN/>, today in the afternoon, wait uh, one or two hours. Or tomorrow morning just to find out when they <UNSURE>got</UNSURE> time to slot you in. And, just to make sure they've got you in the system, that they've got in the books, and they're going to be calling you in, OK.\nPatient: <INAUDIBLE_SPEECH/>\nDoctor: <INAUDIBLE_SPEECH/>, this isn't, <UNSURE>a</UNSURE>, an immediate emergency that you need to rush down to A and E. But it's something quite urgent we need to, deal with in a short space of time, OK.\nDoctor: So if there's, if there's any delay that, transpires for example, you can't make the appointment or, you know, they, you don't get called. <INAUDIBLE_SPEECH/>, you, you get, get in contact back, back with us, OK.\nPatient: <INAUDIBLE_SPEECH/>\nDoctor: All right. Did you have any questions at all?\nPatient: No, I think that covers, most of it.\nDoctor: OK, great. So just bear with me a few minutes, and then I'll send that uh, all through and then you should, um, you should be able to <UNSURE>help</UNSURE>, you should have the information at your hands to, in order to take things further, OK.\nPatient: <UNIN/>, thank you.\nDoctor: All the best. Take care now. Bye bye.\nPatient: <INAUDIBLE_SPEECH/>\n\n</transcript>\n\nWhat to include:\n- the presenting complaint and its history: onset, cause or mechanism, duration, site and side, character, what makes it better or worse, what has been tried\n- relevant past history, medications, allergies, and social or risk factors\n- pertinent negatives: things the patient denied, or the clinician noted as absent\n- examination findings and test results\n- the diagnosis or impression as stated, keeping any hedging (\"probably\", \"rule out\")\n- every part of the plan: medications, referrals, tests, follow-up, and safety-netting advice\n\nWhat to leave out: greetings, small talk, thanks, identity checks, scheduling or dictation housekeeping, and general explanations, unless they carry something clinically important for this patient.\n\nHow to write each point:\n- One point per clinical item, written at the level a well-written note would state it. Keep together the details that belong to one item: a medication with its dose, frequency and duration is one point; an examination finding with its site and side is one point; how an injury happened is one point.\n- Do not merge separate items: two different medications, two different findings, or a plan and its safety-net advice are separate points.\n- Do not list the same item twice, for example once from the history and again from a later summary by the clinician.\n- Make each point readable on its own, without the transcript, and keep it under 30 words.\n- Keep negation, hedging and conditions exactly as said: \"denies numbness\", \"call back if it does not improve\".\n- Give a short verbatim quote (at most 25 words) from the transcript as evidence, copied word for word. Use \"...\" only to join two parts of the same passage.\n\nReply with only this JSON object, no other text:\n{\"facts\": [{\"id\": \"f1\", \"fact\": \"...\", \"evidence\": \"...\"}, {\"id\": \"f2\", \"fact\": \"...\", \"evidence\": \"...\"}]}\n",
+      "reply": "{\"facts\": [\n{\"id\": \"f1\", \"fact\": \"Patient is a 32-year-old man.\", \"evidence\": \"I am thirty two years old.\"},\n{\"id\": \"f2\", \"fact\": \"Intermittent episodes of unusual symptoms started about one and a half to two months ago. The patient initially said about a month.\", \"evidence\": \"probably a month and a half, maybe two months.\"},\n{\"id\": \"f3\", \"fact\": \"Symptoms began with episodes of marked tiredness lasting a couple of days, then returning to normal.\", \"evidence\": \"it started with, feeling very tired, but for a couple of days, and then I get back to normal.\"},\n{\"id\": \"f4\", \"fact\": \"Episodic numbness and pins and needles in the hand, always the right hand.\", \"evidence\": \"My right hand.\"},\n{\"id\": \"f5\", \"fact\": \"Arm weakness during episodes, lasting a few days and then resolving to normal.\", \"evidence\": \"I feel like my arm is getting weaker, but it only lasts few days and then goes back to normal.\"},\n{\"id\": \"f6\", \"fact\": \"Leg weakness occurs at the same time as the arm symptoms. The side was not explicitly stated.\", \"evidence\": \"at the same time I get my arm symptoms, my leg feels weaker.\"},\n{\"id\": \"f7\", \"fact\": \"Colleague noticed altered gait during episodes lasting 3-4 days. No gait abnormality outside episodes.\", \"evidence\": \"my, colleague said, I'm walking slightly differently to normal.\"},\n{\"id\": \"f8\", \"fact\": \"Generally feels tired and weak over this period.\", \"evidence\": \"I generally feel tired, and weak.\"},\n{\"id\": \"f9\", \"fact\": \"Intermittent nausea and lack of motivation.\", \"evidence\": \"sometimes I feel nauseous, and I don't feel like I want to do anything.\"},\n{\"id\": \"f10\", \"fact\": \"Episodes are becoming more frequent: initially roughly weekly to monthly, now a couple of times a day.\", \"evidence\": \"now it's getting uh, uh, a couple of times a day.\"},\n{\"id\": \"f11\", \"fact\": \"In the last couple of days, difficulty holding a coffee cup and drinking, only during episodes.\", \"evidence\": \"recently I've noticed, I can't hold my cup of coffee.\"},\n{\"id\": \"f12\", \"fact\": \"No current difficulty swallowing. Sensation of something in the throat during episodes.\", \"evidence\": \"I, I, I feel like there's something in my throat.\"},\n{\"id\": \"f13\", \"fact\": \"Denies speech difficulty during episodes.\", \"evidence\": \"No, I can speak fine.\"},\n{\"id\": \"f14\", \"fact\": \"Does not think he has visual problems during episodes. Wears glasses.\", \"evidence\": \"I don't think so, but I wear glasses.\"},\n{\"id\": \"f15\", \"fact\": \"Currently asymptomatic at the time of consultation.\", \"evidence\": \"No, I'm perfectly fine at the moment.\"},\n{\"id\": \"f16\", \"fact\": \"Family history: father had neck (carotid) surgery to reduce stroke risk.\", \"evidence\": \"My, father has had a, operation to the side of his neck, to reduce the risk of stroke.\"},\n{\"id\": \"f17\", \"fact\": \"No personal history of TIA or stroke.\", \"evidence\": \"No, so after my, dad had his operation, I was required to be checked\"},\n{\"id\": \"f18\", \"fact\": \"Previously screened after father's operation: diabetes, blood pressure and cholesterol all reported normal.\", \"evidence\": \"They checked my diabetes, my blood pressure and my, cholesterol, and the doctor said it was all OK.\"},\n{\"id\": \"f19\", \"fact\": \"No other medical illnesses. Normally fit and well.\", \"evidence\": \"So normally, I'm, fit and well actually.\"},\n{\"id\": \"f20\", \"fact\": \"Takes aspirin 75 mg once daily, self-started after reading online following father's operation, to reduce stroke/heart attack risk. Not medically prescribed.\", \"evidence\": \"I take an aspirin, seventy five milligrams, once a day, but that's, because of something I read on the internet.\"},\n{\"id\": \"f21\", \"fact\": \"Has not discussed aspirin use or its risks with a GP.\", \"evidence\": \"has any GP ever spoken to you about, the risks of Aspirin, and whether you should be on it?\"},\n{\"id\": \"f22\", \"fact\": \"Allergic to penicillin. No other drug allergies.\", \"evidence\": \"I'm allergic to penicillin only.\"},\n{\"id\": \"f23\", \"fact\": \"Works as a doctor in plastic surgery.\", \"evidence\": \"I'm actually a doctor.\"},\n{\"id\": \"f24\", \"fact\": \"Lives with his wife.\", \"evidence\": \"No, I live with my wife.\"},\n{\"id\": \"f25\", \"fact\": \"Non-smoker.\", \"evidence\": \"do you smoke at all?\"},\n{\"id\": \"f26\", \"fact\": \"Video was lost; consultation continued audio-only with patient's agreement, so no visual assessment.\", \"evidence\": \"Are you happy for us to carry on without the video? I can't see you at the moment.\"},\n{\"id\": \"f27\", \"fact\": \"Presumptive working diagnosis is TIA (mini-stroke), to be excluded despite young age given family history of stroke.\", \"evidence\": \"They make me concerned about, mini-strokes or TIAs\"},\n{\"id\": \"f28\", \"fact\": \"Urgent referral to TIA clinic; expected to be seen within 1-2 days (by Thursday/Friday).\", \"evidence\": \"they'll usually, call you in within the next one to two days\"},\n{\"id\": \"f29\", \"fact\": \"TIA clinic likely to do carotid artery ultrasound and possibly a brain scan to look for a bleed.\", \"evidence\": \"ultrasound of the, carotid arteries, like your, your father had.\"},\n{\"id\": \"f30\", \"fact\": \"Advised this is urgent but not an immediate emergency needing A&E now.\", \"evidence\": \"an immediate emergency that you need to rush down to A and E.\"},\n{\"id\": \"f31\", \"fact\": \"Safety-net: if symptoms return and are persistent or prolonged, go to A&E/hospital as soon as possible, as this could be a stroke.\", \"evidence\": \"we want you to go to hospital in that instance, as soon as possible, OK.\"},\n{\"id\": \"f32\", \"fact\": \"Advised to contact the GP service if symptoms recur, for phone assessment and guidance.\", \"evidence\": \"things happen again, feel free to contact us, we can assess you over the phone\"},\n{\"id\": \"f33\", \"fact\": \"PALS and TIA clinic phone numbers to be left in the consultation notes so the patient can chase the appointment.\", \"evidence\": \"I'm going to leave that number in the notes for this consultation, OK.\"},\n{\"id\": \"f34\", \"fact\": \"Patient may ring the clinic this afternoon or tomorrow morning to confirm the referral is received and booked.\", \"evidence\": \"you can ring them, either today or tomorrow morning.\"},\n{\"id\": \"f35\", \"fact\": \"Advised to contact the GP back if there is any delay, cannot make the appointment, or does not get called.\", \"evidence\": \"you can't make the appointment or, you know, they, you don't get called.\"}\n]}"
+    },
+    {
+      "step": "rank",
+      "prompt": "You are an experienced clinician helping to audit clinical documentation. A colleague read the consultation transcript below and listed the facts a complete clinical note of it should record. Your task is to grade how much it would matter if a note left out each fact, using the rubric below.\n\n<transcript>\nDoctor: Hi there. Good morning. I'm Doctor <INAUDIBLE_SPEECH/> <UNSURE>from GP at Hand</UNSURE>. Nice to see you.\nPatient: <UNSURE>Hi</UNSURE>.\nDoctor: OK. So, um, before we start your appointment. Could I confirm your full name and date of birth please?\nPatient: <UNSURE>Yeah</UNSURE>, it's John Smith, and I am thirty two years old.\nDoctor: Sorry, I didn't catch your date of birth.\nPatient: I'm thirty two years old.\nDoctor: Thirty two years old, OK. Could you tell me the first line of your address, and <UNSURE>your</UNSURE> postcode please?\nPatient: It's four Park Avenue, and it's AB one CB two.\nDoctor: That's great, thank you so much for that. Are you in a private place where you're OK to speak at the moment?\nPatient: Yes.\nDoctor: OK. So how can I help you today? You've been having some problems with your asthma. Is that right?\nPatient: Sorry, say that <UNIN/>.\nDoctor: How can I help you today?\nPatient: So, um, I've been experiencing very weird symptoms, over the past month or so.\nPatient: And I <UNSURE>don't know</UNSURE> what's causing them. I have googled it and, um, nothing's coming up, so I thought I'd come and speak to you about it.\nDoctor: OK.\nDoctor: OK. So, tell me a bit more about these weird symptoms you've been having.\nPatient: So, it started with, feeling very tired, but for a couple of days, and then I get back to normal.\nDoctor: <INAUDIBLE_SPEECH/>\nPatient: And then I started losing feeling, in my hands and arms. I get a weird sensation like, uh, I guess, pins and needles.\nDoctor: <UNSURE>Right</UNSURE> <INAUDIBLE_SPEECH/> again, the connection's not so great. You've been getting pins and needles in the hand. Is that right?\nPatient: And.\nPatient: Yeah, that's correct.\nDoctor: OK. Is that the right or left hand?\nPatient: My right hand.\nDoctor: Is it always the right?\nPatient: Yes.\nDoctor: OK. Um, we've lost video now, maybe is there a, a, a button you can press?\nDoctor: OK.\nDoctor: Are you happy for us to carry on without the video? I can't see you at the moment.\nPatient: Yes, that's fine.\nDoctor: All right. Um, so, you've been having these pins and needles, <UNSURE>and</UNSURE> episodes of numbness, in the right hand. Is it just the hand, or does it go up the arm as well?\nPatient: Uh, the pins and needles are in the hand, but I feel like my arm is getting weaker, but it only lasts few days and then goes back to normal. So, it's very weird.\nDoctor: Right, OK. Um, is <UNSURE>there</UNSURE> any involvement of your leg at all?\nPatient: Uh, my, colleague said, I'm walking slightly differently to normal.\nPatient: And again, it's only for three days, or three or four days.\nDoctor: OK. You, you said you've been having weird symptoms for about a month.\nPatient: Yes.\nDoctor: <UNIN/>, so, what has been happening from the beginning of the month? What else has been <UNSURE>happening</UNSURE>?\nPatient: Um, I generally feel tired, and weak.\nPatient: And, sometimes I feel nauseous, and I don't feel like I want to do anything.\nDoctor: Right, OK.\nDoctor: Um, and, um.\nDoctor: You know, <UNIN/>, your colleague said you've, you've not been walking normally.\nPatient: Yes.\nDoctor: Do you feel anything different, on either side, in terms of your legs? Can <UNIN/>, have you noticed anything different?\nPatient: <UNSURE>Yeah</UNSURE>, so, at the same time I get my arm symptoms, my leg feels weaker.\nDoctor: Right, OK.\nDoctor: And.\nDoctor: You know you, the abnormal gait. Has that been present, outside of these episodes?\nPatient: No, it has not. So normally, I'm, fit and well actually.\nDoctor: Right, <UNIN/>.\nDoctor: All right, OK. Um, and, these, these episodes. How often have they been happening?\nPatient: They have been getting more regular. So at the start, it would be maybe once a week, uh, to every once <UNIN/>, once a month, but now it's getting uh, uh, a couple of times a day.\nDoctor: Right, OK. And, how long have these episodes been going on for? When, when did it all start? Was it a month ago?\nPatient: <UNIN/>, probably a month and a half, maybe two months.\nDoctor: Right, OK.\nDoctor: OK. And, along with these symptoms, of the weakness and numbness. Do you have any other symptoms at the same time? Like swallowing, or difficulty speaking, or vision problems?\nPatient: So, recently I've noticed, I can't hold my cup of coffee.\nPatient: And when I, do drink coffee, it's slightly harder to drink.\nPatient: And that's only been in the last couple of days, I guess.\nDoctor: Right. Is that during these episodes, or outside of these episodes?\nPatient: Only during the episodes.\nDoctor: OK.\nDoctor: Do you have any difficulty swallowing at all?\nPatient: Not currently, no.\nDoctor: <UNIN/>. During the episodes, do you have any difficulty swallowing?\nPatient: I, I, I feel like there's something in my throat.\nDoctor: OK. What about, <UNIN/> um, difficulty speaking during these episodes? Any, any issues with that at all?\nPatient: No, I can speak fine.\nDoctor: OK. And any visual problems during these episodes?\nPatient: <UNSURE>I</UNSURE>, I don't think so, but I wear glasses.\nDoctor: OK, all right. Now um, can I just ask? <UNIN/>, has, uh, is there any history of stroke, or mini-strokes in your family?\nPatient: Uh, yes. My, father has had a, operation to the side of his neck, to reduce the risk of stroke.\nDoctor: Right, OK.\nDoctor: Um, and, uh, how about yourself? Have you had any history of, mini-strokes or anything like that, along those lines? I know you're quite young.\nPatient: No, so after my, dad had his operation, I was required to be checked, and my cholesterol <UNIN/>, was fine.\nDoctor: Good, excellent. So you had a, a blood test done. And did they check for diabetes as well?\nPatient: Yeah.\nPatient: They checked my diabetes, my blood pressure and my, cholesterol, and the doctor said it was all OK.\nDoctor: Fantastic, OK. Now, do you have any other illnesses at all?\nPatient: No.\nDoctor: No. Are you on any medication?\nPatient: I take an aspirin, seventy five milligrams, once a day, but that's, because of something I read on the internet.\nDoctor: OK. So, so, why is that? Why do you take that?\nPatient: I think it's, meant to reduce your risk of stroke and heart attack.\nDoctor: OK. Do, have you ever told a doctor before, your GP, that you're on Aspirin?\nPatient: Yes I took, I started to <UNIN/>, taking it after my, father had his operation, but that wasn't the doctor telling me.\nDoctor: OK. Uh, and, has any GP ever spoken to you about, the risks of Aspirin, and whether you should be on it? Or have you not <UNIN/>, told the <UNIN/>, the GP in the past?\nPatient: No, I haven't.\nDoctor: You haven't, OK. Um, all right. Um. Now, um, in terms of your uh, your kind of social situation. Um, are you working at the moment?\nPatient: Yes, I am.\nDoctor: <UNIN/>, what do you work as?\nPatient: Uh, I'm, uh, I'm actually a doctor.\nDoctor: You're a <UNIN/>, a, a medical doctor?\nPatient: Yes.\nDoctor: OK. Uh, which, <UNSURE>specialty</UNSURE> are you in?\nPatient: I work in, <UNSURE>uh</UNSURE>, plastic surgery.\nDoctor: Plastic surgery, OK, great. And, um, do you, have any, um, allergies to any medication at all?\nPatient: I'm allergic to penicillin only.\nDoctor: OK. And, um, are you, um, living alone?\nPatient: No, I live with my wife.\nDoctor: Right, OK. Um, fantastic. Uh <UNIN/>, do you smoke at all?\nPatient: No, I don't.\nDoctor: Right, OK. Um, that's fine. Now, obviously you're a, you're a medic yourself. Did you have any thoughts as to what might be going on?\nPatient: Uh, I've <UNSURE>actually</UNSURE>, got no idea.\nDoctor: Right, OK. Um, well the, the way you're describing these episodes. They make me concerned about, mini-strokes or TIAs, <UNIN/>, transient ischemic attacks. Um.\nPatient: <UNSURE>OK</UNSURE>.\nDoctor: And so, that's something quite urgent. And given that you've got a family history of um, stroke.\nDoctor: Um, even though you're quite young, I think um, it's something that we need to exclude. So, what I'm probably going to do, uh, in fact what I am going to do, is I'm going to, refer you to a stroke, a TIA clinic.\nDoctor: Um, now just to double-check. Do you have the symptoms right now?\nPatient: No, I'm perfectly fine at the moment.\nDoctor: OK. So, so, what I'm gonna do, is I'm uh, I'm gonna refer you to a, a mini-stroke clinic, or a TIA clinic.\nDoctor: Um, I send that referral off now, and then you can attend them, they, they'll usually, call you in within the next one to two days, OK.\nDoctor: Because it's something relatively urgent. Now, today it's Wednesday, so we've got a few days <UNIN/>, before the weekend. So, um, uh, basically the deadline should be, Thursday, Friday.\nDoctor: We're expecting you to be seen by the time, that's the kind of turnaround we're, we're looking at.\nDoctor: And in that clinic, they'll be doing a number of things. Um, they'll be checking, they'll be doing <UNSURE>a</UNSURE> ultrasound of the, carotid arteries, like your, your father had. Um, and, they'll be doing a, maybe a, they might do a scan of your brain as well, to check if there's <UNSURE>any</UNSURE> signs of a bleed there.\nDoctor: But, um, they'll be doing a range of tests in a short time frame, in order to exclude whether, you have um, any illness. OK, whether you <UNSURE>have</UNSURE> got any kind of stroke or, mini-stroke.\nPatient: Sure.\nDoctor: Now, if your symptoms return and they persist, <UNSURE>they're prolonged</UNSURE>. Then um, you may need to attend A and E.\nDoctor: OK, because um, our presumptive, working diagnosis <UNSURE>is</UNSURE>, mini-stroke or TIA, OK.\nDoctor: And if, a mini-stroke is prolonged then uh, then we end up thinking that this might be a stroke and in that case, that becomes even more of an emergency. So, we're not talking about waiting one or two days, we want you to go to hospital in that instance, as soon as possible, OK.\nPatient: Sure.\nDoctor: Now if <UNIN/>, things happen again, feel free to contact us, we can assess you over the phone, we can give you direction and guidance over the phone. That's, that's, that's not a problem, you know, you, you've got easy access to us.\nDoctor: OK. So, um, this is the plan going forward. Um, I'm going to, um, do that referral.\nDoctor: You should hear back from the hospital, relatively soon.\nDoctor: The hospital, you can actually ring them, on um, uh, the <UNSURE>PALS</UNSURE> number, and then there's also the TIA clinic number.\nDoctor: I'm going to leave that number in the notes for this consultation, OK. So you'll have all the information you need, to chase this appointment.\nPatient: OK.\nDoctor: And um, if you want, you can ring them, either today or tomorrow morning.\nDoctor: <UNIN/>, today in the afternoon, wait uh, one or two hours. Or tomorrow morning just to find out when they <UNSURE>got</UNSURE> time to slot you in. And, just to make sure they've got you in the system, that they've got in the books, and they're going to be calling you in, OK.\nPatient: <INAUDIBLE_SPEECH/>\nDoctor: <INAUDIBLE_SPEECH/>, this isn't, <UNSURE>a</UNSURE>, an immediate emergency that you need to rush down to A and E. But it's something quite urgent we need to, deal with in a short space of time, OK.\nDoctor: So if there's, if there's any delay that, transpires for example, you can't make the appointment or, you know, they, you don't get called. <INAUDIBLE_SPEECH/>, you, you get, get in contact back, back with us, OK.\nPatient: <INAUDIBLE_SPEECH/>\nDoctor: All right. Did you have any questions at all?\nPatient: No, I think that covers, most of it.\nDoctor: OK, great. So just bear with me a few minutes, and then I'll send that uh, all through and then you should, um, you should be able to <UNSURE>help</UNSURE>, you should have the information at your hands to, in order to take things further, OK.\nPatient: <UNIN/>, thank you.\nDoctor: All the best. Take care now. Bye bye.\nPatient: <INAUDIBLE_SPEECH/>\n\n</transcript>\n\n<facts>\nf1: Patient is a 32-year-old man.  (evidence: \"I am thirty two years old.\")\nf2: Intermittent episodes of unusual symptoms started about one and a half to two months ago. The patient initially said about a month.  (evidence: \"probably a month and a half, maybe two months.\")\nf3: Symptoms began with episodes of marked tiredness lasting a couple of days, then returning to normal.  (evidence: \"it started with, feeling very tired, but for a couple of days, and then I get back to normal.\")\nf4: Episodic numbness and pins and needles in the hand, always the right hand.  (evidence: \"My right hand.\")\nf5: Arm weakness during episodes, lasting a few days and then resolving to normal.  (evidence: \"I feel like my arm is getting weaker, but it only lasts few days and then goes back to normal.\")\nf6: Leg weakness occurs at the same time as the arm symptoms. The side was not explicitly stated.  (evidence: \"at the same time I get my arm symptoms, my leg feels weaker.\")\nf7: Colleague noticed altered gait during episodes lasting 3-4 days. No gait abnormality outside episodes.  (evidence: \"my, colleague said, I'm walking slightly differently to normal.\")\nf8: Generally feels tired and weak over this period.  (evidence: \"I generally feel tired, and weak.\")\nf9: Intermittent nausea and lack of motivation.  (evidence: \"sometimes I feel nauseous, and I don't feel like I want to do anything.\")\nf10: Episodes are becoming more frequent: initially roughly weekly to monthly, now a couple of times a day.  (evidence: \"now it's getting uh, uh, a couple of times a day.\")\nf11: In the last couple of days, difficulty holding a coffee cup and drinking, only during episodes.  (evidence: \"recently I've noticed, I can't hold my cup of coffee.\")\nf12: No current difficulty swallowing. Sensation of something in the throat during episodes.  (evidence: \"I, I, I feel like there's something in my throat.\")\nf13: Denies speech difficulty during episodes.  (evidence: \"No, I can speak fine.\")\nf14: Does not think he has visual problems during episodes. Wears glasses.  (evidence: \"I don't think so, but I wear glasses.\")\nf15: Currently asymptomatic at the time of consultation.  (evidence: \"No, I'm perfectly fine at the moment.\")\nf16: Family history: father had neck (carotid) surgery to reduce stroke risk.  (evidence: \"My, father has had a, operation to the side of his neck, to reduce the risk of stroke.\")\nf17: No personal history of TIA or stroke.  (evidence: \"No, so after my, dad had his operation, I was required to be checked\")\nf18: Previously screened after father's operation: diabetes, blood pressure and cholesterol all reported normal.  (evidence: \"They checked my diabetes, my blood pressure and my, cholesterol, and the doctor said it was all OK.\")\nf19: No other medical illnesses. Normally fit and well.  (evidence: \"So normally, I'm, fit and well actually.\")\nf20: Takes aspirin 75 mg once daily, self-started after reading online following father's operation, to reduce stroke/heart attack risk. Not medically prescribed.  (evidence: \"I take an aspirin, seventy five milligrams, once a day, but that's, because of something I read on the internet.\")\nf21: Has not discussed aspirin use or its risks with a GP.  (evidence: \"has any GP ever spoken to you about, the risks of Aspirin, and whether you should be on it?\")\nf22: Allergic to penicillin. No other drug allergies.  (evidence: \"I'm allergic to penicillin only.\")\nf23: Works as a doctor in plastic surgery.  (evidence: \"I'm actually a doctor.\")\nf24: Lives with his wife.  (evidence: \"No, I live with my wife.\")\nf25: Non-smoker.  (evidence: \"do you smoke at all?\")\nf26: Video was lost; consultation continued audio-only with patient's agreement, so no visual assessment.  (evidence: \"Are you happy for us to carry on without the video? I can't see you at the moment.\")\nf27: Presumptive working diagnosis is TIA (mini-stroke), to be excluded despite young age given family history of stroke.  (evidence: \"They make me concerned about, mini-strokes or TIAs\")\nf28: Urgent referral to TIA clinic; expected to be seen within 1-2 days (by Thursday/Friday).  (evidence: \"they'll usually, call you in within the next one to two days\")\nf29: TIA clinic likely to do carotid artery ultrasound and possibly a brain scan to look for a bleed.  (evidence: \"ultrasound of the, carotid arteries, like your, your father had.\")\nf30: Advised this is urgent but not an immediate emergency needing A&E now.  (evidence: \"an immediate emergency that you need to rush down to A and E.\")\nf31: Safety-net: if symptoms return and are persistent or prolonged, go to A&E/hospital as soon as possible, as this could be a stroke.  (evidence: \"we want you to go to hospital in that instance, as soon as possible, OK.\")\nf32: Advised to contact the GP service if symptoms recur, for phone assessment and guidance.  (evidence: \"things happen again, feel free to contact us, we can assess you over the phone\")\nf33: PALS and TIA clinic phone numbers to be left in the consultation notes so the patient can chase the appointment.  (evidence: \"I'm going to leave that number in the notes for this consultation, OK.\")\nf34: Patient may ring the clinic this afternoon or tomorrow morning to confirm the referral is received and booked.  (evidence: \"you can ring them, either today or tomorrow morning.\")\nf35: Advised to contact the GP back if there is any delay, cannot make the appointment, or does not get called.  (evidence: \"you can't make the appointment or, you know, they, you don't get called.\")\n</facts>\n\n<rubric>\n# Severity rubric v1: how much would it matter if the note left this fact out?\n\nGrade the consequence of the omission for the patient and for the next clinician who reads the note. Grade the omission, not how dramatic the topic sounds. Grade each fact on its own, as if it were the only thing missing from an otherwise complete note.\n\n## Grades\n\n**critical**: leaving it out could change what a clinician does, delay or misdirect care, or create a safety risk. Typical cases:\n- the diagnosis or working impression, or a hedge on it (a \"possible\" diagnosis recorded as certain is just as serious)\n- any drug, dose, frequency, duration, allergy or interaction\n- a condition attached to the plan (\"only if it gets worse\")\n- safety-netting advice: when to return, call, or seek urgent care\n- an examination or test that was done, and its key result\n- a pertinent negative the management decision rests on (no fracture on X-ray, so no immobilisation beyond a splint)\n\n**supporting**: the note is less complete, clear or defensible without it, but what happens next is unlikely to change. Typical cases:\n- onset, timing, mechanism or character details that colour the picture without deciding the plan\n- what makes a symptom better or worse\n- background history or social context with no immediate action attached\n- a secondary symptom that neither supports nor threatens the diagnosis\n\n**peripheral**: no plausible clinical consequence. Typical cases:\n- small talk, rapport, thanks, administrative or dictation housekeeping (\"order the medications we discussed\")\n- general education phrasing\n- a restatement of something another fact on the list already says\n\n## Procedure\n\nAsk in order and stop at the first \"yes\":\n1. **Action**: would a competent clinician reading the note plausibly do something different if this fact were missing? Yes → critical.\n2. **Safety**: even if nothing changes today, does its absence remove a safety net or leave a hidden risk? Yes → critical.\n3. **Record quality**: does its absence materially weaken the note as a clinical record? Yes → supporting.\n4. Otherwise → peripheral.\n\nIf you are still torn between two grades, choose the lower one. Do not aim for any particular mix of grades.\n\n</rubric>\n\nGrade every fact on the list exactly once, using its id as given. Do not add, merge, split or drop facts, even ones you think are duplicates or unimportant; grade those as the rubric says.\n\nList the facts from most to least important: all critical facts first, then supporting, then peripheral, and within each grade the most important first.\n\nReply with only this JSON object, no other text:\n{\"facts\": [{\"id\": \"f3\", \"severity\": \"critical\", \"why\": \"<at most 15 words>\"}, {\"id\": \"f1\", \"severity\": \"supporting\", \"why\": \"...\"}]}\n",
+      "reply": "{\"facts\": [{\"id\": \"f27\", \"severity\": \"critical\", \"why\": \"Working diagnosis of TIA drives urgent referral and management.\"}, {\"id\": \"f28\", \"severity\": \"critical\", \"why\": \"Urgent TIA clinic referral and timeframe is the core plan.\"}, {\"id\": \"f31\", \"severity\": \"critical\", \"why\": \"Key safety-net: prolonged symptoms require immediate hospital attendance.\"}, {\"id\": \"f20\", \"severity\": \"critical\", \"why\": \"Self-started aspirin is relevant to brain imaging, bleed risk and TIA management.\"}, {\"id\": \"f22\", \"severity\": \"critical\", \"why\": \"Drug allergy must be recorded.\"}, {\"id\": \"f10\", \"severity\": \"critical\", \"why\": \"Crescendo episode frequency raises urgency of assessment.\"}, {\"id\": \"f4\", \"severity\": \"critical\", \"why\": \"Core focal neurological symptom, consistently right-sided, underpins the diagnosis.\"}, {\"id\": \"f5\", \"severity\": \"critical\", \"why\": \"Focal motor weakness is central to the TIA concern.\"}, {\"id\": \"f6\", \"severity\": \"critical\", \"why\": \"Leg weakness with arm symptoms suggests hemispheric involvement.\"}, {\"id\": \"f15\", \"severity\": \"critical\", \"why\": \"Currently asymptomatic determines TIA clinic rather than immediate A&E.\"}, {\"id\": \"f35\", \"severity\": \"critical\", \"why\": \"Safety-net for referral failure or missed appointment.\"}, {\"id\": \"f32\", \"severity\": \"critical\", \"why\": \"Safety-net advice to contact the service if symptoms recur.\"}, {\"id\": \"f26\", \"severity\": \"critical\", \"why\": \"No visual examination possible, so focal signs were not assessed.\"}, {\"id\": \"f11\", \"severity\": \"supporting\", \"why\": \"Recent functional hand difficulty adds to the focal deficit picture.\"}, {\"id\": \"f12\", \"severity\": \"supporting\", \"why\": \"Throat sensation during episodes; possible bulbar symptom detail.\"}, {\"id\": \"f16\", \"severity\": \"supporting\", \"why\": \"Family history of carotid disease contributed to the referral decision.\"}, {\"id\": \"f2\", \"severity\": \"supporting\", \"why\": \"Duration of the symptom history.\"}, {\"id\": \"f7\", \"severity\": \"supporting\", \"why\": \"Episodic gait change supports a motor deficit.\"}, {\"id\": \"f13\", \"severity\": \"supporting\", \"why\": \"Pertinent negative for speech involvement.\"}, {\"id\": \"f14\", \"severity\": \"supporting\", \"why\": \"Pertinent negative for visual symptoms.\"}, {\"id\": \"f21\", \"severity\": \"supporting\", \"why\": \"Unsupervised aspirin use not reviewed by a GP; context for review.\"}, {\"id\": \"f18\", \"severity\": \"supporting\", \"why\": \"Prior normal vascular risk screening is background context.\"}, {\"id\": \"f17\", \"severity\": \"supporting\", \"why\": \"No prior TIA or stroke; background history.\"}, {\"id\": \"f19\", \"severity\": \"supporting\", \"why\": \"No comorbidities; background history.\"}, {\"id\": \"f25\", \"severity\": \"supporting\", \"why\": \"Non-smoker; vascular risk factor context.\"}, {\"id\": \"f1\", \"severity\": \"supporting\", \"why\": \"Young age makes TIA atypical and broadens the differential.\"}, {\"id\": \"f29\", \"severity\": \"supporting\", \"why\": \"Anticipated clinic investigations explained to patient.\"}, {\"id\": \"f30\", \"severity\": \"supporting\", \"why\": \"Clarifies urgency level of the plan.\"}, {\"id\": \"f3\", \"severity\": \"supporting\", \"why\": \"Initial fatigue episodes colour the presentation.\"}, {\"id\": \"f8\", \"severity\": \"supporting\", \"why\": \"General tiredness and weakness; nonspecific symptom.\"}, {\"id\": \"f9\", \"severity\": \"supporting\", \"why\": \"Nausea and low motivation; secondary nonspecific symptoms.\"}, {\"id\": \"f33\", \"severity\": \"supporting\", \"why\": \"Contact numbers enable chasing the urgent referral.\"}, {\"id\": \"f34\", \"severity\": \"peripheral\", \"why\": \"Optional call to confirm booking; administrative.\"}, {\"id\": \"f23\", \"severity\": \"peripheral\", \"why\": \"Occupation is social context with no clinical consequence.\"}, {\"id\": \"f24\", \"severity\": \"peripheral\", \"why\": \"Living situation is minor social context.\"}]}"
+    },
+    {
+      "step": "check",
+      "prompt": "You are an experienced clinician auditing a clinical note for omissions. Below are a clinical note and a numbered list of facts that were established in the consultation the note was written from. For each fact, decide how fully the note records it.\n\n<note>\n(the above consultation reason doesn't correlate with the patient's presentation)\nRemote consultation- video lost early on, continued audio-only with pt's agreement, so no examination performed. Pt gave age 32; DOB not obtained.\nHx: pt describes 'weird' episodic symptoms that he cannot explain himself, which prompted him to seek help- episodes of unilateral right hand/arm loss of feeling and pins and needles (pins and needles confined to the hand), with some arm and leg weakness (side of leg not specified) and gait disturbance noticed by his colleague lasting 3-4 days, duration uncertain- initially agreed with 'about a month', then estimated 1.5-2 months himself\noccurring with increasing frequency- initially once a week to once a month, now a couple of times a day\nalso generally tired, weak and nauseated over this period; in the last couple of days unable to hold his coffee cup and slightly harder to drink, during episodes only\nsymptoms not present now, and normally fit and well between episodes\nno dysphagia currently, though describes a sensation of something in his throat during episodes; no dysphasia; no visual symptoms during episodes (wears glasses)\nno Pmhx of CVA/TIA\nFather had an operation to the side of his neck to reduce stroke risk\nNon smoker, normal diabetes/ cholesterol/ BP checks when screened after his father's operation\nPMHx: no other illnesses; wider FH not asked about\nDH PT IS TAKING Aspirin 75mg OD on his own accord, self-started after his father's operation on the basis of something he read online in the belief it reduces the risk of stroke and heart attack, never previously discussed with a GP- no change made today\nSH: pt is a medical doctor, plastic surgeon, lives with wife; no ideas or concerns of his own as to the cause\nImp: presumptive/ working diagnosis TIAs- to be excluded rather than established, despite young age\nPlan: needs to be seen urgently in TIA clinic- will send referral now. Clinic expected to call within 1-2 days; today is Wednesday, ie seen by Thurs/Fri. Carotid USS +/- brain imaging anticipated at clinic- nothing arranged or performed today. PALS no and TIA clinic no to be left in these consultation notes so pt can chase the appointment- advised he can ring the clinic himself later today (after waiting an hour or two) or tomorrow am to confirm he is in the system and booked in, and to contact us again if any delay or he is not called\nIf any prolonged symptoms occur- to attend A/E asap; not an immediate emergency today\n</note>\n\n<facts>\nf27: Presumptive working diagnosis is TIA (mini-stroke), to be excluded despite young age given family history of stroke.\nf28: Urgent referral to TIA clinic; expected to be seen within 1-2 days (by Thursday/Friday).\nf31: Safety-net: if symptoms return and are persistent or prolonged, go to A&E/hospital as soon as possible, as this could be a stroke.\nf20: Takes aspirin 75 mg once daily, self-started after reading online following father's operation, to reduce stroke/heart attack risk. Not medically prescribed.\nf22: Allergic to penicillin. No other drug allergies.\nf10: Episodes are becoming more frequent: initially roughly weekly to monthly, now a couple of times a day.\nf4: Episodic numbness and pins and needles in the hand, always the right hand.\nf5: Arm weakness during episodes, lasting a few days and then resolving to normal.\nf6: Leg weakness occurs at the same time as the arm symptoms. The side was not explicitly stated.\nf15: Currently asymptomatic at the time of consultation.\nf35: Advised to contact the GP back if there is any delay, cannot make the appointment, or does not get called.\nf32: Advised to contact the GP service if symptoms recur, for phone assessment and guidance.\nf26: Video was lost; consultation continued audio-only with patient's agreement, so no visual assessment.\nf11: In the last couple of days, difficulty holding a coffee cup and drinking, only during episodes.\nf12: No current difficulty swallowing. Sensation of something in the throat during episodes.\nf16: Family history: father had neck (carotid) surgery to reduce stroke risk.\nf2: Intermittent episodes of unusual symptoms started about one and a half to two months ago. The patient initially said about a month.\nf7: Colleague noticed altered gait during episodes lasting 3-4 days. No gait abnormality outside episodes.\nf13: Denies speech difficulty during episodes.\nf14: Does not think he has visual problems during episodes. Wears glasses.\nf21: Has not discussed aspirin use or its risks with a GP.\nf18: Previously screened after father's operation: diabetes, blood pressure and cholesterol all reported normal.\nf17: No personal history of TIA or stroke.\nf19: No other medical illnesses. Normally fit and well.\nf25: Non-smoker.\nf1: Patient is a 32-year-old man.\nf29: TIA clinic likely to do carotid artery ultrasound and possibly a brain scan to look for a bleed.\nf30: Advised this is urgent but not an immediate emergency needing A&E now.\nf3: Symptoms began with episodes of marked tiredness lasting a couple of days, then returning to normal.\nf8: Generally feels tired and weak over this period.\nf9: Intermittent nausea and lack of motivation.\nf33: PALS and TIA clinic phone numbers to be left in the consultation notes so the patient can chase the appointment.\nf34: Patient may ring the clinic this afternoon or tomorrow morning to confirm the referral is received and booked.\nf23: Works as a doctor in plastic surgery.\nf24: Lives with his wife.\n</facts>\n\nFor each fact, answer with one of:\n- \"present\": the note records the fact and everything clinically important about it. Wording may differ: a faithful paraphrase, an abbreviation, a correct unit conversion, or the fact appearing in an unexpected section all count as present.\n- \"partial\": the note mentions the fact but loses something that matters, such as a dose, frequency, duration, side, body site or timing; a hedge or condition dropped or made definite; an explicit denial turned into silence; or only one of the fact's parts recorded.\n- \"absent\": the note does not record the fact in any form. If the note says the opposite of the fact, answer \"absent\".\n\nJudge each fact on its own. Ignore the note's style, length and order. Do not use \"partial\" to express uncertainty: if the whole fact is there, say \"present\"; if none of it is, say \"absent\".\n\nFor \"present\" or \"partial\", give as \"quote\" the passage of the note that records the fact, copied word for word (at most 40 words). For \"absent\", set \"quote\" to null.\n\nAlso give \"missing_confidence\": a whole number from 0 to 100 for how confident you are that the note does NOT fully record the fact (that is, that it is partial or absent). 0 means certain it is fully recorded, 100 means certain it is not, 50 means you cannot tell. Use the whole range: reserve values near 0 and 100 for cases you are sure of, and give lower values when the note may record the fact in words you are unsure about.\n\nReply with only this JSON object, no other text, with one entry for every fact in the list:\n{\"facts\": [{\"id\": \"f1\", \"verdict\": \"present\", \"quote\": \"...\", \"missing_confidence\": 5}]}\n",
+      "reply": "{\"facts\": [\n{\"id\": \"f27\", \"verdict\": \"partial\", \"quote\": \"Imp: presumptive/ working diagnosis TIAs- to be excluded rather than established, despite young age\", \"missing_confidence\": 60},\n{\"id\": \"f28\", \"verdict\": \"present\", \"quote\": \"needs to be seen urgently in TIA clinic- will send referral now. Clinic expected to call within 1-2 days; today is Wednesday, ie seen by Thurs/Fri.\", \"missing_confidence\": 5},\n{\"id\": \"f31\", \"verdict\": \"partial\", \"quote\": \"If any prolonged symptoms occur- to attend A/E asap\", \"missing_confidence\": 55},\n{\"id\": \"f20\", \"verdict\": \"present\", \"quote\": \"Aspirin 75mg OD on his own accord, self-started after his father's operation on the basis of something he read online in the belief it reduces the risk of stroke and heart attack\", \"missing_confidence\": 5},\n{\"id\": \"f22\", \"verdict\": \"absent\", \"quote\": null, \"missing_confidence\": 97},\n{\"id\": \"f10\", \"verdict\": \"present\", \"quote\": \"occurring with increasing frequency- initially once a week to once a month, now a couple of times a day\", \"missing_confidence\": 4},\n{\"id\": \"f4\", \"verdict\": \"present\", \"quote\": \"episodes of unilateral right hand/arm loss of feeling and pins and needles (pins and needles confined to the hand)\", \"missing_confidence\": 12},\n{\"id\": \"f5\", \"verdict\": \"partial\", \"quote\": \"with some arm and leg weakness (side of leg not specified) and gait disturbance noticed by his colleague lasting 3-4 days\", \"missing_confidence\": 55},\n{\"id\": \"f6\", \"verdict\": \"present\", \"quote\": \"with some arm and leg weakness (side of leg not specified)\", \"missing_confidence\": 20},\n{\"id\": \"f15\", \"verdict\": \"present\", \"quote\": \"symptoms not present now\", \"missing_confidence\": 4},\n{\"id\": \"f35\", \"verdict\": \"partial\", \"quote\": \"to contact us again if any delay or he is not called\", \"missing_confidence\": 45},\n{\"id\": \"f32\", \"verdict\": \"absent\", \"quote\": null, \"missing_confidence\": 85},\n{\"id\": \"f26\", \"verdict\": \"present\", \"quote\": \"video lost early on, continued audio-only with pt's agreement, so no examination performed.\", \"missing_confidence\": 5},\n{\"id\": \"f11\", \"verdict\": \"present\", \"quote\": \"in the last couple of days unable to hold his coffee cup and slightly harder to drink, during episodes only\", \"missing_confidence\": 5},\n{\"id\": \"f12\", \"verdict\": \"present\", \"quote\": \"no dysphagia currently, though describes a sensation of something in his throat during episodes\", \"missing_confidence\": 4},\n{\"id\": \"f16\", \"verdict\": \"present\", \"quote\": \"Father had an operation to the side of his neck to reduce stroke risk\", \"missing_confidence\": 8},\n{\"id\": \"f2\", \"verdict\": \"present\", \"quote\": \"duration uncertain- initially agreed with 'about a month', then estimated 1.5-2 months himself\", \"missing_confidence\": 8},\n{\"id\": \"f7\", \"verdict\": \"partial\", \"quote\": \"gait disturbance noticed by his colleague lasting 3-4 days\", \"missing_confidence\": 55},\n{\"id\": \"f13\", \"verdict\": \"present\", \"quote\": \"no dysphasia\", \"missing_confidence\": 12},\n{\"id\": \"f14\", \"verdict\": \"present\", \"quote\": \"no visual symptoms during episodes (wears glasses)\", \"missing_confidence\": 12},\n{\"id\": \"f21\", \"verdict\": \"present\", \"quote\": \"never previously discussed with a GP\", \"missing_confidence\": 8},\n{\"id\": \"f18\", \"verdict\": \"present\", \"quote\": \"normal diabetes/ cholesterol/ BP checks when screened after his father's operation\", \"missing_confidence\": 4},\n{\"id\": \"f17\", \"verdict\": \"present\", \"quote\": \"no Pmhx of CVA/TIA\", \"missing_confidence\": 4},\n{\"id\": \"f19\", \"verdict\": \"present\", \"quote\": \"PMHx: no other illnesses\", \"missing_confidence\": 8},\n{\"id\": \"f25\", \"verdict\": \"present\", \"quote\": \"Non smoker\", \"missing_confidence\": 3},\n{\"id\": \"f1\", \"verdict\": \"present\", \"quote\": \"Pt gave age 32\", \"missing_confidence\": 8},\n{\"id\": \"f29\", \"verdict\": \"partial\", \"quote\": \"Carotid USS +/- brain imaging anticipated at clinic\", \"missing_confidence\": 40},\n{\"id\": \"f30\", \"verdict\": \"present\", \"quote\": \"not an immediate emergency today\", \"missing_confidence\": 15},\n{\"id\": \"f3\", \"verdict\": \"absent\", \"quote\": null, \"missing_confidence\": 80},\n{\"id\": \"f8\", \"verdict\": \"present\", \"quote\": \"also generally tired, weak and nauseated over this period\", \"missing_confidence\": 6},\n{\"id\": \"f9\", \"verdict\": \"partial\", \"quote\": \"also generally tired, weak and nauseated over this period\", \"missing_confidence\": 70},\n{\"id\": \"f33\", \"verdict\": \"present\", \"quote\": \"PALS no and TIA clinic no to be left in these consultation notes so pt can chase the appointment\", \"missing_confidence\": 4},\n{\"id\": \"f34\", \"verdict\": \"present\", \"quote\": \"advised he can ring the clinic himself later today (after waiting an hour or two) or tomorrow am to confirm he is in the system and booked in\", \"missing_confidence\": 6},\n{\"id\": \"f23\", \"verdict\": \"present\", \"quote\": \"pt is a medical doctor, plastic surgeon\", \"missing_confidence\": 3},\n{\"id\": \"f24\", \"verdict\": \"present\", \"quote\": \"lives with wife\", \"missing_confidence\": 3}\n]}"
+    },
+    {
+      "step": "refute",
+      "prompt": "You are an experienced clinician double-checking an audit of a clinical note. A first reviewer judged that the note leaves out, or only partly records, each fact listed below. Check each judgement against the note yourself.\n\n<note>\n(the above consultation reason doesn't correlate with the patient's presentation)\nRemote consultation- video lost early on, continued audio-only with pt's agreement, so no examination performed. Pt gave age 32; DOB not obtained.\nHx: pt describes 'weird' episodic symptoms that he cannot explain himself, which prompted him to seek help- episodes of unilateral right hand/arm loss of feeling and pins and needles (pins and needles confined to the hand), with some arm and leg weakness (side of leg not specified) and gait disturbance noticed by his colleague lasting 3-4 days, duration uncertain- initially agreed with 'about a month', then estimated 1.5-2 months himself\noccurring with increasing frequency- initially once a week to once a month, now a couple of times a day\nalso generally tired, weak and nauseated over this period; in the last couple of days unable to hold his coffee cup and slightly harder to drink, during episodes only\nsymptoms not present now, and normally fit and well between episodes\nno dysphagia currently, though describes a sensation of something in his throat during episodes; no dysphasia; no visual symptoms during episodes (wears glasses)\nno Pmhx of CVA/TIA\nFather had an operation to the side of his neck to reduce stroke risk\nNon smoker, normal diabetes/ cholesterol/ BP checks when screened after his father's operation\nPMHx: no other illnesses; wider FH not asked about\nDH PT IS TAKING Aspirin 75mg OD on his own accord, self-started after his father's operation on the basis of something he read online in the belief it reduces the risk of stroke and heart attack, never previously discussed with a GP- no change made today\nSH: pt is a medical doctor, plastic surgeon, lives with wife; no ideas or concerns of his own as to the cause\nImp: presumptive/ working diagnosis TIAs- to be excluded rather than established, despite young age\nPlan: needs to be seen urgently in TIA clinic- will send referral now. Clinic expected to call within 1-2 days; today is Wednesday, ie seen by Thurs/Fri. Carotid USS +/- brain imaging anticipated at clinic- nothing arranged or performed today. PALS no and TIA clinic no to be left in these consultation notes so pt can chase the appointment- advised he can ring the clinic himself later today (after waiting an hour or two) or tomorrow am to confirm he is in the system and booked in, and to contact us again if any delay or he is not called\nIf any prolonged symptoms occur- to attend A/E asap; not an immediate emergency today\n</note>\n\n<flagged_facts>\nf27: Presumptive working diagnosis is TIA (mini-stroke), to be excluded despite young age given family history of stroke.\nf31: Safety-net: if symptoms return and are persistent or prolonged, go to A&E/hospital as soon as possible, as this could be a stroke.\nf22: Allergic to penicillin. No other drug allergies.\nf5: Arm weakness during episodes, lasting a few days and then resolving to normal.\nf35: Advised to contact the GP back if there is any delay, cannot make the appointment, or does not get called.\nf32: Advised to contact the GP service if symptoms recur, for phone assessment and guidance.\nf7: Colleague noticed altered gait during episodes lasting 3-4 days. No gait abnormality outside episodes.\nf29: TIA clinic likely to do carotid artery ultrasound and possibly a brain scan to look for a bleed.\nf3: Symptoms began with episodes of marked tiredness lasting a couple of days, then returning to normal.\nf9: Intermittent nausea and lack of motivation.\n</flagged_facts>\n\nFor each fact, read the whole note, including sections where you would not expect it, and decide:\n- \"full\": the note records the fact and everything clinically important about it, possibly paraphrased or in another section.\n- \"partial\": the note records part of the fact but loses something that matters, such as a dose, frequency, duration, side, timing or condition.\n- \"no\": the note does not record the fact, or says something different.\n\nThe first reviewer may be right. Do not stretch a loosely related sentence to cover a fact: a different instruction, finding or time frame is not the same fact.\n\nFor \"full\" or \"partial\", give as \"quote\" the passage of the note that records the fact, copied word for word. For \"no\", set \"quote\" to null. Answer every fact id exactly once.\n\nReply with only this JSON object, no other text:\n{\"facts\": [{\"id\": \"f2\", \"found\": \"full\", \"quote\": \"...\"}, {\"id\": \"f5\", \"found\": \"no\", \"quote\": null}]}\n",
+      "reply": "{\"facts\": [{\"id\": \"f27\", \"found\": \"partial\", \"quote\": \"Imp: presumptive/ working diagnosis TIAs- to be excluded rather than established, despite young age\"}, {\"id\": \"f31\", \"found\": \"full\", \"quote\": \"If any prolonged symptoms occur- to attend A/E asap; not an immediate emergency today\"}, {\"id\": \"f22\", \"found\": \"no\", \"quote\": null}, {\"id\": \"f5\", \"found\": \"full\", \"quote\": \"with some arm and leg weakness (side of leg not specified) and gait disturbance noticed by his colleague lasting 3-4 days\"}, {\"id\": \"f35\", \"found\": \"partial\", \"quote\": \"to contact us again if any delay or he is not called\"}, {\"id\": \"f32\", \"found\": \"no\", \"quote\": null}, {\"id\": \"f7\", \"found\": \"full\", \"quote\": \"gait disturbance noticed by his colleague lasting 3-4 days\"}, {\"id\": \"f29\", \"found\": \"full\", \"quote\": \"Carotid USS +/- brain imaging anticipated at clinic\"}, {\"id\": \"f3\", \"found\": \"partial\", \"quote\": \"also generally tired, weak and nauseated over this period\"}, {\"id\": \"f9\", \"found\": \"partial\", \"quote\": \"also generally tired, weak and nauseated over this period\"}]}"
+    }
+  ],
+  "expected": {
+    "facts": [
+      {
+        "id": "f27",
+        "fact": "Presumptive working diagnosis is TIA (mini-stroke), to be excluded despite young age given family history of stroke.",
+        "evidence": "They make me concerned about, mini-strokes or TIAs",
+        "evidence_found": true,
+        "severity": "critical",
+        "rank": 1,
+        "rationale": "Working diagnosis of TIA drives urgent referral and management."
+      },
+      {
+        "id": "f28",
+        "fact": "Urgent referral to TIA clinic; expected to be seen within 1-2 days (by Thursday/Friday).",
+        "evidence": "they'll usually, call you in within the next one to two days",
+        "evidence_found": true,
+        "severity": "critical",
+        "rank": 2,
+        "rationale": "Urgent TIA clinic referral and timeframe is the core plan."
+      },
+      {
+        "id": "f31",
+        "fact": "Safety-net: if symptoms return and are persistent or prolonged, go to A&E/hospital as soon as possible, as this could be a stroke.",
+        "evidence": "we want you to go to hospital in that instance, as soon as possible, OK.",
+        "evidence_found": true,
+        "severity": "critical",
+        "rank": 3,
+        "rationale": "Key safety-net: prolonged symptoms require immediate hospital attendance."
+      },
+      {
+        "id": "f20",
+        "fact": "Takes aspirin 75 mg once daily, self-started after reading online following father's operation, to reduce stroke/heart attack risk. Not medically prescribed.",
+        "evidence": "I take an aspirin, seventy five milligrams, once a day, but that's, because of something I read on the internet.",
+        "evidence_found": true,
+        "severity": "critical",
+        "rank": 4,
+        "rationale": "Self-started aspirin is relevant to brain imaging, bleed risk and TIA management."
+      },
+      {
+        "id": "f22",
+        "fact": "Allergic to penicillin. No other drug allergies.",
+        "evidence": "I'm allergic to penicillin only.",
+        "evidence_found": true,
+        "severity": "critical",
+        "rank": 5,
+        "rationale": "Drug allergy must be recorded."
+      },
+      {
+        "id": "f10",
+        "fact": "Episodes are becoming more frequent: initially roughly weekly to monthly, now a couple of times a day.",
+        "evidence": "now it's getting uh, uh, a couple of times a day.",
+        "evidence_found": true,
+        "severity": "critical",
+        "rank": 6,
+        "rationale": "Crescendo episode frequency raises urgency of assessment."
+      },
+      {
+        "id": "f4",
+        "fact": "Episodic numbness and pins and needles in the hand, always the right hand.",
+        "evidence": "My right hand.",
+        "evidence_found": true,
+        "severity": "critical",
+        "rank": 7,
+        "rationale": "Core focal neurological symptom, consistently right-sided, underpins the diagnosis."
+      },
+      {
+        "id": "f5",
+        "fact": "Arm weakness during episodes, lasting a few days and then resolving to normal.",
+        "evidence": "I feel like my arm is getting weaker, but it only lasts few days and then goes back to normal.",
+        "evidence_found": true,
+        "severity": "critical",
+        "rank": 8,
+        "rationale": "Focal motor weakness is central to the TIA concern."
+      },
+      {
+        "id": "f6",
+        "fact": "Leg weakness occurs at the same time as the arm symptoms. The side was not explicitly stated.",
+        "evidence": "at the same time I get my arm symptoms, my leg feels weaker.",
+        "evidence_found": true,
+        "severity": "critical",
+        "rank": 9,
+        "rationale": "Leg weakness with arm symptoms suggests hemispheric involvement."
+      },
+      {
+        "id": "f15",
+        "fact": "Currently asymptomatic at the time of consultation.",
+        "evidence": "No, I'm perfectly fine at the moment.",
+        "evidence_found": true,
+        "severity": "critical",
+        "rank": 10,
+        "rationale": "Currently asymptomatic determines TIA clinic rather than immediate A&E."
+      },
+      {
+        "id": "f35",
+        "fact": "Advised to contact the GP back if there is any delay, cannot make the appointment, or does not get called.",
+        "evidence": "you can't make the appointment or, you know, they, you don't get called.",
+        "evidence_found": true,
+        "severity": "critical",
+        "rank": 11,
+        "rationale": "Safety-net for referral failure or missed appointment."
+      },
+      {
+        "id": "f32",
+        "fact": "Advised to contact the GP service if symptoms recur, for phone assessment and guidance.",
+        "evidence": "things happen again, feel free to contact us, we can assess you over the phone",
+        "evidence_found": true,
+        "severity": "critical",
+        "rank": 12,
+        "rationale": "Safety-net advice to contact the service if symptoms recur."
+      },
+      {
+        "id": "f26",
+        "fact": "Video was lost; consultation continued audio-only with patient's agreement, so no visual assessment.",
+        "evidence": "Are you happy for us to carry on without the video? I can't see you at the moment.",
+        "evidence_found": true,
+        "severity": "critical",
+        "rank": 13,
+        "rationale": "No visual examination possible, so focal signs were not assessed."
+      },
+      {
+        "id": "f11",
+        "fact": "In the last couple of days, difficulty holding a coffee cup and drinking, only during episodes.",
+        "evidence": "recently I've noticed, I can't hold my cup of coffee.",
+        "evidence_found": true,
+        "severity": "supporting",
+        "rank": 14,
+        "rationale": "Recent functional hand difficulty adds to the focal deficit picture."
+      },
+      {
+        "id": "f12",
+        "fact": "No current difficulty swallowing. Sensation of something in the throat during episodes.",
+        "evidence": "I, I, I feel like there's something in my throat.",
+        "evidence_found": true,
+        "severity": "supporting",
+        "rank": 15,
+        "rationale": "Throat sensation during episodes; possible bulbar symptom detail."
+      },
+      {
+        "id": "f16",
+        "fact": "Family history: father had neck (carotid) surgery to reduce stroke risk.",
+        "evidence": "My, father has had a, operation to the side of his neck, to reduce the risk of stroke.",
+        "evidence_found": true,
+        "severity": "supporting",
+        "rank": 16,
+        "rationale": "Family history of carotid disease contributed to the referral decision."
+      },
+      {
+        "id": "f2",
+        "fact": "Intermittent episodes of unusual symptoms started about one and a half to two months ago. The patient initially said about a month.",
+        "evidence": "probably a month and a half, maybe two months.",
+        "evidence_found": true,
+        "severity": "supporting",
+        "rank": 17,
+        "rationale": "Duration of the symptom history."
+      },
+      {
+        "id": "f7",
+        "fact": "Colleague noticed altered gait during episodes lasting 3-4 days. No gait abnormality outside episodes.",
+        "evidence": "my, colleague said, I'm walking slightly differently to normal.",
+        "evidence_found": true,
+        "severity": "supporting",
+        "rank": 18,
+        "rationale": "Episodic gait change supports a motor deficit."
+      },
+      {
+        "id": "f13",
+        "fact": "Denies speech difficulty during episodes.",
+        "evidence": "No, I can speak fine.",
+        "evidence_found": true,
+        "severity": "supporting",
+        "rank": 19,
+        "rationale": "Pertinent negative for speech involvement."
+      },
+      {
+        "id": "f14",
+        "fact": "Does not think he has visual problems during episodes. Wears glasses.",
+        "evidence": "I don't think so, but I wear glasses.",
+        "evidence_found": true,
+        "severity": "supporting",
+        "rank": 20,
+        "rationale": "Pertinent negative for visual symptoms."
+      },
+      {
+        "id": "f21",
+        "fact": "Has not discussed aspirin use or its risks with a GP.",
+        "evidence": "has any GP ever spoken to you about, the risks of Aspirin, and whether you should be on it?",
+        "evidence_found": true,
+        "severity": "supporting",
+        "rank": 21,
+        "rationale": "Unsupervised aspirin use not reviewed by a GP; context for review."
+      },
+      {
+        "id": "f18",
+        "fact": "Previously screened after father's operation: diabetes, blood pressure and cholesterol all reported normal.",
+        "evidence": "They checked my diabetes, my blood pressure and my, cholesterol, and the doctor said it was all OK.",
+        "evidence_found": true,
+        "severity": "supporting",
+        "rank": 22,
+        "rationale": "Prior normal vascular risk screening is background context."
+      },
+      {
+        "id": "f17",
+        "fact": "No personal history of TIA or stroke.",
+        "evidence": "No, so after my, dad had his operation, I was required to be checked",
+        "evidence_found": true,
+        "severity": "supporting",
+        "rank": 23,
+        "rationale": "No prior TIA or stroke; background history."
+      },
+      {
+        "id": "f19",
+        "fact": "No other medical illnesses. Normally fit and well.",
+        "evidence": "So normally, I'm, fit and well actually.",
+        "evidence_found": true,
+        "severity": "supporting",
+        "rank": 24,
+        "rationale": "No comorbidities; background history."
+      },
+      {
+        "id": "f25",
+        "fact": "Non-smoker.",
+        "evidence": "do you smoke at all?",
+        "evidence_found": true,
+        "severity": "supporting",
+        "rank": 25,
+        "rationale": "Non-smoker; vascular risk factor context."
+      },
+      {
+        "id": "f1",
+        "fact": "Patient is a 32-year-old man.",
+        "evidence": "I am thirty two years old.",
+        "evidence_found": true,
+        "severity": "supporting",
+        "rank": 26,
+        "rationale": "Young age makes TIA atypical and broadens the differential."
+      },
+      {
+        "id": "f29",
+        "fact": "TIA clinic likely to do carotid artery ultrasound and possibly a brain scan to look for a bleed.",
+        "evidence": "ultrasound of the, carotid arteries, like your, your father had.",
+        "evidence_found": true,
+        "severity": "supporting",
+        "rank": 27,
+        "rationale": "Anticipated clinic investigations explained to patient."
+      },
+      {
+        "id": "f30",
+        "fact": "Advised this is urgent but not an immediate emergency needing A&E now.",
+        "evidence": "an immediate emergency that you need to rush down to A and E.",
+        "evidence_found": true,
+        "severity": "supporting",
+        "rank": 28,
+        "rationale": "Clarifies urgency level of the plan."
+      },
+      {
+        "id": "f3",
+        "fact": "Symptoms began with episodes of marked tiredness lasting a couple of days, then returning to normal.",
+        "evidence": "it started with, feeling very tired, but for a couple of days, and then I get back to normal.",
+        "evidence_found": true,
+        "severity": "supporting",
+        "rank": 29,
+        "rationale": "Initial fatigue episodes colour the presentation."
+      },
+      {
+        "id": "f8",
+        "fact": "Generally feels tired and weak over this period.",
+        "evidence": "I generally feel tired, and weak.",
+        "evidence_found": true,
+        "severity": "supporting",
+        "rank": 30,
+        "rationale": "General tiredness and weakness; nonspecific symptom."
+      },
+      {
+        "id": "f9",
+        "fact": "Intermittent nausea and lack of motivation.",
+        "evidence": "sometimes I feel nauseous, and I don't feel like I want to do anything.",
+        "evidence_found": true,
+        "severity": "supporting",
+        "rank": 31,
+        "rationale": "Nausea and low motivation; secondary nonspecific symptoms."
+      },
+      {
+        "id": "f33",
+        "fact": "PALS and TIA clinic phone numbers to be left in the consultation notes so the patient can chase the appointment.",
+        "evidence": "I'm going to leave that number in the notes for this consultation, OK.",
+        "evidence_found": true,
+        "severity": "supporting",
+        "rank": 32,
+        "rationale": "Contact numbers enable chasing the urgent referral."
+      },
+      {
+        "id": "f34",
+        "fact": "Patient may ring the clinic this afternoon or tomorrow morning to confirm the referral is received and booked.",
+        "evidence": "you can ring them, either today or tomorrow morning.",
+        "evidence_found": true,
+        "severity": "peripheral",
+        "rank": 33,
+        "rationale": "Optional call to confirm booking; administrative."
+      },
+      {
+        "id": "f23",
+        "fact": "Works as a doctor in plastic surgery.",
+        "evidence": "I'm actually a doctor.",
+        "evidence_found": true,
+        "severity": "peripheral",
+        "rank": 34,
+        "rationale": "Occupation is social context with no clinical consequence."
+      },
+      {
+        "id": "f24",
+        "fact": "Lives with his wife.",
+        "evidence": "No, I live with my wife.",
+        "evidence_found": true,
+        "severity": "peripheral",
+        "rank": 35,
+        "rationale": "Living situation is minor social context."
+      }
+    ],
+    "verdicts": [
+      {
+        "fact_id": "f27",
+        "label": "partial",
+        "quote": "Imp: presumptive/ working diagnosis TIAs- to be excluded rather than established, despite young age",
+        "quote_found": true,
+        "score": 0.6
+      },
+      {
+        "fact_id": "f28",
+        "label": "present",
+        "quote": "needs to be seen urgently in TIA clinic- will send referral now. Clinic expected to call within 1-2 days; today is Wednesday, ie seen by Thurs/Fri.",
+        "quote_found": true,
+        "score": 0.05
+      },
+      {
+        "fact_id": "f31",
+        "label": "present",
+        "quote": "If any prolonged symptoms occur- to attend A/E asap; not an immediate emergency today",
+        "quote_found": true,
+        "score": 0.55
+      },
+      {
+        "fact_id": "f20",
+        "label": "present",
+        "quote": "Aspirin 75mg OD on his own accord, self-started after his father's operation on the basis of something he read online in the belief it reduces the risk of stroke and heart attack",
+        "quote_found": true,
+        "score": 0.05
+      },
+      {
+        "fact_id": "f22",
+        "label": "absent",
+        "quote": null,
+        "quote_found": null,
+        "score": 0.97
+      },
+      {
+        "fact_id": "f10",
+        "label": "present",
+        "quote": "occurring with increasing frequency- initially once a week to once a month, now a couple of times a day",
+        "quote_found": true,
+        "score": 0.04
+      },
+      {
+        "fact_id": "f4",
+        "label": "present",
+        "quote": "episodes of unilateral right hand/arm loss of feeling and pins and needles (pins and needles confined to the hand)",
+        "quote_found": true,
+        "score": 0.12
+      },
+      {
+        "fact_id": "f5",
+        "label": "present",
+        "quote": "with some arm and leg weakness (side of leg not specified) and gait disturbance noticed by his colleague lasting 3-4 days",
+        "quote_found": true,
+        "score": 0.55
+      },
+      {
+        "fact_id": "f6",
+        "label": "present",
+        "quote": "with some arm and leg weakness (side of leg not specified)",
+        "quote_found": true,
+        "score": 0.2
+      },
+      {
+        "fact_id": "f15",
+        "label": "present",
+        "quote": "symptoms not present now",
+        "quote_found": true,
+        "score": 0.04
+      },
+      {
+        "fact_id": "f35",
+        "label": "partial",
+        "quote": "to contact us again if any delay or he is not called",
+        "quote_found": true,
+        "score": 0.45
+      },
+      {
+        "fact_id": "f32",
+        "label": "absent",
+        "quote": null,
+        "quote_found": null,
+        "score": 0.85
+      },
+      {
+        "fact_id": "f26",
+        "label": "present",
+        "quote": "video lost early on, continued audio-only with pt's agreement, so no examination performed.",
+        "quote_found": true,
+        "score": 0.05
+      },
+      {
+        "fact_id": "f11",
+        "label": "present",
+        "quote": "in the last couple of days unable to hold his coffee cup and slightly harder to drink, during episodes only",
+        "quote_found": true,
+        "score": 0.05
+      },
+      {
+        "fact_id": "f12",
+        "label": "present",
+        "quote": "no dysphagia currently, though describes a sensation of something in his throat during episodes",
+        "quote_found": true,
+        "score": 0.04
+      },
+      {
+        "fact_id": "f16",
+        "label": "present",
+        "quote": "Father had an operation to the side of his neck to reduce stroke risk",
+        "quote_found": true,
+        "score": 0.08
+      },
+      {
+        "fact_id": "f2",
+        "label": "present",
+        "quote": "duration uncertain- initially agreed with 'about a month', then estimated 1.5-2 months himself",
+        "quote_found": true,
+        "score": 0.08
+      },
+      {
+        "fact_id": "f7",
+        "label": "present",
+        "quote": "gait disturbance noticed by his colleague lasting 3-4 days",
+        "quote_found": true,
+        "score": 0.55
+      },
+      {
+        "fact_id": "f13",
+        "label": "present",
+        "quote": "no dysphasia",
+        "quote_found": true,
+        "score": 0.12
+      },
+      {
+        "fact_id": "f14",
+        "label": "present",
+        "quote": "no visual symptoms during episodes (wears glasses)",
+        "quote_found": true,
+        "score": 0.12
+      },
+      {
+        "fact_id": "f21",
+        "label": "present",
+        "quote": "never previously discussed with a GP",
+        "quote_found": true,
+        "score": 0.08
+      },
+      {
+        "fact_id": "f18",
+        "label": "present",
+        "quote": "normal diabetes/ cholesterol/ BP checks when screened after his father's operation",
+        "quote_found": true,
+        "score": 0.04
+      },
+      {
+        "fact_id": "f17",
+        "label": "present",
+        "quote": "no Pmhx of CVA/TIA",
+        "quote_found": true,
+        "score": 0.04
+      },
+      {
+        "fact_id": "f19",
+        "label": "present",
+        "quote": "PMHx: no other illnesses",
+        "quote_found": true,
+        "score": 0.08
+      },
+      {
+        "fact_id": "f25",
+        "label": "present",
+        "quote": "Non smoker",
+        "quote_found": true,
+        "score": 0.03
+      },
+      {
+        "fact_id": "f1",
+        "label": "present",
+        "quote": "Pt gave age 32",
+        "quote_found": true,
+        "score": 0.08
+      },
+      {
+        "fact_id": "f29",
+        "label": "present",
+        "quote": "Carotid USS +/- brain imaging anticipated at clinic",
+        "quote_found": true,
+        "score": 0.4
+      },
+      {
+        "fact_id": "f30",
+        "label": "present",
+        "quote": "not an immediate emergency today",
+        "quote_found": true,
+        "score": 0.15
+      },
+      {
+        "fact_id": "f3",
+        "label": "absent",
+        "quote": null,
+        "quote_found": null,
+        "score": 0.8
+      },
+      {
+        "fact_id": "f8",
+        "label": "present",
+        "quote": "also generally tired, weak and nauseated over this period",
+        "quote_found": true,
+        "score": 0.06
+      },
+      {
+        "fact_id": "f9",
+        "label": "partial",
+        "quote": "also generally tired, weak and nauseated over this period",
+        "quote_found": true,
+        "score": 0.7
+      },
+      {
+        "fact_id": "f33",
+        "label": "present",
+        "quote": "PALS no and TIA clinic no to be left in these consultation notes so pt can chase the appointment",
+        "quote_found": true,
+        "score": 0.04
+      },
+      {
+        "fact_id": "f34",
+        "label": "present",
+        "quote": "advised he can ring the clinic himself later today (after waiting an hour or two) or tomorrow am to confirm he is in the system and booked in",
+        "quote_found": true,
+        "score": 0.06
+      },
+      {
+        "fact_id": "f23",
+        "label": "present",
+        "quote": "pt is a medical doctor, plastic surgeon",
+        "quote_found": true,
+        "score": 0.03
+      },
+      {
+        "fact_id": "f24",
+        "label": "present",
+        "quote": "lives with wife",
+        "quote_found": true,
+        "score": 0.03
+      }
+    ],
+    "refute_flips": [
+      "f29",
+      "f31",
+      "f5",
+      "f7"
+    ],
+    "score": {
+      "total": 35,
+      "present": 29,
+      "partial": 3,
+      "absent": 3,
+      "missing_ratio": 0.0857,
+      "weighted_missing_ratio": 0.1
+    }
+  }
+}
