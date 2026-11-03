@@ -5,7 +5,7 @@ One recorded run of the quick check on a note with a planted commission (a hedge
 is replayed through groundline's `commission_quick` preset. The recorded prompt
 was built from omission-pipeline's own prompt file, not by groundline. groundline
 must send it byte for byte, with the same model and effort, and reach the same
-issue and alarm from the recorded reply. If this passes, the measured results
+commission and alarm from the recorded reply. If this passes, the measured results
 apply to groundline's preset. See the fixture's ATTRIBUTION.md.
 
 The expected results were checked by hand against the transcript. They come from
@@ -81,7 +81,7 @@ def test_reaches_the_same_issues(replay: tuple[EvaluationResult, FakeClient]):
     result, _ = replay
 
     refute = result.run.output("commissions_refute", CommissionsRefuteOutput)
-    assert [i.model_dump() for i in refute.issues] == EXPECTED["issues"]
+    assert [i.model_dump() for i in refute.commissions] == EXPECTED["commissions"]
     assert refute.cleared == []
 
 

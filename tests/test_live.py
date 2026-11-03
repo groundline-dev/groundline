@@ -71,8 +71,8 @@ def test_the_quick_commission_preset_runs_end_to_end():
         "commissions_refute": "disabled",
         "alarm": "ran",
     }
-    issues = result.run.output("commissions_check", CommissionsCheckOutput).issues
-    assert all(0.0 <= i.confidence <= 1.0 for i in issues)
+    found = result.run.output("commissions_check", CommissionsCheckOutput).commissions
+    assert all(0.0 <= c.unsupported_confidence <= 1.0 for c in found)
     assert 0.0 <= result.run.output("alarm", AlarmOutput).score <= 1.0
 
     assert {c.model for c in result.run.calls} == {"claude-haiku-5-5"}

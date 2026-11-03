@@ -64,10 +64,10 @@ def test_reports_a_flagged_summary_and_exits_with_1(
     assert "1 calls" in out
 
 
-def test_issues_are_listed_by_severity_then_confidence(
+def test_commissions_are_listed_by_severity_then_confidence(
     files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ):
-    # The check lists the supporting issue first; the report still leads with the
+    # The check lists the supporting commission first; the report still leads with the
     # critical one.
     use_client(
         monkeypatch, Script(commissions_check=issues_reply(EXAM_ISSUE, DOSE_ISSUE))
@@ -195,7 +195,9 @@ def test_json_writes_the_full_result(
     assert data["flagged"] is True
     assert data["validated_preset"] == "commission_quick"
     assert data["outputs"]["alarm"]["score"] == 0.95
-    assert [i["quote"] for i in data["outputs"]["commissions_check"]["issues"]] == [
+    assert [
+        i["quote"] for i in data["outputs"]["commissions_check"]["commissions"]
+    ] == [
         DOSE,
         EXAM,
     ]

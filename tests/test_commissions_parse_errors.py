@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 
 from groundline.core import ParseError
-from groundline.evaluators.commissions.stages.check import parse_issues
+from groundline.evaluators.commissions.stages.check import parse_commissions
 from groundline.evaluators.commissions.stages.refute import parse_support
 from tests.commissions_helpers import DOSE, DOSE_SOURCE, SUMMARY, issue
 from tests.omission_helpers import SOURCE
@@ -17,7 +17,9 @@ GOOD = issue(DOSE, "contradicted", 90, "critical", DOSE_SOURCE)
 
 
 def check(*items: Any) -> None:
-    parse_issues(json.dumps({"issues": list(items)}), summary=SUMMARY, source=SOURCE)
+    parse_commissions(
+        json.dumps({"issues": list(items)}), summary=SUMMARY, source=SOURCE
+    )
 
 
 def refute(*items: Any) -> None:
@@ -68,7 +70,7 @@ def refute(*items: Any) -> None:
         "confidence below 0",
         "confidence is a boolean",
         "unknown importance",
-        "issue not an object",
+        "commission not an object",
         "refute unknown id",
         "refute repeated id",
         "refute entry not an object",
@@ -85,7 +87,7 @@ def test_errors_name_the_problem_and_never_repeat_the_reply(parse: Any, message:
 
 def test_a_reply_without_the_list_is_an_error():
     with pytest.raises(ParseError, match='expected an "issues" list'):
-        parse_issues('{"claims": []}', summary=SUMMARY, source=SOURCE)
+        parse_commissions('{"claims": []}', summary=SUMMARY, source=SOURCE)
     with pytest.raises(ParseError, match='expected a "claims" list'):
         parse_support('{"issues": []}', ["q1"], source=SOURCE)
 

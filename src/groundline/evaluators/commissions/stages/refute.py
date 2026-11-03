@@ -1,10 +1,10 @@
 """Commissions refute: a second look at the critical flags, which can only clear one.
 
-The critical issues the check found go, in one call, to a model asked to find
-support for each in the source. An issue is cleared only when the model says the
+The critical commissions the check found go, in one call, to a model asked to find
+support for each in the source. A commission is cleared only when the model says the
 source supports the claim and quotes a passage that really is in the source.
-Nothing is ever made worse. Issues that aren't critical are left alone, since
-only critical ones move the alarm. With no critical issue there is no call.
+Nothing is ever made worse. Commissions that aren't critical are left alone, since
+only critical ones move the alarm. With no critical commission there is no call.
 """
 
 import json
@@ -22,10 +22,10 @@ from groundline.core import (
     parse_json_object,
 )
 from groundline.evaluators.commissions.models import (
-    ClearedIssue,
+    ClearedCommission,
+    Commission,
     CommissionsCheckOutput,
     CommissionsRefuteOutput,
-    Issue,
 )
 
 
@@ -47,22 +47,22 @@ class CommissionsRefuteLLM(PromptImplementation):
         return (self.prompt,)
 
     async def run(self, ctx: StageContext) -> CommissionsRefuteOutput:
-        issues = ctx.output("commissions_check", CommissionsCheckOutput).issues
-        critical = [i for i in issues if i.severity == "critical"]
+        found = ctx.output("commissions_check", CommissionsCheckOutput).commissions
+        critical = [c for c in found if c.severity == "critical"]
         if not critical:
-            return CommissionsRefuteOutput(issues=issues, cleared=[])
+            return CommissionsRefuteOutput(commissions=found, cleared=[])
 
-        # The model sees its own numbering, q1, q2, ... over the critical issues.
-        ids = {f"q{n}": issue for n, issue in enumerate(critical, 1)}
+        # The model sees its own numbering, q1, q2, ... over the critical commissions.
+        ids = {f"q{n}": c for n, c in enumerate(critical, 1)}
         block = json.dumps(
             [
                 {
                     "id": qid,
-                    "claim": issue.quote,
-                    "note_quote": issue.quote,
-                    "label": issue.verdict,
+                    "claim": c.quote,
+                    "note_quote": c.quote,
+                    "label": c.support_verdict,
                 }
-                for qid, issue in ids.items()
+                for qid, c in ids.items()
             ]
         )
         prompt = ctx.fill(ctx.text(self.prompt), flagged_claims=block)
@@ -71,11 +71,11 @@ class CommissionsRefuteLLM(PromptImplementation):
             prompt,
             lambda reply: parse_support(reply, list(ids), source=ctx.source),
         )
-        return apply_support(issues, ids, support)
+        return apply_support(found, ids, support)
 
     def passthrough(self, ctx: StageContext) -> CommissionsRefuteOutput:
-        issues = ctx.output("commissions_check", CommissionsCheckOutput).issues
-        return CommissionsRefuteOutput(issues=issues, cleared=[])
+        found = ctx.output("commissions_check", CommissionsCheckOutput).commissions
+        return CommissionsRefuteOutput(commissions=found, cleared=[])
 
 
 def parse_support(reply: str, ids: list[str], *, source: str) -> dict[str, str | None]:
@@ -108,15 +108,17 @@ def parse_support(reply: str, ids: list[str], *, source: str) -> dict[str, str |
 
 
 def apply_support(
-    issues: list[Issue], ids: dict[str, Issue], support: dict[str, str | None]
+    found: list[Commission],
+    ids: dict[str, Commission],
+    support: dict[str, str | None],
 ) -> CommissionsRefuteOutput:
-    """Remove the issues refute found support for, keeping the support."""
+    """Remove the commissions refute found support for, keeping the support."""
     cleared = [
-        ClearedIssue(issue=ids[qid], evidence=evidence)
+        ClearedCommission(commission=ids[qid], evidence=evidence)
         for qid, evidence in support.items()
         if evidence is not None
     ]
-    gone = {c.issue.id for c in cleared}
+    gone = {c.commission.id for c in cleared}
     return CommissionsRefuteOutput(
-        issues=[i for i in issues if i.id not in gone], cleared=cleared
+        commissions=[c for c in found if c.id not in gone], cleared=cleared
     )

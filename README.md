@@ -133,8 +133,9 @@ result = evaluate_sync(
 )
 
 print(result.run.output("alarm", AlarmOutput).flagged)
-for issue in result.run.output("commissions_refute", CommissionsRefuteOutput).issues:
-    print(issue.severity, issue.verdict, issue.confidence, issue.quote)
+refute = result.run.output("commissions_refute", CommissionsRefuteOutput)
+for c in refute.commissions:
+    print(c.severity, c.support_verdict, c.unsupported_confidence, c.quote)
 ```
 
 `evaluate()` is the async version, for FastAPI or other async code. Both accept a `spec`, `profile`, `cache` or `client` to override the defaults.

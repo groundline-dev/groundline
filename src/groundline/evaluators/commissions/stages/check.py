@@ -5,8 +5,11 @@ The model is asked to list only the problems. For each it gives the words in the
 summary that make the claim (verified here), whether the source contradicts it
 or just doesn't say it, a 0-100 confidence that the source doesn't support it,
 how much it would matter if it were wrong, and, for a contradicted claim, the
-passage of the source that contradicts it. confidence / 100 is what the alarm
-thresholds apply to.
+passage of the source that contradicts it. confidence / 100 is the unsupported
+confidence the alarm thresholds apply to.
+
+The reply's own keys (`issues`, `label`, `confidence`, `importance`) are the
+prompt's words, copied unchanged from omission-pipeline.
 """
 
 from typing import ClassVar
@@ -24,8 +27,8 @@ from groundline.core import (
 )
 from groundline.evaluators.commissions.models import (
     SUPPORT_VERDICTS,
+    Commission,
     CommissionsCheckOutput,
-    Issue,
 )
 from groundline.evaluators.models import SEVERITIES
 
@@ -50,20 +53,24 @@ class CommissionsCheckLLMQuick(PromptImplementation):
         return await self.ask(
             ctx,
             prompt,
-            lambda reply: parse_issues(reply, summary=ctx.summary, source=ctx.source),
+            lambda reply: parse_commissions(
+                reply, summary=ctx.summary, source=ctx.source
+            ),
         )
 
 
-def parse_issues(reply: str, *, summary: str, source: str) -> CommissionsCheckOutput:
-    """The issues the model listed, each checked. An unusable quote or field is a
+def parse_commissions(
+    reply: str, *, summary: str, source: str
+) -> CommissionsCheckOutput:
+    """The commissions the model listed, each checked. An unusable quote or field is a
     parse error, so the model is asked again."""
     items = get_list(parse_json_object(reply), "issues")
     if items is None:
         raise ParseError('expected an "issues" list')
-    issues: list[Issue] = []
+    commissions: list[Commission] = []
     for number, raw in enumerate(items, 1):
         item = as_object(raw) or {}
-        where = f"issue {number}"
+        where = f"commission {number}"
 
         quote = item.get("quote")
         quote = quote.strip() if isinstance(quote, str) else ""
@@ -95,14 +102,14 @@ def parse_issues(reply: str, *, summary: str, source: str) -> CommissionsCheckOu
         if evidence and not evidence_in(evidence, source):
             evidence = None  # a quote that isn't in the source isn't evidence
 
-        issues.append(
-            Issue(
+        commissions.append(
+            Commission(
                 id=f"q{number}",
                 quote=quote,
-                verdict=verdict,
-                confidence=round(confidence / 100, 4),
+                support_verdict=verdict,
+                unsupported_confidence=round(confidence / 100, 4),
                 severity=severity,
                 evidence=evidence or None,
             )
         )
-    return CommissionsCheckOutput(issues=issues)
+    return CommissionsCheckOutput(commissions=commissions)

@@ -42,30 +42,34 @@ def test_calls_haiku_at_medium_effort():
     assert (request.model, request.effort) == ("claude-haiku-5-5", "medium")
 
 
-def test_lists_each_issue_with_its_details():
+def test_lists_each_commission_with_its_details():
     out, _ = check(ISSUES)
 
-    dose, exam = out.issues
-    assert (dose.id, dose.quote, dose.verdict) == ("q1", DOSE, "contradicted")
-    assert (dose.confidence, dose.severity) == (0.95, "critical")
+    dose, exam = out.commissions
+    assert (dose.id, dose.quote, dose.support_verdict) == ("q1", DOSE, "contradicted")
+    assert (dose.unsupported_confidence, dose.severity) == (0.95, "critical")
     assert dose.evidence == DOSE_SOURCE
-    assert (exam.id, exam.verdict, exam.severity) == ("q2", "unsupported", "supporting")
-    assert exam.confidence == 0.7
+    assert (exam.id, exam.support_verdict, exam.severity) == (
+        "q2",
+        "unsupported",
+        "supporting",
+    )
+    assert exam.unsupported_confidence == 0.7
     assert exam.evidence is None
 
 
-def test_a_summary_with_no_problems_has_no_issues():
+def test_a_summary_with_no_problems_has_no_commissions():
     out, _ = check(issues_reply())
 
-    assert out.issues == []
+    assert out.commissions == []
 
 
 def test_evidence_that_is_not_in_the_source_is_dropped():
     made_up = issue(DOSE, "contradicted", 90, "critical", "the doctor said 400 mg")
     out, _ = check(issues_reply(made_up))
 
-    (only,) = out.issues
-    assert only.verdict == "contradicted"
+    (only,) = out.commissions
+    assert only.support_verdict == "contradicted"
     assert only.evidence is None
 
 
@@ -75,7 +79,7 @@ def test_a_quote_that_is_not_in_the_summary_gets_one_retry():
 
     assert len(script.prompts["commissions_check"]) == 2
     assert "quote is not in the note" in script.prompts["commissions_check"][1]
-    assert [i.quote for i in out.issues] == [DOSE, EXAM]
+    assert [i.quote for i in out.commissions] == [DOSE, EXAM]
 
 
 def test_an_unusable_reply_after_the_retry_is_an_error():
@@ -83,8 +87,8 @@ def test_an_unusable_reply_after_the_retry_is_an_error():
         check("not json")
 
 
-def test_issues_are_kept_in_the_order_listed():
+def test_commissions_are_kept_in_the_order_listed():
     out, _ = check(issues_reply(EXAM_ISSUE, DOSE_ISSUE))
 
-    assert [i.id for i in out.issues] == ["q1", "q2"]
-    assert [i.quote for i in out.issues] == [EXAM, DOSE]
+    assert [i.id for i in out.commissions] == ["q1", "q2"]
+    assert [i.quote for i in out.commissions] == [EXAM, DOSE]

@@ -3,7 +3,7 @@ import json
 import pytest
 
 from groundline.core import SpecError
-from groundline.evaluators.commissions.models import Issue
+from groundline.evaluators.commissions.models import Commission
 from groundline.evaluators.commissions.stages.alarm import alarm_score
 from groundline.evaluators.models import AlarmOutput
 from tests.commissions_helpers import (
@@ -22,13 +22,13 @@ from tests.commissions_helpers import (
 )
 
 
-def found(id: str, severity: str, confidence: float) -> Issue:
-    return Issue.model_validate(
+def found(id: str, severity: str, confidence: float) -> Commission:
+    return Commission.model_validate(
         {
             "id": id,
             "quote": "q",
-            "verdict": "unsupported",
-            "confidence": confidence,
+            "support_verdict": "unsupported",
+            "unsupported_confidence": confidence,
             "severity": severity,
         }
     )
@@ -45,28 +45,28 @@ def alarm(check: str, level: str | None = None) -> AlarmOutput:
 # --- the score ---------------------------------------------------------------------
 
 
-def test_the_score_is_the_highest_confidence_among_critical_issues():
-    issues = [
+def test_the_score_is_the_highest_confidence_among_critical_commissions():
+    commissions = [
         found("q1", "critical", 0.6),
         found("q2", "critical", 0.9),
         found("q3", "supporting", 0.99),
     ]
 
-    assert alarm_score(issues) == 0.9
+    assert alarm_score(commissions) == 0.9
 
 
-def test_only_critical_issues_count():
+def test_only_critical_commissions_count():
     assert alarm_score([found("q1", "supporting", 1.0)]) == 0.0
     assert alarm_score([found("q1", "peripheral", 1.0)]) == 0.0
 
 
-def test_no_issues_scores_zero():
+def test_no_commissions_scores_zero():
     assert alarm_score([]) == 0.0
 
 
 def test_a_contradicted_claim_counts_the_same_as_an_unsupported_one():
     contradicted = found("q1", "critical", 0.8).model_copy(
-        update={"verdict": "contradicted"}
+        update={"support_verdict": "contradicted"}
     )
 
     assert alarm_score([contradicted]) == alarm_score([found("q1", "critical", 0.8)])
@@ -86,13 +86,13 @@ def test_the_default_level_is_the_preset_threshold_of_0_85():
     )
 
 
-def test_a_summary_with_only_a_non_critical_issue_is_not_flagged():
+def test_a_summary_with_only_a_non_critical_commission_is_not_flagged():
     out = alarm(issues_reply(EXAM_ISSUE))
 
     assert (out.score, out.flagged) == (0.0, False)
 
 
-def test_a_summary_with_no_issues_is_not_flagged():
+def test_a_summary_with_no_commissions_is_not_flagged():
     assert alarm(issues_reply()).flagged is False
 
 
@@ -103,7 +103,7 @@ def test_the_alarm_fires_at_the_threshold_and_above(confidence: int, flagged: bo
     assert out.flagged is flagged
 
 
-def test_a_cleared_critical_issue_no_longer_raises_the_alarm():
+def test_a_cleared_critical_commission_no_longer_raises_the_alarm():
     script = Script(
         commissions_check=ISSUES,
         commissions_refute=support_reply(

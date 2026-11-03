@@ -34,18 +34,19 @@ def render_report(
     lines += [_row("Warning", warning) for warning in result.warnings]
 
     lines += ["", "Not supported by the source (severity order):"]
-    if refute.issues:
+    if refute.commissions:
         lines.append(f"  {'severity':<10}  {'verdict':<12}  {'confidence':<10}  claim")
         order = list(SEVERITIES)
-        for issue in sorted(
-            refute.issues, key=lambda i: (order.index(i.severity), -i.confidence)
+        for commission in sorted(
+            refute.commissions,
+            key=lambda c: (order.index(c.severity), -c.unsupported_confidence),
         ):
             lines.append(
-                f"  {issue.severity:<10}  {issue.verdict:<12}  "
-                f"{number(issue.confidence):<10}  {issue.quote}"
+                f"  {commission.severity:<10}  {commission.support_verdict:<12}  "
+                f"{number(commission.unsupported_confidence):<10}  {commission.quote}"
             )
-            if issue.verdict == "contradicted" and issue.evidence:
-                lines.append(f'{CLAIM_INDENT}source: "{issue.evidence}"')
+            if commission.support_verdict == "contradicted" and commission.evidence:
+                lines.append(f'{CLAIM_INDENT}source: "{commission.evidence}"')
     else:
         lines.append("  none")
 

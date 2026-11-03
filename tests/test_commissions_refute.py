@@ -33,7 +33,7 @@ def refute(
     return result.output("commissions_refute", CommissionsRefuteOutput), script
 
 
-def test_refute_sees_only_the_critical_issues():
+def test_refute_sees_only_the_critical_commissions():
     _, script = refute(KEEP_FLAG)
 
     (prompt,) = script.prompts["commissions_refute"]
@@ -43,29 +43,29 @@ def test_refute_sees_only_the_critical_issues():
     assert '"id": "q1"' in prompt and '"label": "contradicted"' in prompt
 
 
-def test_refute_numbers_the_critical_issues_from_q1():
-    # The exam issue comes first in the check's list, but it isn't critical.
+def test_refute_numbers_the_critical_commissions_from_q1():
+    # The exam commission comes first in the check's list, but it isn't critical.
     check = issues_reply(EXAM_ISSUE, DOSE_ISSUE)
     out, script = refute(KEEP_FLAG, check)
 
     (prompt,) = script.prompts["commissions_refute"]
     assert '"id": "q1", "claim": "' + DOSE in prompt
-    assert [i.id for i in out.issues] == ["q1", "q2"]  # the check's own ids
+    assert [i.id for i in out.commissions] == ["q1", "q2"]  # the check's own ids
 
 
 def test_a_flag_that_stands_changes_nothing():
     out, _ = refute(KEEP_FLAG)
 
-    assert [i.quote for i in out.issues] == [DOSE, EXAM]
+    assert [i.quote for i in out.commissions] == [DOSE, EXAM]
     assert out.cleared == []
 
 
 def test_refute_clears_a_flag_with_a_quote_from_the_source():
     out, _ = refute(CLEAR_FLAG)
 
-    assert [i.quote for i in out.issues] == [EXAM]
+    assert [i.quote for i in out.commissions] == [EXAM]
     (cleared,) = out.cleared
-    assert cleared.issue.quote == DOSE
+    assert cleared.commission.quote == DOSE
     assert cleared.evidence == "take motrin 600 mg every 6 hours"
 
 
@@ -73,11 +73,11 @@ def test_refute_only_clears_it_never_adds_or_raises():
     out, _ = refute(KEEP_FLAG)
     checked = [DOSE_ISSUE, EXAM_ISSUE]
 
-    assert len(out.issues) == len(checked)
-    assert [i.confidence for i in out.issues] == [0.95, 0.7]
+    assert len(out.commissions) == len(checked)
+    assert [i.unsupported_confidence for i in out.commissions] == [0.95, 0.7]
 
 
-def test_with_no_critical_issue_there_is_no_call():
+def test_with_no_critical_commission_there_is_no_call():
     skiing = issue("She was skiing", "unsupported", 60, "peripheral")
     out, script = refute(KEEP_FLAG, issues_reply(EXAM_ISSUE, skiing))
 
@@ -85,21 +85,21 @@ def test_with_no_critical_issue_there_is_no_call():
     assert out.cleared == []
 
 
-def test_with_no_issue_at_all_there_is_no_call():
+def test_with_no_commission_at_all_there_is_no_call():
     out, script = refute(KEEP_FLAG, issues_reply())
 
     assert "commissions_refute" not in script.prompts
-    assert out.issues == [] and out.cleared == []
+    assert out.commissions == [] and out.cleared == []
 
 
-def test_switched_off_passes_the_check_issues_through():
+def test_switched_off_passes_the_check_commissions_through():
     script = Script(commissions_check=ISSUES)
     result, client = run([CHECK, {**REFUTE, "enabled": False}], script)
 
     assert len(client.requests) == 1  # just the check
     assert (
-        result.output("commissions_refute", CommissionsRefuteOutput).issues
-        == result.output("commissions_check", CommissionsCheckOutput).issues
+        result.output("commissions_refute", CommissionsRefuteOutput).commissions
+        == result.output("commissions_check", CommissionsCheckOutput).commissions
     )
     assert result.stages["commissions_refute"].status == "disabled"
 

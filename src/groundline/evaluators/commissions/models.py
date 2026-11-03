@@ -1,5 +1,4 @@
-"""The commission check's data: the claims the source doesn't support, and each
-step's output."""
+"""The commission check's data: the commissions it finds, and each step's output."""
 
 from typing import Literal
 
@@ -20,14 +19,14 @@ class _Frozen(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
 
-class Issue(_Frozen):
-    """A claim in the summary that the source doesn't support: a commission."""
+class Commission(_Frozen):
+    """A claim in the summary that the source doesn't support."""
 
     id: str
     quote: str
     """The words in the summary that make the claim, word for word."""
-    verdict: SupportVerdict
-    confidence: float
+    support_verdict: SupportVerdict
+    unsupported_confidence: float
     """From 0 to 1: how sure the check is that the source doesn't support it."""
     severity: Severity
     """How much it would matter if the claim were wrong."""
@@ -36,10 +35,10 @@ class Issue(_Frozen):
     when the model quoted one that really is in the source."""
 
 
-class ClearedIssue(_Frozen):
+class ClearedCommission(_Frozen):
     """A flagged claim that refute found support for."""
 
-    issue: Issue
+    commission: Commission
     evidence: str
     """The passage of the source that supports the claim."""
 
@@ -48,12 +47,13 @@ class ClearedIssue(_Frozen):
 
 
 class CommissionsCheckOutput(_Frozen):
-    issues: list[Issue]
-    """Every unsupported or contradicted claim, in the order the model listed
+    commissions: list[Commission]
+    """Every claim the source doesn't support, in the order the model listed
     them."""
 
 
 class CommissionsRefuteOutput(_Frozen):
-    issues: list[Issue]
-    """The check's issues still flagged after refute; refute can only clear one."""
-    cleared: list[ClearedIssue]
+    commissions: list[Commission]
+    """The check's commissions still flagged after refute; refute can only clear
+    one."""
+    cleared: list[ClearedCommission]

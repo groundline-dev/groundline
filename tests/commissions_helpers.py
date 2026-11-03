@@ -91,6 +91,10 @@ def run(
 # --- standard replies for the source and summary above --------------------------
 
 
+# The helpers below build the model's reply, which uses the prompt's own words
+# (issues, label, confidence, importance), not groundline's.
+
+
 def issue(
     quote: str,
     label: str = "unsupported",

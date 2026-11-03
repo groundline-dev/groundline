@@ -1,8 +1,8 @@
 """Commissions alarm: decide whether to flag the summary. No model calls.
 
-The alarm score is the highest confidence among the critical issues still
-flagged after refute; 0 if there are none. The summary is flagged when the score
-reaches the chosen threshold.
+The alarm score is the highest unsupported confidence among the critical
+commissions still flagged after refute; 0 if there are none. The summary is
+flagged when the score reaches the chosen threshold.
 
 Thresholds are only meaningful for the pipeline they were calibrated on, so they
 live in the pipeline spec as named levels. The quick preset's one level, 0.85,
@@ -15,8 +15,8 @@ from pydantic import model_validator
 
 from groundline.core import Implementation, StageContext
 from groundline.evaluators.commissions.models import (
+    Commission,
     CommissionsRefuteOutput,
-    Issue,
 )
 from groundline.evaluators.models import AlarmOutput
 
@@ -45,7 +45,7 @@ class AlarmCriticalUnsupportedMax(Implementation):
 
     async def run(self, ctx: StageContext) -> AlarmOutput:
         score = alarm_score(
-            ctx.output("commissions_refute", CommissionsRefuteOutput).issues
+            ctx.output("commissions_refute", CommissionsRefuteOutput).commissions
         )
         threshold = self.thresholds[self.level]
         return AlarmOutput(
@@ -56,5 +56,8 @@ class AlarmCriticalUnsupportedMax(Implementation):
         )
 
 
-def alarm_score(issues: list[Issue]) -> float:
-    return max((i.confidence for i in issues if i.severity == "critical"), default=0.0)
+def alarm_score(commissions: list[Commission]) -> float:
+    return max(
+        (c.unsupported_confidence for c in commissions if c.severity == "critical"),
+        default=0.0,
+    )
