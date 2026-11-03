@@ -82,7 +82,7 @@ def test_invalid_reply_then_valid_reply():
     result, _ = run([EXTRACT, RANK], script)
 
     assert len(script.prompts["rank"]) == 2
-    assert "major" in script.prompts["rank"][1]  # the retry names the problem
+    assert "f1: severity is not one of" in script.prompts["rank"][1]
     assert result.output("rank", RankOutput).facts[0].id == "f3"
 
 

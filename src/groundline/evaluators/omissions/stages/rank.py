@@ -89,16 +89,13 @@ def parse_ranking(reply: str, facts: list[Fact]) -> RankOutput:
             raise ParseError('every entry in "facts" must be an object')
         fid = item.get("id")
         if not isinstance(fid, str) or fid not in by_id:
-            raise ParseError(f"unknown fact id {fid!r}")
+            raise ParseError("an entry has an unknown or missing fact id")
         if fid in seen:
             raise ParseError(f"fact id {fid} appears more than once")
         seen.add(fid)
         severity = SEVERITIES.get(str(item.get("severity", "")).strip().lower())
         if severity is None:
-            raise ParseError(
-                f"{fid}: severity {item.get('severity')!r} is not one of "
-                f"{', '.join(SEVERITIES)}"
-            )
+            raise ParseError(f"{fid}: severity is not one of {', '.join(SEVERITIES)}")
         graded.append((by_id[fid], severity, str(item.get("why", "")).strip()))
     missing = [f.id for f in facts if f.id not in seen]
     if missing:

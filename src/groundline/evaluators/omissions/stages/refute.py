@@ -77,8 +77,10 @@ def parse_refute(reply: str, ids: list[str]) -> dict[str, RefuteAnswer]:
     answers: dict[str, RefuteAnswer] = {}
     for raw in items:
         item = as_object(raw)
-        if item is None or item.get("id") not in ids:
-            raise ParseError(f"unknown or missing fact id: {raw!r}"[:120])
+        if item is None:
+            raise ParseError('every entry in "facts" must be an object')
+        if item.get("id") not in ids:
+            raise ParseError("an entry has an unknown or missing fact id")
         fid: str = item["id"]
         found = FOUND.get(str(item.get("found", "")).strip().lower())
         if found is None:

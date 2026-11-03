@@ -63,7 +63,9 @@ def parse_batch_verdicts(
         item = as_object(raw)
         if item is not None and isinstance(item.get("id"), str):
             if item["id"] in by_id:
-                raise ParseError(f"{item['id']} appears twice")
+                known = any(f.id == item["id"] for f in facts)
+                name = item["id"] if known else "an unknown fact id"
+                raise ParseError(f"{name} appears twice")
             by_id[item["id"]] = item
     missing = [f.id for f in facts if f.id not in by_id]
     if missing:
@@ -75,8 +77,7 @@ def _verdict(fact_id: str, item: dict[str, Any], summary: str) -> Verdict:
     label = VERDICT_LABELS.get(str(item.get("verdict", "")).strip().lower())
     if label is None:
         raise ParseError(
-            f"{fact_id}: verdict {item.get('verdict')!r} is not one of "
-            f"{', '.join(VERDICT_LABELS)}"
+            f"{fact_id}: verdict is not one of {', '.join(VERDICT_LABELS)}"
         )
     raw_quote = item.get("quote")
     quote = (
@@ -90,10 +91,7 @@ def _verdict(fact_id: str, item: dict[str, Any], summary: str) -> Verdict:
         or not isinstance(confidence, (int, float))
         or not 0 <= confidence <= 100
     ):
-        raise ParseError(
-            f"{fact_id}: missing_confidence {confidence!r} "
-            "is not a number from 0 to 100"
-        )
+        raise ParseError(f"{fact_id}: missing_confidence is not a number from 0 to 100")
     return Verdict(
         fact_id=fact_id,
         label=label,

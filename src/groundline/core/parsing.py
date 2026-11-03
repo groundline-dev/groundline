@@ -8,7 +8,10 @@ ELLIPSIS = re.compile(r"\.\.\.|…")
 
 
 class ParseError(ValueError):
-    """A model reply couldn't be used. The message is shown to the model on retry."""
+    """A model reply couldn't be used. The message is shown to the model on retry,
+    and printed if the retry fails too, so it must never repeat a value from the
+    reply: any of them could be text from the source or summary. Name the field,
+    and the fact id only if it's one of ours."""
 
 
 def parse_json_object(text: str) -> dict[str, Any]:
