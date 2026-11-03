@@ -70,7 +70,9 @@ Run the live smoke test, which calls the real API on a short example (about $0.0
 uv run pytest -m live -s
 ```
 
-`tests/test_parity.py` replays a recorded run of the measured pipeline and checks that groundline sends byte-identical prompts and reaches identical results. If you change a prompt, the rubric or a step's logic, expect it to fail. That means the `omission_all_opus` preset no longer matches the measured results.
+`tests/test_parity.py` (omissions) and `tests/test_parity_commissions.py` (commissions) each replay a recorded run of a measured pipeline and check that groundline sends byte-identical prompts and reaches identical results. If you change a prompt, the rubric or a step's logic, expect them to fail. That means the `omission_all_opus` or `commission_quick` preset no longer matches the measured results.
+
+`tests/test_commission_prompts.py` also pins both commission prompts to omission-pipeline's versions by hash, including the refute prompt, which the preset leaves switched off and so no parity run exercises.
 
 ## Editor schemas
 
@@ -106,17 +108,19 @@ The `pre-commit` hook runs the checks in [.pre-commit-config.yaml](.pre-commit-c
 
 ```
 src/groundline/
-  core/                  the pipeline framework: steps, registry, specs, runner, cache, costs
-  clients/               the Anthropic client
-  db/                    the database: tables, migrations, connection check, setup
-  evaluators/omissions/  the omission check's data models, stages and report
-  profiles/clinical/     the clinical profile: prompts and severity rubric
-  presets/               validated pipeline specs (omission_all_opus.yaml)
-  evaluate.py            evaluate(): the entry point the CLI and API share
-  cli.py                 the groundline command
-  app.py                 the FastAPI app
-scripts/db-setup         creates the local database and applies migrations
-tests/                   offline tests; test_live.py is marked live, test_db_schema.py is marked db
+  core/                    the pipeline framework: steps, registry, specs, runner, cache, costs
+  clients/                 the Anthropic client
+  db/                      the database: tables, migrations, connection check, setup
+  evaluators/              what the checks share: severity, the alarm's output, report helpers
+  evaluators/omissions/    the omission check's data models, stages and report
+  evaluators/commissions/  the commission check's data models, stages and report
+  profiles/clinical/       the clinical profile: prompts and severity rubric
+  presets/                 validated pipeline specs (omission_all_opus, commission_quick)
+  evaluate.py              evaluate(): the entry point the CLI and API share
+  cli.py                   the groundline command
+  app.py                   the FastAPI app
+scripts/db-setup           creates the local database and applies migrations
+tests/                     offline tests; test_live.py is marked live, test_db_schema.py is marked db
 ```
 
 ## Vocabulary and decisions

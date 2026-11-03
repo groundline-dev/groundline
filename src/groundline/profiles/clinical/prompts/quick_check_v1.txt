@@ -1,0 +1,27 @@
+You are an experienced clinician checking a clinical note against the consultation it was written from. Find every statement in the note that the consultation does not support.
+
+<transcript>
+{transcript}
+</transcript>
+
+<note>
+{note}
+</note>
+
+List only the problems:
+- "contradicted": the consultation says something incompatible with the statement (a different dose, side, result, timing or diagnosis; a denial turned into a finding; a hedge made certain).
+- "unsupported": the note states something the consultation neither says nor directly implies.
+
+A faithful paraphrase, an abbreviation, a correct unit conversion or a direct clinical summary of what was said is supported: do not list it. Headings and other note structure are not statements.
+
+For each problem give:
+- "quote": the words in the note that make the statement, copied exactly (at most 30 words).
+- "label": "contradicted" or "unsupported".
+- "confidence": a whole number from 0 to 100 for how confident you are that the statement is not supported by the consultation. 50 means you cannot tell. Use the whole range.
+- "importance": how much it would matter clinically if the statement were wrong. "critical": a reader could make a wrong clinical decision (diagnosis, medication or dose, allergy, examination finding, test result, plan, safety advice). "supporting": useful context whose error would rarely change care. "peripheral": social detail, pleasantries or administrative content.
+- "evidence": for "contradicted", the transcript passage that contradicts the statement, copied word for word (at most 40 words). Otherwise null.
+
+If the note has no problems, reply {"issues": []}.
+
+Reply with only this JSON object, no other text:
+{"issues": [{"quote": "...", "label": "contradicted", "confidence": 90, "importance": "critical", "evidence": "..."}]}

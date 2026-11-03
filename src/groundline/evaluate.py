@@ -20,12 +20,14 @@ from groundline.core import (
     pipeline_fingerprint,
     run_pipeline,
 )
+from groundline.evaluators.commissions import register_commissions
 from groundline.evaluators.omissions import register_omissions
 from groundline.presets import builtin_presets, load_preset
 from groundline.profiles import load_builtin_profile
 from groundline.settings import Settings
 
 DEFAULT_PRESET = "omission_all_opus"
+DEFAULT_COMMISSIONS_PRESET = "commission_quick"
 
 
 @dataclass(frozen=True)
@@ -44,6 +46,7 @@ def default_registry() -> Registry:
     """A registry with every built-in step and implementation."""
     registry = Registry()
     register_omissions(registry)
+    register_commissions(registry)
     return registry
 
 

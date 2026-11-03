@@ -4,14 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-Severity = Literal["critical", "supporting", "peripheral"]
-SEVERITIES: dict[str, Severity] = {
-    "critical": "critical",
-    "supporting": "supporting",
-    "peripheral": "peripheral",
-}
-"""Severity names, most important first. A dict so a reply's text can be looked
-up and come back typed."""
+from groundline.evaluators.models import Severity
 
 VerdictLabel = Literal["present", "partial", "absent"]
 VERDICT_LABELS: dict[str, VerdictLabel] = {
@@ -116,12 +109,3 @@ class ScoreOutput(_Frozen):
     """Facts whose verdict quote isn't in the summary."""
     evidence_not_found: list[str]
     """Facts whose evidence quote isn't in the source."""
-
-
-class AlarmOutput(_Frozen):
-    score: float
-    """The highest missing-confidence among critical facts still flagged, with
-    partials at half weight; 0 if there are none."""
-    level: str
-    threshold: float
-    flagged: bool

@@ -1,0 +1,14 @@
+You are an experienced clinician double-checking flags raised on a clinical note. Each flagged claim below was judged not supported by the consultation. Read the transcript carefully and look for anything that does support each claim: the same statement in other words, an abbreviation, a unit conversion, or a direct clinical summary of what was said.
+
+<transcript>
+{transcript}
+</transcript>
+
+<flagged_claims>
+{flagged_claims}
+</flagged_claims>
+
+For each flagged claim, set "supported" to true only if the transcript establishes the claim with its qualifiers, and give as "evidence" the passage of the transcript that does so, copied word for word (at most 40 words). Otherwise set "supported" to false and "evidence" to null. If you are unsure, the flag stands.
+
+Reply with only this JSON object, no other text, with one entry for every flagged claim:
+{"claims": [{"id": "c2", "supported": false, "evidence": null}]}
