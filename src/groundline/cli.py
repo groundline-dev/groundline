@@ -96,12 +96,23 @@ ThresholdOpt = Annotated[
     str | None,
     typer.Option(help="Alarm level from the pipeline, e.g. strict or moderate."),
 ]
-PipelineOpt = Annotated[
+OmissionsPipelineOpt = Annotated[
     Path | None,
     typer.Option(
         exists=True,
         dir_okay=False,
-        help="A pipeline spec file to run instead of the command's preset.",
+        help=f"A pipeline spec file to run instead of the {DEFAULT_PRESET} preset.",
+    ),
+]
+CommissionsPipelineOpt = Annotated[
+    Path | None,
+    typer.Option(
+        exists=True,
+        dir_okay=False,
+        help=(
+            "A pipeline spec file to run instead of the "
+            f"{DEFAULT_COMMISSIONS_PRESET} preset."
+        ),
     ),
 ]
 ProfileOpt = Annotated[
@@ -154,7 +165,7 @@ def omissions(
     source: SourceArg,
     summary: SummaryArg,
     threshold: ThresholdOpt = None,
-    pipeline: PipelineOpt = None,
+    pipeline: OmissionsPipelineOpt = None,
     profile: ProfileOpt = None,
     cache: CacheOpt = False,
     json_path: JsonOpt = None,
@@ -172,7 +183,7 @@ def commissions(
     source: SourceArg,
     summary: SummaryArg,
     threshold: ThresholdOpt = None,
-    pipeline: PipelineOpt = None,
+    pipeline: CommissionsPipelineOpt = None,
     profile: ProfileOpt = None,
     cache: CacheOpt = False,
     json_path: JsonOpt = None,
