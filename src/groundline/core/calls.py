@@ -20,6 +20,7 @@ PRICES: dict[str, Price] = {
     # Anthropic first-party API rates.
     "claude-opus-5-5": Price(input=4.0, output=20.0),
     "claude-sonnet-5-5": Price(input=2.0, output=10.0),
+    "claude-haiku-5-5": Price(input=0.1, output=0.5),
 }
 """Models without an entry are reported as unpriced rather than guessed at."""
 
