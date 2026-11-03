@@ -2,11 +2,9 @@ import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
-from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
+from fastapi import FastAPI
 
-from groundline.api import omissions
+from groundline.api import errors, omissions
 from groundline.settings import Settings
 
 logger = logging.getLogger("groundline")
@@ -43,19 +41,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
 _log_to_console()
 app = FastAPI(title="groundline", lifespan=lifespan)
+errors.install(app)
 app.include_router(omissions.router)
-
-
-@app.exception_handler(RequestValidationError)
-async def validation_error(
-    request: Request, error: RequestValidationError
-) -> JSONResponse:
-    """FastAPI's default 422 repeats each rejected value, which here could be a
-    whole transcript. Say where and what was wrong, never the value."""
-    detail = [
-        {"loc": e["loc"], "msg": e["msg"], "type": e["type"]} for e in error.errors()
-    ]
-    return JSONResponse(status_code=422, content={"detail": detail})
 
 
 @app.get("/health")

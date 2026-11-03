@@ -4,11 +4,11 @@ The request and response are models of their own, not the pipeline's, so the
 API's contract doesn't change when the internals do. Every finished check
 answers 200, flagged or not (ADR 0008). No response or log line ever holds text
 from the source or summary: error messages are either written to be safe, or
-replaced with a generic one.
+left to `groundline.api.errors`, which never repeats one.
 """
 
 import logging
-import traceback
+import time
 from typing import Annotated, Literal
 
 import anthropic
@@ -27,7 +27,7 @@ from groundline.core import (
 from groundline.evaluate import DEFAULT_PRESET, EvaluationResult, evaluate
 from groundline.evaluators.models import AlarmOutput, Severity
 from groundline.evaluators.omissions.models import ScoreOutput, VerdictLabel
-from groundline.evaluators.report import format_cost
+from groundline.evaluators.report import cost_line, format_cost, result_line
 from groundline.presets import load_preset
 
 logger = logging.getLogger("groundline.api")
@@ -39,9 +39,10 @@ one request can't spend dollars on a huge input."""
 ThresholdLevel = Literal["strict", "moderate"]
 """The preset's threshold levels. A test keeps this in step with the preset."""
 
-# Stage failures whose messages are written to be safe to show. Anything else
-# may carry text from the source or summary, so only its stage is reported.
-SAFE_CAUSES = (ReplyError, ModelError, anthropic.APIError)
+# Stage failures caused by the model or Anthropic's API, which answer 502. Their
+# messages are written to be safe to show. Any other failure is a bug of ours,
+# and its message may quote the source or summary.
+UPSTREAM_CAUSES = (ReplyError, ModelError, anthropic.APIError)
 
 router = APIRouter(prefix="/v1")
 
@@ -130,7 +131,7 @@ def model_client() -> ModelClient | None:
 @router.post(
     "/omissions",
     responses={
-        502: {"description": "A stage of the check failed."},
+        502: {"description": "The model or Anthropic's API failed."},
         503: {"description": "The Anthropic API key is missing or rejected."},
     },
 )
@@ -144,29 +145,27 @@ async def omissions(
     and costs about $0.28 for a typical clinical note, so use a long client
     timeout. Answers 200 for every finished check, flagged or not."""
     spec = with_settings(load_preset(DEFAULT_PRESET), "alarm", level=request.threshold)
+    started = time.perf_counter()
     try:
         result = await evaluate(
             request.source, request.summary, spec=spec, client=client
         )
-        # Inside the try: a validation error here would quote a fact.
-        return _response(result)
     except SetupError as error:
         logger.warning("can't check: %s", error)
         raise HTTPException(503, detail=str(error)) from error
     except StageError as error:
-        message = _stage_failure(error)
-        logger.warning(message)
-        raise HTTPException(502, detail=message) from error
-    except Exception as error:
-        # The stack frames hold only code; the message could quote the input.
-        logger.error(
-            "unexpected %s while checking a summary\n%s",
-            type(error).__name__,
-            "".join(traceback.format_tb(error.__traceback__)).rstrip(),
-        )
-        raise HTTPException(
-            500, detail="unexpected error; see the server log"
-        ) from None
+        logger.warning("stage '%s' failed%s", error.step, _spent(error))
+        if not isinstance(error.__cause__, UPSTREAM_CAUSES):
+            raise  # a bug of ours: the app-wide handler answers 500
+        raise HTTPException(502, detail=f"{error}{_spent(error)}") from error
+    response = _response(result)
+    logger.info(
+        "checked a summary: %s · %d omissions · %s",
+        result_line(result.run.output("alarm", AlarmOutput)),
+        len(response.omissions),
+        cost_line(result, time.perf_counter() - started),
+    )
+    return response
 
 
 def _response(result: EvaluationResult) -> OmissionsResponse:
@@ -203,17 +202,11 @@ def _response(result: EvaluationResult) -> OmissionsResponse:
     )
 
 
-def _stage_failure(error: StageError) -> str:
-    """Which stage failed, why if that's safe to say, and what it had cost."""
-    if isinstance(error.__cause__, SAFE_CAUSES):
-        message = str(error)
-    else:
-        name = type(error.__cause__ or error).__name__
-        message = f"stage '{error.step}' failed: unexpected {name}"
-    if error.calls:
-        usage = summarize_usage(error.calls)
-        message += (
-            f". Cost before stopping: {format_cost(usage.cost_usd)} · "
-            f"{usage.calls} calls"
-        )
-    return message
+def _spent(error: StageError) -> str:
+    """What a failed check had cost, if it made any calls."""
+    if not error.calls:
+        return ""
+    usage = summarize_usage(error.calls)
+    return (
+        f". Cost before stopping: {format_cost(usage.cost_usd)} · {usage.calls} calls"
+    )

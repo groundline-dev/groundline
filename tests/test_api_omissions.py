@@ -178,7 +178,7 @@ def test_an_unusable_reply_is_a_502_naming_the_stage_and_cost():
     assert "Cost before stopping: $0." in detail and "· 2 calls" in detail
 
 
-def test_an_unexpected_stage_failure_never_repeats_its_message(
+def test_a_stage_failure_of_our_own_is_a_generic_500(
     caplog: pytest.LogCaptureFixture,
 ):
     def broken(prompt: str) -> str:
@@ -189,10 +189,10 @@ def test_an_unexpected_stage_failure_never_repeats_its_message(
     with caplog.at_level(logging.INFO):
         response = http.post("/v1/omissions", json=check())
 
-    assert response.status_code == 502
-    assert response.json()["detail"].startswith(
-        "stage 'extract' failed: unexpected ValueError"
-    )
+    assert response.status_code == 500
+    assert response.json() == {"detail": "unexpected error; see the server log"}
+    assert "stage 'extract' failed" in caplog.text
+    assert "ValueError" in caplog.text and "StageError" in caplog.text
     assert "tenofovir" not in response.text
     assert "tenofovir" not in caplog.text
 
@@ -265,3 +265,17 @@ def test_a_failure_building_the_response_is_a_generic_500(
     assert response.json() == {"detail": "unexpected error; see the server log"}
     assert "unexpected ValueError" in caplog.text
     assert "tenofovir" not in caplog.text
+
+
+def test_a_finished_check_is_logged_without_its_input(
+    caplog: pytest.LogCaptureFixture,
+):
+    use_client(flagged_script())
+
+    with caplog.at_level(logging.INFO, logger="groundline.api"):
+        http.post("/v1/omissions", json=check())
+
+    (line,) = [r.getMessage() for r in caplog.records if "checked" in r.getMessage()]
+    assert line.startswith("checked a summary: FLAGGED (alarm 0.95 ≥ 0.90, strict)")
+    assert "· 3 omissions · $0." in line and "4 calls" in line
+    assert "Motrin" not in line

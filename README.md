@@ -173,12 +173,14 @@ curl -s http://127.0.0.1:8000/v1/omissions \
 
 | Status | Meaning |
 |---|---|
-| 422 | The request is unusable: a blank or too-long text, an unknown threshold, or an unexpected field. |
-| 502 | A step failed, such as an unusable model reply. `detail` names the step and what was spent. |
+| 404 | No such route. `detail` names the method and path, and points to `/docs`. |
+| 405 | The route doesn't take that method, such as `GET /v1/omissions`. |
+| 422 | The request is unusable: not a JSON object, a blank or too-long text, an unknown threshold, or an unexpected field. |
+| 502 | The model or Anthropic's API failed, such as an unusable reply, a refusal or an outage. `detail` names the step and what was spent; retrying later may work. |
 | 503 | `ANTHROPIC_API_KEY` is missing or was rejected. `detail` says where groundline looked and how to fix it. The API also warns at startup if the key isn't set. |
-| 500 | An unexpected error. Details are in the server log. |
+| 500 | An unexpected error, a bug in groundline. Details are in the server log. |
 
-Error responses and the server log never contain text from the source or summary.
+Every error answers with JSON: `{"detail": ...}`. Error responses and the server log never contain text from the source or summary. The log records each finished check's outcome, number of omissions and cost, and each failure.
 
 ## Pipelines, presets and profiles
 
