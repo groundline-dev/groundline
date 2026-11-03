@@ -27,7 +27,7 @@ Measured on 172 held-out commission pairs (pre-registered): 151 caught, 1/110 cl
 
 ## Setup
 
-This project uses [uv](https://docs.astral.sh/uv/getting-started/installation/). After cloning, create the virtualenv, install dependencies and enable the shared git hooks:
+This project uses [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13 (0.13.7 or later); check with `uv --version`. After cloning, create the virtualenv, install dependencies and enable the shared git hooks:
 
 ```sh
 make setup

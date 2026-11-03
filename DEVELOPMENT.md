@@ -14,6 +14,30 @@ Start the API with auto-reload at http://127.0.0.1:8000 (interactive docs at `/d
 make dev
 ```
 
+Use this for day-to-day work. It reloads when you edit the source, which the container doesn't.
+
+### In Docker
+
+The [Dockerfile](Dockerfile) builds a production-style image. You need [Docker](https://docs.docker.com/get-started/get-docker/) installed and running.
+
+Build the image:
+
+```sh
+make docker-build
+```
+
+Run it at http://127.0.0.1:8001. To use another port, add `DOCKER_PORT=<port>`. If you have a `.env`, it's mounted read-only into the container, so the app reads your API key the same way as under `make dev`. Stop it with Ctrl+C:
+
+```sh
+make docker-run
+```
+
+Build the image, start it and check that `/health` returns 200. CI runs the same check on every PR. Run it before pushing if you changed the Dockerfile, `.dockerignore`, the dependencies, or how the app starts. It runs on a free port Docker picks, so it works while `make dev` is running:
+
+```sh
+make docker-smoke
+```
+
 ## Tests
 
 Run the tests. These are offline, free, and need no API key; model calls use a scripted fake client:
@@ -77,6 +101,8 @@ src/groundline/
   cli.py                   the groundline command
   app.py                   the FastAPI app
 tests/                     offline tests; test_live.py is marked live
+scripts/docker-smoke-test  starts the image and checks /health (make docker-smoke)
+Dockerfile                 the app image: a uv build stage and a slim runtime stage
 ```
 
 ## Vocabulary and decisions
@@ -88,3 +114,17 @@ tests/                     offline tests; test_live.py is marked live
 Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/), e.g. `feat(parser): support nested groups`.
 
 The `commit-msg` hook adds a `Co-authored-by` line for every team member except the person committing. It recognises you by `git config user.email`, so make sure that matches your email in [.githooks/commit-msg](.githooks/commit-msg). To change the team, edit the list at the bottom of that file.
+
+## Upgrading uv
+
+`required-version` in [pyproject.toml](pyproject.toml) allows only 0.13.x. In case of a new minor release (e.g. 0.14):
+
+1. In pyproject.toml, set `required-version = ">=0.14.0,<0.15"`.
+2. Update the [Dockerfile](Dockerfile)'s first `FROM` line to the new uv tag and digest. Dependabot doesn't open these PRs, because it can't see `required-version`. Get the digest with `docker buildx imagetools inspect ghcr.io/astral-sh/uv:<version>-python3.13-trixie-slim`.
+3. Upgrade your uv to a version in the new range, naming it explicitly, because a plain upgrade installs the newest uv, which may be past the range:
+   - Installed with the standalone installer: `uv self update 0.14.0`.
+   - Installed with Homebrew: `brew upgrade uv`, then check `uv --version`. If it's past the range, see Troubleshooting. (`uv self update` doesn't work on a Homebrew install.)
+4. Run `make check` and `make docker-smoke`, then push.
+5. After merging, tell the team to upgrade uv too (step 3).
+
+**Troubleshooting:** `Required uv version ... does not match the running version` after `brew upgrade` means Homebrew installed a uv newer than the project allows. Until the project moves to it, run `brew uninstall uv`, then install a release within `required-version` with the standalone installer, e.g. `curl -LsSf https://astral.sh/uv/0.13.7/install.sh | sh`.

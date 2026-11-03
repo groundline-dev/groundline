@@ -26,6 +26,32 @@ updates:
       security:
         applies-to: security-updates
         patterns: ["*"]
+  # Base images in the Dockerfile. They're pinned by digest; Dependabot updates the
+  # digest when the publisher rebuilds a tag (e.g. security patches) and the tag
+  # for patch releases.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    ignore:
+      # A new Python minor must change both FROM lines at once: the virtualenv the
+      # build stage makes points at its own python3.X, which the runtime must have.
+      - dependency-name: python
+        update-types: [version-update:semver-major, version-update:semver-minor]
+      # The uv tag must stay within required-version in pyproject.toml, which
+      # Dependabot can't see. Upgrading uv is manual: see DEVELOPMENT.md.
+      - dependency-name: ghcr.io/astral-sh/uv
+        update-types: [version-update:semver-major, version-update:semver-minor]
+    groups:
+      # One group for both images, so their digest updates land in the same PR and
+      # the build and runtime stages stay on the same Python patch release.
+      base-images:
+        patterns: ["*"]
+      security:
+        applies-to: security-updates
+        patterns: ["*"]
   - package-ecosystem: pre-commit
     directory: /
     schedule:

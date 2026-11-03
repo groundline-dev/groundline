@@ -37,6 +37,12 @@ dev = [
     "types-pyyaml>=6.0.12.20261030",
 ]
 
+[tool.uv]
+# The uv versions allowed for local development, CI (setup-uv reads this setting)
+# and the Dockerfile's build image. Pinned to one minor so all three resolve, lock
+# and build the same way: a new uv minor can change how it resolves or writes uv.lock.
+required-version = ">=0.13.7,<0.14"
+
 [tool.ruff.lint]
 # pycodestyle errors and warnings, pyflakes, and import sorting.
 select = ["E", "W", "F", "I"]
