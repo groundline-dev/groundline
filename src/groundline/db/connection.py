@@ -27,6 +27,15 @@ async def check_connection(raw: str, *, timeout: int = 5) -> bool:
                 await connection.execute(text("SELECT 1"))
         finally:
             await engine.dispose()
+    except ImportError as error:
+        # A URL such as postgresql+asyncpg:// names a driver that isn't installed.
+        logger.error(
+            "can't connect to the database at %s: the %s driver isn't installed; "
+            "use postgresql+psycopg:// in DATABASE_URL",
+            where,
+            error.name or url.get_driver_name(),
+        )
+        return False
     except (SQLAlchemyError, OSError) as error:
         password = url.password if isinstance(url.password, str) else None
         logger.error(

@@ -22,6 +22,7 @@ from groundline.core.errors import SetupError
 from groundline.settings import Settings
 
 LOCAL_HOSTS = {None, "localhost", "127.0.0.1", "::1"}
+DRIVERS = {"postgresql", "postgresql+psycopg"}  # SQLAlchemy 2.1: both mean psycopg 3
 EXAMPLE_PASSWORD = "CHANGE_ME"
 MIN_PSQL = 15  # for \getenv
 
@@ -90,6 +91,12 @@ def _local_url(raw: str) -> URL:
     except (ArgumentError, ValueError):
         # Not `from error`: the parser's messages can quote the URL's password.
         raise DatabaseSetupError("DATABASE_URL isn't a valid URL") from None
+    if url.drivername not in DRIVERS:
+        # Checked before psql runs, so a bad URL never leaves a half-made role.
+        raise DatabaseSetupError(
+            f"DATABASE_URL uses {url.drivername}://, but groundline needs "
+            "postgresql+psycopg:// (or postgresql://), the driver it installs"
+        )
     if url.host not in LOCAL_HOSTS:
         raise DatabaseSetupError(
             f"db-setup only sets up a database on this machine, not on {url.host}"

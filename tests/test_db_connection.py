@@ -65,3 +65,18 @@ def test_the_api_starts_without_a_database_url_and_says_so(
         assert client.get("/health").status_code == 200
 
     assert "DATABASE_URL is not set" in caplog.text
+
+
+@pytest.mark.parametrize("driver", ["asyncpg", "psycopg2"])
+def test_a_driver_that_isnt_installed_is_logged_not_raised(
+    driver: str, caplog: pytest.LogCaptureFixture
+):
+    url = UNREACHABLE.replace("+psycopg", f"+{driver}")
+
+    with caplog.at_level(logging.INFO, logger="groundline.db"):
+        connected = asyncio.run(check_connection(url))
+
+    assert connected is False
+    assert f"the {driver} driver isn't installed" in caplog.text
+    assert "postgresql+psycopg://" in caplog.text  # how to fix it
+    assert "pw-secret" not in caplog.text
