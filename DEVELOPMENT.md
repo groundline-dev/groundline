@@ -4,18 +4,14 @@ How to work on groundline itself. For what it does and how to use it, start with
 
 ## Setup
 
-Follow the README's [Setup](README.md#setup) section first: `uv sync`, and an API key in `.env` if you'll make live calls. Then enable the shared git hooks:
-
-```sh
-git config core.hooksPath .githooks
-```
+Follow the README's [Setup](README.md#setup) section first: `make setup`, and an API key in `.env` if you'll make live calls. `make setup` installs the dependencies and enables the shared git hooks in [.githooks/](.githooks/).
 
 ## Running the API
 
 Start the API with auto-reload at http://127.0.0.1:8000 (interactive docs at `/docs`):
 
 ```sh
-uv run fastapi dev
+make dev
 ```
 
 ## Database
@@ -59,7 +55,7 @@ A test checks that the migrations and `tables.py` agree.
 Run the tests. These are offline, free, and need no API key; model calls use a scripted fake client:
 
 ```sh
-uv run pytest
+make test
 ```
 
 Run the database tests, which need PostgreSQL 18 running locally as described in [Database](#database). Each run creates a throwaway role and database, and drops them afterwards. They're excluded from the default run, and from CI until the move to Docker:
@@ -92,18 +88,19 @@ uv run python -m groundline.presets.schema
 
 ## Lint, format and type checks
 
-Lint and format with [ruff](https://docs.astral.sh/ruff/):
+Run everything CI runs: [ruff](https://docs.astral.sh/ruff/), [pyright](https://microsoft.github.io/pyright/) in strict mode, the large-file check and the tests. This doesn't change any files:
 
 ```sh
-uv run ruff check
-uv run ruff format
+make check
 ```
 
-Type-check with [pyright](https://microsoft.github.io/pyright/), in strict mode:
+Apply ruff's lint fixes and formatting:
 
 ```sh
-uv run pyright
+make fix
 ```
+
+The `pre-commit` hook runs the checks in [.pre-commit-config.yaml](.pre-commit-config.yaml) on staged files. If ruff fails, run `make fix` and stage the result. Pyright errors need fixing by hand; run `uv run pyright` to check types on their own.
 
 ## Layout
 
