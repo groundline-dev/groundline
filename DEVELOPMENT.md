@@ -67,15 +67,17 @@ uv run pyright
 
 ```
 src/groundline/
-  core/                  the pipeline framework: steps, registry, specs, runner, cache, costs
-  clients/               the Anthropic client
-  evaluators/omissions/  the omission check's data models, stages and report
-  profiles/clinical/     the clinical profile: prompts and severity rubric
-  presets/               validated pipeline specs (omission_all_opus.yaml)
-  evaluate.py            evaluate(): the entry point the CLI and API share
-  cli.py                 the groundline command
-  app.py                 the FastAPI app
-tests/                   offline tests; test_live.py is marked live
+  core/                    the pipeline framework: steps, registry, specs, runner, cache, costs
+  clients/                 the Anthropic client
+  evaluators/              what the checks share: severity, the alarm's output, report helpers
+  evaluators/omissions/    the omission check's data models, stages and report
+  evaluators/commissions/  the commission check's data models, stages and report
+  profiles/clinical/       the clinical profile: prompts and severity rubric
+  presets/                 validated pipeline specs (omission_all_opus, commission_quick)
+  evaluate.py              evaluate(): the entry point the CLI and API share
+  cli.py                   the groundline command
+  app.py                   the FastAPI app
+tests/                     offline tests; test_live.py is marked live
 ```
 
 ## Vocabulary and decisions
