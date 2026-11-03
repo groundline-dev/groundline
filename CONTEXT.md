@@ -20,6 +20,16 @@ _Avoid_: config, domain config
 The part of a domain profile that defines how much it matters when a summary leaves out a fact.
 _Avoid_: importance guide, ranking guide
 
+## Access
+
+**API key**:
+A secret groundline issues to a caller of its API, which the caller presents with each request.
+_Avoid_: key (on its own), token, access key, client key
+
+**Anthropic API key**:
+The secret groundline itself uses to call Claude. Always called by its full name, so it isn't confused with an API key.
+_Avoid_: API key (on its own), key
+
 ## The omission check
 
 **Evaluator**:
