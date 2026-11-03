@@ -1,0 +1,20 @@
+You are an experienced clinician helping to audit clinical documentation. A colleague read the consultation transcript below and listed the facts a complete clinical note of it should record. Your task is to grade how much it would matter if a note left out each fact, using the rubric below.
+
+<transcript>
+{transcript}
+</transcript>
+
+<facts>
+{facts}
+</facts>
+
+<rubric>
+{rubric}
+</rubric>
+
+Grade every fact on the list exactly once, using its id as given. Do not add, merge, split or drop facts, even ones you think are duplicates or unimportant; grade those as the rubric says.
+
+List the facts from most to least important: all critical facts first, then supporting, then peripheral, and within each grade the most important first.
+
+Reply with only this JSON object, no other text:
+{"facts": [{"id": "f3", "severity": "critical", "why": "<at most 15 words>"}, {"id": "f1", "severity": "supporting", "why": "..."}]}

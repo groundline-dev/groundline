@@ -1,0 +1,457 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "StageSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "step": {
+          "description": "The step this stage fills, such as `extract` or `check`.",
+          "title": "Step",
+          "type": "string",
+          "enum": [
+            "extract",
+            "rank",
+            "check",
+            "refute",
+            "score",
+            "alarm"
+          ]
+        },
+        "implementation": {
+          "description": "How to do the step, such as `check.llm_batch`.",
+          "title": "Implementation",
+          "type": "string",
+          "enum": [
+            "extract.llm",
+            "rank.llm",
+            "check.llm_batch",
+            "refute.llm",
+            "score.basic",
+            "alarm.critical_max"
+          ]
+        },
+        "enabled": {
+          "default": true,
+          "description": "Whether the stage runs. Only some stages can be switched off.",
+          "title": "Enabled",
+          "type": "boolean"
+        },
+        "settings": {
+          "additionalProperties": true,
+          "description": "The implementation's settings, such as its model and prompt.",
+          "title": "Settings",
+          "type": "object"
+        }
+      },
+      "required": [
+        "step",
+        "implementation"
+      ],
+      "title": "StageSpec",
+      "type": "object",
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "implementation": {
+                "const": "extract.llm"
+              }
+            },
+            "required": [
+              "implementation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "step": {
+                "const": "extract"
+              },
+              "settings": {
+                "$ref": "#/$defs/ExtractLLM"
+              },
+              "enabled": {
+                "const": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "implementation": {
+                "const": "rank.llm"
+              }
+            },
+            "required": [
+              "implementation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "step": {
+                "const": "rank"
+              },
+              "settings": {
+                "$ref": "#/$defs/RankLLM"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "implementation": {
+                "const": "check.llm_batch"
+              }
+            },
+            "required": [
+              "implementation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "step": {
+                "const": "check"
+              },
+              "settings": {
+                "$ref": "#/$defs/CheckLLMBatch"
+              },
+              "enabled": {
+                "const": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "implementation": {
+                "const": "refute.llm"
+              }
+            },
+            "required": [
+              "implementation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "step": {
+                "const": "refute"
+              },
+              "settings": {
+                "$ref": "#/$defs/RefuteLLM"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "implementation": {
+                "const": "score.basic"
+              }
+            },
+            "required": [
+              "implementation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "step": {
+                "const": "score"
+              },
+              "settings": {
+                "$ref": "#/$defs/ScoreBasic"
+              },
+              "enabled": {
+                "const": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "implementation": {
+                "const": "alarm.critical_max"
+              }
+            },
+            "required": [
+              "implementation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "step": {
+                "const": "alarm"
+              },
+              "settings": {
+                "$ref": "#/$defs/AlarmCriticalMax"
+              },
+              "enabled": {
+                "const": true
+              }
+            }
+          }
+        }
+      ]
+    },
+    "AlarmCriticalMax": {
+      "additionalProperties": false,
+      "properties": {
+        "thresholds": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "default": {
+            "strict": 0.9,
+            "moderate": 0.425
+          },
+          "description": "Named alarm scores at or above which the summary is flagged. Only\nmeaningful for the pipeline they were calibrated on.",
+          "title": "Thresholds",
+          "type": "object"
+        },
+        "level": {
+          "default": "strict",
+          "description": "Which of `thresholds` to flag at.",
+          "title": "Level",
+          "type": "string"
+        }
+      },
+      "title": "AlarmCriticalMax",
+      "type": "object"
+    },
+    "CheckLLMBatch": {
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "default": "claude-opus-5-5",
+          "description": "The model to call.",
+          "title": "Model",
+          "type": "string"
+        },
+        "effort": {
+          "default": "medium",
+          "description": "How much effort the model spends: low, medium, high, xhigh or max.",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "title": "Effort",
+          "type": "string"
+        },
+        "max_tokens": {
+          "default": 16000,
+          "description": "The longest reply allowed, in tokens. A reply cut off here is an error.",
+          "title": "Max Tokens",
+          "type": "integer"
+        },
+        "prompt": {
+          "default": "check_batch_v1",
+          "description": "The profile prompt to use.",
+          "title": "Prompt",
+          "type": "string"
+        }
+      },
+      "title": "CheckLLMBatch",
+      "type": "object"
+    },
+    "ExtractLLM": {
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "default": "claude-opus-5-5",
+          "description": "The model to call.",
+          "title": "Model",
+          "type": "string"
+        },
+        "effort": {
+          "default": "high",
+          "description": "How much effort the model spends: low, medium, high, xhigh or max.",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "title": "Effort",
+          "type": "string"
+        },
+        "max_tokens": {
+          "default": 16000,
+          "description": "The longest reply allowed, in tokens. A reply cut off here is an error.",
+          "title": "Max Tokens",
+          "type": "integer"
+        },
+        "prompt": {
+          "default": "extract_coarse_v1",
+          "description": "The profile prompt to use.",
+          "title": "Prompt",
+          "type": "string"
+        }
+      },
+      "title": "ExtractLLM",
+      "type": "object"
+    },
+    "RankLLM": {
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "default": "claude-opus-5-5",
+          "description": "The model to call.",
+          "title": "Model",
+          "type": "string"
+        },
+        "effort": {
+          "default": "high",
+          "description": "How much effort the model spends: low, medium, high, xhigh or max.",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "title": "Effort",
+          "type": "string"
+        },
+        "max_tokens": {
+          "default": 16000,
+          "description": "The longest reply allowed, in tokens. A reply cut off here is an error.",
+          "title": "Max Tokens",
+          "type": "integer"
+        },
+        "prompt": {
+          "default": "rank_v1",
+          "description": "The profile prompt to use.",
+          "title": "Prompt",
+          "type": "string"
+        },
+        "rubric": {
+          "default": "severity_v1",
+          "description": "The profile's severity rubric to grade with.",
+          "title": "Rubric",
+          "type": "string"
+        }
+      },
+      "title": "RankLLM",
+      "type": "object"
+    },
+    "RefuteLLM": {
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "default": "claude-opus-5-5",
+          "description": "The model to call.",
+          "title": "Model",
+          "type": "string"
+        },
+        "effort": {
+          "default": "high",
+          "description": "How much effort the model spends: low, medium, high, xhigh or max.",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "title": "Effort",
+          "type": "string"
+        },
+        "max_tokens": {
+          "default": 16000,
+          "description": "The longest reply allowed, in tokens. A reply cut off here is an error.",
+          "title": "Max Tokens",
+          "type": "integer"
+        },
+        "prompt": {
+          "default": "refute_v1",
+          "description": "The profile prompt to use.",
+          "title": "Prompt",
+          "type": "string"
+        }
+      },
+      "title": "RefuteLLM",
+      "type": "object"
+    },
+    "ScoreBasic": {
+      "additionalProperties": false,
+      "properties": {
+        "weighted": {
+          "default": true,
+          "description": "Whether to also report the severity-weighted missing ratio.",
+          "title": "Weighted",
+          "type": "boolean"
+        },
+        "weights": {
+          "additionalProperties": {
+            "type": "integer"
+          },
+          "default": {
+            "critical": 3,
+            "supporting": 2,
+            "peripheral": 1
+          },
+          "description": "How much a fact of each severity counts in the weighted ratio.",
+          "propertyNames": {
+            "enum": [
+              "critical",
+              "supporting",
+              "peripheral"
+            ]
+          },
+          "title": "Weights",
+          "type": "object"
+        }
+      },
+      "title": "ScoreBasic",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "properties": {
+    "name": {
+      "description": "The pipeline's name, such as `omission_all_opus`.",
+      "title": "Name",
+      "type": "string"
+    },
+    "description": {
+      "default": "",
+      "description": "What the pipeline is for.",
+      "title": "Description",
+      "type": "string"
+    },
+    "profile": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "description": "The domain profile this pipeline is meant for, such as `clinical`.",
+      "title": "Profile"
+    },
+    "stages": {
+      "description": "The stages, in order. A stage may only read steps that come before it.",
+      "items": {
+        "$ref": "#/$defs/StageSpec"
+      },
+      "title": "Stages",
+      "type": "array"
+    }
+  },
+  "required": [
+    "name",
+    "stages"
+  ],
+  "title": "groundline pipeline spec",
+  "type": "object"
+}

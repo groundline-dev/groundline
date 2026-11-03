@@ -1,0 +1,3 @@
+# No real patient data before production
+
+groundline is a development tool until it reaches production, and won't be used with real patient data before then. That allows conveniences that would otherwise be unsafe, chiefly an opt-in cache of stage outputs that stores sources and summaries on disk. They stay guarded anyway: the cache is off by default, prints a sensitive-data warning when switched on, lives outside the repo, and its files are readable only by their owner. Test fixtures come from public datasets and carry attribution. Before groundline handles real patient data, these conveniences need reviewing, and this decision should be superseded.

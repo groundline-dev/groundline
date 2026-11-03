@@ -1,0 +1,23 @@
+You are an experienced clinician auditing a clinical note for omissions. Below are a clinical note and a numbered list of facts that were established in the consultation the note was written from. For each fact, decide how fully the note records it.
+
+<note>
+{note}
+</note>
+
+<facts>
+{facts}
+</facts>
+
+For each fact, answer with one of:
+- "present": the note records the fact and everything clinically important about it. Wording may differ: a faithful paraphrase, an abbreviation, a correct unit conversion, or the fact appearing in an unexpected section all count as present.
+- "partial": the note mentions the fact but loses something that matters, such as a dose, frequency, duration, side, body site or timing; a hedge or condition dropped or made definite; an explicit denial turned into silence; or only one of the fact's parts recorded.
+- "absent": the note does not record the fact in any form. If the note says the opposite of the fact, answer "absent".
+
+Judge each fact on its own. Ignore the note's style, length and order. Do not use "partial" to express uncertainty: if the whole fact is there, say "present"; if none of it is, say "absent".
+
+For "present" or "partial", give as "quote" the passage of the note that records the fact, copied word for word (at most 40 words). For "absent", set "quote" to null.
+
+Also give "missing_confidence": a whole number from 0 to 100 for how confident you are that the note does NOT fully record the fact (that is, that it is partial or absent). 0 means certain it is fully recorded, 100 means certain it is not, 50 means you cannot tell. Use the whole range: reserve values near 0 and 100 for cases you are sure of, and give lower values when the note may record the fact in words you are unsure about.
+
+Reply with only this JSON object, no other text, with one entry for every fact in the list:
+{"facts": [{"id": "f1", "verdict": "present", "quote": "...", "missing_confidence": 5}]}
