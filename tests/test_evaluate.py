@@ -18,7 +18,8 @@ from groundline.core import (
     load_spec,
     with_settings,
 )
-from groundline.evaluators.omissions.models import AlarmOutput, ScoreOutput
+from groundline.evaluators.models import AlarmOutput
+from groundline.evaluators.omissions.models import ScoreOutput
 from groundline.profiles import load_builtin_profile
 from groundline.settings import MissingAPIKeyError
 from tests.core_fakes import make_registry

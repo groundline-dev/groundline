@@ -19,4 +19,6 @@ texts:
   rank_v1: prompts/rank_v1.txt
   check_batch_v1: prompts/check_batch_v1.txt
   refute_v1: prompts/refute_v1.txt
+  quick_check_v1: prompts/quick_check_v1.txt
+  support_refute_v1: prompts/support_refute_v1.txt
   severity_v1: rubrics/severity_v1.md

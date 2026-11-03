@@ -8,13 +8,13 @@ severity, when ranking is off, weigh 1).
 from typing import ClassVar
 
 from groundline.core import Implementation, StageContext
+from groundline.evaluators.models import Severity
 from groundline.evaluators.omissions.models import (
     MissingFact,
     RankedFact,
     RankOutput,
     RefuteOutput,
     ScoreOutput,
-    Severity,
     Verdict,
 )
 

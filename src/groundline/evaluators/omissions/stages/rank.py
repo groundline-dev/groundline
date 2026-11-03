@@ -16,13 +16,12 @@ from groundline.core import (
     get_list,
     parse_json_object,
 )
+from groundline.evaluators.models import SEVERITIES, Severity
 from groundline.evaluators.omissions.models import (
-    SEVERITIES,
     ExtractOutput,
     Fact,
     RankedFact,
     RankOutput,
-    Severity,
 )
 
 

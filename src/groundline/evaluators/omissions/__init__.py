@@ -6,8 +6,8 @@ Steps, in order: extract → rank → check → refute → score → alarm.
 from pydantic import BaseModel
 
 from groundline.core import Implementation, Registry
+from groundline.evaluators import define_shared_steps
 from groundline.evaluators.omissions.models import (
-    AlarmOutput,
     CheckOutput,
     ExtractOutput,
     RankOutput,
@@ -29,8 +29,9 @@ STEPS: dict[str, type[BaseModel]] = {
     "check": CheckOutput,
     "refute": RefuteOutput,
     "score": ScoreOutput,
-    "alarm": AlarmOutput,
 }
+"""The steps this check defines. `alarm` is shared with the commission check, so
+`define_shared_steps` defines it."""
 
 IMPLEMENTATIONS: list[type[Implementation]] = [
     ExtractLLM,
@@ -44,6 +45,7 @@ IMPLEMENTATIONS: list[type[Implementation]] = [
 
 def register_omissions(registry: Registry) -> None:
     """Define the omission steps and register their implementations."""
+    define_shared_steps(registry)
     for step, output_type in STEPS.items():
         registry.define_step(step, output_type)
     for implementation in IMPLEMENTATIONS:

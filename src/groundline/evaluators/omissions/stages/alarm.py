@@ -14,8 +14,8 @@ from typing import ClassVar, Self
 from pydantic import model_validator
 
 from groundline.core import Implementation, StageContext
+from groundline.evaluators.models import AlarmOutput
 from groundline.evaluators.omissions.models import (
-    AlarmOutput,
     RankedFact,
     RankOutput,
     RefuteOutput,
