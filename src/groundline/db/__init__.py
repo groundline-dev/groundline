@@ -1,6 +1,6 @@
 """groundline's Postgres database: its tables, connection check and setup.
 
-It holds operational data only, never sources or summaries (ADR 0007).
+It holds operational data only, never sources or summaries (ADR 0009).
 """
 
 from groundline.db.connection import check_connection

@@ -16,7 +16,7 @@ make dev
 
 ## Database
 
-The API keeps its operational data, starting with API keys, in PostgreSQL 18. It never holds sources, summaries or results ([ADR 0007](docs/adr/0007-the-database-holds-no-patient-data.md)). The omission check and the `groundline` command don't use it. For now each developer runs Postgres natively; Docker is planned.
+The API keeps its operational data, starting with API keys, in PostgreSQL 18. It never holds sources, summaries or results ([ADR 0009](docs/adr/0009-the-database-holds-no-patient-data.md)). The omission check and the `groundline` command don't use it. For now each developer runs Postgres natively; Docker is planned.
 
 Install and start PostgreSQL 18:
 
