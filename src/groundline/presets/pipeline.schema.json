@@ -14,7 +14,9 @@
             "check",
             "refute",
             "score",
-            "alarm"
+            "alarm",
+            "commissions_check",
+            "commissions_refute"
           ]
         },
         "implementation": {
@@ -27,7 +29,10 @@
             "check.llm_batch",
             "refute.llm",
             "score.basic",
-            "alarm.critical_max"
+            "alarm.critical_max",
+            "commissions_check.llm_quick",
+            "commissions_refute.llm",
+            "alarm.critical_unsupported_max"
           ]
         },
         "enabled": {
@@ -193,6 +198,78 @@
               }
             }
           }
+        },
+        {
+          "if": {
+            "properties": {
+              "implementation": {
+                "const": "commissions_check.llm_quick"
+              }
+            },
+            "required": [
+              "implementation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "step": {
+                "const": "commissions_check"
+              },
+              "settings": {
+                "$ref": "#/$defs/CommissionsCheckLLMQuick"
+              },
+              "enabled": {
+                "const": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "implementation": {
+                "const": "commissions_refute.llm"
+              }
+            },
+            "required": [
+              "implementation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "step": {
+                "const": "commissions_refute"
+              },
+              "settings": {
+                "$ref": "#/$defs/CommissionsRefuteLLM"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "implementation": {
+                "const": "alarm.critical_unsupported_max"
+              }
+            },
+            "required": [
+              "implementation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "step": {
+                "const": "alarm"
+              },
+              "settings": {
+                "$ref": "#/$defs/AlarmCriticalUnsupportedMax"
+              },
+              "enabled": {
+                "const": true
+              }
+            }
+          }
         }
       ]
     },
@@ -219,6 +296,30 @@
         }
       },
       "title": "AlarmCriticalMax",
+      "type": "object"
+    },
+    "AlarmCriticalUnsupportedMax": {
+      "additionalProperties": false,
+      "properties": {
+        "thresholds": {
+          "additionalProperties": {
+            "type": "number"
+          },
+          "default": {
+            "default": 0.85
+          },
+          "description": "Named alarm scores at or above which the summary is flagged. Only\nmeaningful for the pipeline they were calibrated on.",
+          "title": "Thresholds",
+          "type": "object"
+        },
+        "level": {
+          "default": "default",
+          "description": "Which of `thresholds` to flag at.",
+          "title": "Level",
+          "type": "string"
+        }
+      },
+      "title": "AlarmCriticalUnsupportedMax",
       "type": "object"
     },
     "CheckLLMBatch": {
@@ -257,6 +358,82 @@
         }
       },
       "title": "CheckLLMBatch",
+      "type": "object"
+    },
+    "CommissionsCheckLLMQuick": {
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "default": "claude-haiku-5-5",
+          "description": "The model to call.",
+          "title": "Model",
+          "type": "string"
+        },
+        "effort": {
+          "default": "medium",
+          "description": "How much effort the model spends: low, medium, high, xhigh or max.",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "title": "Effort",
+          "type": "string"
+        },
+        "max_tokens": {
+          "default": 16000,
+          "description": "The longest reply allowed, in tokens. A reply cut off here is an error.",
+          "title": "Max Tokens",
+          "type": "integer"
+        },
+        "prompt": {
+          "default": "quick_check_v1",
+          "description": "The profile prompt to use.",
+          "title": "Prompt",
+          "type": "string"
+        }
+      },
+      "title": "CommissionsCheckLLMQuick",
+      "type": "object"
+    },
+    "CommissionsRefuteLLM": {
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "default": "claude-haiku-5-5",
+          "description": "The model to call.",
+          "title": "Model",
+          "type": "string"
+        },
+        "effort": {
+          "default": "medium",
+          "description": "How much effort the model spends: low, medium, high, xhigh or max.",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "title": "Effort",
+          "type": "string"
+        },
+        "max_tokens": {
+          "default": 16000,
+          "description": "The longest reply allowed, in tokens. A reply cut off here is an error.",
+          "title": "Max Tokens",
+          "type": "integer"
+        },
+        "prompt": {
+          "default": "support_refute_v1",
+          "description": "The profile prompt to use.",
+          "title": "Prompt",
+          "type": "string"
+        }
+      },
+      "title": "CommissionsRefuteLLM",
       "type": "object"
     },
     "ExtractLLM": {

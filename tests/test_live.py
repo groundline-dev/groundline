@@ -1,6 +1,7 @@
-"""Live smoke test: the all-Opus preset against the real Anthropic API.
+"""Live smoke tests: the presets against the real Anthropic API.
 
-Costs money (roughly $0.10-0.20 per run on this short example), so it's excluded
+Cost money (roughly $0.10-0.20 for the omission preset and under a cent for the
+commission preset, on these short examples), so they're excluded
 from the default `pytest` run. Run it with `uv run pytest -m live -s` from the repo
 root, with ANTHROPIC_API_KEY in the environment or `.env`.
 
@@ -10,13 +11,15 @@ produced well-formed output, not which facts were found.
 
 import pytest
 
-from groundline import evaluate_sync
+from groundline import DEFAULT_COMMISSIONS_PRESET, evaluate_sync, load_preset
+from groundline.evaluators.commissions.models import CommissionsCheckOutput
+from groundline.evaluators.models import AlarmOutput
 from groundline.evaluators.omissions.models import (
-    AlarmOutput,
     CheckOutput,
     RankOutput,
     ScoreOutput,
 )
+from tests.commissions_helpers import SUMMARY as SUMMARY_WITH_ERRORS
 from tests.omission_helpers import SOURCE, SUMMARY
 
 pytestmark = pytest.mark.live
@@ -49,4 +52,28 @@ def test_the_all_opus_preset_runs_end_to_end():
     assert 0.0 <= result.run.output("alarm", AlarmOutput).score <= 1.0
 
     assert {c.model for c in result.run.calls} == {"claude-opus-5-5"}
+    assert usage.cost_usd > 0 and not usage.unpriced_models
+
+
+def test_the_quick_commission_preset_runs_end_to_end():
+    spec = load_preset(DEFAULT_COMMISSIONS_PRESET)
+    result = evaluate_sync(SOURCE, SUMMARY_WITH_ERRORS, spec=spec)
+
+    usage = result.run.usage
+    print(
+        f"\nlive run: {usage.calls} calls, {usage.input_tokens:,} input / "
+        f"{usage.output_tokens:,} output tokens, ${usage.cost_usd:.4f}"
+    )
+
+    assert result.validated_preset == "commission_quick"
+    assert {step: s.status for step, s in result.run.stages.items()} == {
+        "commissions_check": "ran",
+        "commissions_refute": "disabled",
+        "alarm": "ran",
+    }
+    issues = result.run.output("commissions_check", CommissionsCheckOutput).issues
+    assert all(0.0 <= i.confidence <= 1.0 for i in issues)
+    assert 0.0 <= result.run.output("alarm", AlarmOutput).score <= 1.0
+
+    assert {c.model for c in result.run.calls} == {"claude-haiku-5-5"}
     assert usage.cost_usd > 0 and not usage.unpriced_models

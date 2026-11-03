@@ -6,8 +6,8 @@ Steps, in order: extract → rank → check → refute → score → alarm.
 from pydantic import BaseModel
 
 from groundline.core import Implementation, Registry
+from groundline.evaluators.models import AlarmOutput
 from groundline.evaluators.omissions.models import (
-    AlarmOutput,
     CheckOutput,
     ExtractOutput,
     RankOutput,

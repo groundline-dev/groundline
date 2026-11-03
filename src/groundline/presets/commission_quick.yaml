@@ -1,0 +1,40 @@
+# yaml-language-server: $schema=pipeline.schema.json
+# The quick commission check, with the clinical profile.
+#
+# This is the configuration omission-pipeline measured, so its results only hold
+# while every setting here, and the clinical profile's prompts, stay unchanged.
+#
+# One Claude Haiku 5.5 call lists the summary's claims that the source doesn't
+# support. Refute, which re-checks the critical ones, was not part of the
+# measured configuration and is switched off. The one threshold level was fixed
+# in advance on 30 development pairs.
+#
+# Measured on 172 held-out commission pairs (pre-registered, confirmed):
+#   151 caught, 1/110 clean notes flagged, about $0.002 per note.
+#
+# Every setting is written out, so the preset doesn't change if a default does.
+
+name: commission_quick
+profile: clinical
+description: >-
+  Quick commission check (one Haiku call that lists the unsupported or
+  contradicted claims, refute off, alarm). Measured on 172 held-out commission
+  pairs: 151 caught, 1/110 clean notes flagged, about $0.002 per note.
+
+stages:
+  - step: commissions_check
+    implementation: commissions_check.llm_quick
+    settings:
+      {model: claude-haiku-5-5, effort: medium, max_tokens: 16000, prompt: quick_check_v1}
+
+  - step: commissions_refute
+    implementation: commissions_refute.llm
+    enabled: false
+    settings:
+      {model: claude-haiku-5-5, effort: medium, max_tokens: 16000, prompt: support_refute_v1}
+
+  - step: alarm
+    implementation: alarm.critical_unsupported_max
+    settings:
+      thresholds: {default: 0.85}
+      level: default
