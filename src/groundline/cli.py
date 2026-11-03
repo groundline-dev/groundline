@@ -92,9 +92,13 @@ SummaryArg = Annotated[
         exists=True, dir_okay=False, help="The summary to check, e.g. a clinical note."
     ),
 ]
-ThresholdOpt = Annotated[
+OmissionsThresholdOpt = Annotated[
     str | None,
     typer.Option(help="Alarm level from the pipeline, e.g. strict or moderate."),
+]
+CommissionsThresholdOpt = Annotated[
+    str | None,
+    typer.Option(help="Alarm level from the pipeline, e.g. default."),
 ]
 OmissionsPipelineOpt = Annotated[
     Path | None,
@@ -164,7 +168,7 @@ COMMISSIONS = Check(
 def omissions(
     source: SourceArg,
     summary: SummaryArg,
-    threshold: ThresholdOpt = None,
+    threshold: OmissionsThresholdOpt = None,
     pipeline: OmissionsPipelineOpt = None,
     profile: ProfileOpt = None,
     cache: CacheOpt = False,
@@ -182,7 +186,7 @@ def omissions(
 def commissions(
     source: SourceArg,
     summary: SummaryArg,
-    threshold: ThresholdOpt = None,
+    threshold: CommissionsThresholdOpt = None,
     pipeline: CommissionsPipelineOpt = None,
     profile: ProfileOpt = None,
     cache: CacheOpt = False,
