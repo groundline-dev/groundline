@@ -24,7 +24,7 @@ from groundline.core import (
     summarize_usage,
     with_settings,
 )
-from groundline.evaluate import DEFAULT_PRESET, evaluate
+from groundline.evaluate import DEFAULT_PRESET, EvaluationResult, evaluate
 from groundline.evaluators.models import AlarmOutput, Severity
 from groundline.evaluators.omissions.models import ScoreOutput, VerdictLabel
 from groundline.evaluators.report import format_cost
@@ -148,6 +148,8 @@ async def omissions(
         result = await evaluate(
             request.source, request.summary, spec=spec, client=client
         )
+        # Inside the try: a validation error here would quote a fact.
+        return _response(result)
     except SetupError as error:
         logger.warning("can't check: %s", error)
         raise HTTPException(503, detail=str(error)) from error
@@ -166,6 +168,8 @@ async def omissions(
             500, detail="unexpected error; see the server log"
         ) from None
 
+
+def _response(result: EvaluationResult) -> OmissionsResponse:
     score = result.run.output("score", ScoreOutput)
     alarm = result.run.output("alarm", AlarmOutput)
     usage = result.run.usage

@@ -245,3 +245,23 @@ def test_startup_is_quiet_when_the_key_is_set(
         pass
 
     assert "ANTHROPIC_API_KEY" not in caplog.text
+
+
+def test_a_failure_building_the_response_is_a_generic_500(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    def broken(**fields: object) -> None:
+        raise ValueError(SECRET)
+
+    use_client(NOT_FLAGGED)
+    monkeypatch.setattr(api, "Counts", broken)
+
+    with caplog.at_level(logging.INFO):
+        response = TestClient(app, raise_server_exceptions=False).post(
+            "/v1/omissions", json=check()
+        )
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "unexpected error; see the server log"}
+    assert "unexpected ValueError" in caplog.text
+    assert "tenofovir" not in caplog.text
