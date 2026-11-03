@@ -84,7 +84,7 @@ alarm = result.run.output("alarm", AlarmOutput)
 print(alarm.flagged, alarm.score)
 for fact in result.run.output("score", ScoreOutput).missing_facts:
     print(fact.severity, fact.verdict, fact.fact)
-print(result.validated_preset)       # "omission_all_opus", or None if anything was changed
+print(result.validated_preset)  # "omission_all_opus", or None if anything was changed
 print(result.run.usage.cost_usd)
 ```
 
