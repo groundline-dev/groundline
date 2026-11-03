@@ -9,6 +9,7 @@ from groundline.settings import MissingAPIKeyError, Settings
 def isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Keep the developer's real key and .env out of these tests."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("DATABASE_URL", raising=False)
     monkeypatch.chdir(tmp_path)
 
 
@@ -78,3 +79,18 @@ def test_reports_where_the_key_came_from(monkeypatch: pytest.MonkeyPatch):
 
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-env")
     assert Settings().anthropic_key_source() == "the environment"
+
+
+def test_reads_the_database_url_and_hides_it():
+    Path(".env").write_text(
+        "DATABASE_URL=postgresql+psycopg://gl:pw-secret@localhost/gl\n"
+    )
+    settings = Settings()
+
+    assert settings.database_url is not None
+    assert settings.database_url.get_secret_value().endswith("@localhost/gl")
+    assert "pw-secret" not in repr(settings)
+
+
+def test_the_database_url_is_optional():
+    assert Settings().database_url is None

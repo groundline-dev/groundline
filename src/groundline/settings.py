@@ -33,6 +33,9 @@ class Settings(BaseSettings):
     )
 
     anthropic_api_key: SecretStr | None = None
+    database_url: SecretStr | None = None
+    """Where the database is, password included, such as
+    postgresql+psycopg://groundline:...@localhost:5432/groundline."""
 
     def anthropic_key(self, needed_by: str | None = None) -> str:
         """The Anthropic API key, or an error explaining how to provide it.

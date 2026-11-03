@@ -27,7 +27,7 @@ uv sync
 
 Run `uv sync` again whenever `uv.lock` changes after a pull. Use `uv run <command>` to run things inside the environment without activating it.
 
-Model calls need an Anthropic API key. Copy `.env.example` to `.env` and add your key, or export `ANTHROPIC_API_KEY`. `.env` is git-ignored; never commit a key. groundline reads `.env` from the folder you run it in, so run commands from the repo root. A missing or rejected key produces an error saying where groundline looked and how to fix it, before any paid call.
+Model calls need an Anthropic API key. Copy `.env.example` to `.env` and add your key, or export `ANTHROPIC_API_KEY`. The API also uses a Postgres database, which checking a summary doesn't need; [DEVELOPMENT.md](DEVELOPMENT.md#database) explains how to set one up. `.env` is git-ignored; never commit a key. groundline reads `.env` from the folder you run it in, so run commands from the repo root. A missing or rejected key produces an error saying where groundline looked and how to fix it, before any paid call.
 
 **Live calls cost money.** A typical clinical note costs about $0.28 to check. Agree a budget with your team before running anything at scale.
 

@@ -1,0 +1,54 @@
+"""Connecting to the database, and logging when that fails."""
+
+import logging
+
+from sqlalchemy import URL, make_url, text
+from sqlalchemy.exc import DBAPIError, SQLAlchemyError
+from sqlalchemy.ext.asyncio import create_async_engine
+
+logger = logging.getLogger("groundline.db")
+
+
+def database_url(raw: str) -> URL:
+    """`raw` as a SQLAlchemy URL that uses psycopg 3, the installed driver.
+
+    A plain postgresql:// URL would otherwise mean psycopg2."""
+    url = make_url(raw)
+    if url.drivername == "postgresql":
+        url = url.set(drivername="postgresql+psycopg")
+    return url
+
+
+async def check_connection(raw: str, *, timeout: int = 5) -> bool:
+    """Try connecting; log and return False if it fails.
+
+    The log gives where and why, never the password."""
+    try:
+        url = database_url(raw)
+    except (SQLAlchemyError, ValueError):
+        # The parser's message quotes the whole URL, password included.
+        logger.error("can't connect to the database: DATABASE_URL isn't a valid URL")
+        return False
+    where = f"{url.host or 'localhost'}:{url.port or 5432}/{url.database}"
+    try:
+        engine = create_async_engine(url, connect_args={"connect_timeout": timeout})
+        try:
+            async with engine.connect() as connection:
+                await connection.execute(text("SELECT 1"))
+        finally:
+            await engine.dispose()
+    except (SQLAlchemyError, OSError) as error:
+        password = url.password if isinstance(url.password, str) else None
+        logger.error(
+            "can't connect to the database at %s: %s", where, _reason(error, password)
+        )
+        return False
+    logger.info("connected to the database at %s", where)
+    return True
+
+
+def _reason(error: Exception, password: str | None) -> str:
+    """The driver's own explanation, on one line, with the password removed."""
+    inner = error.orig if isinstance(error, DBAPIError) else error
+    reason = " ".join(str(inner).split())
+    return reason.replace(password, "***") if password else reason
