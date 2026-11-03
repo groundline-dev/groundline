@@ -1,7 +1,7 @@
 """Live smoke tests: the presets against the real Anthropic API.
 
-Cost money (roughly $0.10-0.20 for the omission preset and under a cent for the
-commission preset, on these short examples), so they're excluded
+Cost money (about $0.04 each for the omission preset and the API, and under a
+cent for the commission preset, on these short examples), so they're excluded
 from the default `pytest` run. Run it with `uv run pytest -m live -s` from the repo
 root, with ANTHROPIC_API_KEY in the environment or `.env`.
 
@@ -10,8 +10,10 @@ produced well-formed output, not which facts were found.
 """
 
 import pytest
+from fastapi.testclient import TestClient
 
 from groundline import DEFAULT_COMMISSIONS_PRESET, evaluate_sync, load_preset
+from groundline.app import app
 from groundline.evaluators.commissions.models import CommissionsCheckOutput
 from groundline.evaluators.models import AlarmOutput
 from groundline.evaluators.omissions.models import (
@@ -77,3 +79,17 @@ def test_the_quick_commission_preset_runs_end_to_end():
 
     assert {c.model for c in result.run.calls} == {"claude-haiku-5-5"}
     assert usage.cost_usd > 0 and not usage.unpriced_models
+
+
+def test_the_omissions_endpoint_runs_end_to_end():
+    response = TestClient(app).post(
+        "/v1/omissions", json={"source": SOURCE, "summary": SUMMARY}
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    print(f"\nlive API run: {body['usage']}")
+
+    assert body["validated_preset"] == "omission_all_opus"
+    assert body["usage"]["calls"] >= 3 and body["usage"]["cost_usd"] > 0
+    assert 0.0 <= body["alarm"]["score"] <= 1.0
