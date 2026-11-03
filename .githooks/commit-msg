@@ -17,6 +17,6 @@ while IFS= read -r member; do
 done <<'EOF'
 Shannon Mulloy <smulloy21@gmail.com>
 Avinash Darshan <avidars2@gmail.com>
-Nathalia Gibson <natgibson@gmail.com>
+Nathalia Gibson <gibson.nathalia@gmail.com>
 Deborah (YY) Chang <yydchang@gmail.com>
 EOF
