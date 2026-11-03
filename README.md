@@ -27,13 +27,13 @@ Measured on 172 held-out commission pairs (pre-registered): 151 caught, 1/110 cl
 
 ## Setup
 
-This project uses [uv](https://docs.astral.sh/uv/getting-started/installation/). After cloning, create the virtualenv and install dependencies:
+This project uses [uv](https://docs.astral.sh/uv/getting-started/installation/). After cloning, create the virtualenv, install dependencies and enable the shared git hooks:
 
 ```sh
-uv sync
+make setup
 ```
 
-Run `uv sync` again whenever `uv.lock` changes after a pull. Use `uv run <command>` to run things inside the environment without activating it.
+`make` targets sync automatically; run `uv sync` after a pull if your editor shows missing imports. Use `uv run <command>` to run anything else inside the environment without activating it.
 
 Model calls need an Anthropic API key. Copy `.env.example` to `.env` and add your key, or export `ANTHROPIC_API_KEY`. `.env` is git-ignored; never commit a key. groundline reads `.env` from the folder you run it in, so run commands from the repo root. A missing or rejected key produces an error saying where groundline looked and how to fix it, before any paid call.
 
