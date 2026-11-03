@@ -23,12 +23,12 @@ _Avoid_: importance guide, ranking guide
 ## The omission check
 
 **Evaluator**:
-One kind of check run on a summary. The omission check is the first, and the commission check is planned.
+One kind of check run on a summary. The omission check is the first, and the commission check is the second.
 _Avoid_: metric, scorer
 
 **Fact**:
-A single point from the source that a complete summary should record, with a quote from the source as its evidence.
-_Avoid_: claim, item, statement
+A single point from the source that a complete summary should record, with a quote from the source as its evidence. Its counterpart on the summary side is a claim.
+_Avoid_: item, statement
 
 **Omission**:
 A fact the summary leaves out or only partly records.
@@ -38,12 +38,24 @@ _Avoid_: gap, miss
 A statement in the summary that the source doesn't support, whether it contradicts the source or isn't in it at all. A fact recorded wrongly, such as a wrong dose, is a commission; the omission check may also report the correct fact as partial or absent.
 _Avoid_: hallucination, inaccuracy, accuracy error
 
+**Claim**:
+A single checkable statement the summary makes, with a quote from the summary as its evidence. Its counterpart on the source side is a fact.
+_Avoid_: fact (that is the source side), item, statement
+
+**Support verdict**:
+Whether the source supports a claim: supported, unsupported or contradicted. A claim judged unsupported or contradicted is a commission.
+_Avoid_: label, status, result
+
+**Unsupported confidence**:
+How sure the check is that the source does not support a claim, from 0 to 1.
+_Avoid_: not_supported_confidence, probability, score
+
 **Severity**:
-How much it would matter if the summary left out a fact, graded by the severity rubric: critical, supporting or peripheral.
+How much it would matter if a fact were left out of the summary, or a claim in it were wrong: critical, supporting or peripheral. Facts are graded by the severity rubric.
 _Avoid_: importance, priority
 
 **Verdict**:
-Whether the summary records a fact: present, partial or absent.
+Whether the summary records a fact: present, partial or absent. It belongs to the omission check; the commission check uses a support verdict.
 _Avoid_: label, status, result
 
 **Missing confidence**:
@@ -55,7 +67,7 @@ A second look at facts judged partial or absent, which can only clear them, and 
 _Avoid_: verify, re-check, appeal
 
 **Alarm score**:
-A summary's single measure of risk: the highest missing confidence among its critical omissions, with partial ones at half weight.
+A summary's single measure of risk: the highest confidence among its critical problems. For the omission check that is the highest missing confidence among its critical omissions, with partial ones at half weight; for the commission check, the highest confidence among its critical commissions.
 _Avoid_: risk score, omission score
 
 **Threshold level**:
