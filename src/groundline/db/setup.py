@@ -16,6 +16,7 @@ from importlib.resources import files
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import URL, make_url
+from sqlalchemy.exc import ArgumentError
 
 from groundline.core.errors import SetupError
 from groundline.settings import Settings
@@ -84,7 +85,11 @@ def migrate(raw: str, revision: str) -> None:
 
 
 def _local_url(raw: str) -> URL:
-    url = make_url(raw)
+    try:
+        url = make_url(raw)
+    except (ArgumentError, ValueError):
+        # Not `from error`: the parser's messages can quote the URL's password.
+        raise DatabaseSetupError("DATABASE_URL isn't a valid URL") from None
     if url.host not in LOCAL_HOSTS:
         raise DatabaseSetupError(
             f"db-setup only sets up a database on this machine, not on {url.host}"

@@ -38,3 +38,13 @@ def test_libpq_settings_in_the_shell_are_ignored(monkeypatch: pytest.MonkeyPatch
 
     assert not any(name.startswith("PG") for name in env)
     assert env["GROUNDLINE_DB_ROLE"] == "gl"
+
+
+@pytest.mark.parametrize(
+    "raw", ["postgresql://gl:pw-secret@:x/", "not a url pw-secret"]
+)
+def test_a_malformed_url_is_a_setup_error_without_the_password(raw: str):
+    with pytest.raises(DatabaseSetupError, match="isn't a valid URL") as error:
+        setup_database(raw)
+
+    assert "pw-secret" not in str(error.value)
