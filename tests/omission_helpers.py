@@ -121,3 +121,25 @@ def refute_reply(*rows: tuple[str, str, str | None]) -> str:
     return json.dumps(
         {"facts": [{"id": i, "found": found, "quote": q} for i, found, q in rows]}
     )
+
+
+def not_flagged_script() -> Script:
+    """A full run that doesn't flag the summary: the critical fact (f3) is present."""
+    return Script(
+        extract=EXTRACTED,
+        rank=RANKED,
+        check=check_reply(),
+        refute=refute_reply(("f1", "no", None), ("f2", "no", None)),
+    )
+
+
+def flagged_script() -> Script:
+    """A full run that flags the summary: the critical fact (f3) is absent, at 95."""
+    check = json.loads(check_reply({"f3": 95}))
+    check["facts"][0].update(verdict="absent", quote=None)
+    return Script(
+        extract=EXTRACTED,
+        rank=RANKED,
+        check=json.dumps(check),
+        refute=refute_reply(("f3", "no", None), ("f1", "no", None), ("f2", "no", None)),
+    )

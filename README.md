@@ -31,7 +31,7 @@ The quick check uses Claude Haiku 5.5, not Opus. Anthropic's BAA is understood t
 
 ## Setup
 
-This project uses [uv](https://docs.astral.sh/uv/getting-started/installation/). After cloning, create the virtualenv, install dependencies and enable the shared git hooks:
+This project uses [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13 (0.13.7 or later); check with `uv --version`. After cloning, create the virtualenv, install dependencies and enable the shared git hooks:
 
 ```sh
 make setup
@@ -41,9 +41,30 @@ make setup
 
 Model calls need an Anthropic API key. Copy `.env.example` to `.env` and add your key, or export `ANTHROPIC_API_KEY`. groundline reads `.env` from the folder you run it in, so run commands from the repo root. `.env` is git-ignored; never commit a key. If the key is missing or rejected, groundline says where it looked and how to fix it, before any paid call.
 
-Checking a summary doesn't need a database. The API will keep the API keys it issues in Postgres; [DEVELOPMENT.md](DEVELOPMENT.md#database) explains how to set that up.
+Checking a summary doesn't need a database. groundline keeps the hashes and metadata of the API keys it issues in PostgreSQL; [DEVELOPMENT.md](DEVELOPMENT.md#database) explains how to set that up.
 
 **Live calls cost money.** A typical clinical note costs about $0.28 for the omission check and about $0.002 for the commission check. Agree a budget with your team before running anything at scale.
+
+## Managing API keys
+
+These are groundline API keys for callers of protected HTTP endpoints, separate from the Anthropic API key used for model calls. Set `DATABASE_URL` and complete the [database setup](DEVELOPMENT.md#database) first; these commands access PostgreSQL directly and do not require the API server to be running or an Anthropic API key.
+
+```sh
+uv run groundline keys create
+uv run groundline keys create --name "Avi's laptop" --expires-in 90d
+uv run groundline keys list
+uv run groundline keys revoke <key-id>
+```
+
+Creation prints the name, full UUID identifier, expiry, and plaintext API key **once, after the database commit succeeds**. Copy the secret then: only its SHA-256 hash, a short display prefix, and metadata are stored. If terminal output fails after creation, the API key may already exist; use the identifier in the error to revoke it and create a replacement.
+
+- Without `--name`, a friendly label such as `nimble-otter-a7c91e2b` is generated. Custom names must be non-empty, printable on one line, and at most 128 characters after trimming surrounding spaces. Existing names are unchanged. Names may repeat; revocation uses the full identifier, not the name or secret.
+- Without `--expires-in`, the API key never expires. Lifetimes are positive whole numbers followed by `s`, `m`, `h`, or `d`, such as `30m`, `12h`, or `90d`. Expiry is measured from creation and displayed in UTC.
+- Revocation is permanent. Repeating it succeeds without changing the original revocation timestamp. An unknown identifier is an error. Commands exit 0 on success and 2 on error; errors go to stderr.
+
+`keys list` shows every API key newest first in aligned columns, with its full UUID, name, identifying prefix, status, and UTC expiry (`never` when unset). Values are not truncated. It includes revoked and expired keys; an active key past its expiry displays as `expired` without changing its stored status. No credentials or hashes are shown. An empty database prints `No API keys found.` Prefixes help identify a key but are not guaranteed unique: use the full UUID to revoke it.
+
+Callers send `Authorization: Bearer <api-key>` to a protected route. Authentication checks the primary database on every request, so revocation affects subsequent checks across workers and app instances; requests already authorized may finish. Invalid, revoked, or expired API keys receive 401; unavailable authentication storage produces 503. `/health` remains public. The reusable dependency is available as described in [DEVELOPMENT.md](DEVELOPMENT.md#protecting-an-endpoint). `POST /v1/omissions` does not use it yet; protecting that endpoint is tracked separately in ALL-73.
 
 ## Checking for omissions
 
@@ -146,6 +167,49 @@ for c in refute.commissions:
 ```
 
 `evaluate()` is the async version, for FastAPI or other async code. Both accept a `spec`, `profile`, `cache`, `client` or `registry` to override the defaults.
+
+## Using the API
+
+Start the API with `make dev`; it serves at http://127.0.0.1:8000, with interactive docs at `/docs`. **The omissions endpoint has no authentication yet**, and every check spends your Anthropic credit, so run it only on your own machine.
+
+`POST /v1/omissions` runs the validated omission preset on one summary:
+
+```sh
+curl -s http://127.0.0.1:8000/v1/omissions \
+  -H 'Content-Type: application/json' \
+  -d '{"source": "...transcript...", "summary": "...note...", "threshold": "strict"}'
+```
+
+`threshold` is optional: `strict` (the default) or `moderate`, as for the CLI. `source` and `summary` must not be blank, and each can be up to 200,000 characters. A check takes about 30 to 60 seconds, so give your HTTP client a long timeout.
+
+```json
+{
+  "flagged": true,
+  "alarm": {"score": 0.97, "threshold": 0.9, "level": "strict"},
+  "omissions": [
+    {"fact": "Allergic to penicillin. No other drug allergies.", "severity": "critical",
+     "verdict": "absent", "missing_confidence": 0.97, "quote": null}
+  ],
+  "counts": {"total": 35, "present": 29, "partial": 3, "absent": 3},
+  "pipeline": "omission_all_opus",
+  "validated_preset": "omission_all_opus",
+  "usage": {"calls": 4, "input_tokens": 31620, "output_tokens": 8140, "cost_usd": 0.29}
+}
+```
+
+`omissions` lists the facts not fully recorded, most important first. Every finished check answers **200, flagged or not** ([ADR 0008](docs/adr/0008-the-api-returns-200-for-a-flagged-summary.md)). Other statuses mean the check couldn't finish:
+
+| Status | Meaning |
+|---|---|
+| 400 | The body isn't UTF-8 text. |
+| 404 | No such route. `detail` names the method and path, and points to `/docs`. |
+| 405 | The route doesn't take that method, such as `GET /v1/omissions`. |
+| 422 | The request is unusable: not a JSON object, a blank or too-long text, an unknown threshold, or an unexpected field. |
+| 500 | An unexpected error, a bug in groundline. Details are in the server log. |
+| 502 | The model or Anthropic's API failed: an unusable reply, a refusal or an outage. `detail` names the step and what the check had spent; for an Anthropic API error it gives only the status and error type. Retrying later may work. |
+| 503 | `ANTHROPIC_API_KEY` is missing or was rejected, or `.env` can't be read. `detail` says where groundline looked and how to fix it. The API also warns at startup if the key is missing or `.env` can't be read. |
+
+Every error answers with JSON: `{"detail": ...}`. Error responses and the server log never contain text from the source or summary. The log records each finished check's outcome, number of omissions and cost, and each failure.
 
 ## Pipelines, presets and profiles
 

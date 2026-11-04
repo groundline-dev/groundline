@@ -1,0 +1,11 @@
+# Allowlist: send Docker only what the image build needs. Everything else,
+# including any new file someone adds later (secrets, local data), stays out by default.
+*
+!pyproject.toml
+!uv.lock
+!README.md
+!src
+
+# Drop local bytecode caches from src/ so they don't change the COPY layer.
+**/__pycache__
+**/*.py[oc]

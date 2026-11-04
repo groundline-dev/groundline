@@ -22,7 +22,7 @@ from groundline.evaluators.builtin import default_registry
 from groundline.presets import builtin_presets, load_preset
 from groundline.profiles import load_builtin_profile
 from groundline.result import EvaluationResult
-from groundline.settings import Settings
+from groundline.settings import read_settings
 
 DEFAULT_PRESET = "omission_all_opus"
 DEFAULT_COMMISSIONS_PRESET = "commission_quick"
@@ -63,7 +63,7 @@ async def evaluate(
     own_client = None
     needed_by = _model_users(pipeline)
     if client is None and needed_by:
-        settings = Settings()
+        settings = read_settings()
         client = own_client = AnthropicClient(
             settings.anthropic_key(needed_by=needed_by),
             key_source=settings.anthropic_key_source(),
