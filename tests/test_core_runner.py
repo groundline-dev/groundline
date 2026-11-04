@@ -89,7 +89,7 @@ def test_a_failing_stage_stops_the_run_and_names_the_step():
     assert error.value.step == "left"
     assert "model unavailable" in str(error.value)
     assert isinstance(error.value.__cause__, RuntimeError)
-    assert time.perf_counter() - started < 1  # the slow stage was cancelled
+    assert time.perf_counter() - started < 1  # the slow stage was canceled
 
 
 def test_a_failed_run_still_reports_the_calls_it_paid_for():

@@ -1,7 +1,7 @@
 """Run a pipeline: each stage starts as soon as the stages it reads have finished.
 
 Stages that don't depend on each other run at the same time. If any stage fails,
-the others are cancelled (so no further paid calls are made) and the run raises
+the others are canceled (so no further paid calls are made) and the run raises
 a `StageError` naming the failed step.
 
 With a cache, a stage whose cache key matches a stored entry isn't run: its
@@ -32,7 +32,7 @@ class StageError(Exception):
     """A stage failed. The original exception is kept as `__cause__`.
 
     `calls` holds every live model call the run made before it stopped,
-    including those of the failed stage and of stages cancelled because of it,
+    including those of the failed stage and of stages canceled because of it,
     so a failed run's cost can still be reported."""
 
     def __init__(self, step: str, message: str) -> None:
@@ -146,7 +146,7 @@ async def run_pipeline(
             for stage in pipeline.stages:
                 tasks[stage.step] = group.create_task(run_stage(stage))
     except ExceptionGroup as failed:
-        # Report the first failure; the other stages were cancelled because of it.
+        # Report the first failure; the other stages were canceled because of it.
         # Keep its original cause, and hide the task group's wrapper.
         first = failed.exceptions[0]
         if isinstance(first, StageError):

@@ -14,7 +14,7 @@ from typing import Any, Protocol, cast
 
 
 def stable_hash(value: Any) -> str:
-    """A short hash of any JSON-serialisable value, independent of dict order."""
+    """A short hash of any JSON-serializable value, independent of dict order."""
     text = json.dumps(value, sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(text.encode()).hexdigest()[:24]
 
@@ -47,7 +47,7 @@ class FileCache:
 
     def get(self, step: str, key: str) -> dict[str, Any] | None:
         """The stored entry, or None if there isn't one or it can't be read.
-        The cache is only an optimisation, so a damaged entry is a miss, and
+        The cache is only an optimization, so a damaged entry is a miss, and
         the next `put` replaces it."""
         path = self._path(step, key)
         try:
