@@ -58,7 +58,7 @@ Creation prints the name, full UUID identifier, expiry, and plaintext API key **
 
 `keys list` shows every API key newest first in aligned columns, with its full UUID, name, identifying prefix, status, and UTC expiry (`never` when unset). Values are not truncated. It includes revoked and expired keys; an active key past its expiry displays as `expired` without changing its stored status. No credentials or hashes are shown. An empty database prints `No API keys found.` Prefixes help identify a key but are not guaranteed unique: use the full UUID to revoke it.
 
-Callers send `Authorization: Bearer <api-key>` to a protected route. Authentication checks the primary database on every request, so revocation affects subsequent checks across workers and app instances; requests already authorized may finish. Invalid, revoked, or expired API keys receive 401; unavailable authentication storage produces 503. `/health` remains public. The reusable dependency is available as described in [DEVELOPMENT.md](DEVELOPMENT.md#protecting-an-endpoint). `POST /v1/omissions` does not use it yet; protecting that endpoint is tracked separately in ALL-73.
+Callers send `Authorization: Bearer <api-key>` to a protected route. Authentication checks the primary database on every request, so revocation affects subsequent checks across workers and app instances; requests already authorized may finish. Invalid, revoked, or expired API keys receive 401; unavailable authentication storage produces 503. `/health` remains public. The reusable dependency is available as described in [DEVELOPMENT.md](DEVELOPMENT.md#protecting-an-endpoint). `POST /v1/omissions` and `POST /v1/commissions` do not use it yet; protecting them is tracked separately in ALL-73 (omissions) and ALL-74 (commissions).
 
 ## Checking for omissions
 
@@ -163,9 +163,11 @@ for c in refute.commissions:
 
 ## Using the API
 
-Start the API with `make dev`; it serves at http://127.0.0.1:8000, with interactive docs at `/docs`. **The omissions endpoint has no authentication yet**, and every check spends your Anthropic credit, so run it only on your own machine.
+Start the API with `make dev`; it serves at http://127.0.0.1:8000, with interactive docs at `/docs`. **The omissions and commissions endpoints have no authentication yet**, and every check spends your Anthropic credit, so run it only on your own machine.
 
-`POST /v1/omissions` runs the validated omission preset on one summary:
+### `POST /v1/omissions`
+
+Runs the validated omission preset on one summary:
 
 ```sh
 curl -s http://127.0.0.1:8000/v1/omissions \
@@ -190,19 +192,50 @@ curl -s http://127.0.0.1:8000/v1/omissions \
 }
 ```
 
-`omissions` lists the facts not fully recorded, most important first. Every finished check answers **200, flagged or not** ([ADR 0008](docs/adr/0008-the-api-returns-200-for-a-flagged-summary.md)). Other statuses mean the check couldn't finish:
+`omissions` lists the facts not fully recorded, most important first.
+
+### `POST /v1/commissions`
+
+Runs the validated quick commission preset on one summary. It answers the same statuses as `/v1/omissions` (see [Statuses and errors](#statuses-and-errors)), and takes the same `source` and `summary` (no `threshold`, since the preset has a single alarm level):
+
+```sh
+curl -s http://127.0.0.1:8000/v1/commissions \
+  -H 'Content-Type: application/json' \
+  -d '{"source": "...transcript...", "summary": "...note..."}'
+```
+
+```json
+{
+  "flagged": true,
+  "alarm": {"score": 0.95, "threshold": 0.85, "level": "default"},
+  "commissions": [
+    {"claim": "Motrin 800 mg every 6 hours for a week", "severity": "critical",
+     "support_verdict": "contradicted", "unsupported_confidence": 0.95,
+     "evidence": "take motrin 600 mg every 6 hours for a week", "evidence_found": true}
+  ],
+  "pipeline": "commission_quick",
+  "validated_preset": "commission_quick",
+  "usage": {"calls": 1, "input_tokens": 9800, "output_tokens": 420, "cost_usd": 0.002}
+}
+```
+
+`commissions` lists the claims in the summary that the source doesn't support, most important first. `support_verdict` is `contradicted` (the source says otherwise) or `unsupported` (the source doesn't mention it). For a contradicted claim, `evidence` is the passage of the source the model quoted; it is `null` for an unsupported one. `evidence_found` says whether that passage appears in the source word for word, ignoring case, punctuation and spacing. `true` means verified. `false` only means it couldn't be matched, which a reworded quote or markup in the source, such as a scribe's `<UNSURE>` tags, can cause, so check it by eye rather than assuming it was invented.
+
+### Statuses and errors
+
+Every finished check answers **200, flagged or not** ([ADR 0008](docs/adr/0008-the-api-returns-200-for-a-flagged-summary.md)). Other statuses mean the check couldn't finish, for both endpoints:
 
 | Status | Meaning |
 |---|---|
 | 400 | The body isn't UTF-8 text. |
 | 404 | No such route. `detail` names the method and path, and points to `/docs`. |
 | 405 | The route doesn't take that method, such as `GET /v1/omissions`. |
-| 422 | The request is unusable: not a JSON object, a blank or too-long text, an unknown threshold, or an unexpected field. |
+| 422 | The request is unusable: not a JSON object, a blank or too-long text, an unexpected field, or (omissions only) an unknown `threshold`. |
 | 500 | An unexpected error, a bug in groundline. Details are in the server log. |
 | 502 | The model or Anthropic's API failed: an unusable reply, a refusal or an outage. `detail` names the step and what the check had spent; for an Anthropic API error it gives only the status and error type. Retrying later may work. |
 | 503 | `ANTHROPIC_API_KEY` is missing or was rejected, or `.env` can't be read. `detail` says where groundline looked and how to fix it. The API also warns at startup if the key is missing or `.env` can't be read. |
 
-Every error answers with JSON: `{"detail": ...}`. Error responses and the server log never contain text from the source or summary. The log records each finished check's outcome, number of omissions and cost, and each failure.
+Every error answers with JSON: `{"detail": ...}`. Error responses and the server log never contain text from the source or summary. The log records each finished check's outcome, number of omissions or commissions, and cost, and each failure.
 
 ## Pipelines, presets and profiles
 

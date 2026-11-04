@@ -4,7 +4,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from groundline.evaluators.models import Severity
+from groundline.evaluators.models import SEVERITIES, Severity
 
 SupportVerdict = Literal["unsupported", "contradicted"]
 SUPPORT_VERDICTS: dict[str, SupportVerdict] = {
@@ -60,3 +60,13 @@ class CommissionsRefuteOutput(_Frozen):
     """The check's commissions still flagged after refute; refute can only clear
     one."""
     cleared: list[ClearedCommission]
+
+
+def ranked(commissions: list[Commission]) -> list[Commission]:
+    """Most important first: by severity, then the highest confidence. The API and
+    the report both list commissions this way."""
+    order = list(SEVERITIES)
+    return sorted(
+        commissions,
+        key=lambda c: (order.index(c.severity), -c.unsupported_confidence),
+    )

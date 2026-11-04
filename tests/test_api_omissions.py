@@ -8,6 +8,10 @@ import pytest
 from fastapi.testclient import TestClient
 
 from groundline import load_preset
+from groundline.api import common
+
+# The route's module, imported as `api` because the tests patch the names it looks up
+# (evaluate, load_preset and the response models) there, not in `common`.
 from groundline.api import omissions as api
 from groundline.app import app
 from groundline.core import APIKeyRejectedError
@@ -38,7 +42,7 @@ def isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 def use_client(replies: Callable[[str], str] | None) -> FakeClient | None:
     client = FakeClient(replies) if replies else None
-    app.dependency_overrides[api.model_client] = lambda: client
+    app.dependency_overrides[common.model_client] = lambda: client
     return client
 
 
@@ -99,7 +103,7 @@ def test_the_threshold_levels_are_the_presets():
         check(threshold="extreme"),
         check(source=""),
         check(summary="  \n "),
-        check(source="x" * (api.MAX_CHARS + 1)),
+        check(source="x" * (common.MAX_CHARS + 1)),
         check(pipeline="custom.yaml"),
         {"source": SOURCE},
     ],
@@ -117,7 +121,7 @@ def test_unusable_input_is_a_422_before_any_call(body: dict[str, object]):
 @pytest.mark.parametrize(
     ("body", "loc"),
     [
-        (check(source=SECRET + "x" * api.MAX_CHARS), ["body", "source"]),
+        (check(source=SECRET + "x" * common.MAX_CHARS), ["body", "source"]),
         (check(source={"text": SECRET}), ["body", "source"]),
         (check(threshold=SECRET), ["body", "threshold"]),
         (check(notes=SECRET), ["body"]),
