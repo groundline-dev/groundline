@@ -39,9 +39,9 @@ from groundline.evaluate import (
     evaluate_sync,
 )
 from groundline.evaluators.commissions import report as commissions_report
-from groundline.evaluators.models import AlarmOutput
+from groundline.evaluators.models import ALARM_STEP, AlarmOutput
 from groundline.evaluators.omissions import report as omissions_report
-from groundline.evaluators.report import result_json, usage_text
+from groundline.evaluators.report import require_steps, result_json, usage_text
 from groundline.presets import load_preset
 
 app = typer.Typer(
@@ -237,16 +237,9 @@ def _check(
 ) -> int:
     """Run the check, print the report, and return the exit code."""
     spec = load_spec(pipeline) if pipeline else load_preset(check.preset)
-    have = {st.step for st in spec.stages}
-    missing = [s for s in check.required_steps if s not in have]
-    if missing:
-        needs = " and ".join(f"'{s}'" for s in check.required_steps)
-        raise ValueError(
-            f"pipeline '{spec.name}' needs {needs} stages "
-            f"for the {check.report_name} report (missing: {', '.join(missing)})"
-        )
+    require_steps(spec, check.required_steps, report=check.report_name)
     if threshold:
-        spec = with_settings(spec, "alarm", level=threshold)
+        spec = with_settings(spec, ALARM_STEP, level=threshold)
     domain = load_profile(profile) if profile else None
 
     stage_cache = None
@@ -265,7 +258,7 @@ def _check(
     )
     seconds = time.perf_counter() - started
 
-    flagged = result.run.output("alarm", AlarmOutput).flagged
+    flagged = result.run.output(ALARM_STEP, AlarmOutput).flagged
     typer.echo(
         check.render(result, source=source.name, summary=summary.name, seconds=seconds)
     )

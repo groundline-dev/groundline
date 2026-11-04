@@ -19,6 +19,11 @@ SEVERITIES: dict[str, Severity] = {
 up and come back typed."""
 
 
+ALARM_STEP = "alarm"
+"""The step every evaluator ends with. It decides whether to flag the summary,
+and its output is an `AlarmOutput`."""
+
+
 class Frozen(BaseModel):
     """The base for evaluator data: immutable, and strict about its fields."""
 

@@ -47,6 +47,13 @@ def test_runs_stages_and_passes_outputs_along():
     }
 
 
+def test_asking_for_a_step_the_pipeline_lacks_names_it():
+    result = run(pipeline(UPPER))
+
+    with pytest.raises(LookupError, match="the pipeline has no 'polish' stage"):
+        result.output("polish", Text)
+
+
 def test_a_switched_off_stage_passes_its_input_through():
     result = run(pipeline(UPPER, JOIN, {**POLISH, "enabled": False}))
 

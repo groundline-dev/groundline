@@ -57,6 +57,9 @@ class RunResult:
     marked `cached`."""
 
     def output[T: BaseModel](self, step: str, kind: type[T]) -> T:
+        """A step's output, checked to be of the expected type."""
+        if step not in self.outputs:
+            raise LookupError(f"the pipeline has no '{step}' stage")
         value = self.outputs[step]
         if not isinstance(value, kind):
             raise TypeError(

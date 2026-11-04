@@ -1,7 +1,7 @@
 """Presenting an omission check: a terminal report."""
 
 from groundline.evaluate import EvaluationResult
-from groundline.evaluators.models import AlarmOutput
+from groundline.evaluators.models import ALARM_STEP, AlarmOutput
 from groundline.evaluators.omissions.models import ScoreOutput
 from groundline.evaluators.report import (
     cost_line,
@@ -11,7 +11,7 @@ from groundline.evaluators.report import (
     row,
 )
 
-REQUIRED_STEPS = ("score", "alarm")
+REQUIRED_STEPS = ("score", ALARM_STEP)
 """The report reads these steps' outputs, so a pipeline needs them."""
 
 LABEL_WIDTH = 17
@@ -21,7 +21,7 @@ def render_report(
     result: EvaluationResult, *, source: str, summary: str, seconds: float
 ) -> str:
     score = result.run.output("score", ScoreOutput)
-    alarm = result.run.output("alarm", AlarmOutput)
+    alarm = result.run.output(ALARM_STEP, AlarmOutput)
 
     lines = [
         _row("Omission check", f"{source} · {summary}"),

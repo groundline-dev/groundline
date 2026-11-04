@@ -12,14 +12,14 @@ from typing import ClassVar, Self
 from pydantic import model_validator
 
 from groundline.core import Implementation, StageContext
-from groundline.evaluators.models import AlarmOutput
+from groundline.evaluators.models import ALARM_STEP, AlarmOutput
 
 
 class ThresholdAlarm(Implementation):
     """Subclasses set `name` and `reads`, declare `thresholds` and `level` with
     their calibrated defaults, and implement `score`."""
 
-    step: ClassVar[str] = "alarm"
+    step: ClassVar[str] = ALARM_STEP
     selectable_settings: ClassVar[tuple[str, ...]] = ("level",)
     calibrated_settings: ClassVar[tuple[str, ...]] = ("thresholds",)
 

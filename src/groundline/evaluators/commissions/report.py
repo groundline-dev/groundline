@@ -5,7 +5,7 @@ from groundline.evaluators.commissions.models import (
     Commission,
     CommissionsRefuteOutput,
 )
-from groundline.evaluators.models import SEVERITIES, AlarmOutput
+from groundline.evaluators.models import ALARM_STEP, SEVERITIES, AlarmOutput
 from groundline.evaluators.report import (
     cost_line,
     number,
@@ -14,7 +14,7 @@ from groundline.evaluators.report import (
     row,
 )
 
-REQUIRED_STEPS = ("commissions_refute", "alarm")
+REQUIRED_STEPS = ("commissions_refute", ALARM_STEP)
 """The report reads these steps' outputs, so a pipeline needs them."""
 
 LABEL_WIDTH = 18
@@ -27,7 +27,7 @@ def render_report(
     result: EvaluationResult, *, source: str, summary: str, seconds: float
 ) -> str:
     refute = result.run.output("commissions_refute", CommissionsRefuteOutput)
-    alarm = result.run.output("alarm", AlarmOutput)
+    alarm = result.run.output(ALARM_STEP, AlarmOutput)
 
     lines = [
         _row("Commission check", f"{source} · {summary}"),

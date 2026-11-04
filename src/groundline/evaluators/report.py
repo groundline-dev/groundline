@@ -1,10 +1,25 @@
 """Presentation helpers shared by every evaluator's report."""
 
+from collections.abc import Sequence
 from typing import Any
 
-from groundline.core import Usage
+from groundline.core import PipelineSpec, Usage
 from groundline.evaluate import EvaluationResult
-from groundline.evaluators.models import AlarmOutput
+from groundline.evaluators.models import ALARM_STEP, AlarmOutput
+
+
+def require_steps(spec: PipelineSpec, steps: Sequence[str], *, report: str) -> None:
+    """Raise a ValueError, before anything runs, if `spec` lacks a step that the
+    `report` reads (each evaluator's report module lists them as
+    `REQUIRED_STEPS`)."""
+    have = {stage.step for stage in spec.stages}
+    missing = [step for step in steps if step not in have]
+    if missing:
+        needs = " and ".join(f"'{step}'" for step in steps)
+        raise ValueError(
+            f"pipeline '{spec.name}' needs {needs} stages "
+            f"for the {report} report (missing: {', '.join(missing)})"
+        )
 
 
 def row(label: str, value: str, *, width: int) -> str:
@@ -74,7 +89,7 @@ def usage_text(usage: Usage, seconds: float | None = None) -> str:
 def result_json(result: EvaluationResult) -> dict[str, Any]:
     """Everything about a run, for `--json`. It includes text from the source and
     summary (facts, claims and quotes), so treat the file as sensitive."""
-    alarm = result.run.output("alarm", AlarmOutput)
+    alarm = result.run.output(ALARM_STEP, AlarmOutput)
     return {
         "pipeline": result.pipeline,
         "profile": result.profile,
