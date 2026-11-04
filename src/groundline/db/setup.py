@@ -19,10 +19,10 @@ from sqlalchemy import URL, make_url
 from sqlalchemy.exc import ArgumentError
 
 from groundline.core.errors import SetupError
+from groundline.db.config import DRIVERS
 from groundline.settings import Settings
 
 LOCAL_HOSTS = {None, "localhost", "127.0.0.1", "::1"}
-DRIVERS = {"postgresql", "postgresql+psycopg"}  # SQLAlchemy 2.1: both mean psycopg 3
 EXAMPLE_PASSWORD = "CHANGE_ME"
 MIN_PSQL = 15  # for \getenv
 
