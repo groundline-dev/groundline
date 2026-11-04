@@ -1,4 +1,3 @@
-import json
 import logging
 from collections.abc import Callable, Iterator
 from pathlib import Path
@@ -16,36 +15,17 @@ from groundline.evaluate import DEFAULT_PRESET
 from tests.fakes import FakeClient
 from tests.omission_helpers import (
     EXTRACTED,
-    RANKED,
     SOURCE,
     SUMMARY,
     Script,
-    check_reply,
-    refute_reply,
+    flagged_script,
+    not_flagged_script,
     step_of,
 )
 
 http = TestClient(app)
 
 SECRET = "patient is HIV positive and takes tenofovir"
-
-NOT_FLAGGED = Script(
-    extract=EXTRACTED,
-    rank=RANKED,
-    check=check_reply(),
-    refute=refute_reply(("f1", "no", None), ("f2", "no", None)),
-)
-
-
-def flagged_script() -> Script:
-    check = json.loads(check_reply({"f3": 95}))
-    check["facts"][0].update(verdict="absent", quote=None)
-    return Script(
-        extract=EXTRACTED,
-        rank=RANKED,
-        check=json.dumps(check),
-        refute=refute_reply(("f3", "no", None), ("f1", "no", None), ("f2", "no", None)),
-    )
 
 
 @pytest.fixture(autouse=True)
@@ -67,7 +47,7 @@ def check(**body: object) -> dict[str, object]:
 
 
 def test_a_summary_that_is_not_flagged():
-    use_client(NOT_FLAGGED)
+    use_client(not_flagged_script())
 
     response = http.post("/v1/omissions", json=check())
 
@@ -98,7 +78,7 @@ def test_a_flagged_summary_still_answers_200():
 
 
 def test_the_moderate_threshold_is_still_the_validated_preset():
-    use_client(NOT_FLAGGED)
+    use_client(not_flagged_script())
 
     body = http.post("/v1/omissions", json=check(threshold="moderate")).json()
 
@@ -146,7 +126,7 @@ def test_unusable_input_is_a_422_before_any_call(body: dict[str, object]):
     ids=["too long", "not text", "unknown threshold", "extra value", "extra name"],
 )
 def test_a_422_never_repeats_the_input(body: dict[str, object], loc: list[str]):
-    use_client(NOT_FLAGGED)
+    use_client(not_flagged_script())
 
     response = http.post("/v1/omissions", json=body)
 
@@ -274,31 +254,45 @@ def test_a_stage_failure_of_our_own_is_a_generic_500(
     assert "tenofovir" not in caplog.text
 
 
-def test_an_unexpected_error_is_a_generic_500(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-):
-    async def broken(*args: object, **kwargs: object) -> None:
-        raise KeyError(SECRET)
+async def _evaluate_fails(*args: object, **kwargs: object) -> None:
+    raise KeyError(SECRET)
 
-    monkeypatch.setattr(api, "evaluate", broken)
+
+def _preset_fails(name: str) -> None:
+    raise ValueError(SECRET)
+
+
+def _response_fails(**fields: object) -> None:
+    raise ValueError(SECRET)
+
+
+@pytest.mark.parametrize(
+    "target, broken, error",
+    [
+        ("evaluate", _evaluate_fails, "KeyError"),
+        ("load_preset", _preset_fails, "ValueError"),
+        ("Counts", _response_fails, "ValueError"),
+    ],
+    ids=["while checking", "loading the preset", "building the response"],
+)
+def test_an_unexpected_error_is_a_generic_500(
+    target: str,
+    broken: Callable[..., object],
+    error: str,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+):
+    use_client(not_flagged_script())
+    monkeypatch.setattr(api, target, broken)
 
     with caplog.at_level(logging.INFO):
         response = http.post("/v1/omissions", json=check())
 
     assert response.status_code == 500
     assert response.json() == {"detail": "unexpected error; see the server log"}
-    assert "unexpected KeyError" in caplog.text
-    assert "in broken" in caplog.text  # where it happened
+    assert f"unexpected {error}" in caplog.text
+    assert f"in {broken.__name__}" in caplog.text  # where it happened
     assert "tenofovir" not in response.text
-    assert "tenofovir" not in caplog.text
-
-
-def test_a_check_logs_none_of_its_input(caplog: pytest.LogCaptureFixture):
-    use_client(flagged_script())
-
-    with caplog.at_level(logging.DEBUG):
-        http.post("/v1/omissions", json=check(source=SOURCE + "\n" + SECRET))
-
     assert "tenofovir" not in caplog.text
 
 
@@ -349,55 +343,16 @@ def test_unreadable_settings_are_a_503_without_their_text(tmp_path: Path):
     assert "tenofovir" not in detail
 
 
-def test_a_failure_loading_the_preset_is_a_generic_500(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-):
-    def broken(name: str) -> None:
-        raise ValueError(SECRET)
-
-    use_client(NOT_FLAGGED)
-    monkeypatch.setattr(api, "load_preset", broken)
-
-    with caplog.at_level(logging.INFO):
-        response = TestClient(app, raise_server_exceptions=False).post(
-            "/v1/omissions", json=check()
-        )
-
-    assert response.status_code == 500
-    assert response.json() == {"detail": "unexpected error; see the server log"}
-    assert "unexpected ValueError" in caplog.text
-    assert "tenofovir" not in caplog.text
-
-
-def test_a_failure_building_the_response_is_a_generic_500(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
-):
-    def broken(**fields: object) -> None:
-        raise ValueError(SECRET)
-
-    use_client(NOT_FLAGGED)
-    monkeypatch.setattr(api, "Counts", broken)
-
-    with caplog.at_level(logging.INFO):
-        response = TestClient(app, raise_server_exceptions=False).post(
-            "/v1/omissions", json=check()
-        )
-
-    assert response.status_code == 500
-    assert response.json() == {"detail": "unexpected error; see the server log"}
-    assert "unexpected ValueError" in caplog.text
-    assert "tenofovir" not in caplog.text
-
-
 def test_a_finished_check_is_logged_without_its_input(
     caplog: pytest.LogCaptureFixture,
 ):
     use_client(flagged_script())
 
-    with caplog.at_level(logging.INFO, logger="groundline.api"):
-        http.post("/v1/omissions", json=check())
+    with caplog.at_level(logging.DEBUG):
+        http.post("/v1/omissions", json=check(source=SOURCE + "\n" + SECRET))
 
     (line,) = [r.getMessage() for r in caplog.records if "checked" in r.getMessage()]
     assert line.startswith("checked a summary: FLAGGED (alarm 0.95 ≥ 0.90, strict)")
     assert "· 3 omissions · $0." in line and "4 calls" in line
     assert "Motrin" not in line
+    assert "tenofovir" not in caplog.text  # at any level, from any logger

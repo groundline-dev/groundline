@@ -9,34 +9,14 @@ from typer.testing import CliRunner, Result
 from groundline import cli
 from tests.fakes import FakeClient
 from tests.omission_helpers import (
-    EXTRACTED,
-    RANKED,
     SOURCE,
     SUMMARY,
     Script,
-    check_reply,
-    refute_reply,
+    flagged_script,
+    not_flagged_script,
 )
 
 runner = CliRunner()
-
-NOT_FLAGGED = Script(
-    extract=EXTRACTED,
-    rank=RANKED,
-    check=check_reply(),
-    refute=refute_reply(("f1", "no", None), ("f2", "no", None)),
-)
-
-
-def flagged_script() -> Script:
-    check = json.loads(check_reply({"f3": 95}))
-    check["facts"][0].update(verdict="absent", quote=None)
-    return Script(
-        extract=EXTRACTED,
-        rank=RANKED,
-        check=json.dumps(check),
-        refute=refute_reply(("f3", "no", None), ("f1", "no", None), ("f2", "no", None)),
-    )
 
 
 @pytest.fixture
@@ -63,7 +43,7 @@ def omissions(files: tuple[Path, Path], *args: str) -> Result:
 def test_reports_a_summary_that_is_not_flagged(
     files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ):
-    use_client(monkeypatch, Script(**NOT_FLAGGED.replies))
+    use_client(monkeypatch, not_flagged_script())
 
     result = omissions(files)
 
@@ -93,7 +73,7 @@ def test_a_flagged_summary_exits_with_1(
 def test_the_moderate_threshold_is_still_the_validated_preset(
     files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ):
-    use_client(monkeypatch, Script(**NOT_FLAGGED.replies))
+    use_client(monkeypatch, not_flagged_script())
 
     result = omissions(files, "--threshold", "moderate")
 
@@ -142,7 +122,7 @@ def test_an_unusable_reply_exits_with_2(
 def test_a_missing_input_file_exits_with_2(
     files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ):
-    use_client(monkeypatch, Script(**NOT_FLAGGED.replies))
+    use_client(monkeypatch, not_flagged_script())
 
     result = runner.invoke(cli.app, ["omissions", "nope.txt", str(files[1])])
 
@@ -168,7 +148,7 @@ def test_json_writes_the_full_result(
 def test_cache_warns_and_makes_reruns_free(
     files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ):
-    use_client(monkeypatch, Script(**NOT_FLAGGED.replies))
+    use_client(monkeypatch, not_flagged_script())
     first = omissions(files, "--cache")
     second = omissions(files, "--cache")
 
@@ -181,7 +161,7 @@ def test_cache_warns_and_makes_reruns_free(
 def test_without_cache_nothing_is_written(
     files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ):
-    use_client(monkeypatch, Script(**NOT_FLAGGED.replies))
+    use_client(monkeypatch, not_flagged_script())
 
     result = omissions(files)
 
@@ -192,7 +172,7 @@ def test_without_cache_nothing_is_written(
 def test_a_custom_pipeline_is_not_the_validated_preset(
     files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ):
-    use_client(monkeypatch, Script(**NOT_FLAGGED.replies))
+    use_client(monkeypatch, not_flagged_script())
     preset = (
         Path(cli.__file__).parent / "presets" / "omission_all_opus.yaml"
     ).read_text()
@@ -212,7 +192,7 @@ def test_a_custom_pipeline_is_not_the_validated_preset(
 def test_a_pipeline_without_score_and_alarm_stages_exits_with_2(
     files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ):
-    use_client(monkeypatch, Script(**NOT_FLAGGED.replies))
+    use_client(monkeypatch, not_flagged_script())
     custom = files[0].parent / "short.yaml"
     custom.write_text(
         "name: short\nprofile: clinical\nstages:\n"
@@ -235,7 +215,7 @@ def test_help_lists_the_omissions_command():
 def test_an_unwritable_json_path_exits_with_2_not_1(
     files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ):
-    use_client(monkeypatch, Script(**NOT_FLAGGED.replies))
+    use_client(monkeypatch, not_flagged_script())
     out_path = files[0].parent / "no-such-folder" / "result.json"
 
     result = omissions(files, "--json", str(out_path))
