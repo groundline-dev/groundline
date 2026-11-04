@@ -15,6 +15,7 @@ import anthropic
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from groundline.auth import require_api_key
 from groundline.core import (
     ModelClient,
     ModelError,
@@ -131,9 +132,14 @@ def model_client() -> ModelClient | None:
 
 @router.post(
     "/omissions",
+    dependencies=[Depends(require_api_key)],
     responses={
+        401: {"description": "The API key is missing or invalid."},
         502: {"description": "The model or Anthropic's API failed."},
-        503: {"description": "The Anthropic API key is missing or rejected."},
+        503: {
+            "description": "Authentication is unavailable, or the Anthropic API key "
+            "is missing or rejected."
+        },
     },
 )
 async def omissions(

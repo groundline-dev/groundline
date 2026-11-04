@@ -21,6 +21,8 @@ from groundline.evaluators.omissions.models import (
     RankOutput,
     ScoreOutput,
 )
+from tests.auth_helpers import SECRET as API_KEY
+from tests.auth_helpers import FakeKeys
 from tests.commissions_helpers import SUMMARY as SUMMARY_WITH_ERRORS
 from tests.omission_helpers import SOURCE, SUMMARY
 
@@ -81,9 +83,13 @@ def test_the_quick_commission_preset_runs_end_to_end():
     assert usage.cost_usd > 0 and not usage.unpriced_models
 
 
-def test_the_omissions_endpoint_runs_end_to_end():
+def test_the_omissions_endpoint_runs_end_to_end(monkeypatch: pytest.MonkeyPatch):
+    # Exercise real auth with fake storage; PostgreSQL has separate db tests.
+    monkeypatch.setattr(app.state, "api_keys", FakeKeys(), raising=False)
     response = TestClient(app).post(
-        "/v1/omissions", json={"source": SOURCE, "summary": SUMMARY}
+        "/v1/omissions",
+        json={"source": SOURCE, "summary": SUMMARY},
+        headers={"Authorization": f"Bearer {API_KEY}"},
     )
 
     assert response.status_code == 200, response.text

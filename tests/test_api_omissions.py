@@ -12,6 +12,8 @@ from groundline.api import omissions as api
 from groundline.app import app
 from groundline.core import APIKeyRejectedError
 from groundline.evaluate import DEFAULT_PRESET
+from tests.auth_helpers import SECRET as API_KEY
+from tests.auth_helpers import FakeKeys
 from tests.fakes import FakeClient
 from tests.omission_helpers import (
     EXTRACTED,
@@ -23,7 +25,7 @@ from tests.omission_helpers import (
     step_of,
 )
 
-http = TestClient(app)
+http = TestClient(app, headers={"Authorization": f"Bearer {API_KEY}"})
 
 SECRET = "patient is HIV positive and takes tenofovir"
 
@@ -32,6 +34,7 @@ SECRET = "patient is HIV positive and takes tenofovir"
 def isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """No real .env, and no client override left behind."""
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(app.state, "api_keys", FakeKeys(), raising=False)
     yield
     app.dependency_overrides.clear()
 
