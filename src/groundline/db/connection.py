@@ -7,6 +7,7 @@ from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from groundline.core.errors import SetupError
+from groundline.db.config import DRIVERS
 
 logger = logging.getLogger("groundline.db")
 
@@ -19,7 +20,7 @@ def make_engine(raw: str, *, timeout: int = 5) -> AsyncEngine:
     """
     try:
         url = make_url(raw)
-        if url.drivername not in {"postgresql", "postgresql+psycopg"}:
+        if url.drivername not in DRIVERS:
             raise SetupError("DATABASE_URL must use postgresql+psycopg://")
         return create_async_engine(
             url,
