@@ -1,6 +1,5 @@
 """Presenting an omission check: a terminal report."""
 
-from groundline.evaluate import EvaluationResult
 from groundline.evaluators.models import ALARM_STEP, AlarmOutput
 from groundline.evaluators.omissions.models import ScoreOutput
 from groundline.evaluators.report import (
@@ -10,6 +9,7 @@ from groundline.evaluators.report import (
     result_line,
     row,
 )
+from groundline.result import EvaluationResult
 
 REQUIRED_STEPS = ("score", ALARM_STEP)
 """The report reads these steps' outputs, so a pipeline needs them."""

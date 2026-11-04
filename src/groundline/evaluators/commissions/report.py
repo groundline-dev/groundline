@@ -1,6 +1,5 @@
 """Presenting a commission check: a terminal report."""
 
-from groundline.evaluate import EvaluationResult
 from groundline.evaluators.commissions.models import (
     Commission,
     CommissionsRefuteOutput,
@@ -13,6 +12,7 @@ from groundline.evaluators.report import (
     result_line,
     row,
 )
+from groundline.result import EvaluationResult
 
 REQUIRED_STEPS = ("commissions_refute", ALARM_STEP)
 """The report reads these steps' outputs, so a pipeline needs them."""

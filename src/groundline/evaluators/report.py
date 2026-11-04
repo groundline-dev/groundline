@@ -4,8 +4,8 @@ from collections.abc import Sequence
 from typing import Any
 
 from groundline.core import PipelineSpec, Usage
-from groundline.evaluate import EvaluationResult
 from groundline.evaluators.models import ALARM_STEP, AlarmOutput
+from groundline.result import EvaluationResult
 
 
 def require_steps(spec: PipelineSpec, steps: Sequence[str], *, report: str) -> None:
