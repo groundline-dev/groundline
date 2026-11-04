@@ -34,7 +34,11 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # interpreter link points at python3.13.
 FROM python:3.13-slim-trixie@sha256:ae14d4ce8771606477a81446e7ef429edd6762305fc50c84507c1041fa8285d1
 
-RUN useradd --create-home --uid 10001 groundline
+# The app runs from /app/.venv and never uses the system pip. Removing it drops
+# pip's bundled copies of urllib3, msgpack and setuptools, which scanners flag.
+# This must run before PATH puts the virtualenv first, so `python` is the system Python.
+RUN useradd --create-home --uid 10001 groundline \
+    && python -m pip uninstall --yes --root-user-action=ignore pip
 
 ENV PATH="/app/.venv/bin:$PATH" \
     PYTHONUNBUFFERED=1
