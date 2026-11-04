@@ -2,9 +2,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
-
-from groundline.evaluators.models import Severity
+from groundline.evaluators.models import Frozen, Severity
 
 VerdictLabel = Literal["present", "partial", "absent"]
 VERDICT_LABELS: dict[str, VerdictLabel] = {
@@ -14,11 +12,7 @@ VERDICT_LABELS: dict[str, VerdictLabel] = {
 }
 
 
-class _Frozen(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-
-class Fact(_Frozen):
+class Fact(Frozen):
     """Something the source establishes that a complete summary should record."""
 
     id: str
@@ -36,7 +30,7 @@ class RankedFact(Fact):
     rationale: str = ""
 
 
-class Verdict(_Frozen):
+class Verdict(Frozen):
     """How fully the summary records one fact."""
 
     fact_id: str
@@ -49,7 +43,7 @@ class Verdict(_Frozen):
     """Confidence from 0 to 1 that the summary does not fully record the fact."""
 
 
-class RefuteEntry(_Frozen):
+class RefuteEntry(Frozen):
     """What refute decided about one flagged fact."""
 
     id: str
@@ -61,7 +55,7 @@ class RefuteEntry(_Frozen):
     flipped: bool
 
 
-class MissingFact(_Frozen):
+class MissingFact(Frozen):
     id: str
     fact: str
     severity: Severity | None
@@ -74,27 +68,27 @@ class MissingFact(_Frozen):
 # --- step outputs -----------------------------------------------------------
 
 
-class ExtractOutput(_Frozen):
+class ExtractOutput(Frozen):
     facts: list[Fact]
 
 
-class RankOutput(_Frozen):
+class RankOutput(Frozen):
     facts: list[RankedFact]
     """In rank order: by severity, then the order the model listed them."""
 
 
-class CheckOutput(_Frozen):
+class CheckOutput(Frozen):
     verdicts: list[Verdict]
     """In rank order."""
 
 
-class RefuteOutput(_Frozen):
+class RefuteOutput(Frozen):
     verdicts: list[Verdict]
     """The check's verdicts after refute; refute can only clear a flag."""
     log: list[RefuteEntry]
 
 
-class ScoreOutput(_Frozen):
+class ScoreOutput(Frozen):
     total: int
     present: int
     partial: int

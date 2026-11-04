@@ -2,6 +2,7 @@
 
 import json
 import re
+from collections.abc import Mapping
 from typing import Any, cast
 
 ELLIPSIS = re.compile(r"\.\.\.|…")
@@ -47,6 +48,39 @@ def get_list(obj: dict[str, Any], key: str) -> list[Any] | None:
 def as_object(value: Any) -> dict[str, Any] | None:
     """`value` if it's a JSON object, else None."""
     return cast(dict[str, Any], value) if isinstance(value, dict) else None
+
+
+def reply_list(reply: str, key: str) -> list[Any]:
+    """The `key` array of the reply's JSON object."""
+    items = get_list(parse_json_object(reply), key)
+    if items is None:
+        article = "an" if key[0] in "aeiou" else "a"
+        raise ParseError(f'expected {article} "{key}" list')
+    return items
+
+
+def choice[T](item: dict[str, Any], key: str, options: Mapping[str, T]) -> T | None:
+    """`item[key]` looked up in `options`, ignoring case and surrounding spaces;
+    None if it isn't one of them."""
+    return options.get(str(item.get(key, "")).strip().lower())
+
+
+def stripped(value: Any) -> str | None:
+    """`value` without surrounding spaces, if it's a string with any text in it;
+    else None."""
+    return (value.strip() or None) if isinstance(value, str) else None
+
+
+def percent(item: dict[str, Any], key: str, where: str) -> float:
+    """`item[key]`, a number from 0 to 100, as a fraction rounded to 4 places."""
+    value = item.get(key)
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, (int, float))
+        or not 0 <= value <= 100
+    ):
+        raise ParseError(f"{where}: {key} is not a number from 0 to 100")
+    return round(value / 100, 4)
 
 
 def words(text: str) -> list[str]:

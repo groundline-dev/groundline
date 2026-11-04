@@ -147,7 +147,7 @@ class Implementation(BaseModel, ABC):
     step: ClassVar[str]
     """The step this implements. Its output type is defined in the registry."""
     version: ClassVar[str] = "1"
-    """Bump when behaviour changes, so cached outputs stop matching."""
+    """Bump when behavior changes, so cached outputs stop matching."""
     reads: ClassVar[tuple[str, ...]] = ()
     """Steps whose outputs this stage needs. They must come earlier in a pipeline."""
     uses: ClassVar[tuple[InputName, ...]] = ()

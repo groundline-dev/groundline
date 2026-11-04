@@ -13,8 +13,8 @@ from groundline.core import (
     PromptImplementation,
     StageContext,
     as_object,
-    get_list,
-    parse_json_object,
+    choice,
+    reply_list,
 )
 from groundline.evaluators.models import SEVERITIES, Severity
 from groundline.evaluators.omissions.models import (
@@ -61,13 +61,7 @@ def ranked(
     fact: Fact, *, severity: Severity | None, rank: int, rationale: str = ""
 ) -> RankedFact:
     return RankedFact(
-        id=fact.id,
-        fact=fact.fact,
-        evidence=fact.evidence,
-        evidence_found=fact.evidence_found,
-        severity=severity,
-        rank=rank,
-        rationale=rationale,
+        **fact.model_dump(), severity=severity, rank=rank, rationale=rationale
     )
 
 
@@ -76,13 +70,10 @@ def facts_block(facts: list[Fact]) -> str:
 
 
 def parse_ranking(reply: str, facts: list[Fact]) -> RankOutput:
-    items = get_list(parse_json_object(reply), "facts")
-    if items is None:
-        raise ParseError('expected a "facts" list')
     by_id = {f.id: f for f in facts}
     graded: list[tuple[Fact, Severity, str]] = []
     seen: set[str] = set()
-    for raw in items:
+    for raw in reply_list(reply, "facts"):
         item = as_object(raw)
         if item is None:
             raise ParseError('every entry in "facts" must be an object')
@@ -92,7 +83,7 @@ def parse_ranking(reply: str, facts: list[Fact]) -> RankOutput:
         if fid in seen:
             raise ParseError(f"fact id {fid} appears more than once")
         seen.add(fid)
-        severity = SEVERITIES.get(str(item.get("severity", "")).strip().lower())
+        severity = choice(item, "severity", SEVERITIES)
         if severity is None:
             raise ParseError(f"{fid}: severity is not one of {', '.join(SEVERITIES)}")
         graded.append((by_id[fid], severity, str(item.get("why", "")).strip()))

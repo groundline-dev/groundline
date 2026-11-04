@@ -17,9 +17,10 @@ from groundline.core import (
     PromptImplementation,
     StageContext,
     as_object,
+    choice,
     evidence_in,
-    get_list,
-    parse_json_object,
+    reply_list,
+    stripped,
     words,
 )
 from groundline.evaluators.omissions.models import (
@@ -71,25 +72,18 @@ class RefuteLLM(PromptImplementation):
 
 
 def parse_refute(reply: str, ids: list[str]) -> dict[str, RefuteAnswer]:
-    items = get_list(parse_json_object(reply), "facts")
-    if items is None:
-        raise ParseError('expected a "facts" list')
     answers: dict[str, RefuteAnswer] = {}
-    for raw in items:
+    for raw in reply_list(reply, "facts"):
         item = as_object(raw)
         if item is None:
             raise ParseError('every entry in "facts" must be an object')
         if item.get("id") not in ids:
             raise ParseError("an entry has an unknown or missing fact id")
         fid: str = item["id"]
-        found = FOUND.get(str(item.get("found", "")).strip().lower())
+        found = choice(item, "found", FOUND)
         if found is None:
             raise ParseError(f"{fid}: found must be one of {', '.join(FOUND)}")
-        quote = item.get("quote")
-        answers[fid] = RefuteAnswer(
-            found=found,
-            quote=quote.strip() if isinstance(quote, str) and quote.strip() else None,
-        )
+        answers[fid] = RefuteAnswer(found=found, quote=stripped(item.get("quote")))
     missing = [i for i in ids if i not in answers]
     if missing:
         raise ParseError(f"missing fact ids: {', '.join(missing)}")

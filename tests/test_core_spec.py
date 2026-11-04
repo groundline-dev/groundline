@@ -59,11 +59,11 @@ def test_rejects_a_step_used_twice():
 
 
 def test_rejects_invalid_and_unknown_settings():
-    found = problems(spec(UPPER, {**JOIN, "settings": {"sep": 3, "colour": "red"}}))
+    found = problems(spec(UPPER, {**JOIN, "settings": {"sep": 3, "color": "red"}}))
 
     assert found == [
         "stage 2 (join): setting 'sep': Input should be a valid string",
-        "stage 2 (join): setting 'colour': Extra inputs are not permitted",
+        "stage 2 (join): setting 'color': Extra inputs are not permitted",
     ]
 
 
@@ -94,6 +94,6 @@ def test_reports_every_problem_at_once():
 
 def test_spec_rejects_unknown_fields():
     with pytest.raises(ValidationError):
-        PipelineSpec.model_validate({"name": "x", "stages": [], "colour": "red"})
+        PipelineSpec.model_validate({"name": "x", "stages": [], "color": "red"})
     with pytest.raises(ValidationError):
         StageSpec.model_validate({**UPPER, "enable": False})

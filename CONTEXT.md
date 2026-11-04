@@ -1,6 +1,6 @@
 # groundline
 
-groundline checks an AI-written summary against the source it summarises, and reports what the summary gets wrong. It is domain-neutral: what matters in a domain, such as clinical care, comes from a domain profile.
+groundline checks an AI-written summary against the source it summarizes, and reports what the summary gets wrong. It is domain-neutral: what matters in a domain, such as clinical care, comes from a domain profile.
 
 ## Inputs
 

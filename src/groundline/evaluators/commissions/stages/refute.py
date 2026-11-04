@@ -18,8 +18,8 @@ from groundline.core import (
     StageContext,
     as_object,
     evidence_in,
-    get_list,
-    parse_json_object,
+    reply_list,
+    stripped,
 )
 from groundline.evaluators.commissions.models import (
     ClearedCommission,
@@ -81,19 +81,15 @@ class CommissionsRefuteLLM(PromptImplementation):
 def parse_support(reply: str, ids: list[str], *, source: str) -> dict[str, str | None]:
     """For each flagged id, the source passage that supports the claim, or None
     if the flag stands."""
-    items = get_list(parse_json_object(reply), "claims")
-    if items is None:
-        raise ParseError('expected a "claims" list')
     found: dict[str, str | None] = {}
-    for raw in items:
+    for raw in reply_list(reply, "claims"):
         item = as_object(raw)
         if item is None or item.get("id") not in ids or item["id"] in found:
             raise ParseError("an entry has an unknown, missing or repeated id")
         qid: str = item["id"]
         if item.get("supported") is True:
-            evidence = item.get("evidence")
-            evidence = evidence.strip() if isinstance(evidence, str) else ""
-            if not evidence or not evidence_in(evidence, source):
+            evidence = stripped(item.get("evidence"))
+            if evidence is None or not evidence_in(evidence, source):
                 raise ParseError(
                     f"{qid}: clearing a flag needs evidence quoted exactly "
                     "from the source"

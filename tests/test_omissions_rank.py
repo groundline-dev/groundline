@@ -45,7 +45,7 @@ def test_prompt_has_the_source_facts_and_rubric():
         assert placeholder not in prompt
 
 
-def test_severity_case_is_normalised():
+def test_severity_case_is_normalized():
     reply = rank_reply(("f1", "Critical"), ("f2", " SUPPORTING "), ("f3", "critical"))
 
     assert ranked(reply).facts[0].severity == "critical"

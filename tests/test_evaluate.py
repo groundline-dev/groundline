@@ -90,7 +90,7 @@ def test_runs_the_preset_by_default():
     assert [c.step for c in result.run.calls] == ["extract", "rank", "check", "refute"]
 
 
-def test_the_unchanged_preset_is_recognised_as_validated():
+def test_the_unchanged_preset_is_recognized_as_validated():
     result = run()
 
     assert result.validated_preset == "omission_all_opus"

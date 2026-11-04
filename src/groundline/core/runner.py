@@ -1,7 +1,7 @@
 """Run a pipeline: each stage starts as soon as the stages it reads have finished.
 
 Stages that don't depend on each other run at the same time. If any stage fails,
-the others are cancelled (so no further paid calls are made) and the run raises
+the others are canceled (so no further paid calls are made) and the run raises
 a `StageError` naming the failed step.
 
 With a cache, a stage whose cache key matches a stored entry isn't run: its
@@ -25,7 +25,6 @@ from groundline.core.errors import SetupError
 from groundline.core.implementation import StageContext
 from groundline.core.inputs import Inputs
 from groundline.core.model_client import ModelClient
-from groundline.core.profile import Placeholders
 from groundline.core.spec import Pipeline, PipelineStage
 
 
@@ -33,7 +32,7 @@ class StageError(Exception):
     """A stage failed. The original exception is kept as `__cause__`.
 
     `calls` holds every live model call the run made before it stopped,
-    including those of the failed stage and of stages cancelled because of it,
+    including those of the failed stage and of stages canceled because of it,
     so a failed run's cost can still be reported."""
 
     def __init__(self, step: str, message: str) -> None:
@@ -57,6 +56,9 @@ class RunResult:
     marked `cached`."""
 
     def output[T: BaseModel](self, step: str, kind: type[T]) -> T:
+        """A step's output, checked to be of the expected type."""
+        if step not in self.outputs:
+            raise LookupError(f"the pipeline has no '{step}' stage")
         value = self.outputs[step]
         if not isinstance(value, kind):
             raise TypeError(
@@ -94,10 +96,8 @@ async def run_pipeline(
             step=stage.step,
             uses=impl.uses,
             outputs={needed: outputs[needed] for needed in impl.reads},
-            texts=_texts(pipeline, stage),
-            placeholders=pipeline.profile.placeholders
-            if pipeline.profile
-            else Placeholders(),
+            texts=stage.texts,
+            placeholders=pipeline.placeholders,
             client=client,
         )
         contexts[stage.step] = ctx
@@ -146,7 +146,7 @@ async def run_pipeline(
             for stage in pipeline.stages:
                 tasks[stage.step] = group.create_task(run_stage(stage))
     except ExceptionGroup as failed:
-        # Report the first failure; the other stages were cancelled because of it.
+        # Report the first failure; the other stages were canceled because of it.
         # Keep its original cause, and hide the task group's wrapper.
         first = failed.exceptions[0]
         if isinstance(first, StageError):
@@ -176,19 +176,10 @@ def _checked(stage: PipelineStage, output: BaseModel) -> BaseModel:
     return output
 
 
-def _texts(pipeline: Pipeline, stage: PipelineStage) -> dict[str, str]:
-    """The profile texts a stage declared (validation checked they exist)."""
-    names = stage.implementation.profile_texts()
-    if not names or pipeline.profile is None:
-        return {}
-    return {name: pipeline.profile.texts[name] for name in names}
-
-
 def _cache_key(
     pipeline: Pipeline, stage: PipelineStage, inputs: Inputs, upstream: dict[str, str]
 ) -> str:
     impl = stage.implementation
-    texts = _texts(pipeline, stage)
     key: dict[str, object] = {
         "implementation": impl.name,
         "version": impl.version,
@@ -196,11 +187,11 @@ def _cache_key(
         "inputs": {name: inputs.sha256(name) for name in impl.uses},
         "upstream": upstream,
     }
-    if texts and pipeline.profile:
+    if stage.texts:
         # The full text, so editing a prompt or rubric re-runs the stages using
         # it; and the placeholder names, which decide how the text is filled.
-        key["texts"] = texts
-        key["placeholders"] = pipeline.profile.placeholders.model_dump()
+        key["texts"] = stage.texts
+        key["placeholders"] = pipeline.placeholders.model_dump()
     return stable_hash(key)
 
 
