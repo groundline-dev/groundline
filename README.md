@@ -165,7 +165,9 @@ for c in refute.commissions:
 
 Start the API with `make dev`; it serves at http://127.0.0.1:8000, with interactive docs at `/docs`. **The omissions and commissions endpoints have no authentication yet**, and every check spends your Anthropic credit, so run it only on your own machine.
 
-`POST /v1/omissions` runs the validated omission preset on one summary:
+### `POST /v1/omissions`
+
+Runs the validated omission preset on one summary:
 
 ```sh
 curl -s http://127.0.0.1:8000/v1/omissions \
@@ -190,21 +192,11 @@ curl -s http://127.0.0.1:8000/v1/omissions \
 }
 ```
 
-`omissions` lists the facts not fully recorded, most important first. Every finished check answers **200, flagged or not** ([ADR 0008](docs/adr/0008-the-api-returns-200-for-a-flagged-summary.md)). Other statuses mean the check couldn't finish, for both endpoints:
+`omissions` lists the facts not fully recorded, most important first.
 
-| Status | Meaning |
-|---|---|
-| 400 | The body isn't UTF-8 text. |
-| 404 | No such route. `detail` names the method and path, and points to `/docs`. |
-| 405 | The route doesn't take that method, such as `GET /v1/omissions`. |
-| 422 | The request is unusable: not a JSON object, a blank or too-long text, an unknown threshold, or an unexpected field. |
-| 500 | An unexpected error, a bug in groundline. Details are in the server log. |
-| 502 | The model or Anthropic's API failed: an unusable reply, a refusal or an outage. `detail` names the step and what the check had spent; for an Anthropic API error it gives only the status and error type. Retrying later may work. |
-| 503 | `ANTHROPIC_API_KEY` is missing or was rejected, or `.env` can't be read. `detail` says where groundline looked and how to fix it. The API also warns at startup if the key is missing or `.env` can't be read. |
+### `POST /v1/commissions`
 
-Every error answers with JSON: `{"detail": ...}`. Error responses and the server log never contain text from the source or summary. The log records each finished check's outcome, number of omissions and cost, and each failure.
-
-`POST /v1/commissions` runs the validated quick commission preset on one summary. It answers the same statuses as `/v1/omissions`, listed above, and takes the same `source` and `summary` (no `threshold`, since the preset has a single alarm level):
+Runs the validated quick commission preset on one summary. It answers the same statuses as `/v1/omissions` (see [Statuses and errors](#statuses-and-errors)), and takes the same `source` and `summary` (no `threshold`, since the preset has a single alarm level):
 
 ```sh
 curl -s http://127.0.0.1:8000/v1/commissions \
@@ -228,6 +220,22 @@ curl -s http://127.0.0.1:8000/v1/commissions \
 ```
 
 `commissions` lists the claims in the summary that the source doesn't support, most important first. `support_verdict` is `contradicted` (the source says otherwise) or `unsupported` (the source doesn't mention it). For a contradicted claim, `evidence` is the passage of the source the model quoted; it is `null` for an unsupported one. `evidence_found` says whether that passage appears in the source word for word, ignoring case, punctuation and spacing. `true` means verified. `false` only means it couldn't be matched, which a reworded quote or markup in the source, such as a scribe's `<UNSURE>` tags, can cause, so check it by eye rather than assuming it was invented.
+
+### Statuses and errors
+
+Every finished check answers **200, flagged or not** ([ADR 0008](docs/adr/0008-the-api-returns-200-for-a-flagged-summary.md)). Other statuses mean the check couldn't finish, for both endpoints:
+
+| Status | Meaning |
+|---|---|
+| 400 | The body isn't UTF-8 text. |
+| 404 | No such route. `detail` names the method and path, and points to `/docs`. |
+| 405 | The route doesn't take that method, such as `GET /v1/omissions`. |
+| 422 | The request is unusable: not a JSON object, a blank or too-long text, an unexpected field, or (omissions only) an unknown `threshold`. |
+| 500 | An unexpected error, a bug in groundline. Details are in the server log. |
+| 502 | The model or Anthropic's API failed: an unusable reply, a refusal or an outage. `detail` names the step and what the check had spent; for an Anthropic API error it gives only the status and error type. Retrying later may work. |
+| 503 | `ANTHROPIC_API_KEY` is missing or was rejected, or `.env` can't be read. `detail` says where groundline looked and how to fix it. The API also warns at startup if the key is missing or `.env` can't be read. |
+
+Every error answers with JSON: `{"detail": ...}`. Error responses and the server log never contain text from the source or summary. The log records each finished check's outcome, number of omissions or commissions, and cost, and each failure.
 
 ## Pipelines, presets and profiles
 
