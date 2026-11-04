@@ -11,6 +11,7 @@ from uuid import UUID
 import typer
 
 from groundline.api_keys import (
+    APIKeyInfo,
     APIKeyInputError,
     APIKeyNotFoundError,
     APIKeys,
@@ -19,7 +20,7 @@ from groundline.api_keys import (
 )
 from groundline.core.errors import SetupError
 from groundline.db.connection import make_engine
-from groundline.settings import Settings
+from groundline.settings import read_settings
 
 app = typer.Typer(
     help="Create, list, and revoke groundline API keys.",
@@ -43,7 +44,7 @@ def _lifetime(value: str | None) -> timedelta | None:
 
 
 async def _run[T](operation: Callable[[APIKeys], Awaitable[T]]) -> T:
-    engine = make_engine(Settings().require_database_url())
+    engine = make_engine(read_settings().require_database_url())
     try:
         return await operation(APIKeys(engine))
     finally:
@@ -90,7 +91,7 @@ def _create(name: str | None, expires_in: str | None) -> None:
         _run(lambda keys: keys.create(name=label, expires_in=lifetime))
     )
     info = created.info
-    expiry = info.expires_at.astimezone(UTC).isoformat() if info.expires_at else "never"
+    expiry = _expiry(info)
     try:
         typer.echo(
             f"Name: {info.name}\nID: {info.id}\nExpires: {expiry}\n"
@@ -143,9 +144,7 @@ def _list() -> None:
             and info.expires_at <= now
         ):
             status = "expired"
-        expiry = (
-            info.expires_at.astimezone(UTC).isoformat() if info.expires_at else "never"
-        )
+        expiry = _expiry(info)
         rows.append([str(info.id), info.name, info.prefix, status, expiry])
     widths = [max(_column_width(cell) for cell in column) for column in zip(*rows)]
     lines = [
@@ -156,6 +155,11 @@ def _list() -> None:
         for row in rows
     ]
     typer.echo("\n".join(lines))
+
+
+def _expiry(info: APIKeyInfo) -> str:
+    """The expiry in UTC, or "never"."""
+    return info.expires_at.astimezone(UTC).isoformat() if info.expires_at else "never"
 
 
 def _column_width(value: str) -> int:

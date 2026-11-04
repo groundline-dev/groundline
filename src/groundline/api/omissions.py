@@ -25,9 +25,9 @@ from groundline.core import (
     with_settings,
 )
 from groundline.evaluate import DEFAULT_PRESET, EvaluationResult, evaluate
-from groundline.evaluators.models import AlarmOutput, Severity
+from groundline.evaluators.models import ALARM_STEP, AlarmOutput, Severity
 from groundline.evaluators.omissions.models import ScoreOutput, VerdictLabel
-from groundline.evaluators.report import cost_line, format_cost, result_line
+from groundline.evaluators.report import cost_line, result_line, usage_text
 from groundline.presets import load_preset
 
 logger = logging.getLogger("groundline.api")
@@ -145,7 +145,9 @@ async def omissions(
     Runs the validated all-Opus omission check, which takes about 30-60 seconds
     and costs about $0.28 for a typical clinical note, so use a long client
     timeout. Answers 200 for every finished check, flagged or not."""
-    spec = with_settings(load_preset(DEFAULT_PRESET), "alarm", level=request.threshold)
+    spec = with_settings(
+        load_preset(DEFAULT_PRESET), ALARM_STEP, level=request.threshold
+    )
     started = time.perf_counter()
     try:
         result = await evaluate(
@@ -164,7 +166,7 @@ async def omissions(
     response = _response(result)
     logger.info(
         "checked a summary: %s · %d omissions · %s",
-        result_line(result.run.output("alarm", AlarmOutput)),
+        result_line(result.run.output(ALARM_STEP, AlarmOutput)),
         len(response.omissions),
         cost_line(result, time.perf_counter() - started),
     )
@@ -173,7 +175,7 @@ async def omissions(
 
 def _response(result: EvaluationResult) -> OmissionsResponse:
     score = result.run.output("score", ScoreOutput)
-    alarm = result.run.output("alarm", AlarmOutput)
+    alarm = result.run.output(ALARM_STEP, AlarmOutput)
     usage = result.run.usage
     return OmissionsResponse(
         flagged=alarm.flagged,
@@ -222,7 +224,4 @@ def _spent(error: StageError) -> str:
     """What a failed check had cost, if it made any calls."""
     if not error.calls:
         return ""
-    usage = summarize_usage(error.calls)
-    return (
-        f". Cost before stopping: {format_cost(usage.cost_usd)} · {usage.calls} calls"
-    )
+    return f". Cost before stopping: {usage_text(summarize_usage(error.calls))}"
