@@ -25,7 +25,6 @@ from groundline.core.errors import SetupError
 from groundline.core.implementation import StageContext
 from groundline.core.inputs import Inputs
 from groundline.core.model_client import ModelClient
-from groundline.core.profile import Placeholders
 from groundline.core.spec import Pipeline, PipelineStage
 
 
@@ -97,10 +96,8 @@ async def run_pipeline(
             step=stage.step,
             uses=impl.uses,
             outputs={needed: outputs[needed] for needed in impl.reads},
-            texts=_texts(pipeline, stage),
-            placeholders=pipeline.profile.placeholders
-            if pipeline.profile
-            else Placeholders(),
+            texts=stage.texts,
+            placeholders=pipeline.placeholders,
             client=client,
         )
         contexts[stage.step] = ctx
@@ -179,19 +176,10 @@ def _checked(stage: PipelineStage, output: BaseModel) -> BaseModel:
     return output
 
 
-def _texts(pipeline: Pipeline, stage: PipelineStage) -> dict[str, str]:
-    """The profile texts a stage declared (validation checked they exist)."""
-    names = stage.implementation.profile_texts()
-    if not names or pipeline.profile is None:
-        return {}
-    return {name: pipeline.profile.texts[name] for name in names}
-
-
 def _cache_key(
     pipeline: Pipeline, stage: PipelineStage, inputs: Inputs, upstream: dict[str, str]
 ) -> str:
     impl = stage.implementation
-    texts = _texts(pipeline, stage)
     key: dict[str, object] = {
         "implementation": impl.name,
         "version": impl.version,
@@ -199,11 +187,11 @@ def _cache_key(
         "inputs": {name: inputs.sha256(name) for name in impl.uses},
         "upstream": upstream,
     }
-    if texts and pipeline.profile:
+    if stage.texts:
         # The full text, so editing a prompt or rubric re-runs the stages using
         # it; and the placeholder names, which decide how the text is filled.
-        key["texts"] = texts
-        key["placeholders"] = pipeline.profile.placeholders.model_dump()
+        key["texts"] = stage.texts
+        key["placeholders"] = pipeline.placeholders.model_dump()
     return stable_hash(key)
 
 

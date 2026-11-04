@@ -5,7 +5,8 @@ UI or the API. `build_pipeline` checks it against the registry and reports every
 problem at once, so a UI can show them all together.
 """
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -15,7 +16,7 @@ from pydantic.json_schema import models_json_schema
 
 from groundline.core.cache import stable_hash
 from groundline.core.implementation import Implementation
-from groundline.core.profile import DomainProfile
+from groundline.core.profile import DomainProfile, Placeholders
 from groundline.core.registry import Registry
 
 
@@ -122,6 +123,8 @@ class PipelineStage:
     implementation: Implementation
     enabled: bool
     output_type: type[BaseModel]
+    texts: Mapping[str, str] = field(default_factory=dict[str, str])
+    """The profile texts the implementation declared, by name."""
 
 
 @dataclass(frozen=True)
@@ -131,6 +134,11 @@ class Pipeline:
     name: str
     stages: tuple[PipelineStage, ...]
     profile: DomainProfile | None = None
+
+    @property
+    def placeholders(self) -> Placeholders:
+        """Which placeholders in the profile's texts mean the source and summary."""
+        return self.profile.placeholders if self.profile else Placeholders()
 
 
 class SpecError(ValueError):
@@ -193,6 +201,7 @@ def build_pipeline(
                 )
             continue
 
+        texts: dict[str, str] = {}
         for text in implementation.profile_texts():
             if profile is None:
                 problems.append(
@@ -203,6 +212,8 @@ def build_pipeline(
                     f"{where}: uses text '{text}', "
                     f"which profile '{profile.name}' doesn't have"
                 )
+            else:
+                texts[text] = profile.texts[text]
 
         stages.append(
             PipelineStage(
@@ -210,6 +221,7 @@ def build_pipeline(
                 implementation=implementation,
                 enabled=stage.enabled,
                 output_type=registry.output_type(stage.step),
+                texts=texts,
             )
         )
 
@@ -227,7 +239,7 @@ def pipeline_fingerprint(pipeline: Pipeline) -> str:
     a renamed copy that does the same thing has the same fingerprint.
     """
     stages: list[dict[str, Any]] = []
-    used_texts: set[str] = set()
+    texts: dict[str, str] = {}
     for stage in pipeline.stages:
         impl = stage.implementation
         settings = {
@@ -244,17 +256,13 @@ def pipeline_fingerprint(pipeline: Pipeline) -> str:
                 "settings": settings,
             }
         )
-        used_texts.update(impl.profile_texts())
+        texts.update(stage.texts)
 
-    profile = pipeline.profile
     return stable_hash(
         {
             "stages": stages,
             "profile": None
-            if profile is None
-            else {
-                "placeholders": profile.placeholders.model_dump(),
-                "texts": {name: profile.texts[name] for name in sorted(used_texts)},
-            },
+            if pipeline.profile is None
+            else {"placeholders": pipeline.placeholders.model_dump(), "texts": texts},
         }
     )
