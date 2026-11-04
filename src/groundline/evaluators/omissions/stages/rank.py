@@ -61,13 +61,7 @@ def ranked(
     fact: Fact, *, severity: Severity | None, rank: int, rationale: str = ""
 ) -> RankedFact:
     return RankedFact(
-        id=fact.id,
-        fact=fact.fact,
-        evidence=fact.evidence,
-        evidence_found=fact.evidence_found,
-        severity=severity,
-        rank=rank,
-        rationale=rationale,
+        **fact.model_dump(), severity=severity, rank=rank, rationale=rationale
     )
 
 
