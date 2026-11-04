@@ -9,13 +9,20 @@ from fastapi.testclient import TestClient
 from groundline.api import common, errors
 from groundline.api.errors import safe_traceback
 from groundline.app import app
+from tests.auth_helpers import SECRET as API_KEY
+from tests.auth_helpers import FakeKeys
 
 SECRET = "sk-ant-not-a-real-key"
-http = TestClient(app, raise_server_exceptions=False)
+http = TestClient(
+    app,
+    raise_server_exceptions=False,
+    headers={"Authorization": f"Bearer {API_KEY}"},
+)
 
 
 @pytest.fixture(autouse=True)
-def no_overrides():
+def no_overrides(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(app.state, "api_keys", FakeKeys(), raising=False)
     yield
     app.dependency_overrides.clear()
 

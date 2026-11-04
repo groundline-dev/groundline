@@ -1,8 +1,6 @@
 import logging
-from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import AsyncMock
-from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
@@ -10,32 +8,9 @@ from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from groundline import app as app_module
-from groundline.api_keys import APIKeyInfo, APIKeys, APIKeyStorageError
+from groundline.api_keys import APIKeys, APIKeyStorageError
 from groundline.db.connection import make_engine
-from tests.auth_helpers import protected_app
-
-SECRET = "gl_" + "a" * 43
-
-
-class FakeKeys(APIKeys):
-    def __init__(self):
-        self.calls: list[str] = []
-        self.failure: Exception | None = None
-        self.info: APIKeyInfo | None = APIKeyInfo(
-            id=UUID("00000000-0000-7000-8000-000000000001"),
-            name="test",
-            prefix=SECRET[:11],
-            status="active",
-            created_at=datetime(2026, 11, 4, tzinfo=UTC),
-            expires_at=None,
-            revoked_at=None,
-        )
-
-    async def authenticate(self, credential: str) -> APIKeyInfo | None:
-        self.calls.append(credential)
-        if self.failure:
-            raise self.failure
-        return self.info
+from tests.auth_helpers import SECRET, FakeKeys, protected_app
 
 
 @pytest.fixture(autouse=True)

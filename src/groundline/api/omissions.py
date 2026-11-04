@@ -24,6 +24,7 @@ from groundline.api.common import (
     model_client,
     usage_of,
 )
+from groundline.auth import require_api_key
 from groundline.core import ModelClient, with_settings
 from groundline.evaluate import DEFAULT_PRESET, evaluate
 from groundline.evaluators.models import ALARM_STEP, AlarmOutput, Severity
@@ -89,7 +90,18 @@ class OmissionsResponse(ApiModel):
     """The model calls the check made, and what they cost."""
 
 
-@router.post("/omissions", responses=FAILURE_RESPONSES)
+@router.post(
+    "/omissions",
+    dependencies=[Depends(require_api_key)],
+    responses={
+        **FAILURE_RESPONSES,
+        401: {"description": "The API key is missing or invalid."},
+        503: {
+            "description": "Authentication is unavailable, or the Anthropic API key "
+            "is missing or rejected."
+        },
+    },
+)
 async def omissions(
     request: OmissionsRequest,
     client: Annotated[ModelClient | None, Depends(model_client)],

@@ -131,29 +131,33 @@ async def example(
     return {"api_key_id": str(api_key.id)}
 ```
 
-The dependency declares Bearer security in OpenAPI and returns safe API-key metadata. Missing, malformed, unknown, revoked, and expired credentials produce the same 401 response with `WWW-Authenticate: Bearer`. Storage failures produce a generic 503, with no credentials or database error details exposed. Leave public routes without this dependency; it is not global middleware.
+`POST /v1/omissions` uses `dependencies=[Depends(require_api_key)]` on its route decorator because it needs authentication without using the returned metadata. The example above shows how a handler can use that metadata.
+
+The dependency declares Bearer security in OpenAPI and returns safe API-key metadata. Missing, malformed, unknown, revoked, and expired credentials produce the same 401 response with `WWW-Authenticate: Bearer`. Storage failures produce a generic 503, with no credentials or database error details exposed. Leave public routes such as `/health` without this dependency; it is not global middleware. FastAPI parses JSON before dependencies: broken JSON retains 422 and non-UTF-8 bodies retain 400 even without credentials. For readable JSON, authentication rejects credentials before field validation or evaluation.
 
 ## Tests
 
-Run the tests. These are offline, free, and need no Anthropic API key; model calls use a scripted fake client:
+Run the tests. These are offline, free, and need no real API key; model calls use a scripted fake client, and authenticated HTTP callers use fake API-key storage with the real authentication dependency:
 
 ```sh
 make test
 ```
 
-Run the database tests, which need PostgreSQL 18 running locally as described in [Database](#database). Each run creates a throwaway role and database, and drops them afterwards. They're excluded from the default run, and from CI until the move to Docker:
+Run the database tests, which need PostgreSQL 18 running locally as described in [Database](#database). Each run creates a throwaway role and database, and drops them afterwards. They're excluded from the default run and CI; run them explicitly:
 
 ```sh
 uv run pytest -m db
 ```
 
-API-key coverage includes real create/revoke commands, commit failure, concurrent revocation, expiry, and authentication through two running application instances. Shared fixtures in `tests/conftest.py` create throwaway databases; they never use the developer's `DATABASE_URL`. HTTP tests register a protected route only in the test application. Run the database suite explicitly when changing API-key behavior: the default suite and CI exclude it.
+API-key coverage includes real create/revoke commands, commit failure, concurrent revocation, expiry, and authentication through two running application instances. Shared fixtures in `tests/conftest.py` create throwaway databases; they never use the developer's `DATABASE_URL`. `tests/test_auth.py` checks the shared dependency on a test-only route. `tests/test_api_omissions_auth.py` exercises the production omissions route offline, including rejected requests doing no pipeline/model work and OpenAPI security. `tests/test_api_omissions_auth_db.py` runs that route with its real lifespan and PostgreSQL, proving acceptance, CLI revocation, unknown credentials, and expiry with a fake model client. Run the database suite explicitly when changing API-key behavior: the default suite and CI exclude it.
 
 Run the live smoke tests, which call the real Anthropic API on short examples: the omission preset, the commission preset and the `/v1/omissions` and `/v1/commissions` endpoints (still about $0.09 per run in all, as the commission calls add under a cent). They're excluded from the default run:
 
 ```sh
 uv run pytest -m live -s
 ```
+
+The live omissions endpoint smoke test uses fake API-key storage and a Bearer credential with the real authentication dependency, so it needs no PostgreSQL database. The marked database tests cover real credential persistence and revocation.
 
 `tests/test_parity.py` (omissions) and `tests/test_parity_commissions.py` (commissions) each replay a recorded run of a measured pipeline and check that groundline sends byte-identical prompts and reaches identical results. If you change a prompt, the rubric or a step's logic, expect them to fail. That means the `omission_all_opus` or `commission_quick` preset no longer matches the measured results.
 
