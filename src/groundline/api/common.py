@@ -43,7 +43,18 @@ FAILURE_RESPONSES: dict[int | str, dict[str, str]] = {
     502: {"description": "The model or Anthropic's API failed."},
     503: {"description": "The Anthropic API key is missing or rejected."},
 }
-"""The statuses a check can answer beyond 200 and the 422 FastAPI documents."""
+"""The statuses a model failure can cause, beyond 200 and the 422 FastAPI
+documents. Check routes use `PROTECTED_RESPONSES`, which adds authentication's."""
+
+PROTECTED_RESPONSES: dict[int | str, dict[str, str]] = {
+    **FAILURE_RESPONSES,
+    401: {"description": "The API key is missing or invalid."},
+    503: {
+        "description": "Authentication is unavailable, or the Anthropic API key is "
+        "missing or rejected."
+    },
+}
+"""`FAILURE_RESPONSES` for a route that also depends on `require_api_key`."""
 
 
 class ApiModel(BaseModel):
