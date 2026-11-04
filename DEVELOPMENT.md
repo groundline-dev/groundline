@@ -111,12 +111,14 @@ src/groundline/
   core/                    the pipeline framework: steps, registry, specs, runner, cache, costs
   clients/                 the Anthropic client
   db/                      the database: tables, migrations, connection check, setup
-  evaluators/              what the checks share: severity, the alarm's output, report helpers
+  evaluators/              what the checks share: severity, the alarm step, report helpers,
+                           and the registry of built-in checks (builtin.py)
   evaluators/omissions/    the omission check's data models, stages and report
   evaluators/commissions/  the commission check's data models, stages and report
   profiles/clinical/       the clinical profile: prompts and severity rubric
   presets/                 validated pipeline specs (omission_all_opus, commission_quick)
   evaluate.py              evaluate(): the entry point the CLI and API share
+  result.py                EvaluationResult, what evaluate() returns
   cli.py                   the groundline command
   app.py                   the FastAPI app
 scripts/db-setup           creates the local database and applies migrations
