@@ -161,13 +161,14 @@ The `commit-msg` hook adds a `Co-authored-by` line for every team member except 
 
 ## Upgrading uv
 
-`required-version` in [pyproject.toml](pyproject.toml) allows only 0.13.x. In case of a new minor release (e.g. 0.14):
+`required-version` in [pyproject.toml](pyproject.toml) allows uv 0.13.7 or later, below 0.14. In case of a new minor release (e.g. 0.14):
 
-1. In pyproject.toml, set `required-version = ">=0.14.0,<0.15"`.
+1. In pyproject.toml, set `required-version = ">=0.14.0,<0.15"` and, in `[build-system]`, `requires = ["uv_build>=0.14.0,<0.15.0"]`. Keep the two on the same minor: if they differ, uv downloads a separate `uv_build` from the `[build-system]` range to build groundline, in Docker too. Dependabot leaves `uv_build`'s minor alone for the same reason.
 2. Update the [Dockerfile](Dockerfile)'s first `FROM` line to the new uv tag and digest. Dependabot doesn't open these PRs, because it can't see `required-version`. Get the digest with `docker buildx imagetools inspect ghcr.io/astral-sh/uv:<version>-python3.13-trixie-slim`.
 3. Upgrade your uv to a version in the new range, naming it explicitly, because a plain upgrade installs the newest uv, which may be past the range:
    - Installed with the standalone installer: `uv self update 0.14.0`.
    - Installed with Homebrew: `brew upgrade uv`, then check `uv --version`. If it's past the range, see Troubleshooting. (`uv self update` doesn't work on a Homebrew install.)
+   - Installed with pip: `pip install 'uv>=0.14,<0.15'`.
 4. Run `make check` and `make docker-smoke`, then push.
 5. After merging, tell the team to upgrade uv too (step 3).
 
