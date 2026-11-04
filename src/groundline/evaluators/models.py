@@ -19,11 +19,15 @@ SEVERITIES: dict[str, Severity] = {
 up and come back typed."""
 
 
-class AlarmOutput(BaseModel):
-    """Whether to flag the summary: the alarm score, and the threshold it met or
-    missed."""
+class Frozen(BaseModel):
+    """The base for evaluator data: immutable, and strict about its fields."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
+
+
+class AlarmOutput(Frozen):
+    """Whether to flag the summary: the alarm score, and the threshold it met or
+    missed."""
 
     score: float
     """The highest confidence among the summary's critical problems, as each
