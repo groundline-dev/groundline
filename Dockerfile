@@ -23,7 +23,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 # Then groundline itself, installed as a regular (non-editable) package, so the
 # runtime stage needs only the virtualenv, not the source tree.
-COPY pyproject.toml uv.lock README.md ./
+COPY pyproject.toml uv.lock README.md LICENSE NOTICE ./
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --no-editable

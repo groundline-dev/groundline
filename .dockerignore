@@ -4,6 +4,8 @@
 !pyproject.toml
 !uv.lock
 !README.md
+!LICENSE
+!NOTICE
 !src
 
 # Drop local bytecode caches from src/ so they don't change the COPY layer.
