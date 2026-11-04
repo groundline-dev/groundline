@@ -2,6 +2,7 @@
 
 import asyncio
 import re
+import unicodedata
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
 from typing import Annotated
@@ -128,12 +129,12 @@ def list_keys() -> None:
 
 
 def _list() -> None:
-    keys = asyncio.run(_run(lambda keys: keys.list()))
+    keys = asyncio.run(_run(lambda keys: keys.list_all()))
     if not keys:
         typer.echo("No API keys found.")
         return
     now = datetime.now(UTC)
-    lines = ["ID\tName\tPrefix\tStatus\tExpires (UTC)"]
+    rows = [["ID", "Name", "Prefix", "Status", "Expires (UTC)"]]
     for info in keys:
         status: str = info.status
         if (
@@ -145,5 +146,25 @@ def _list() -> None:
         expiry = (
             info.expires_at.astimezone(UTC).isoformat() if info.expires_at else "never"
         )
-        lines.append(f"{info.id}\t{info.name}\t{info.prefix}\t{status}\t{expiry}")
+        rows.append([str(info.id), info.name, info.prefix, status, expiry])
+    widths = [max(_column_width(cell) for cell in column) for column in zip(*rows)]
+    lines = [
+        "  ".join(
+            cell + " " * (width - _column_width(cell))
+            for cell, width in zip(row, widths)
+        ).rstrip()
+        for row in rows
+    ]
     typer.echo("\n".join(lines))
+
+
+def _column_width(value: str) -> int:
+    """Account for combining marks and wide characters when padding columns."""
+    return sum(
+        0
+        if unicodedata.combining(char)
+        else 2
+        if unicodedata.east_asian_width(char) in {"W", "F"}
+        else 1
+        for char in value
+    )

@@ -1,12 +1,17 @@
 import asyncio
 import re
 from datetime import timedelta
+from typing import get_type_hints
 
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from groundline import api_keys
 from groundline.api_keys import APIKeys, APIKeyStorageError
+
+
+def test_listing_return_annotation_can_be_evaluated():
+    assert get_type_hints(APIKeys.list_all)["return"] == list[api_keys.APIKeyInfo]
 
 
 def test_generation_requests_256_random_bits_and_hides_the_secret(

@@ -63,7 +63,7 @@ class FakeKeys(APIKeys):
         )
         return RevokedAPIKey(info, self.changed)
 
-    async def list(self) -> list[APIKeyInfo]:
+    async def list_all(self) -> list[APIKeyInfo]:
         self.calls.append(("list", None))
         if self.failure:
             raise self.failure
@@ -271,21 +271,68 @@ def test_list_displays_safe_metadata_and_expired_status(fake: FakeKeys):
         revoked_at=None,
         expires_at=None,
     )
-    expired = base.model_copy(update={"expires_at": now - timedelta(days=1)})
-    future = base.model_copy(update={"expires_at": now + timedelta(days=1)})
+    expired = base.model_copy(
+        update={"name": "PC", "expires_at": now - timedelta(days=1)}
+    )
+    future = base.model_copy(
+        update={
+            "name": "production reporting service",
+            "expires_at": now + timedelta(days=1),
+        }
+    )
     revoked = expired.model_copy(update={"status": "revoked", "revoked_at": now})
     fake.listed = [base, expired, future, revoked]
     result = runner.invoke(cli.app, ["keys", "list"])
     assert result.exit_code == 0
     lines = result.stdout.splitlines()
-    assert lines[0] == "ID\tName\tPrefix\tStatus\tExpires (UTC)"
-    rows = [line.split("\t") for line in lines[1:]]
+    assert re.split(r" {2,}", lines[0]) == [
+        "ID",
+        "Name",
+        "Prefix",
+        "Status",
+        "Expires (UTC)",
+    ]
+    assert "\t" not in result.stdout
+    rows = [re.split(r" {2,}", line) for line in lines[1:]]
     assert [row[3] for row in rows] == ["active", "expired", "active", "revoked"]
     assert rows[0] == [str(IDENTIFIER), "laptop", SECRET[:11], "active", "never"]
     assert rows[1][4] == (now - timedelta(days=1)).isoformat()
     assert expired.status == "active"  # Display does not mutate stored metadata.
     assert SECRET not in result.output
     assert "key_hash" not in result.output
+    assert {line.index(SECRET[:11]) for line in lines[1:]} == {lines[0].index("Prefix")}
+    assert {line.index(row[3]) for line, row in zip(lines[1:], rows)} == {
+        lines[0].index("Status")
+    }
+
+
+def test_list_aligns_wide_and_combining_names_without_truncating(fake: FakeKeys):
+    now = datetime.now(UTC)
+    for name in ("PC", "工作电脑", "Cafe\u0301", "x" * 128):
+        fake.listed.append(
+            APIKeyInfo(
+                id=IDENTIFIER,
+                name=name,
+                prefix=SECRET[:11],
+                status="active",
+                created_at=now,
+                revoked_at=None,
+                expires_at=None,
+            )
+        )
+    result = runner.invoke(cli.app, ["keys", "list"])
+    assert result.exit_code == 0
+    lines = result.stdout.splitlines()
+    prefix_column = lines[0].index("Prefix")
+    # UUID occupies 36 columns plus two spaces. Display widths here are known
+    # independently: PC=2, four CJK characters=8, decomposed Café=4, x*128=128.
+    for line, name, width in zip(
+        lines[1:], ("PC", "工作电脑", "Cafe\u0301", "x" * 128), (2, 8, 4, 128)
+    ):
+        assert str(IDENTIFIER) in line
+        assert name in line
+        padding = line[38 + len(name) : line.index(SECRET[:11])]
+        assert padding == " " * (prefix_column - 38 - width)
 
 
 @pytest.mark.parametrize(

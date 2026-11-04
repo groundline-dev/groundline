@@ -56,7 +56,7 @@ A test checks that the migrations and `tables.py` agree.
 
 ## API-key module
 
-The [APIKeys module](src/groundline/api_keys.py) is importable independently of the CLI and FastAPI. Its async `create`, `list`, `revoke`, and `authenticate` methods accept a caller-owned async engine through the constructor. For example, inside an async function:
+The [APIKeys module](src/groundline/api_keys.py) is importable independently of the CLI and FastAPI. Its async `create`, `list_all`, `revoke`, and `authenticate` methods accept a caller-owned async engine through the constructor. For example, inside an async function:
 
 ```python
 from datetime import timedelta
@@ -78,7 +78,7 @@ async def issue_api_key() -> CreatedAPIKey:
 
 The creation result has public `info` and a redacted `secret`; access the plaintext deliberately with `result.secret.get_secret_value()`. It is returned only after commit. `revoke(UUID(...))` returns metadata and a `changed` flag; `authenticate(credential)` returns metadata or `None`. Neither returns the stored hash. Invalid input, unknown identifiers, and storage failures have separate exception types with safe messages.
 
-`await keys.list()` returns all `APIKeyInfo` records ordered by creation time descending, with UUID descending breaking ties. It selects only public metadata, never hashes, and returns an empty list when there are no keys. Stored status remains `active` or `revoked`; the CLI derives its `expired` display from the expiry timestamp. Existing names remain readable even if longer than the 128-character limit applied to new custom names.
+`await keys.list_all()` returns all `APIKeyInfo` records ordered by creation time descending, with UUID descending breaking ties. It selects only public metadata, never hashes, and returns an empty list when there are no keys. Stored status remains `active` or `revoked`; the CLI derives its `expired` display from the expiry timestamp. Existing names remain readable even if longer than the 128-character limit applied to new custom names.
 
 Use the shared engine factory for primary-database selection and hidden SQL parameters. Keep an engine within its owning event loop; the CLI creates and disposes one inside each command's `asyncio.run`. The API reuses one throughout its lifespan. API keys contain 256 random bits and are hashed with SHA-256 ([ADR 0010](docs/adr/0010-api-keys-are-hashed-with-sha-256.md)). Names are labels, not unique identifiers. Expired API keys retain their stored active/revoked status but cannot authenticate, and validation does not update `last_used_at`.
 

@@ -47,7 +47,7 @@ def test_list_shows_prefixes_and_states_without_credentials_or_hashes(
     assert runner.invoke(app, ["keys", "revoke", str(identifier)]).exit_code == 0
     listed = runner.invoke(app, ["keys", "list"])
     assert listed.exit_code == 0
-    rows = [line.split("\t") for line in listed.stdout.splitlines()[1:]]
+    rows = [re.split(r" {2,}", line) for line in listed.stdout.splitlines()[1:]]
     assert [row[1] for row in rows] == ["active", "expired", "revoked"]
     assert [row[3] for row in rows] == ["active", "expired", "revoked"]
     with db_engine.connect() as connection:

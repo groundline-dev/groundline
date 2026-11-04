@@ -31,7 +31,7 @@ def test_list_includes_all_states_newest_first_without_secrets(
 ):
     async def run():
         async with service(db_url) as keys:
-            assert await keys.list() == []
+            assert await keys.list_all() == []
             created = [await keys.create(name="laptop") for _ in range(3)]
             await keys.revoke(created[0].info.id)
             timestamp = datetime(2026, 1, 1, tzinfo=UTC)
@@ -49,7 +49,7 @@ def test_list_includes_all_states_newest_first_without_secrets(
                     .values(expires_at=timestamp, name="legacy-" + "x" * 129)
                 )
                 hashes = connection.scalars(select(api_keys.c.key_hash)).all()
-            listed = await keys.list()
+            listed = await keys.list_all()
             expected = sorted([item.info.id for item in created[1:]], reverse=True)
             assert [info.id for info in listed] == expected + [created[0].info.id]
             by_id = {info.id: info for info in listed}

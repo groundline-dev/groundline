@@ -202,7 +202,7 @@ class APIKeys:
             info = APIKeyInfo.model_validate(row) if row is not None else None
         return info
 
-    async def list(self) -> list[APIKeyInfo]:
+    async def list_all(self) -> list[APIKeyInfo]:
         """List all keys newest first, returning metadata only, never hashes."""
         async with self._transaction() as connection:
             result = await connection.execute(
