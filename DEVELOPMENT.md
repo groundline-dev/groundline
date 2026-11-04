@@ -16,7 +16,7 @@ make dev
 
 ## Database
 
-The API keeps its operational data, starting with API keys, in PostgreSQL 18. It never holds sources, summaries or results ([ADR 0009](docs/adr/0009-the-database-holds-no-patient-data.md)). The omission check and the `groundline` command don't use it. For now each developer runs Postgres natively; Docker is planned.
+The API keeps its operational data, starting with API keys, in PostgreSQL 18. It never holds sources, summaries or results ([ADR 0009](docs/adr/0009-the-database-holds-no-patient-data.md)). The `groundline keys` commands require it; the omission and commission commands and Python evaluation functions do not. For now each developer runs Postgres natively; Docker is planned.
 
 Install and start PostgreSQL 18:
 
@@ -39,7 +39,9 @@ scripts/db-setup
 
 It creates the role and database the URL names, sets the role's password to the one in the URL, and applies the migrations. It's safe to rerun, and rerunning it is how you apply new migrations after a pull. It only works on a database on this machine, and it refuses a superuser role or the example password. It needs psql 15 or later: if another Postgres is linked (`psql --version`), unlink it first.
 
-When the API starts, it checks the connection. If it can't connect, it logs an error under `groundline.db`, saying where and why but never the password, and keeps running.
+When the API starts, it checks the connection. If it can't connect, it logs an error under `groundline.db`, saying where and why but never the password, and keeps running. Public `/health` remains available. With a valid database URL, the API keeps a pooled async engine so protected requests can recover when PostgreSQL becomes available; it disposes that engine on shutdown. Restart after correcting a missing or invalid `DATABASE_URL`.
+
+Point `DATABASE_URL` at the primary database. Authentication reads use READ COMMITTED and require a read-write server; they do not use cached validation results or a read replica that could lag behind revocation ([ADR 0011](docs/adr/0011-api-key-authentication-checks-the-database.md)). Connection pooling reuses connections, not query results.
 
 The tables are defined in [src/groundline/db/tables.py](src/groundline/db/tables.py), and every change needs an Alembic migration to match:
 
@@ -49,6 +51,55 @@ scripts/db-setup                                      # apply it
 ```
 
 A test checks that the migrations and `tables.py` agree.
+
+## API-key module
+
+The [APIKeys module](src/groundline/api_keys.py) is importable independently of the CLI and FastAPI. Its async `create`, `revoke`, and `authenticate` methods accept a caller-owned async engine through the constructor. For example, inside an async function:
+
+```python
+from datetime import timedelta
+
+from groundline.api_keys import APIKeys, CreatedAPIKey
+from groundline.db.connection import make_engine
+from groundline.settings import Settings
+
+
+async def issue_api_key() -> CreatedAPIKey:
+    engine = make_engine(Settings().require_database_url())
+    try:
+        return await APIKeys(engine).create(
+            name="integration", expires_in=timedelta(days=90)
+        )
+    finally:
+        await engine.dispose()
+```
+
+The creation result has public `info` and a redacted `secret`; access the plaintext deliberately with `result.secret.get_secret_value()`. It is returned only after commit. `revoke(UUID(...))` returns metadata and a `changed` flag; `authenticate(credential)` returns metadata or `None`. Neither returns the stored hash. Invalid input, unknown identifiers, and storage failures have separate exception types with safe messages.
+
+Use the shared engine factory for primary-database selection and hidden SQL parameters. Keep an engine within its owning event loop; the CLI creates and disposes one inside each command's `asyncio.run`. The API reuses one throughout its lifespan. API keys contain 256 random bits and are hashed with SHA-256 ([ADR 0010](docs/adr/0010-api-keys-are-hashed-with-sha-256.md)). Names are labels, not unique identifiers. Expired API keys retain their stored active/revoked status but cannot authenticate, and validation does not update `last_used_at`.
+
+## Protecting an endpoint
+
+Add the dependency explicitly to a route registered on the existing app. This is an integration example, not a currently shipped endpoint:
+
+```python
+from typing import Annotated
+
+from fastapi import Depends
+
+from groundline.api_keys import APIKeyInfo
+from groundline.app import app
+from groundline.auth import require_api_key
+
+
+@app.get("/example")
+async def example(
+    api_key: Annotated[APIKeyInfo, Depends(require_api_key)],
+) -> dict[str, str]:
+    return {"api_key_id": str(api_key.id)}
+```
+
+The dependency declares Bearer security in OpenAPI and returns safe API-key metadata. Missing, malformed, unknown, revoked, and expired credentials produce the same 401 response with `WWW-Authenticate: Bearer`. Storage failures produce a generic 503, with no credentials or database error details exposed. Leave public routes without this dependency; it is not global middleware.
 
 ## Tests
 
@@ -63,6 +114,8 @@ Run the database tests, which need PostgreSQL 18 running locally as described in
 ```sh
 uv run pytest -m db
 ```
+
+API-key coverage includes real create/revoke commands, commit failure, concurrent revocation, expiry, and authentication through two running application instances. Shared fixtures in `tests/conftest.py` create throwaway databases; they never use the developer's `DATABASE_URL`. HTTP tests register a protected route only in the test application. Run the database suite explicitly when changing API-key behavior: the default suite and CI exclude it.
 
 Run the live smoke test, which calls the real API on a short example (about $0.04 per run). It's excluded from the default run:
 
@@ -117,6 +170,9 @@ src/groundline/
   profiles/clinical/       the clinical profile: prompts and severity rubric
   presets/                 validated pipeline specs (omission_all_opus, commission_quick)
   evaluate.py              evaluate(): the entry point the CLI and API share
+  api_keys.py              API-key generation, persistence, revocation and validation
+  auth.py                  opt-in Bearer authentication dependency
+  keys_cli.py              the groundline keys subgroup
   cli.py                   the groundline command
   app.py                   the FastAPI app
 scripts/db-setup           creates the local database and applies migrations
