@@ -1,7 +1,8 @@
 """Live smoke tests: the presets against the real Anthropic API.
 
-Cost money (about $0.04 each for the omission preset and the API, and under a
-cent for the commission preset, on these short examples), so they're excluded
+Cost money (about $0.04 each for the omission preset and the omissions endpoint,
+and under a cent each for the commission preset and the commissions endpoint, on
+these short examples), so they're excluded
 from the default `pytest` run. Run it with `uv run pytest -m live -s` from the repo
 root, with ANTHROPIC_API_KEY in the environment or `.env`.
 
@@ -93,3 +94,18 @@ def test_the_omissions_endpoint_runs_end_to_end():
     assert body["validated_preset"] == "omission_all_opus"
     assert body["usage"]["calls"] >= 3 and body["usage"]["cost_usd"] > 0
     assert 0.0 <= body["alarm"]["score"] <= 1.0
+
+
+def test_the_commissions_endpoint_runs_end_to_end():
+    response = TestClient(app).post(
+        "/v1/commissions", json={"source": SOURCE, "summary": SUMMARY_WITH_ERRORS}
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    print(f"\nlive API run: {body['usage']}")
+
+    assert body["validated_preset"] == "commission_quick"
+    assert body["usage"]["calls"] >= 1 and body["usage"]["cost_usd"] > 0
+    assert 0.0 <= body["alarm"]["score"] <= 1.0
+    assert all(0.0 <= c["unsupported_confidence"] <= 1.0 for c in body["commissions"])

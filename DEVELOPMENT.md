@@ -149,7 +149,7 @@ uv run pytest -m db
 
 API-key coverage includes real create/revoke commands, commit failure, concurrent revocation, expiry, and authentication through two running application instances. Shared fixtures in `tests/conftest.py` create throwaway databases; they never use the developer's `DATABASE_URL`. HTTP tests register a protected route only in the test application. Run the database suite explicitly when changing API-key behavior: the default suite and CI exclude it.
 
-Run the live smoke tests, which call the real Anthropic API on short examples: the omission preset, the commission preset and the `/v1/omissions` endpoint (about $0.09 per run in all). They're excluded from the default run:
+Run the live smoke tests, which call the real Anthropic API on short examples: the omission preset, the commission preset and the `/v1/omissions` and `/v1/commissions` endpoints (still about $0.09 per run in all, as the commission calls add under a cent). They're excluded from the default run:
 
 ```sh
 uv run pytest -m live -s
