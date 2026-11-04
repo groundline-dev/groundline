@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from groundline.api import errors, omissions
-from groundline.settings import Settings
+from groundline.settings import UnreadableSettingsError, read_settings
 
 logger = logging.getLogger("groundline")
 
@@ -33,14 +33,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # A warning, not a failure: /health and the docs still work without a key.
     api_logger = logging.getLogger("groundline.api")
     try:
-        key = Settings().anthropic_api_key
-    except Exception as error:
-        # Only the type: a settings error can quote the value it rejected.
-        api_logger.warning(
-            "can't read the settings (%s), so checks will fail. Check that .env "
-            "is a readable UTF-8 text file.",
-            type(error).__name__,
-        )
+        key = read_settings().anthropic_api_key
+    except UnreadableSettingsError as error:
+        api_logger.warning("%s\nChecks will answer 503 until it's fixed.", error)
     else:
         if key is None:
             api_logger.warning(

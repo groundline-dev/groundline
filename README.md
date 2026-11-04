@@ -178,7 +178,7 @@ curl -s http://127.0.0.1:8000/v1/omissions \
 | 400 | The body isn't UTF-8 text. |
 | 422 | The request is unusable: not a JSON object, a blank or too-long text, an unknown threshold, or an unexpected field. |
 | 502 | The model or Anthropic's API failed, such as an unusable reply, a refusal or an outage. `detail` names the step and what was spent, and for an Anthropic API error only its status and type; retrying later may work. |
-| 503 | `ANTHROPIC_API_KEY` is missing or was rejected. `detail` says where groundline looked and how to fix it. The API also warns at startup if the key isn't set. |
+| 503 | `ANTHROPIC_API_KEY` is missing or was rejected, or `.env` can't be read. `detail` says where groundline looked and how to fix it. The API also warns at startup about either. |
 | 500 | An unexpected error, a bug in groundline. Details are in the server log. |
 
 Every error answers with JSON: `{"detail": ...}`. Error responses and the server log never contain text from the source or summary. The log records each finished check's outcome, number of omissions and cost, and each failure.

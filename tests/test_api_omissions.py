@@ -22,6 +22,7 @@ from tests.omission_helpers import (
     Script,
     check_reply,
     refute_reply,
+    step_of,
 )
 
 http = TestClient(app)
@@ -228,6 +229,32 @@ def test_an_anthropic_api_error_is_a_502_without_its_message(
     assert "tenofovir" not in caplog.text
 
 
+def test_an_anthropic_api_error_after_some_calls_says_what_they_cost():
+    script = Script(extract=EXTRACTED)
+
+    def failing_at_rank(prompt: str) -> str:
+        if step_of(prompt) == "rank":
+            raise anthropic.InternalServerError(
+                SECRET,
+                response=httpx2.Response(500, request=_api_request()),
+                body=None,
+            )
+        return script(prompt)
+
+    use_client(failing_at_rank)
+
+    response = http.post("/v1/omissions", json=check())
+
+    assert response.status_code == 502
+    detail = response.json()["detail"]
+    assert detail.startswith(
+        "stage 'rank' failed: the Anthropic API answered 500 (InternalServerError)"
+        ". Cost before stopping: $0."
+    )
+    assert detail.endswith("· 1 calls")
+    assert "tenofovir" not in detail
+
+
 def test_a_stage_failure_of_our_own_is_a_generic_500(
     caplog: pytest.LogCaptureFixture,
 ):
@@ -305,8 +332,21 @@ def test_startup_warns_when_the_settings_cant_be_read(
     with caplog.at_level(logging.WARNING), TestClient(app):
         pass
 
-    assert "can't read the settings (UnicodeDecodeError)" in caplog.text
+    assert "can't read the settings (UnicodeDecodeError)." in caplog.text
+    assert "Checks will answer 503 until it's fixed." in caplog.text
     assert "tenofovir" not in caplog.text
+
+
+def test_unreadable_settings_are_a_503_without_their_text(tmp_path: Path):
+    (tmp_path / ".env").write_bytes(b"ANTHROPIC_API_KEY=\xff\xfe" + SECRET.encode())
+    use_client(None)  # the real Anthropic client, which needs the settings
+
+    response = http.post("/v1/omissions", json=check())
+
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert detail.startswith("can't read the settings (UnicodeDecodeError).")
+    assert "tenofovir" not in detail
 
 
 def test_a_failure_loading_the_preset_is_a_generic_500(
