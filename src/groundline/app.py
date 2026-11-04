@@ -5,11 +5,12 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncEngine
 
+from groundline.api import errors, omissions
 from groundline.api_keys import APIKeys
 from groundline.core.errors import SetupError
 from groundline.db import check_connection
 from groundline.db.connection import make_engine
-from groundline.settings import Settings
+from groundline.settings import UnreadableSettingsError, read_settings
 
 logger = logging.getLogger("groundline")
 
@@ -34,27 +35,39 @@ def _log_to_console() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
-    # Public health stays available; protected routes reject if storage is down.
+    # Public health stays available when settings or storage are unavailable.
     engine: AsyncEngine | None = None
     app.state.api_keys = None
     try:
-        url = Settings().database_url
-        if url is None:
-            logging.getLogger("groundline.db").warning(
-                "DATABASE_URL is not set, so the API has no database"
+        try:
+            settings = read_settings()
+        except UnreadableSettingsError as error:
+            logging.getLogger("groundline.api").warning(
+                "%s\nChecks will answer 503 until it's fixed.", error
             )
         else:
-            try:
-                engine = make_engine(url.get_secret_value())
-            except SetupError as error:
-                logging.getLogger("groundline.db").error(
-                    "API-key storage is unavailable: %s", error
+            if settings.anthropic_api_key is None:
+                logging.getLogger("groundline.api").warning(
+                    "ANTHROPIC_API_KEY is not set, so checks will answer 503. "
+                    "Copy .env.example to .env and add your key."
+                )
+            url = settings.database_url
+            if url is None:
+                logging.getLogger("groundline.db").warning(
+                    "DATABASE_URL is not set, so the API has no database"
                 )
             else:
-                await check_connection(url.get_secret_value(), engine=engine)
-                # Keep the engine after a failed probe so later requests can
-                # recover when PostgreSQL becomes available.
-                app.state.api_keys = APIKeys(engine)
+                try:
+                    engine = make_engine(url.get_secret_value())
+                except SetupError as error:
+                    logging.getLogger("groundline.db").error(
+                        "API-key storage is unavailable: %s", error
+                    )
+                else:
+                    await check_connection(url.get_secret_value(), engine=engine)
+                    # Keep the engine after a failed probe so later requests can
+                    # recover when PostgreSQL becomes available.
+                    app.state.api_keys = APIKeys(engine)
         yield
     finally:
         app.state.api_keys = None
@@ -64,6 +77,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 
 _log_to_console()
 app = FastAPI(title="groundline", lifespan=lifespan)
+errors.install(app)
+app.include_router(omissions.router)
 
 
 @app.get("/health")

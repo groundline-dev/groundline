@@ -14,6 +14,8 @@ Start the API with auto-reload at http://127.0.0.1:8000 (interactive docs at `/d
 make dev
 ```
 
+The README's [Using the API](README.md#using-the-api) describes the endpoints. Each endpoint has a request and response model of its own in `src/groundline/api/`, so refactoring the pipeline's models can't change the API by accident.
+
 ## Database
 
 The API keeps its operational data, starting with API keys, in PostgreSQL 18. It never holds sources, summaries or results ([ADR 0009](docs/adr/0009-the-database-holds-no-patient-data.md)). The `groundline keys` commands require it; the omission and commission commands and Python evaluation functions do not. For now each developer runs Postgres natively; Docker is planned.
@@ -119,7 +121,7 @@ uv run pytest -m db
 
 API-key coverage includes real create/revoke commands, commit failure, concurrent revocation, expiry, and authentication through two running application instances. Shared fixtures in `tests/conftest.py` create throwaway databases; they never use the developer's `DATABASE_URL`. HTTP tests register a protected route only in the test application. Run the database suite explicitly when changing API-key behavior: the default suite and CI exclude it.
 
-Run the live smoke test, which calls the real API on a short example (about $0.04 per run). It's excluded from the default run:
+Run the live smoke tests, which call the real Anthropic API on short examples: the omission preset, the commission preset and the `/v1/omissions` endpoint (about $0.09 per run in all). They're excluded from the default run:
 
 ```sh
 uv run pytest -m live -s
@@ -176,6 +178,7 @@ src/groundline/
   auth.py                  opt-in Bearer authentication dependency
   keys_cli.py              the groundline keys subgroup
   cli.py                   the groundline command
+  api/                     the API's endpoints, with their own request and response models
   app.py                   the FastAPI app
 scripts/db-setup           creates the local database and applies migrations
 tests/                     offline tests; test_live.py is marked live, test_db_schema.py is marked db

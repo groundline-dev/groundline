@@ -128,6 +128,26 @@ def test_missing_database_keeps_health_public_and_protected_routes_unavailable()
         assert response.status_code == 503
 
 
+def test_unreadable_settings_keep_health_public_and_auth_unavailable(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+):
+    (tmp_path / ".env").write_bytes(b"DATABASE_URL=\xff\xfe" + SECRET.encode())
+    app = protected_app()
+    with caplog.at_level(logging.WARNING), TestClient(app) as client:
+        assert client.get("/health").json() == {"status": "ok"}
+        missing = client.get("/protected")
+        assert missing.status_code == 401
+        assert missing.headers["www-authenticate"] == "Bearer"
+        unavailable = client.get(
+            "/protected", headers={"Authorization": f"Bearer {SECRET}"}
+        )
+        assert unavailable.status_code == 503
+        assert unavailable.json() == {"detail": "Authentication is unavailable"}
+        assert app.state.api_keys is None
+    assert "can't read the settings (UnicodeDecodeError)" in caplog.text
+    assert SECRET not in caplog.text + unavailable.text + missing.text
+
+
 @pytest.mark.parametrize(
     ("url", "diagnostic"),
     [

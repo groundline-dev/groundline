@@ -20,6 +20,10 @@ class MissingAPIKeyError(SetupError):
     pass
 
 
+class UnreadableSettingsError(SetupError):
+    pass
+
+
 def dotenv_path() -> Path:
     """The `.env` file settings are read from: in the current folder."""
     return Path.cwd() / ENV_FILE
@@ -64,6 +68,18 @@ class Settings(BaseSettings):
         if os.environ.get("ANTHROPIC_API_KEY"):
             return "the environment"
         return str(dotenv_path())
+
+
+def read_settings() -> Settings:
+    """The settings, or an error naming only the problem's type and the file to
+    check: a settings error can quote the value it rejected, such as a key."""
+    try:
+        return Settings()
+    except Exception as error:
+        raise UnreadableSettingsError(
+            f"can't read the settings ({type(error).__name__}).\n"
+            f"  Fix: check that {dotenv_path()} is a readable UTF-8 text file."
+        ) from error
 
 
 def _missing_key_message(name: str, needed_by: str | None) -> str:
