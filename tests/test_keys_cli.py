@@ -15,6 +15,7 @@ from groundline.api_keys import (
     APIKeyInfo,
     APIKeyNotFoundError,
     APIKeys,
+    APIKeyStorageError,
     CreatedAPIKey,
     RevokedAPIKey,
 )
@@ -30,6 +31,7 @@ class FakeKeys(APIKeys):
         self.calls: list[tuple[str, object]] = []
         self.failure: Exception | None = None
         self.changed = True
+        self.listed: list[APIKeyInfo] = []
 
     async def create(
         self, *, name: str | None = None, expires_in: timedelta | None = None
@@ -60,6 +62,12 @@ class FakeKeys(APIKeys):
             }
         )
         return RevokedAPIKey(info, self.changed)
+
+    async def list(self) -> list[APIKeyInfo]:
+        self.calls.append(("list", None))
+        if self.failure:
+            raise self.failure
+        return self.listed
 
 
 @pytest.fixture(autouse=True)
@@ -143,8 +151,9 @@ def test_invalid_name_and_identifier_fail_before_storage():
         assert result.stdout == ""
 
 
-def test_missing_url_is_helpful_and_help_needs_no_database():
-    result = runner.invoke(cli.app, ["keys", "create"])
+@pytest.mark.parametrize("command", ["create", "list"])
+def test_missing_url_is_helpful_and_help_needs_no_database(command: str):
+    result = runner.invoke(cli.app, ["keys", command])
     assert result.exit_code == 2
     assert "DATABASE_URL is not set" in result.stderr
     assert "DEVELOPMENT.md" in result.stderr
@@ -218,7 +227,10 @@ def test_output_failure_reports_the_committed_identifier(
     assert SECRET not in errors[0]
 
 
-def test_engine_is_disposed_on_connection_failure(monkeypatch: pytest.MonkeyPatch):
+@pytest.mark.parametrize("command", ["create", "list"])
+def test_engine_is_disposed_on_connection_failure(
+    monkeypatch: pytest.MonkeyPatch, command: str
+):
     monkeypatch.setenv(
         "DATABASE_URL", "postgresql+psycopg://user:secret@127.0.0.1:1/db"
     )
@@ -234,8 +246,63 @@ def test_engine_is_disposed_on_connection_failure(monkeypatch: pytest.MonkeyPatc
         return engine
 
     monkeypatch.setattr(keys_cli, "make_engine", factory)
-    result = runner.invoke(cli.app, ["keys", "create"])
+    result = runner.invoke(cli.app, ["keys", command])
     assert result.exit_code == 2
     assert "secret" not in result.output
     assert result.stdout == ""
     assert disposed == [True]
+
+
+def test_list_empty_is_successful(fake: FakeKeys):
+    result = runner.invoke(cli.app, ["keys", "list"])
+    assert result.exit_code == 0
+    assert result.stdout == "No API keys found.\n"
+    assert fake.calls == [("list", None)]
+
+
+def test_list_displays_safe_metadata_and_expired_status(fake: FakeKeys):
+    now = datetime.now(UTC)
+    base = APIKeyInfo(
+        id=IDENTIFIER,
+        name="laptop",
+        prefix=SECRET[:11],
+        status="active",
+        created_at=now - timedelta(days=2),
+        revoked_at=None,
+        expires_at=None,
+    )
+    expired = base.model_copy(update={"expires_at": now - timedelta(days=1)})
+    future = base.model_copy(update={"expires_at": now + timedelta(days=1)})
+    revoked = expired.model_copy(update={"status": "revoked", "revoked_at": now})
+    fake.listed = [base, expired, future, revoked]
+    result = runner.invoke(cli.app, ["keys", "list"])
+    assert result.exit_code == 0
+    lines = result.stdout.splitlines()
+    assert lines[0] == "ID\tName\tPrefix\tStatus\tExpires (UTC)"
+    rows = [line.split("\t") for line in lines[1:]]
+    assert [row[3] for row in rows] == ["active", "expired", "active", "revoked"]
+    assert rows[0] == [str(IDENTIFIER), "laptop", SECRET[:11], "active", "never"]
+    assert rows[1][4] == (now - timedelta(days=1)).isoformat()
+    assert expired.status == "active"  # Display does not mutate stored metadata.
+    assert SECRET not in result.output
+    assert "key_hash" not in result.output
+
+
+@pytest.mark.parametrize(
+    "failure,message",
+    [
+        (
+            APIKeyStorageError("API-key storage is unavailable"),
+            "storage is unavailable",
+        ),
+        (RuntimeError(SECRET), "API-key operation failed"),
+    ],
+)
+def test_list_errors_are_sanitized(fake: FakeKeys, failure: Exception, message: str):
+    fake.failure = failure
+    result = runner.invoke(cli.app, ["keys", "list"])
+    assert result.exit_code == 2
+    assert message in result.stderr
+    assert result.stdout == ""
+    assert SECRET not in result.output
+    assert "Traceback" not in result.output

@@ -46,6 +46,7 @@ These are groundline API keys for callers of protected HTTP endpoints, separate 
 ```sh
 uv run groundline keys create
 uv run groundline keys create --name "Avi's laptop" --expires-in 90d
+uv run groundline keys list
 uv run groundline keys revoke <key-id>
 ```
 
@@ -54,6 +55,8 @@ Creation prints the name, full UUID identifier, expiry, and plaintext API key **
 - Without `--name`, a friendly label such as `nimble-otter-a7c91e2b` is generated. Custom names must be non-empty, printable on one line, and at most 128 characters after trimming surrounding spaces. Existing names are unchanged. Names may repeat; revocation uses the full identifier, not the name or secret.
 - Without `--expires-in`, the API key never expires. Lifetimes are positive whole numbers followed by `s`, `m`, `h`, or `d`, such as `30m`, `12h`, or `90d`. Expiry is measured from creation and displayed in UTC.
 - Revocation is permanent. Repeating it succeeds without changing the original revocation timestamp. An unknown identifier is an error. Commands exit 0 on success and 2 on error; errors go to stderr.
+
+`keys list` shows every API key newest first, with its full UUID, name, identifying prefix, status, and UTC expiry (`never` when unset). It includes revoked and expired keys; an active key past its expiry displays as `expired` without changing its stored status. No credentials or hashes are shown. An empty database prints `No API keys found.` Prefixes help identify a key but are not guaranteed unique: use the full UUID to revoke it.
 
 Callers send `Authorization: Bearer <api-key>` to a protected route. Authentication checks the primary database on every request, so revocation affects subsequent checks across workers and app instances; requests already authorized may finish. Invalid, revoked, or expired API keys receive 401; unavailable authentication storage produces 503. `/health` remains public. The application currently exposes only `/health`; the reusable dependency is ready for future protected endpoints, as described in [DEVELOPMENT.md](DEVELOPMENT.md#protecting-an-endpoint).
 

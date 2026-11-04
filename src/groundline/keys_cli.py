@@ -3,7 +3,7 @@
 import asyncio
 import re
 from collections.abc import Awaitable, Callable
-from datetime import UTC, timedelta
+from datetime import UTC, datetime, timedelta
 from typing import Annotated
 from uuid import UUID
 
@@ -21,7 +21,7 @@ from groundline.db.connection import make_engine
 from groundline.settings import Settings
 
 app = typer.Typer(
-    help="Create and revoke groundline API keys.",
+    help="Create, list, and revoke groundline API keys.",
     no_args_is_help=True,
     pretty_exceptions_enable=False,
 )
@@ -119,3 +119,31 @@ def _revoke(identifier: str) -> None:
     result = asyncio.run(_run(lambda keys: keys.revoke(parsed)))
     action = "Revoked" if result.changed else "Already revoked"
     typer.echo(f"{action}: {result.info.id} ({result.info.name})")
+
+
+@app.command("list")
+def list_keys() -> None:
+    """List all API keys newest first, without revealing credentials or hashes."""
+    _finish(_list)
+
+
+def _list() -> None:
+    keys = asyncio.run(_run(lambda keys: keys.list()))
+    if not keys:
+        typer.echo("No API keys found.")
+        return
+    now = datetime.now(UTC)
+    lines = ["ID\tName\tPrefix\tStatus\tExpires (UTC)"]
+    for info in keys:
+        status: str = info.status
+        if (
+            status == "active"
+            and info.expires_at is not None
+            and info.expires_at <= now
+        ):
+            status = "expired"
+        expiry = (
+            info.expires_at.astimezone(UTC).isoformat() if info.expires_at else "never"
+        )
+        lines.append(f"{info.id}\t{info.name}\t{info.prefix}\t{status}\t{expiry}")
+    typer.echo("\n".join(lines))

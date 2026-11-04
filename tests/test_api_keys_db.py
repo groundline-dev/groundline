@@ -4,7 +4,7 @@ import asyncio
 import hashlib
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -24,6 +24,47 @@ async def service(db_url: str) -> AsyncGenerator[APIKeys]:
         yield APIKeys(engine)
     finally:
         await engine.dispose()
+
+
+def test_list_includes_all_states_newest_first_without_secrets(
+    db_url: str, db_engine: Engine
+):
+    async def run():
+        async with service(db_url) as keys:
+            assert await keys.list() == []
+            created = [await keys.create(name="laptop") for _ in range(3)]
+            await keys.revoke(created[0].info.id)
+            timestamp = datetime(2026, 1, 1, tzinfo=UTC)
+            with db_engine.begin() as connection:
+                # The two newer rows tie on time: UUID descending breaks the tie.
+                connection.execute(update(api_keys).values(created_at=timestamp))
+                connection.execute(
+                    update(api_keys)
+                    .where(api_keys.c.id == created[0].info.id)
+                    .values(created_at=timestamp - timedelta(days=1))
+                )
+                connection.execute(
+                    update(api_keys)
+                    .where(api_keys.c.id == created[1].info.id)
+                    .values(expires_at=timestamp, name="legacy-" + "x" * 129)
+                )
+                hashes = connection.scalars(select(api_keys.c.key_hash)).all()
+            listed = await keys.list()
+            expected = sorted([item.info.id for item in created[1:]], reverse=True)
+            assert [info.id for info in listed] == expected + [created[0].info.id]
+            by_id = {info.id: info for info in listed}
+            assert by_id[created[0].info.id].status == "revoked"
+            assert by_id[created[1].info.id].expires_at == timestamp
+            assert by_id[created[1].info.id].status == "active"
+            assert by_id[created[1].info.id].name == "legacy-" + "x" * 129
+            serialized = " ".join(info.model_dump_json() for info in listed)
+            assert "key_hash" not in serialized
+            for item, digest in zip(created, hashes):
+                secret_absent = item.secret.get_secret_value() not in serialized
+                assert secret_absent
+                assert digest not in serialized
+
+    asyncio.run(run())
 
 
 def test_creation_persists_only_hash_and_metadata(db_url: str, db_engine: Engine):

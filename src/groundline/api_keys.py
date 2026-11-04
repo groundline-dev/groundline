@@ -22,7 +22,18 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 from groundline.db import api_keys
 
 _ADJECTIVES = ("bright", "calm", "gentle", "nimble", "quiet", "swift", "warm", "wise")
-_NOUNS = ("badger", "cedar", "finch", "maple", "otter", "panda", "robin", "willow")
+_NOUNS = (
+    "badger",
+    "cedar",
+    "finch",
+    "maple",
+    "otter",
+    "groundhog",
+    "panda",
+    "robin",
+    "rock",
+    "willow",
+)
 _CREDENTIAL = re.compile(r"gl_[A-Za-z0-9_-]{43}")
 _PUBLIC_COLUMNS = tuple(
     api_keys.c[name]
@@ -190,3 +201,13 @@ class APIKeys:
             row = result.mappings().one_or_none()
             info = APIKeyInfo.model_validate(row) if row is not None else None
         return info
+
+    async def list(self) -> list[APIKeyInfo]:
+        """List all keys newest first, returning metadata only, never hashes."""
+        async with self._transaction() as connection:
+            result = await connection.execute(
+                select(*_PUBLIC_COLUMNS).order_by(
+                    api_keys.c.created_at.desc(), api_keys.c.id.desc()
+                )
+            )
+            return [APIKeyInfo.model_validate(row) for row in result.mappings()]
