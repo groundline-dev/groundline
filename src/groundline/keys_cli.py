@@ -70,7 +70,8 @@ def _finish(action: Callable[[], None]) -> None:
 @app.command()
 def create(
     name: Annotated[
-        str | None, typer.Option(help="A label; generated if omitted.")
+        str | None,
+        typer.Option(help="A label of at most 128 characters; generated if omitted."),
     ] = None,
     expires_in: Annotated[
         str | None, typer.Option(help="Lifetime such as 90d; never expires if omitted.")

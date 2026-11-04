@@ -36,6 +36,12 @@ def test_generated_names_and_custom_names():
     assert api_keys.api_key_name("  Avi's laptop  ") == "Avi's laptop"
 
 
+def test_name_length_is_checked_after_trimming():
+    assert api_keys.api_key_name("  " + "é" * 128 + "  ") == "é" * 128
+    with pytest.raises(ValueError, match="at most 128"):
+        api_keys.api_key_name("  " + "é" * 129 + "  ")
+
+
 @pytest.mark.parametrize("name", ["", "  ", "a\nb", "a\r", "\tlabel", "a\x1bb"])
 def test_invalid_names_are_rejected(name: str):
     with pytest.raises(ValueError, match="name"):
@@ -53,6 +59,8 @@ def test_invalid_inputs_do_not_need_storage():
                     await service.create(expires_in=lifetime)
             with pytest.raises(ValueError, match="name"):
                 await service.create(name="\n")
+            with pytest.raises(ValueError, match="at most 128"):
+                await service.create(name="x" * 129)
         finally:
             await engine.dispose()
 

@@ -66,6 +66,19 @@ def test_creation_persists_only_hash_and_metadata(db_url: str, db_engine: Engine
     asyncio.run(run())
 
 
+def test_name_length_limit_is_enforced_before_inserting(db_url: str, db_engine: Engine):
+    async def run():
+        async with service(db_url) as keys:
+            created = await keys.create(name="  " + "x" * 128 + "  ")
+            assert created.info.name == "x" * 128
+            with pytest.raises(ValueError, match="at most 128"):
+                await keys.create(name="x" * 129)
+        with db_engine.connect() as connection:
+            assert connection.scalar(select(func.count()).select_from(api_keys)) == 1
+
+    asyncio.run(run())
+
+
 def test_custom_names_can_repeat(db_url: str, db_engine: Engine):
     async def run():
         async with service(db_url) as keys:

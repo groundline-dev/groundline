@@ -92,7 +92,12 @@ def api_key_name(name: str | None) -> str:
         raise APIKeyInputError(
             "API-key name must be non-empty, printable, and on one line"
         )
-    return name.strip()
+    label = name.strip()
+    if len(label) > 128:
+        raise APIKeyInputError(
+            "API-key name must be at most 128 characters after trimming"
+        )
+    return label
 
 
 def valid_api_key_format(credential: str) -> bool:

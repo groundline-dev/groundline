@@ -101,6 +101,20 @@ def test_defaults_generate_a_name_and_never_expire(fake: FakeKeys):
     assert len(fake.calls) == 1
 
 
+def test_name_length_boundary_and_trimming(fake: FakeKeys):
+    name = "x" * 128
+    accepted = runner.invoke(cli.app, ["keys", "create", "--name", f"  {name}  "])
+    assert accepted.exit_code == 0
+    assert fake.calls == [("create", (name, None))]
+    fake.calls.clear()
+    rejected = runner.invoke(cli.app, ["keys", "create", "--name", name + "x"])
+    assert rejected.exit_code == 2
+    assert "at most 128" in rejected.stderr
+    assert rejected.stdout == ""
+    assert name not in rejected.stderr
+    assert fake.calls == []
+
+
 @pytest.mark.parametrize("duration,seconds", [("1s", 1), ("30m", 1800), ("12h", 43200)])
 def test_duration_units(fake: FakeKeys, duration: str, seconds: int):
     result = runner.invoke(
