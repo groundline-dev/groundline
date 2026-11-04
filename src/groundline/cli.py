@@ -12,7 +12,7 @@ any unexpected error). Only a finished check that flags the summary exits with 1
 import json
 import os
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated
@@ -21,7 +21,6 @@ import platformdirs
 import typer
 
 from groundline.core import (
-    CallRecord,
     FileCache,
     ModelClient,
     ProfileError,
@@ -40,9 +39,9 @@ from groundline.evaluate import (
     evaluate_sync,
 )
 from groundline.evaluators.commissions import report as commissions_report
-from groundline.evaluators.models import AlarmOutput
+from groundline.evaluators.models import ALARM_STEP, AlarmOutput
 from groundline.evaluators.omissions import report as omissions_report
-from groundline.evaluators.report import format_cost, result_json
+from groundline.evaluators.report import require_steps, result_json, usage_text
 from groundline.keys_cli import app as keys_app
 from groundline.presets import load_preset
 
@@ -212,7 +211,8 @@ def _finish(run: Callable[[], int]) -> None:
     except StageError as error:
         typer.echo(f"error: {error}", err=True)
         if error.calls:
-            typer.echo(f"  Cost before stopping: {_cost(error.calls)}", err=True)
+            cost = usage_text(summarize_usage(error.calls))
+            typer.echo(f"  Cost before stopping: {cost}", err=True)
         code = EXIT_ERROR
     except (SetupError, SpecError, ProfileError, ValueError, OSError) as error:
         typer.echo(f"error: {error}", err=True)
@@ -239,16 +239,9 @@ def _check(
 ) -> int:
     """Run the check, print the report, and return the exit code."""
     spec = load_spec(pipeline) if pipeline else load_preset(check.preset)
-    have = {st.step for st in spec.stages}
-    missing = [s for s in check.required_steps if s not in have]
-    if missing:
-        needs = " and ".join(f"'{s}'" for s in check.required_steps)
-        raise ValueError(
-            f"pipeline '{spec.name}' needs {needs} stages "
-            f"for the {check.report_name} report (missing: {', '.join(missing)})"
-        )
+    require_steps(spec, check.required_steps, report=check.report_name)
     if threshold:
-        spec = with_settings(spec, "alarm", level=threshold)
+        spec = with_settings(spec, ALARM_STEP, level=threshold)
     domain = load_profile(profile) if profile else None
 
     stage_cache = None
@@ -267,7 +260,7 @@ def _check(
     )
     seconds = time.perf_counter() - started
 
-    flagged = result.run.output("alarm", AlarmOutput).flagged
+    flagged = result.run.output(ALARM_STEP, AlarmOutput).flagged
     typer.echo(
         check.render(result, source=source.name, summary=summary.name, seconds=seconds)
     )
@@ -283,14 +276,3 @@ def _write_json(path: Path, result: EvaluationResult) -> None:
         raise OSError(
             f"couldn't write the JSON result to {path}: {error.strerror or error}"
         ) from error
-
-
-def _cost(calls: Sequence[CallRecord]) -> str:
-    usage = summarize_usage(calls)
-    cost = (
-        f"{format_cost(usage.cost_usd)} · {usage.calls} calls · "
-        f"{usage.input_tokens:,} input / {usage.output_tokens:,} output tokens"
-    )
-    if usage.unpriced_models:
-        cost += f" (no price for {', '.join(usage.unpriced_models)})"
-    return cost

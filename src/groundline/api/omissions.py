@@ -25,11 +25,12 @@ from groundline.api.common import (
     usage_of,
 )
 from groundline.core import ModelClient, with_settings
-from groundline.evaluate import DEFAULT_PRESET, EvaluationResult, evaluate
-from groundline.evaluators.models import AlarmOutput, Severity
+from groundline.evaluate import DEFAULT_PRESET, evaluate
+from groundline.evaluators.models import ALARM_STEP, AlarmOutput, Severity
 from groundline.evaluators.omissions.models import ScoreOutput, VerdictLabel
 from groundline.evaluators.report import cost_line, result_line
 from groundline.presets import load_preset
+from groundline.result import EvaluationResult
 
 logger = logging.getLogger("groundline.api")
 
@@ -98,7 +99,9 @@ async def omissions(
     Runs the validated all-Opus omission check, which takes about 30-60 seconds
     and costs about $0.28 for a typical clinical note, so use a long client
     timeout. Answers 200 for every finished check, flagged or not."""
-    spec = with_settings(load_preset(DEFAULT_PRESET), "alarm", level=request.threshold)
+    spec = with_settings(
+        load_preset(DEFAULT_PRESET), ALARM_STEP, level=request.threshold
+    )
     started = time.perf_counter()
     with check_failures():
         result = await evaluate(
@@ -107,7 +110,7 @@ async def omissions(
     response = _response(result)
     logger.info(
         "checked a summary: %s · %d omissions · %s",
-        result_line(result.run.output("alarm", AlarmOutput)),
+        result_line(result.run.output(ALARM_STEP, AlarmOutput)),
         len(response.omissions),
         cost_line(result, time.perf_counter() - started),
     )
@@ -116,7 +119,7 @@ async def omissions(
 
 def _response(result: EvaluationResult) -> OmissionsResponse:
     score = result.run.output("score", ScoreOutput)
-    alarm = result.run.output("alarm", AlarmOutput)
+    alarm = result.run.output(ALARM_STEP, AlarmOutput)
     return OmissionsResponse(
         flagged=alarm.flagged,
         alarm=alarm_of(alarm, OmissionsAlarm),

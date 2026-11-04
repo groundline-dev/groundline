@@ -2,9 +2,7 @@
 
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict
-
-from groundline.evaluators.models import SEVERITIES, Severity
+from groundline.evaluators.models import SEVERITIES, Frozen, Severity
 
 SupportVerdict = Literal["unsupported", "contradicted"]
 SUPPORT_VERDICTS: dict[str, SupportVerdict] = {
@@ -15,11 +13,7 @@ SUPPORT_VERDICTS: dict[str, SupportVerdict] = {
 support isn't listed at all."""
 
 
-class _Frozen(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-
-class Commission(_Frozen):
+class Commission(Frozen):
     """A claim in the summary that the source doesn't support."""
 
     id: str
@@ -38,7 +32,7 @@ class Commission(_Frozen):
     quote was given."""
 
 
-class ClearedCommission(_Frozen):
+class ClearedCommission(Frozen):
     """A flagged claim that refute found support for."""
 
     commission: Commission
@@ -49,13 +43,13 @@ class ClearedCommission(_Frozen):
 # --- step outputs -----------------------------------------------------------
 
 
-class CommissionsCheckOutput(_Frozen):
+class CommissionsCheckOutput(Frozen):
     commissions: list[Commission]
     """Every claim the source doesn't support, in the order the model listed
     them."""
 
 
-class CommissionsRefuteOutput(_Frozen):
+class CommissionsRefuteOutput(Frozen):
     commissions: list[Commission]
     """The check's commissions still flagged after refute; refute can only clear
     one."""

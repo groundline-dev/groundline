@@ -1,4 +1,5 @@
 import logging
+import re
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
@@ -235,7 +236,7 @@ def test_an_anthropic_api_error_after_some_calls_says_what_they_cost():
         "stage 'rank' failed: the Anthropic API answered 500 (InternalServerError)"
         ". Cost before stopping: $0."
     )
-    assert detail.endswith("· 1 calls")
+    assert re.search(r"· 1 calls · [\d,]+ input / [\d,]+ output tokens$", detail)
     assert "tenofovir" not in detail
 
 

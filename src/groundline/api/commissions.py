@@ -24,19 +24,16 @@ from groundline.api.common import (
     usage_of,
 )
 from groundline.core import ModelClient
-from groundline.evaluate import (
-    DEFAULT_COMMISSIONS_PRESET,
-    EvaluationResult,
-    evaluate,
-)
+from groundline.evaluate import DEFAULT_COMMISSIONS_PRESET, evaluate
 from groundline.evaluators.commissions.models import (
     CommissionsRefuteOutput,
     SupportVerdict,
     ranked,
 )
-from groundline.evaluators.models import AlarmOutput, Severity
+from groundline.evaluators.models import ALARM_STEP, AlarmOutput, Severity
 from groundline.evaluators.report import cost_line, result_line
 from groundline.presets import load_preset
+from groundline.result import EvaluationResult
 
 logger = logging.getLogger("groundline.api")
 
@@ -111,7 +108,7 @@ async def commissions(
     response = _response(result)
     logger.info(
         "checked a summary: %s · %d commissions · %s",
-        result_line(result.run.output("alarm", AlarmOutput)),
+        result_line(result.run.output(ALARM_STEP, AlarmOutput)),
         len(response.commissions),
         cost_line(result, time.perf_counter() - started),
     )
@@ -121,7 +118,7 @@ async def commissions(
 def _response(result: EvaluationResult) -> CommissionsResponse:
     # Refute is off in the quick preset, so this holds the check's commissions.
     found = result.run.output("commissions_refute", CommissionsRefuteOutput)
-    alarm = result.run.output("alarm", AlarmOutput)
+    alarm = result.run.output(ALARM_STEP, AlarmOutput)
     return CommissionsResponse(
         flagged=alarm.flagged,
         alarm=alarm_of(alarm, CommissionsAlarm),

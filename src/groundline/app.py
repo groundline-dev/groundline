@@ -13,6 +13,8 @@ from groundline.db.connection import make_engine
 from groundline.settings import UnreadableSettingsError, read_settings
 
 logger = logging.getLogger("groundline")
+api_logger = logging.getLogger("groundline.api")
+db_logger = logging.getLogger("groundline.db")
 
 
 class _UvicornStyle(logging.Formatter):
@@ -33,41 +35,45 @@ def _log_to_console() -> None:
         logger.setLevel(logging.INFO)
 
 
+def _database_url() -> str | None:
+    """The database URL from the settings, warning about anything missing that
+    leaves checks or API-key storage unavailable."""
+    try:
+        settings = read_settings()
+    except UnreadableSettingsError as error:
+        api_logger.warning("%s\nChecks will answer 503 until it's fixed.", error)
+        return None
+    if settings.anthropic_api_key is None:
+        api_logger.warning(
+            "ANTHROPIC_API_KEY is not set, so checks will answer 503. "
+            "Copy .env.example to .env and add your key."
+        )
+    if settings.database_url is None:
+        db_logger.warning("DATABASE_URL is not set, so the API has no database")
+        return None
+    return settings.database_url.get_secret_value()
+
+
+def _storage_engine(url: str) -> AsyncEngine | None:
+    try:
+        return make_engine(url)
+    except SetupError as error:
+        db_logger.error("API-key storage is unavailable: %s", error)
+        return None
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # Public health stays available when settings or storage are unavailable.
     engine: AsyncEngine | None = None
     app.state.api_keys = None
+    url = _database_url()
     try:
-        try:
-            settings = read_settings()
-        except UnreadableSettingsError as error:
-            logging.getLogger("groundline.api").warning(
-                "%s\nChecks will answer 503 until it's fixed.", error
-            )
-        else:
-            if settings.anthropic_api_key is None:
-                logging.getLogger("groundline.api").warning(
-                    "ANTHROPIC_API_KEY is not set, so checks will answer 503. "
-                    "Copy .env.example to .env and add your key."
-                )
-            url = settings.database_url
-            if url is None:
-                logging.getLogger("groundline.db").warning(
-                    "DATABASE_URL is not set, so the API has no database"
-                )
-            else:
-                try:
-                    engine = make_engine(url.get_secret_value())
-                except SetupError as error:
-                    logging.getLogger("groundline.db").error(
-                        "API-key storage is unavailable: %s", error
-                    )
-                else:
-                    await check_connection(url.get_secret_value(), engine=engine)
-                    # Keep the engine after a failed probe so later requests can
-                    # recover when PostgreSQL becomes available.
-                    app.state.api_keys = APIKeys(engine)
+        if url is not None and (engine := _storage_engine(url)) is not None:
+            await check_connection(url, engine=engine)
+            # Keep the engine after a failed probe so later requests can
+            # recover when PostgreSQL becomes available.
+            app.state.api_keys = APIKeys(engine)
         yield
     finally:
         app.state.api_keys = None

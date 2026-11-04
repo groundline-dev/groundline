@@ -1,9 +1,25 @@
 """Presentation helpers shared by every evaluator's report."""
 
+from collections.abc import Sequence
 from typing import Any
 
-from groundline.evaluate import EvaluationResult
-from groundline.evaluators.models import AlarmOutput
+from groundline.core import PipelineSpec, Usage
+from groundline.evaluators.models import ALARM_STEP, AlarmOutput
+from groundline.result import EvaluationResult
+
+
+def require_steps(spec: PipelineSpec, steps: Sequence[str], *, report: str) -> None:
+    """Raise a ValueError, before anything runs, if `spec` lacks a step that the
+    `report` reads (each evaluator's report module lists them as
+    `REQUIRED_STEPS`)."""
+    have = {stage.step for stage in spec.stages}
+    missing = [step for step in steps if step not in have]
+    if missing:
+        needs = " and ".join(f"'{step}'" for step in steps)
+        raise ValueError(
+            f"pipeline '{spec.name}' needs {needs} stages "
+            f"for the {report} report (missing: {', '.join(missing)})"
+        )
 
 
 def row(label: str, value: str, *, width: int) -> str:
@@ -51,23 +67,29 @@ def result_line(alarm: AlarmOutput) -> str:
 
 def cost_line(result: EvaluationResult, seconds: float) -> str:
     """What the run cost: dollars, calls, tokens and time."""
-    usage = result.run.usage
+    return usage_text(result.run.usage, seconds)
+
+
+def usage_text(usage: Usage, seconds: float | None = None) -> str:
+    """Dollars, calls and tokens, then the time if given."""
     calls = f"{usage.calls} calls"
     if usage.cached_calls:
         calls += f" ({usage.cached_calls} cached)"
-    cost = (
+    text = (
         f"{format_cost(usage.cost_usd)} · {calls} · {usage.input_tokens:,} input / "
-        f"{usage.output_tokens:,} output tokens · {seconds:.1f} s"
+        f"{usage.output_tokens:,} output tokens"
     )
+    if seconds is not None:
+        text += f" · {seconds:.1f} s"
     if usage.unpriced_models:
-        cost += f" (no price for {', '.join(usage.unpriced_models)})"
-    return cost
+        text += f" (no price for {', '.join(usage.unpriced_models)})"
+    return text
 
 
 def result_json(result: EvaluationResult) -> dict[str, Any]:
     """Everything about a run, for `--json`. It includes text from the source and
     summary (facts, claims and quotes), so treat the file as sensitive."""
-    alarm = result.run.output("alarm", AlarmOutput)
+    alarm = result.run.output(ALARM_STEP, AlarmOutput)
     return {
         "pipeline": result.pipeline,
         "profile": result.profile,

@@ -13,7 +13,7 @@ The default pipeline, the **all-Opus omission check**, runs six steps:
 3. **Check:** one call decides, for every fact, whether the summary records it (present, partial or absent), with a 0–100 confidence that it's missing.
 4. **Refute:** a second look at flagged facts. It can only clear a flag, and only with a verified quote from the summary.
 5. **Score:** counts and ratios of what's missing.
-6. **Alarm:** flag the summary when a critical fact is confidently missing. The alarm score is the highest missing-confidence among critical facts still flagged, with partials at half weight.
+6. **Alarm:** flag the summary when a critical fact is confidently missing. The alarm score is the highest missing confidence among critical facts still flagged, with partials at half weight.
 
 Every step uses Claude Opus 5.5, so the pipeline can run under Anthropic's BAA once it's in production. On 50 held-out notes from [OmissionBench](https://huggingface.co/datasets/ComposoAI/OmissionBench), with thresholds fixed in advance, it caught 16/50 omissions with 1/50 clean notes flagged, at about $0.28 per note. Those results hold only for the unchanged `omission_all_opus` preset. The report tells you whether a run used it.
 
@@ -23,7 +23,11 @@ The default commission pipeline, the **quick commission check**, runs three step
 2. **Commissions refute:** a second look at the critical flags. It can only clear a flag, and only with a verified quote from the source. It is switched off in the preset.
 3. **Alarm:** flag the summary when a critical claim is confidently unsupported. The alarm score is the highest unsupported confidence among critical claims still flagged, and the one threshold level, `default`, is 0.85.
 
-Measured on 172 held-out commission pairs (pre-registered): 151 caught, 1/110 clean notes flagged, about $0.002 per note. Those results hold only for the unchanged `commission_quick` preset. On realistic notes outside that benchmark, it flagged about a third. A blind review found most of those flags were real: exam findings or details the transcript doesn't say aloud, which a transcript can't tell apart from invented content. Treat a flag as something to look at, not proof of invention. The quick check uses Claude Haiku 5.5, not Opus. Anthropic's BAA is understood to cover services and features rather than specific models, but confirm that before production (see [ADR 0007](docs/adr/0007-commission-check-ships-quick.md)).
+Measured on 172 held-out commission pairs (pre-registered), it caught 151, flagged 1 of 110 clean notes, and cost about $0.002 per note. Those results hold only for the unchanged `commission_quick` preset.
+
+On realistic notes outside that benchmark, it flagged about a third of them. A blind review found that most of those flags were on genuine content the transcript doesn't say aloud, such as exam findings, which the check can't tell apart from invented content. A flag means the note needs a look; it isn't proof that anything was invented.
+
+The quick check uses Claude Haiku 5.5, not Opus. Anthropic's BAA is understood to cover services and features rather than specific models, but confirm that before production (see [ADR 0007](docs/adr/0007-commission-check-ships-quick.md)).
 
 ## Setup
 
@@ -35,7 +39,9 @@ make setup
 
 `make` targets sync automatically; run `uv sync` after a pull if your editor shows missing imports. Use `uv run <command>` to run anything else inside the environment without activating it.
 
-Model calls need an Anthropic API key. Copy `.env.example` to `.env` and add your key, or export `ANTHROPIC_API_KEY`. groundline stores its own API-key hashes and metadata in PostgreSQL, which checking a summary doesn't need; [DEVELOPMENT.md](DEVELOPMENT.md#database) explains how to set it up. `.env` is git-ignored; never commit a key. groundline reads `.env` from the folder you run it in, so run commands from the repo root. A missing or rejected Anthropic API key produces an error saying where groundline looked and how to fix it, before any paid call.
+Model calls need an Anthropic API key. Copy `.env.example` to `.env` and add your key, or export `ANTHROPIC_API_KEY`. groundline reads `.env` from the folder you run it in, so run commands from the repo root. `.env` is git-ignored; never commit a key. If the key is missing or rejected, groundline says where it looked and how to fix it, before any paid call.
+
+Checking a summary doesn't need a database. groundline keeps the hashes and metadata of the API keys it issues in PostgreSQL; [DEVELOPMENT.md](DEVELOPMENT.md#database) explains how to set that up.
 
 **Live calls cost money.** A typical clinical note costs about $0.28 for the omission check and about $0.002 for the commission check. Agree a budget with your team before running anything at scale.
 
@@ -86,12 +92,13 @@ Not fully recorded (rank order):
 Cost             $0.29 · 4 calls · 31,620 input / 8,140 output tokens · 48.3 s
 ```
 
-**Exit codes:**
-- **0:** checked, not flagged.
-- **1:** checked and flagged.
-- **2:** couldn't check: bad arguments or files, an invalid pipeline or profile, a missing or rejected API key, a failed stage, an unwritable `--json` path, or an unexpected error. The command prints a one-line `error:` message, and if a stage failed after making model calls, what those calls cost.
+### Exit codes
 
-**Options:**
+- `0`: checked, not flagged.
+- `1`: checked and flagged.
+- `2`: couldn't check: bad arguments or files, an invalid pipeline or profile, a missing or rejected Anthropic API key, a failed stage, an unwritable `--json` path, or an unexpected error. The command prints a one-line `error:` message, and if a stage failed after making model calls, what those calls cost.
+
+### Options
 
 | Option | What it does |
 |---|---|
@@ -123,7 +130,7 @@ Not supported by the source (severity order):
 Cost              $0.0020 · 1 calls · 14,820 input / 1,040 output tokens · 4.1 s
 ```
 
-The exit codes and options are the same as for omissions. `--threshold` names an alarm level in the pipeline, and the preset's only level is `default` (0.85). If the model's quote of the source passage isn't found word for word in the source, the report still shows it, marked `(not found word for word in the source)`. If a pipeline switches refute on, the report adds a `Cleared by refute` line.
+The [exit codes](#exit-codes) and [options](#options) are the same as for omissions. `--threshold` names an alarm level in the pipeline, and the preset's only level is `default` (0.85). If the model's quote of the source passage isn't found word for word in the source, the report still shows it, marked `(not found word for word in the source)`. If a pipeline switches refute on, the report adds a `Cleared by refute` line.
 
 ## Using it from Python
 
@@ -159,7 +166,7 @@ for c in refute.commissions:
     print(c.severity, c.support_verdict, c.unsupported_confidence, c.quote)
 ```
 
-`evaluate()` is the async version, for FastAPI or other async code. Both accept a `spec`, `profile`, `cache` or `client` to override the defaults.
+`evaluate()` is the async version, for FastAPI or other async code. Both accept a `spec`, `profile`, `cache`, `client` or `registry` to override the defaults.
 
 ## Using the API
 

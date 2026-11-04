@@ -5,8 +5,8 @@ import pytest
 
 from groundline.core import FileCache, StageError
 from groundline.evaluators.omissions.models import ExtractOutput, Fact
+from tests.fakes import CLINICAL
 from tests.omission_helpers import (
-    CLINICAL,
     EXTRACT,
     EXTRACTED,
     SOURCE,

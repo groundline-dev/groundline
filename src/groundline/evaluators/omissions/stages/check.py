@@ -15,9 +15,11 @@ from groundline.core import (
     PromptImplementation,
     StageContext,
     as_object,
+    choice,
     evidence_in,
-    get_list,
-    parse_json_object,
+    percent,
+    reply_list,
+    stripped,
 )
 from groundline.evaluators.omissions.models import (
     VERDICT_LABELS,
@@ -55,11 +57,8 @@ def parse_batch_verdicts(
     reply: str, facts: list[RankedFact], summary: str
 ) -> CheckOutput:
     """One verdict per fact, in rank order; every fact exactly once."""
-    items = get_list(parse_json_object(reply), "facts")
-    if items is None:
-        raise ParseError('expected a "facts" list')
     by_id: dict[str, dict[str, Any]] = {}
-    for raw in items:
+    for raw in reply_list(reply, "facts"):
         item = as_object(raw)
         if item is not None and isinstance(item.get("id"), str):
             if item["id"] in by_id:
@@ -74,28 +73,19 @@ def parse_batch_verdicts(
 
 
 def _verdict(fact_id: str, item: dict[str, Any], summary: str) -> Verdict:
-    label = VERDICT_LABELS.get(str(item.get("verdict", "")).strip().lower())
+    label = choice(item, "verdict", VERDICT_LABELS)
     if label is None:
         raise ParseError(
             f"{fact_id}: verdict is not one of {', '.join(VERDICT_LABELS)}"
         )
-    raw_quote = item.get("quote")
-    quote = (
-        raw_quote.strip() if isinstance(raw_quote, str) and raw_quote.strip() else None
-    )
+    quote = stripped(item.get("quote"))
     if label != "absent" and quote is None:
         raise ParseError(f'{fact_id}: a "{label}" verdict needs a quote from the note')
-    confidence = item.get("missing_confidence")
-    if (
-        isinstance(confidence, bool)
-        or not isinstance(confidence, (int, float))
-        or not 0 <= confidence <= 100
-    ):
-        raise ParseError(f"{fact_id}: missing_confidence is not a number from 0 to 100")
+    score = percent(item, "missing_confidence", fact_id)
     return Verdict(
         fact_id=fact_id,
         label=label,
         quote=quote,
         quote_found=evidence_in(quote, summary) if quote else None,
-        score=round(confidence / 100, 4),
+        score=score,
     )
