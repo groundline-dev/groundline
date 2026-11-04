@@ -255,8 +255,12 @@ The library caches only when it's given a cache, and the CLI caches only with `-
 
 ## Contributing
 
-See [DEVELOPMENT.md](DEVELOPMENT.md) for the git hooks, running the tests (including the live smoke test and the parity test), lint and type checks, the project layout, and commit conventions.
+See [DEVELOPMENT.md](DEVELOPMENT.md) for the git hooks, running the tests (including the live smoke test and the parity test), lint and type checks, the project layout, and commit conventions. Contributions are accepted under the project's license, as section 5 of the [Apache License 2.0](LICENSE) sets out.
 
 ## Data attribution
 
-The test fixture in `tests/fixtures/parity/` is a row of OmissionBench (Composo AI, CC BY 4.0), derived from PriMock57 (Babylon Health, CC BY 4.0). Full credits are in its [ATTRIBUTION.md](tests/fixtures/parity/primock__day2_consultation05__omit/ATTRIBUTION.md).
+The test fixtures in `tests/fixtures/parity/` are rows of OmissionBench (Composo AI, CC BY 4.0), derived from PriMock57 (Babylon Health, CC BY 4.0). Full credits are in each fixture's ATTRIBUTION.md, such as [this one](tests/fixtures/parity/primock__day2_consultation05__omit/ATTRIBUTION.md).
+
+## License
+
+Copyright 2026 The groundline Authors. groundline is licensed under the [Apache License 2.0](LICENSE); see also [NOTICE](NOTICE). The test fixtures described under [Data attribution](#data-attribution) keep their own CC BY 4.0 license.
