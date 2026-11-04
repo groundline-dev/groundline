@@ -22,9 +22,11 @@ from groundline.core import (
     PromptImplementation,
     StageContext,
     as_object,
+    choice,
     evidence_in,
-    get_list,
-    parse_json_object,
+    percent,
+    reply_list,
+    stripped,
 )
 from groundline.evaluators.commissions.models import (
     SUPPORT_VERDICTS,
@@ -65,49 +67,37 @@ def parse_commissions(
 ) -> CommissionsCheckOutput:
     """The commissions the model listed, each checked. An unusable quote or field is a
     parse error, so the model is asked again."""
-    items = get_list(parse_json_object(reply), "issues")
-    if items is None:
-        raise ParseError('expected an "issues" list')
     commissions: list[Commission] = []
-    for number, raw in enumerate(items, 1):
+    for number, raw in enumerate(reply_list(reply, "issues"), 1):
         item = as_object(raw) or {}
         where = f"commission {number}"
 
-        quote = item.get("quote")
-        quote = quote.strip() if isinstance(quote, str) else ""
-        if not quote or not evidence_in(quote, summary):
+        quote = stripped(item.get("quote"))
+        if quote is None or not evidence_in(quote, summary):
             raise ParseError(f"{where}: quote is not in the note")
 
-        verdict = SUPPORT_VERDICTS.get(str(item.get("label", "")).strip().lower())
+        verdict = choice(item, "label", SUPPORT_VERDICTS)
         if verdict is None:
             raise ParseError(
                 f"{where}: label is not one of {', '.join(SUPPORT_VERDICTS)}"
             )
 
-        confidence = item.get("confidence")
-        if (
-            isinstance(confidence, bool)
-            or not isinstance(confidence, (int, float))
-            or not 0 <= confidence <= 100
-        ):
-            raise ParseError(f"{where}: confidence is not a number from 0 to 100")
+        confidence = percent(item, "confidence", where)
 
-        severity = SEVERITIES.get(str(item.get("importance", "")).strip().lower())
+        severity = choice(item, "importance", SEVERITIES)
         if severity is None:
             raise ParseError(
                 f"{where}: importance is not one of {', '.join(SEVERITIES)}"
             )
 
-        evidence = item.get("evidence")
-        evidence = evidence.strip() if isinstance(evidence, str) else None
-        evidence = evidence or None
+        evidence = stripped(item.get("evidence"))
 
         commissions.append(
             Commission(
                 id=f"q{number}",
                 quote=quote,
                 support_verdict=verdict,
-                unsupported_confidence=round(confidence / 100, 4),
+                unsupported_confidence=confidence,
                 severity=severity,
                 evidence=evidence,
                 evidence_found=evidence_in(evidence, source) if evidence else None,
