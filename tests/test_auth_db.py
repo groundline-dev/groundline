@@ -118,11 +118,11 @@ def test_cli_revocation_and_expiry_are_seen_by_running_api_instances(
             assert response.status_code == 401
             assert response.headers["www-authenticate"] == "Bearer"
             assert client.get("/health").status_code == 200
-        assert (
-            first.get(
-                "/protected", headers={"Authorization": "Bearer gl_" + "z" * 43}
-            ).status_code
-            == 401
+        unknown = first.get(
+            "/protected", headers={"Authorization": "Bearer gl_" + "z" * 43}
         )
+        assert unknown.status_code == 401
+        assert unknown.json() == {"detail": "Invalid or missing API key"}
+        assert unknown.headers["www-authenticate"] == "Bearer"
     with db_engine.connect() as connection:
         assert connection.scalar(select(api_keys.c.last_used_at)) is None

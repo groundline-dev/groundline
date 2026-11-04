@@ -73,6 +73,10 @@ def test_custom_names_can_repeat(db_url: str, db_engine: Engine):
             second = await keys.create(name="laptop")
             assert first.info.id != second.info.id
             assert first.info.name == second.info.name
+            distinct_secrets = (
+                first.secret.get_secret_value() != second.secret.get_secret_value()
+            )
+            assert distinct_secrets
 
     asyncio.run(run())
 
