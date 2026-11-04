@@ -155,11 +155,12 @@ async def omissions(
         logger.warning("can't check: %s", error)
         raise HTTPException(503, detail=str(error)) from error
     except StageError as error:
+        spent = _spent(error)
         cause = type(error.__cause__).__name__
-        logger.warning("stage '%s' failed (%s)%s", error.step, cause, _spent(error))
+        logger.warning("stage '%s' failed (%s)%s", error.step, cause, spent)
         if not isinstance(error.__cause__, UPSTREAM_CAUSES):
             raise  # a bug of ours: the app-wide handler answers 500
-        raise HTTPException(502, detail=f"{_failure(error)}{_spent(error)}") from error
+        raise HTTPException(502, detail=f"{_failure(error)}{spent}") from error
     response = _response(result)
     logger.info(
         "checked a summary: %s · %d omissions · %s",
