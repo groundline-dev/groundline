@@ -1,6 +1,7 @@
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
+from unittest.mock import AsyncMock
 from uuid import UUID
 
 import pytest
@@ -109,6 +110,12 @@ def test_storage_and_unexpected_errors_fail_closed_without_details(
     assert response.json() == {"detail": "Authentication is unavailable"}
     assert SECRET not in response.text + caplog.text
     assert "driver-private" not in response.text + caplog.text
+    records = [record for record in caplog.records if record.name == "groundline.auth"]
+    assert len(records) == 1
+    assert records[0].getMessage() == (
+        f"API-key authentication is unavailable: {type(failure).__name__}"
+    )
+    assert records[0].exc_info is None
 
 
 def test_missing_database_keeps_health_public_and_protected_routes_unavailable():
@@ -122,15 +129,25 @@ def test_missing_database_keeps_health_public_and_protected_routes_unavailable()
 
 
 @pytest.mark.parametrize(
-    "url",
+    ("url", "diagnostic"),
     [
-        "postgresql://gl:pw-secret@:x/db",
-        "postgresql+wrong://gl:pw-secret@localhost/db",
-        "postgresql+psycopg://gl:pw-secret@127.0.0.1:1/db",
+        (
+            "postgresql://gl:pw-secret@:x/db",
+            "DATABASE_URL is not a usable PostgreSQL URL",
+        ),
+        (
+            "postgresql+wrong://gl:pw-secret@localhost/db",
+            "DATABASE_URL must use postgresql+psycopg://",
+        ),
+        (
+            "postgresql+psycopg://gl:pw-secret@127.0.0.1:1/db",
+            "can't connect to the database at 127.0.0.1:1/db",
+        ),
     ],
 )
 def test_unusable_database_never_breaks_public_health_or_leaks_passwords(
     url: str,
+    diagnostic: str,
     monkeypatch: pytest.MonkeyPatch,
     caplog: pytest.LogCaptureFixture,
 ):
@@ -145,10 +162,13 @@ def test_unusable_database_never_breaks_public_health_or_leaks_passwords(
         )
         assert response.status_code == 503
     assert "pw-secret" not in caplog.text + response.text
+    assert diagnostic in caplog.text
 
 
+@pytest.mark.parametrize("probe_crashes", [False, True])
 def test_lifespan_disposes_the_engine_and_clears_the_service(
     monkeypatch: pytest.MonkeyPatch,
+    probe_crashes: bool,
 ):
     monkeypatch.setenv("DATABASE_URL", "postgresql+psycopg://gl:pw@127.0.0.1:1/db")
     disposed: list[bool] = []
@@ -164,8 +184,16 @@ def test_lifespan_disposes_the_engine_and_clears_the_service(
 
     monkeypatch.setattr(app_module, "make_engine", factory)
     app = protected_app()
-    with TestClient(app):
-        assert isinstance(app.state.api_keys, APIKeys)
+    if probe_crashes:
+        monkeypatch.setattr(
+            app_module, "check_connection", AsyncMock(side_effect=RuntimeError("probe"))
+        )
+        with pytest.raises(RuntimeError, match="probe"), TestClient(app):
+            pytest.fail("A crashed probe must not complete startup")
+    else:
+        with TestClient(app):
+            assert isinstance(app.state.api_keys, APIKeys)
+            assert disposed == []
     assert app.state.api_keys is None
     assert disposed == [True]
 

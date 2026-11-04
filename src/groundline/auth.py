@@ -32,10 +32,10 @@ async def require_api_key(
         raise HTTPException(status_code=503, detail="Authentication is unavailable")
     try:
         info = await keys.authenticate(credentials.credentials)
-    except Exception:
+    except Exception as error:
         # Even an unexpected error must not put credentials or driver details in
         # an HTTP response or a server traceback. Never log the exception here.
-        logger.error("API-key authentication is unavailable")
+        logger.error("API-key authentication is unavailable: %s", type(error).__name__)
         raise HTTPException(
             status_code=503, detail="Authentication is unavailable"
         ) from None

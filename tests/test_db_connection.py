@@ -6,11 +6,45 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import event
+from sqlalchemy.ext.asyncio import AsyncEngine
 
 from groundline.app import app
 from groundline.db import check_connection
+from groundline.db import connection as connection_module
+from groundline.db.connection import make_engine
 
 UNREACHABLE = "postgresql+psycopg://groundline:pw-secret@127.0.0.1:1/groundline"
+
+
+@pytest.mark.parametrize("borrowed", [False, True])
+def test_failed_probe_disposes_only_an_engine_it_owns(
+    borrowed: bool, monkeypatch: pytest.MonkeyPatch
+):
+    async def run():
+        engine = make_engine(UNREACHABLE, timeout=1)
+        disposed: list[bool] = []
+
+        def on_disposed(_engine: object) -> None:
+            disposed.append(True)
+
+        def factory(*args: object, **kwargs: object) -> AsyncEngine:
+            assert not borrowed, "A borrowed probe must not construct another engine"
+            return engine
+
+        event.listen(engine.sync_engine, "engine_disposed", on_disposed)
+        monkeypatch.setattr(connection_module, "create_async_engine", factory)
+        try:
+            assert not await check_connection(
+                UNREACHABLE, engine=engine if borrowed else None
+            )
+            assert disposed == ([] if borrowed else [True])
+        finally:
+            if borrowed:
+                await engine.dispose()
+        assert disposed == [True]
+
+    asyncio.run(run())
 
 
 @pytest.fixture(autouse=True)

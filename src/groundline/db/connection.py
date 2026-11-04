@@ -34,10 +34,15 @@ def make_engine(raw: str, *, timeout: int = 5) -> AsyncEngine:
         raise SetupError("DATABASE_URL is not a usable PostgreSQL URL") from None
 
 
-async def check_connection(raw: str, *, timeout: int = 5) -> bool:
+async def check_connection(
+    raw: str, *, timeout: int = 5, engine: AsyncEngine | None = None
+) -> bool:
     """Try connecting; log and return False if it fails.
 
-    The log gives where and why, never the password."""
+    The log gives where and why, never the password. A supplied engine is
+    borrowed, with its own connection settings; timeout applies only when this
+    function creates an engine. Only engines created here are disposed here.
+    """
     try:
         url = make_url(raw)
     except (SQLAlchemyError, ValueError):
@@ -45,13 +50,16 @@ async def check_connection(raw: str, *, timeout: int = 5) -> bool:
         logger.error("can't connect to the database: DATABASE_URL isn't a valid URL")
         return False
     where = f"{url.host or 'localhost'}:{url.port or 5432}/{url.database}"
+    owns_engine = engine is None
     try:
-        engine = create_async_engine(url, connect_args={"connect_timeout": timeout})
+        if engine is None:
+            engine = create_async_engine(url, connect_args={"connect_timeout": timeout})
         try:
             async with engine.connect() as connection:
                 await connection.execute(text("SELECT 1"))
         finally:
-            await engine.dispose()
+            if owns_engine:
+                await engine.dispose()
     except ImportError as error:
         # A URL such as postgresql+asyncpg:// names a driver that isn't installed.
         logger.error(

@@ -37,24 +37,24 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # Public health stays available; protected routes reject if storage is down.
     engine: AsyncEngine | None = None
     app.state.api_keys = None
-    url = Settings().database_url
-    if url is None:
-        logging.getLogger("groundline.db").warning(
-            "DATABASE_URL is not set, so the API has no database"
-        )
-    else:
-        await check_connection(url.get_secret_value())
-        try:
-            # Keep a lazy engine even if the startup probe failed, so later
-            # requests can recover when PostgreSQL becomes available.
-            engine = make_engine(url.get_secret_value())
-        except SetupError:
-            logging.getLogger("groundline.db").error(
-                "API-key storage is unavailable; check DATABASE_URL"
+    try:
+        url = Settings().database_url
+        if url is None:
+            logging.getLogger("groundline.db").warning(
+                "DATABASE_URL is not set, so the API has no database"
             )
         else:
-            app.state.api_keys = APIKeys(engine)
-    try:
+            try:
+                engine = make_engine(url.get_secret_value())
+            except SetupError as error:
+                logging.getLogger("groundline.db").error(
+                    "API-key storage is unavailable: %s", error
+                )
+            else:
+                await check_connection(url.get_secret_value(), engine=engine)
+                # Keep the engine after a failed probe so later requests can
+                # recover when PostgreSQL becomes available.
+                app.state.api_keys = APIKeys(engine)
         yield
     finally:
         app.state.api_keys = None
