@@ -32,8 +32,9 @@ from groundline.evaluate import (
 from groundline.evaluators.commissions.models import (
     CommissionsRefuteOutput,
     SupportVerdict,
+    ranked,
 )
-from groundline.evaluators.models import SEVERITIES, AlarmOutput, Severity
+from groundline.evaluators.models import AlarmOutput, Severity
 from groundline.evaluators.report import cost_line, result_line
 from groundline.presets import load_preset
 
@@ -115,11 +116,6 @@ def _response(result: EvaluationResult) -> CommissionsResponse:
     # Refute is off in the quick preset, so this holds the check's commissions.
     found = result.run.output("commissions_refute", CommissionsRefuteOutput)
     alarm = result.run.output("alarm", AlarmOutput)
-    order = list(SEVERITIES)
-    ranked = sorted(
-        found.commissions,
-        key=lambda c: (order.index(c.severity), -c.unsupported_confidence),
-    )
     return CommissionsResponse(
         flagged=alarm.flagged,
         alarm=alarm_of(alarm),
@@ -132,7 +128,7 @@ def _response(result: EvaluationResult) -> CommissionsResponse:
                 evidence=c.evidence,
                 evidence_found=c.evidence_found,
             )
-            for c in ranked
+            for c in ranked(found.commissions)
         ],
         pipeline=result.pipeline,
         validated_preset=result.validated_preset,
