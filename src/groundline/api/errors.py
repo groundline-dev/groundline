@@ -7,7 +7,8 @@ types and stack frames instead, which hold only code.
 
 import logging
 import traceback
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping
+from typing import Any
 
 from fastapi import FastAPI, Request, Response
 from fastapi.exception_handlers import http_exception_handler
@@ -67,15 +68,24 @@ async def _invalid_request(
     """FastAPI's default 422 repeats each rejected value, which here could be a
     whole transcript. Say where and what was wrong, never the value."""
     detail = [
-        {"loc": e["loc"], "msg": e["msg"], "type": e["type"]} for e in error.errors()
+        {"loc": _safe_loc(e), "msg": e["msg"], "type": e["type"]}
+        for e in error.errors()
     ]
     return JSONResponse(status_code=422, content={"detail": detail})
+
+
+def _safe_loc(error: Mapping[str, Any]) -> list[Any]:
+    """An unexpected field's location ends in its name, which came from the
+    request, so it stops at the object holding it."""
+    loc = list(error["loc"])
+    return loc[:-1] if error["type"] == "extra_forbidden" else loc
 
 
 async def _http_error(request: Request, error: StarletteHTTPException) -> Response:
     """A request for a route that doesn't exist says which, and where the routes
     are listed. Other HTTP errors, including a route's own 404s, are unchanged."""
-    if error.status_code == 404 and error.detail == "Not Found":
+    # Starlette sets the endpoint only once a route has matched.
+    if error.status_code == 404 and "endpoint" not in request.scope:
         return JSONResponse(
             status_code=404,
             content={

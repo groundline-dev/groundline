@@ -3,8 +3,10 @@
 import logging
 
 import pytest
+from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
+from groundline.api import errors
 from groundline.api import omissions as api
 from groundline.api.errors import safe_traceback
 from groundline.app import app
@@ -29,6 +31,20 @@ def test_an_unknown_route_is_a_404_saying_which(method: str):
     }
 
 
+def test_a_routes_own_404_is_unchanged():
+    own = FastAPI()
+    errors.install(own)
+
+    @own.get("/things/{id}")
+    def thing(id: str) -> None:
+        raise HTTPException(404, detail="Not Found")
+
+    response = TestClient(own).get("/things/1")
+
+    assert response.status_code == 404
+    assert response.json() == {"detail": "Not Found"}
+
+
 def test_an_unsupported_method_is_a_405():
     response = http.get("/v1/omissions")
 
@@ -39,16 +55,23 @@ def test_an_unsupported_method_is_a_405():
 
 @pytest.mark.parametrize(
     "body",
-    [b'{"source": "a", "summ', b"", b"[1, 2]", bytes(range(256))],
+    [
+        b'{"source": "' + SECRET.encode() + b'", "summ',
+        b"",
+        b'["' + SECRET.encode() + b'"]',
+        SECRET.encode() + bytes(range(256)),
+    ],
     ids=["broken JSON", "empty", "a list", "binary"],
 )
-def test_a_malformed_request_is_a_422_not_a_crash(body: bytes):
+def test_a_malformed_request_is_a_4xx_not_a_crash(body: bytes):
     response = http.post(
         "/v1/omissions", content=body, headers={"content-type": "application/json"}
     )
 
-    assert response.status_code == 422
+    # FastAPI answers 400 for a body that isn't UTF-8, and 422 for the rest.
+    assert response.status_code in (400, 422)
     assert "detail" in response.json()
+    assert SECRET not in response.text
 
 
 def test_an_error_outside_a_route_is_a_structured_500(

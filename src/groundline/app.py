@@ -31,11 +31,22 @@ def _log_to_console() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # A warning, not a failure: /health and the docs still work without a key.
-    if Settings().anthropic_api_key is None:
-        logging.getLogger("groundline.api").warning(
-            "ANTHROPIC_API_KEY is not set, so checks will answer 503. "
-            "Copy .env.example to .env and add your key."
+    api_logger = logging.getLogger("groundline.api")
+    try:
+        key = Settings().anthropic_api_key
+    except Exception as error:
+        # Only the type: a settings error can quote the value it rejected.
+        api_logger.warning(
+            "can't read the settings (%s), so checks will fail. Check that .env "
+            "is a readable UTF-8 text file.",
+            type(error).__name__,
         )
+    else:
+        if key is None:
+            api_logger.warning(
+                "ANTHROPIC_API_KEY is not set, so checks will answer 503. "
+                "Copy .env.example to .env and add your key."
+            )
     yield
 
 

@@ -3,6 +3,8 @@ import logging
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
+import anthropic
+import httpx2
 import pytest
 from fastapi.testclient import TestClient
 
@@ -131,16 +133,25 @@ def test_unusable_input_is_a_422_before_any_call(body: dict[str, object]):
     assert client is not None and client.requests == []
 
 
-def test_a_422_never_repeats_the_input():
+@pytest.mark.parametrize(
+    ("body", "loc"),
+    [
+        (check(source=SECRET + "x" * api.MAX_CHARS), ["body", "source"]),
+        (check(source={"text": SECRET}), ["body", "source"]),
+        (check(threshold=SECRET), ["body", "threshold"]),
+        (check(notes=SECRET), ["body"]),
+        (check(**{SECRET: "x"}), ["body"]),
+    ],
+    ids=["too long", "not text", "unknown threshold", "extra value", "extra name"],
+)
+def test_a_422_never_repeats_the_input(body: dict[str, object], loc: list[str]):
     use_client(NOT_FLAGGED)
 
-    response = http.post(
-        "/v1/omissions", json=check(source=SECRET + "x" * api.MAX_CHARS)
-    )
+    response = http.post("/v1/omissions", json=body)
 
     assert response.status_code == 422
     assert "tenofovir" not in response.text
-    assert response.json()["detail"][0]["loc"] == ["body", "source"]
+    assert response.json()["detail"][0]["loc"] == loc
 
 
 def test_a_missing_key_is_a_503_with_the_clis_message(
@@ -176,6 +187,45 @@ def test_an_unusable_reply_is_a_502_naming_the_stage_and_cost():
     detail = response.json()["detail"]
     assert detail.startswith("stage 'extract' failed: unusable reply after 1 retry")
     assert "Cost before stopping: $0." in detail and "· 2 calls" in detail
+
+
+def _api_request() -> httpx2.Request:
+    return httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+
+
+@pytest.mark.parametrize(
+    ("error", "detail"),
+    [
+        (
+            anthropic.BadRequestError(
+                f"Error code: 400 - {SECRET}",
+                response=httpx2.Response(400, request=_api_request()),
+                body={"error": {"message": SECRET}},
+            ),
+            "stage 'extract' failed: the Anthropic API answered 400 (BadRequestError)",
+        ),
+        (
+            anthropic.APIConnectionError(message=SECRET, request=_api_request()),
+            "stage 'extract' failed: the Anthropic API failed (APIConnectionError)",
+        ),
+    ],
+    ids=["status", "connection"],
+)
+def test_an_anthropic_api_error_is_a_502_without_its_message(
+    error: anthropic.APIError, detail: str, caplog: pytest.LogCaptureFixture
+):
+    def failing(prompt: str) -> str:
+        raise error
+
+    use_client(failing)
+
+    with caplog.at_level(logging.INFO):
+        response = http.post("/v1/omissions", json=check())
+
+    assert response.status_code == 502
+    assert response.json() == {"detail": detail}
+    assert type(error).__name__ in caplog.text
+    assert "tenofovir" not in caplog.text
 
 
 def test_a_stage_failure_of_our_own_is_a_generic_500(
@@ -245,6 +295,38 @@ def test_startup_is_quiet_when_the_key_is_set(
         pass
 
     assert "ANTHROPIC_API_KEY" not in caplog.text
+
+
+def test_startup_warns_when_the_settings_cant_be_read(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+):
+    (tmp_path / ".env").write_bytes(b"ANTHROPIC_API_KEY=\xff\xfe" + SECRET.encode())
+
+    with caplog.at_level(logging.WARNING), TestClient(app):
+        pass
+
+    assert "can't read the settings (UnicodeDecodeError)" in caplog.text
+    assert "tenofovir" not in caplog.text
+
+
+def test_a_failure_loading_the_preset_is_a_generic_500(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+):
+    def broken(name: str) -> None:
+        raise ValueError(SECRET)
+
+    use_client(NOT_FLAGGED)
+    monkeypatch.setattr(api, "load_preset", broken)
+
+    with caplog.at_level(logging.INFO):
+        response = TestClient(app, raise_server_exceptions=False).post(
+            "/v1/omissions", json=check()
+        )
+
+    assert response.status_code == 500
+    assert response.json() == {"detail": "unexpected error; see the server log"}
+    assert "unexpected ValueError" in caplog.text
+    assert "tenofovir" not in caplog.text
 
 
 def test_a_failure_building_the_response_is_a_generic_500(

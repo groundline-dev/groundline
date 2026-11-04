@@ -39,9 +39,10 @@ one request can't spend dollars on a huge input."""
 ThresholdLevel = Literal["strict", "moderate"]
 """The preset's threshold levels. A test keeps this in step with the preset."""
 
-# Stage failures caused by the model or Anthropic's API, which answer 502. Their
-# messages are written to be safe to show. Any other failure is a bug of ours,
-# and its message may quote the source or summary.
+# Stage failures caused by the model or Anthropic's API, which answer 502. Our
+# own two are written to be safe to show; the SDK's can quote the request, so
+# only its type is shown. Any other failure is a bug of ours, and its message
+# may quote the source or summary.
 UPSTREAM_CAUSES = (ReplyError, ModelError, anthropic.APIError)
 
 router = APIRouter(prefix="/v1")
@@ -154,10 +155,11 @@ async def omissions(
         logger.warning("can't check: %s", error)
         raise HTTPException(503, detail=str(error)) from error
     except StageError as error:
-        logger.warning("stage '%s' failed%s", error.step, _spent(error))
+        cause = type(error.__cause__).__name__
+        logger.warning("stage '%s' failed (%s)%s", error.step, cause, _spent(error))
         if not isinstance(error.__cause__, UPSTREAM_CAUSES):
             raise  # a bug of ours: the app-wide handler answers 500
-        raise HTTPException(502, detail=f"{error}{_spent(error)}") from error
+        raise HTTPException(502, detail=f"{_failure(error)}{_spent(error)}") from error
     response = _response(result)
     logger.info(
         "checked a summary: %s · %d omissions · %s",
@@ -200,6 +202,19 @@ def _response(result: EvaluationResult) -> OmissionsResponse:
             cost_usd=usage.cost_usd,
         ),
     )
+
+
+def _failure(error: StageError) -> str:
+    """What went wrong upstream. An SDK error is named, never quoted."""
+    cause = error.__cause__
+    if not isinstance(cause, anthropic.APIError):
+        return str(error)
+    if isinstance(cause, anthropic.APIStatusError):
+        what = f"answered {cause.status_code}"
+    else:
+        what = "failed"
+    name = type(cause).__name__
+    return f"stage '{error.step}' failed: the Anthropic API {what} ({name})"
 
 
 def _spent(error: StageError) -> str:
