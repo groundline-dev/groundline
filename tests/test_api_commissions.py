@@ -8,6 +8,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from groundline import load_preset
+
+# The route's module, imported as `api` because the tests patch the names it looks up
+# (evaluate, load_preset and the response models) there, not in `common`.
 from groundline.api import commissions as api
 from groundline.api import common
 from groundline.app import app

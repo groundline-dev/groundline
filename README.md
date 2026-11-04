@@ -169,7 +169,7 @@ curl -s http://127.0.0.1:8000/v1/omissions \
 }
 ```
 
-`omissions` lists the facts not fully recorded, most important first. Every finished check answers **200, flagged or not** ([ADR 0008](docs/adr/0008-the-api-returns-200-for-a-flagged-summary.md)). Other statuses mean the check couldn't finish, and are the same for `POST /v1/commissions`:
+`omissions` lists the facts not fully recorded, most important first. Every finished check answers **200, flagged or not** ([ADR 0008](docs/adr/0008-the-api-returns-200-for-a-flagged-summary.md)). Other statuses mean the check couldn't finish, for both endpoints:
 
 | Status | Meaning |
 |---|---|
@@ -183,7 +183,7 @@ curl -s http://127.0.0.1:8000/v1/omissions \
 
 Every error answers with JSON: `{"detail": ...}`. Error responses and the server log never contain text from the source or summary. The log records each finished check's outcome, number of omissions and cost, and each failure.
 
-`POST /v1/commissions` runs the validated quick commission preset on one summary. It takes the same `source` and `summary` (no `threshold`, since the preset has a single alarm level):
+`POST /v1/commissions` runs the validated quick commission preset on one summary. It answers the same statuses as `/v1/omissions`, listed above, and takes the same `source` and `summary` (no `threshold`, since the preset has a single alarm level):
 
 ```sh
 curl -s http://127.0.0.1:8000/v1/commissions \

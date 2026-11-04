@@ -9,6 +9,9 @@ from fastapi.testclient import TestClient
 
 from groundline import load_preset
 from groundline.api import common
+
+# The route's module, imported as `api` because the tests patch the names it looks up
+# (evaluate, load_preset and the response models) there, not in `common`.
 from groundline.api import omissions as api
 from groundline.app import app
 from groundline.core import APIKeyRejectedError
