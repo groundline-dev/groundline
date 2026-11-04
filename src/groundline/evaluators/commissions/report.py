@@ -3,8 +3,9 @@
 from groundline.evaluators.commissions.models import (
     Commission,
     CommissionsRefuteOutput,
+    ranked,
 )
-from groundline.evaluators.models import ALARM_STEP, SEVERITIES, AlarmOutput
+from groundline.evaluators.models import ALARM_STEP, AlarmOutput
 from groundline.evaluators.report import (
     cost_line,
     number,
@@ -39,11 +40,7 @@ def render_report(
     lines += ["", "Not supported by the source (severity order):"]
     if refute.commissions:
         lines.append(f"  {'severity':<10}  {'verdict':<12}  {'confidence':<10}  claim")
-        order = list(SEVERITIES)
-        for commission in sorted(
-            refute.commissions,
-            key=lambda c: (order.index(c.severity), -c.unsupported_confidence),
-        ):
+        for commission in ranked(refute.commissions):
             lines.append(
                 f"  {commission.severity:<10}  {commission.support_verdict:<12}  "
                 f"{number(commission.unsupported_confidence):<10}  {commission.quote}"
