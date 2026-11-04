@@ -14,6 +14,8 @@ Start the API with auto-reload at http://127.0.0.1:8000 (interactive docs at `/d
 make dev
 ```
 
+The README's [Using the API](README.md#using-the-api) describes the endpoints. Each endpoint has a request and response model of its own in `src/groundline/api/`, so refactoring the pipeline's models can't change the API by accident.
+
 ## Database
 
 The API keeps its operational data, starting with API keys, in PostgreSQL 18. It never holds sources, summaries or results ([ADR 0009](docs/adr/0009-the-database-holds-no-patient-data.md)). The omission check and the `groundline` command don't use it. For now each developer runs Postgres natively; Docker is planned.
@@ -64,7 +66,7 @@ Run the database tests, which need PostgreSQL 18 running locally as described in
 uv run pytest -m db
 ```
 
-Run the live smoke test, which calls the real API on a short example (about $0.04 per run). It's excluded from the default run:
+Run the live smoke tests, which call the real Anthropic API on short examples: the omission preset, the commission preset and the `/v1/omissions` endpoint (about $0.09 per run in all). They're excluded from the default run:
 
 ```sh
 uv run pytest -m live -s
@@ -118,6 +120,7 @@ src/groundline/
   presets/                 validated pipeline specs (omission_all_opus, commission_quick)
   evaluate.py              evaluate(): the entry point the CLI and API share
   cli.py                   the groundline command
+  api/                     the API's endpoints, with their own request and response models
   app.py                   the FastAPI app
 scripts/db-setup           creates the local database and applies migrations
 tests/                     offline tests; test_live.py is marked live, test_db_schema.py is marked db
