@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+# Start the groundline image and check that /health answers 200.
+# Usage: scripts/docker-smoke-test [IMAGE]   (default: groundline:dev)
+set -euo pipefail
+
+image="${1:-groundline:dev}"
+name="groundline-smoke-$$"
+
+cleanup() { docker rm --force "$name" >/dev/null 2>&1 || true; }
+trap cleanup EXIT
+
+# No host port given, so Docker picks a free one: this can't clash with `make dev`
+# or a running `make docker-run`, and can't reach some other server on 8000.
+docker run --detach --name "$name" --publish "127.0.0.1::8000" "$image" >/dev/null
+url="http://$(docker port "$name" 8000/tcp | head -n 1)/health"
+
+# Poll for up to 30 seconds while the app starts.
+for _ in $(seq 1 30); do
+  # --max-time so a connection that never answers can't stall the loop.
+  status="$(curl --silent --max-time 2 --output /dev/null --write-out '%{http_code}' "$url" || true)"
+  if [ "$status" = "200" ]; then
+    echo "ok: GET /health returned 200"
+    exit 0
+  fi
+  if [ "$(docker inspect --format '{{.State.Running}}' "$name")" != "true" ]; then
+    echo "error: the container exited before /health answered" >&2
+    break
+  fi
+  sleep 1
+done
+
+echo "error: GET ${url} did not return 200 (last status: ${status:-none})" >&2
+echo "--- container logs ---" >&2
+docker logs "$name" >&2 || true
+exit 1

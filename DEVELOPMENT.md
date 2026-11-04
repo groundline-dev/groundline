@@ -14,7 +14,35 @@ Start the API with auto-reload at http://127.0.0.1:8000 (interactive docs at `/d
 make dev
 ```
 
+Use this for day-to-day work. It reloads when you edit the source, which the container doesn't.
+
 The README's [Using the API](README.md#using-the-api) describes the endpoints. Each endpoint has a request and response model of its own in `src/groundline/api/`, so refactoring the pipeline's models can't change the API by accident.
+
+### In Docker
+
+The [Dockerfile](Dockerfile) builds a production-style image. You need [Docker](https://docs.docker.com/get-started/get-docker/) installed and running.
+
+Build the image:
+
+```sh
+make docker-build
+```
+
+Run it at http://127.0.0.1:8001. To use another port, add `DOCKER_PORT=<port>`. If you have a `.env`, it's mounted read-only into the container, so the app reads your API key the same way as under `make dev`. Stop it with Ctrl+C:
+
+```sh
+make docker-run
+```
+
+- **No API key in the container:** `.env` is mounted only if it exists when the container starts. If the app tells you to copy `.env.example` to `.env` and names `/home/groundline/.env`, that's the path inside the container. Create `.env` in the repo folder, then stop the container and run `make docker-run` again.
+- **No database yet:** inside the container, `localhost` is the container itself, so the app logs that it can't connect to the database at `localhost:5432` and keeps running. Nothing uses the database yet. A Compose file that runs Postgres next to the app is planned (ALL-70).
+- **Running the image with your own `docker run`:** include `127.0.0.1` in the port, as `make docker-run` does: `-p 127.0.0.1:8001:8000`. Without an IP, as in `-p 8000:8000`, Docker listens on every network interface, so anyone on your network can reach the API. On Linux, this also gets past firewalls such as ufw. The API has no authentication yet, and every request spends Anthropic credit.
+
+Build the image, start it and check that `/health` returns 200. CI runs the same check on every PR. Run it before pushing if you changed the Dockerfile, `.dockerignore`, the dependencies, or how the app starts. It runs on a free port Docker picks, so it works while `make dev` is running:
+
+```sh
+make docker-smoke
+```
 
 ## Database
 
@@ -164,6 +192,7 @@ The `pre-commit` hook runs the checks in [.pre-commit-config.yaml](.pre-commit-c
 ## Layout
 
 ```
+Dockerfile                 the app image: a uv build stage and a slim runtime stage
 src/groundline/
   core/                    the pipeline framework: steps, registry, specs, runner, cache, costs
   clients/                 the Anthropic client
@@ -181,6 +210,7 @@ src/groundline/
   api/                     the API's endpoints, with their own request and response models
   app.py                   the FastAPI app
 scripts/db-setup           creates the local database and applies migrations
+scripts/docker-smoke-test  starts the image and checks /health (make docker-smoke)
 tests/                     offline tests; test_live.py is marked live, test_db_schema.py is marked db
 ```
 
@@ -193,3 +223,18 @@ tests/                     offline tests; test_live.py is marked live, test_db_s
 Commit message rules are in [AGENTS.md](AGENTS.md#commits) (Conventional Commits, e.g. `feat(parser): support nested groups`).
 
 The `commit-msg` hook adds a `Co-authored-by` line for every team member except the person committing. It recognises you by `git config user.email`, so make sure that matches your email in [.githooks/commit-msg](.githooks/commit-msg). To change the team, edit the list at the bottom of that file.
+
+## Upgrading uv
+
+`required-version` in [pyproject.toml](pyproject.toml) allows uv 0.13.7 or later, below 0.14. In case of a new minor release (e.g. 0.14):
+
+1. In pyproject.toml, set `required-version = ">=0.14.0,<0.15"` and, in `[build-system]`, `requires = ["uv_build>=0.14.0,<0.15.0"]`. Keep the two on the same minor: if they differ, uv downloads a separate `uv_build` from the `[build-system]` range to build groundline, in Docker too. Dependabot leaves `uv_build`'s minor alone for the same reason.
+2. Update the [Dockerfile](Dockerfile)'s first `FROM` line to the new uv tag and digest. Dependabot doesn't open these PRs, because it can't see `required-version`. Get the digest with `docker buildx imagetools inspect ghcr.io/astral-sh/uv:<version>-python3.13-trixie-slim`.
+3. Upgrade your uv to a version in the new range, naming it explicitly, because a plain upgrade installs the newest uv, which may be past the range:
+   - Installed with the standalone installer: `uv self update 0.14.0`.
+   - Installed with Homebrew: `brew upgrade uv`, then check `uv --version`. If it's past the range, see Troubleshooting. (`uv self update` doesn't work on a Homebrew install.)
+   - Installed with pip: `pip install 'uv>=0.14,<0.15'`.
+4. Run `make check` and `make docker-smoke`, then push.
+5. After merging, tell the team to upgrade uv too (step 3).
+
+**Troubleshooting:** `Required uv version ... does not match the running version` after `brew upgrade` means Homebrew installed a uv newer than the project allows. Until the project moves to it, run `brew uninstall uv`, then install a release within `required-version` with the standalone installer, e.g. `curl -LsSf https://astral.sh/uv/0.13.7/install.sh | sh`.
