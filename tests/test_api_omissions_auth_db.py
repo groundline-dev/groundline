@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine, func, select, update
 from typer.testing import CliRunner
 
+from groundline.api import common
 from groundline.api import omissions as api
 from groundline.app import app
 from groundline.cli import app as cli
@@ -26,7 +27,7 @@ def model(db_url: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> FakeC
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("DATABASE_URL", db_url)
     client = FakeClient(not_flagged_script())
-    monkeypatch.setitem(app.dependency_overrides, api.model_client, lambda: client)
+    monkeypatch.setitem(app.dependency_overrides, common.model_client, lambda: client)
     return client
 
 

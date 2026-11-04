@@ -6,8 +6,7 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from groundline.api import errors
-from groundline.api import omissions as api
+from groundline.api import common, errors
 from groundline.api.errors import safe_traceback
 from groundline.app import app
 from tests.auth_helpers import SECRET as API_KEY
@@ -87,7 +86,7 @@ def test_an_error_outside_a_route_is_a_structured_500(
     def broken() -> None:
         raise RuntimeError(SECRET)
 
-    app.dependency_overrides[api.model_client] = broken
+    app.dependency_overrides[common.model_client] = broken
 
     with caplog.at_level(logging.INFO):
         response = http.post("/v1/omissions", json={"source": "a", "summary": "b"})

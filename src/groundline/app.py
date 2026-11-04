@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from groundline.api import errors, omissions
+from groundline.api import commissions, errors, omissions
 from groundline.api_keys import APIKeys
 from groundline.core.errors import SetupError
 from groundline.db import check_connection
@@ -79,6 +79,7 @@ _log_to_console()
 app = FastAPI(title="groundline", lifespan=lifespan)
 errors.install(app)
 app.include_router(omissions.router)
+app.include_router(commissions.router)
 
 
 @app.get("/health")

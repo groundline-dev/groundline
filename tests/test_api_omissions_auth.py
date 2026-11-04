@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from fastapi.testclient import TestClient
 
+from groundline.api import common
 from groundline.api import omissions as api
 from groundline.api_keys import APIKeyStorageError
 from groundline.app import app
@@ -34,7 +35,7 @@ def model(monkeypatch: pytest.MonkeyPatch) -> Mock:
     def provide() -> FakeClient:
         return dependency()
 
-    monkeypatch.setitem(app.dependency_overrides, api.model_client, provide)
+    monkeypatch.setitem(app.dependency_overrides, common.model_client, provide)
     return dependency
 
 
@@ -193,3 +194,7 @@ def test_openapi_protects_omissions_and_documents_authentication_errors():
     assert "401" in operation["responses"]
     assert "Authentication" in operation["responses"]["503"]["description"]
     assert "security" not in schema["paths"]["/health"]["get"]
+    commissions = schema["paths"]["/v1/commissions"]["post"]
+    assert "security" not in commissions
+    assert "401" not in commissions["responses"]
+    assert "Authentication" not in commissions["responses"]["503"]["description"]
