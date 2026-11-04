@@ -58,7 +58,7 @@ Creation prints the name, full UUID identifier, expiry, and plaintext API key **
 
 `keys list` shows every API key newest first in aligned columns, with its full UUID, name, identifying prefix, status, and UTC expiry (`never` when unset). Values are not truncated. It includes revoked and expired keys; an active key past its expiry displays as `expired` without changing its stored status. No credentials or hashes are shown. An empty database prints `No API keys found.` Prefixes help identify a key but are not guaranteed unique: use the full UUID to revoke it.
 
-Callers send `Authorization: Bearer <api-key>` to a protected route. Authentication checks the primary database on every request, so revocation affects subsequent checks across workers and app instances; requests already authorized may finish. Invalid, revoked, or expired API keys receive 401; unavailable authentication storage produces 503. `/health` remains public. The reusable dependency is available as described in [DEVELOPMENT.md](DEVELOPMENT.md#protecting-an-endpoint). `POST /v1/omissions` does not use it yet; protecting that endpoint is tracked separately in ALL-73.
+Callers send `Authorization: Bearer <api-key>` to a protected route. Authentication checks the primary database on every request, so revocation affects subsequent checks across workers and app instances; requests already authorized may finish. Invalid, revoked, or expired API keys receive 401; unavailable authentication storage produces 503. `/health` remains public. The reusable dependency is available as described in [DEVELOPMENT.md](DEVELOPMENT.md#protecting-an-endpoint). `POST /v1/omissions` and `POST /v1/commissions` do not use it yet; protecting them is tracked separately in ALL-73 (omissions) and ALL-74 (commissions).
 
 ## Checking for omissions
 
@@ -163,7 +163,7 @@ for c in refute.commissions:
 
 ## Using the API
 
-Start the API with `make dev`; it serves at http://127.0.0.1:8000, with interactive docs at `/docs`. **The omissions endpoint has no authentication yet**, and every check spends your Anthropic credit, so run it only on your own machine.
+Start the API with `make dev`; it serves at http://127.0.0.1:8000, with interactive docs at `/docs`. **The omissions and commissions endpoints have no authentication yet**, and every check spends your Anthropic credit, so run it only on your own machine.
 
 `POST /v1/omissions` runs the validated omission preset on one summary:
 
