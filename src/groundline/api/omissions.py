@@ -46,6 +46,12 @@ class OmissionsRequest(CheckRequest):
     validated preset."""
 
 
+class OmissionsAlarm(Alarm):
+    score: float
+    """The highest missing confidence among critical facts still flagged, with
+    partials at half weight; 0 if there are none."""
+
+
 class Omission(ApiModel):
     fact: str
     """The fact from the source that the summary leaves out or only partly records."""
@@ -70,7 +76,7 @@ class Counts(ApiModel):
 class OmissionsResponse(ApiModel):
     flagged: bool
     """Whether the alarm score reached the threshold."""
-    alarm: Alarm
+    alarm: OmissionsAlarm
     omissions: list[Omission]
     """Facts not fully recorded, most important first."""
     counts: Counts
@@ -113,7 +119,7 @@ def _response(result: EvaluationResult) -> OmissionsResponse:
     alarm = result.run.output("alarm", AlarmOutput)
     return OmissionsResponse(
         flagged=alarm.flagged,
-        alarm=alarm_of(alarm),
+        alarm=alarm_of(alarm, OmissionsAlarm),
         omissions=[
             Omission(
                 fact=m.fact,

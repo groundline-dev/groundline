@@ -150,6 +150,16 @@ def test_a_quote_that_isnt_in_the_source_at_all_is_not_found():
     assert found["evidence_found"] is False
 
 
+def test_each_endpoint_describes_its_own_alarm_score():
+    schemas = app.openapi()["components"]["schemas"]
+
+    omissions = schemas["OmissionsAlarm"]["properties"]["score"]["description"]
+    commissions = schemas["CommissionsAlarm"]["properties"]["score"]["description"]
+
+    assert "half weight" in omissions
+    assert "commissions" in commissions and "half weight" not in commissions
+
+
 def test_the_route_runs_the_quick_preset():
     use_client(Script(commissions_check=issues_reply()))
 

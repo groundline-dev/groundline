@@ -47,6 +47,12 @@ class CommissionsRequest(CheckRequest):
     pass
 
 
+class CommissionsAlarm(Alarm):
+    score: float
+    """The highest unsupported confidence among the critical commissions; 0 if
+    there are none."""
+
+
 class Commission(ApiModel):
     claim: str
     """The words in the summary that make the claim, word for word."""
@@ -72,7 +78,7 @@ class Commission(ApiModel):
 class CommissionsResponse(ApiModel):
     flagged: bool
     """Whether the alarm score reached the threshold."""
-    alarm: Alarm
+    alarm: CommissionsAlarm
     commissions: list[Commission]
     """Claims in the summary that the source doesn't support, most important
     first."""
@@ -118,7 +124,7 @@ def _response(result: EvaluationResult) -> CommissionsResponse:
     alarm = result.run.output("alarm", AlarmOutput)
     return CommissionsResponse(
         flagged=alarm.flagged,
-        alarm=alarm_of(alarm),
+        alarm=alarm_of(alarm, CommissionsAlarm),
         commissions=[
             Commission(
                 claim=c.quote,

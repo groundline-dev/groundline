@@ -67,9 +67,11 @@ class CheckRequest(ApiModel):
 
 
 class Alarm(ApiModel):
+    """The flag decision. Each endpoint subclasses it to say what its score is."""
+
     score: float
-    """The highest confidence among the summary's critical problems, as the check
-    defines it; 0 if there are none."""
+    """The highest confidence among the summary's critical problems; 0 if there
+    are none."""
     threshold: float
     """The alarm score at or above which the summary is flagged."""
     level: str
@@ -89,8 +91,9 @@ def model_client() -> ModelClient | None:
     return None
 
 
-def alarm_of(alarm: AlarmOutput) -> Alarm:
-    return Alarm(score=alarm.score, threshold=alarm.threshold, level=alarm.level)
+def alarm_of[A: Alarm](alarm: AlarmOutput, model: type[A]) -> A:
+    """The alarm in the endpoint's own `Alarm` model."""
+    return model(score=alarm.score, threshold=alarm.threshold, level=alarm.level)
 
 
 def usage_of(result: EvaluationResult) -> Usage:
