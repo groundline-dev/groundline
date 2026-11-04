@@ -4,7 +4,7 @@ How to work on groundline itself. For what it does and how to use it, start with
 
 ## Setup
 
-Follow the README's [Setup](README.md#setup) section first: `make setup`, and an API key in `.env` if you'll make live calls. `make setup` installs the dependencies and enables the shared git hooks in [.githooks/](.githooks/).
+Follow the README's [Setup](README.md#setup) section first: `make setup`, and an Anthropic API key in `.env` if you'll make live calls. `make setup` installs the dependencies and enables the shared git hooks in [.githooks/](.githooks/).
 
 ## Running the API
 
@@ -16,7 +16,7 @@ make dev
 
 ## Database
 
-The API keeps its operational data, starting with API keys, in PostgreSQL 18. It never holds sources, summaries or results ([ADR 0009](docs/adr/0009-the-database-holds-no-patient-data.md)). The omission check and the `groundline` command don't use it. For now each developer runs Postgres natively; Docker is planned.
+The API keeps its operational data, starting with API keys, in PostgreSQL 18. It never holds sources, summaries or results ([ADR 0009](docs/adr/0009-the-database-holds-no-patient-data.md)). Neither check, nor the `groundline` command, uses it. For now each developer runs Postgres natively; Docker is planned.
 
 Install and start PostgreSQL 18:
 
@@ -52,7 +52,7 @@ A test checks that the migrations and `tables.py` agree.
 
 ## Tests
 
-Run the tests. These are offline, free, and need no API key; model calls use a scripted fake client:
+Run the tests. These are offline, free, and need no Anthropic API key; model calls use a scripted fake client:
 
 ```sh
 make test
@@ -72,7 +72,7 @@ uv run pytest -m live -s
 
 `tests/test_parity.py` (omissions) and `tests/test_parity_commissions.py` (commissions) each replay a recorded run of a measured pipeline and check that groundline sends byte-identical prompts and reaches identical results. If you change a prompt, the rubric or a step's logic, expect them to fail. That means the `omission_all_opus` or `commission_quick` preset no longer matches the measured results.
 
-`tests/test_commission_prompts.py` also pins both commission prompts to omission-pipeline's versions by hash, including the refute prompt, which the preset leaves switched off and so no parity run exercises.
+`tests/test_commission_prompts.py` also pins both commission prompts by hash to the versions in omission-pipeline, the pipeline groundline was ported from, including the refute prompt, which the preset leaves switched off and so no parity run exercises.
 
 ## Editor schemas
 
