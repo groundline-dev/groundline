@@ -34,6 +34,10 @@ Run it at http://127.0.0.1:8001. To use another port, add `DOCKER_PORT=<port>`. 
 make docker-run
 ```
 
+- **No API key in the container:** `.env` is mounted only if it exists when the container starts. If the app tells you to copy `.env.example` to `.env` and names `/home/groundline/.env`, that's the path inside the container. Create `.env` in the repo folder, then stop the container and run `make docker-run` again.
+- **No database yet:** inside the container, `localhost` is the container itself, so the app logs that it can't connect to the database at `localhost:5432` and keeps running. Nothing uses the database yet. A Compose file that runs Postgres next to the app is planned (ALL-70).
+- **Running the image with your own `docker run`:** include `127.0.0.1` in the port, as `make docker-run` does: `-p 127.0.0.1:8001:8000`. Without an IP, as in `-p 8000:8000`, Docker listens on every network interface, so anyone on your network can reach the API. On Linux, this also gets past firewalls such as ufw. The API has no authentication yet, and every request spends Anthropic credit.
+
 Build the image, start it and check that `/health` returns 200. CI runs the same check on every PR. Run it before pushing if you changed the Dockerfile, `.dockerignore`, the dependencies, or how the app starts. It runs on a free port Docker picks, so it works while `make dev` is running:
 
 ```sh
@@ -133,6 +137,7 @@ The `pre-commit` hook runs the checks in [.pre-commit-config.yaml](.pre-commit-c
 ## Layout
 
 ```
+Dockerfile                 the app image: a uv build stage and a slim runtime stage
 src/groundline/
   core/                    the pipeline framework: steps, registry, specs, runner, cache, costs
   clients/                 the Anthropic client
@@ -149,7 +154,6 @@ src/groundline/
 scripts/db-setup           creates the local database and applies migrations
 scripts/docker-smoke-test  starts the image and checks /health (make docker-smoke)
 tests/                     offline tests; test_live.py is marked live, test_db_schema.py is marked db
-Dockerfile                 the app image: a uv build stage and a slim runtime stage
 ```
 
 ## Vocabulary and decisions
