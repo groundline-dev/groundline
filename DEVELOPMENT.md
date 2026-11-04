@@ -125,10 +125,10 @@ tests/                     offline tests; test_live.py is marked live, test_db_s
 
 ## Vocabulary and decisions
 
-[CONTEXT.md](CONTEXT.md) is the glossary: the project's words for things, and the words to avoid. [docs/adr/](docs/adr/) records the decisions that would surprise a newcomer, and why they were made. Read both before changing the design, and update them as you go: the `/grill-with-docs` skill from the Skills For Real Engineers plugin does this during a design session.
+[CONTEXT.md](CONTEXT.md) is the glossary: the project's words for things, and the words to avoid. [docs/adr/](docs/adr/) records the decisions that would surprise a newcomer, and why they were made. Read both before changing the design. The rules for updating them are in [AGENTS.md](AGENTS.md#domain-language-and-decisions).
 
 ## Commits
 
-Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/), e.g. `feat(parser): support nested groups`.
+Commit message rules are in [AGENTS.md](AGENTS.md#commits) (Conventional Commits, e.g. `feat(parser): support nested groups`).
 
 The `commit-msg` hook adds a `Co-authored-by` line for every team member except the person committing. It recognises you by `git config user.email`, so make sure that matches your email in [.githooks/commit-msg](.githooks/commit-msg). To change the team, edit the list at the bottom of that file.
