@@ -5,7 +5,8 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from groundline.api import errors, omissions
-from groundline.settings import UnreadableSettingsError, read_settings
+from groundline.db import check_connection
+from groundline.settings import Settings, UnreadableSettingsError, read_settings
 
 logger = logging.getLogger("groundline")
 
@@ -30,19 +31,31 @@ def _log_to_console() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
-    # A warning, not a failure: /health and the docs still work without a key.
-    api_logger = logging.getLogger("groundline.api")
+    # Warnings, not failures: /health and the docs still work without a key,
+    # and nothing needs the database yet.
     try:
-        key = read_settings().anthropic_api_key
+        settings = read_settings()
     except UnreadableSettingsError as error:
-        api_logger.warning("%s\nChecks will answer 503 until it's fixed.", error)
+        logging.getLogger("groundline.api").warning(
+            "%s\nChecks will answer 503 until it's fixed.", error
+        )
     else:
-        if key is None:
-            api_logger.warning(
-                "ANTHROPIC_API_KEY is not set, so checks will answer 503. "
-                "Copy .env.example to .env and add your key."
-            )
+        await _check_setup(settings)
     yield
+
+
+async def _check_setup(settings: Settings) -> None:
+    if settings.anthropic_api_key is None:
+        logging.getLogger("groundline.api").warning(
+            "ANTHROPIC_API_KEY is not set, so checks will answer 503. "
+            "Copy .env.example to .env and add your key."
+        )
+    if settings.database_url is None:
+        logging.getLogger("groundline.db").warning(
+            "DATABASE_URL is not set, so the API has no database"
+        )
+    else:
+        await check_connection(settings.database_url.get_secret_value())
 
 
 _log_to_console()

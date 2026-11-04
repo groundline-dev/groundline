@@ -11,11 +11,14 @@ authors = [
 ]
 requires-python = ">=3.13"
 dependencies = [
+    "alembic>=1.20.1",
     "anthropic>=2.3.0",
     "fastapi[standard]>=0.162.0",
     "platformdirs>=4.14.3",
+    "psycopg[binary]>=3.3.7",
     "pydantic-settings>=2.16.2",
     "pyyaml>=6.0.3",
+    "sqlalchemy[asyncio]>=2.1.6",
     "typer>=0.27.3",
 ]
 
@@ -51,5 +54,8 @@ venv = ".venv"
 typeCheckingMode = "strict"
 
 [tool.pytest.ini_options]
-markers = ["live: calls the real model API and costs money (run with: pytest -m live)"]
-addopts = "-m 'not live'"
+markers = [
+    "live: calls the real model API and costs money (run with: pytest -m live)",
+    "db: needs a local PostgreSQL 18 (run with: pytest -m db)",
+]
+addopts = "-m 'not live and not db'"
