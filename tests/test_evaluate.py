@@ -21,7 +21,7 @@ from groundline.core import (
 from groundline.evaluators.models import AlarmOutput
 from groundline.evaluators.omissions.models import ScoreOutput
 from groundline.profiles import load_builtin_profile
-from groundline.settings import MissingAPIKeyError
+from groundline.settings import MissingAPIKeyError, UnreadableSettingsError
 from tests.core_fakes import make_registry
 from tests.fakes import FakeClient
 from tests.omission_helpers import (
@@ -152,6 +152,22 @@ def test_without_a_client_or_api_key_it_fails_before_any_call(
 
     with pytest.raises(MissingAPIKeyError):
         asyncio.run(evaluate(SOURCE, SUMMARY))
+
+
+def test_unreadable_settings_are_a_setup_error_without_their_text(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_bytes(b"ANTHROPIC_API_KEY=\xffsk-ant-secret")
+
+    with pytest.raises(UnreadableSettingsError) as error:
+        asyncio.run(evaluate(SOURCE, SUMMARY))
+
+    message = str(error.value)
+    assert message.startswith("can't read the settings (UnicodeDecodeError).")
+    assert str(tmp_path / ".env") in message
+    assert "secret" not in message
 
 
 def test_the_missing_key_message_names_the_stages_and_model(

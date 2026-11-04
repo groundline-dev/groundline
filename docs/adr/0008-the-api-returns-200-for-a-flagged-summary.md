@@ -1,0 +1,3 @@
+# The API returns 200 for a flagged summary
+
+`POST /v1/omissions` answers 200 for every check that finishes, flagged or not, and reports the outcome in the body's `flagged` field. Non-2xx codes mean the check couldn't finish: 422 for unusable input, 503 when the Anthropic API key is missing or rejected or the settings can't be read, 502 when the model or Anthropic's API fails, and 500 for anything unexpected, which is a bug in groundline. This differs on purpose from the CLI, where exit code 1 means flagged (ADR 0005): an exit code is a script's only cheap signal, but an HTTP status describes whether the request worked, and a flag is a successful result. Callers' error handling and retries key off the status, so it is a public interface that is hard to change later.

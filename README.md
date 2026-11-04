@@ -140,6 +140,49 @@ for c in refute.commissions:
 
 `evaluate()` is the async version, for FastAPI or other async code. Both accept a `spec`, `profile`, `cache` or `client` to override the defaults.
 
+## Using the API
+
+Start the API with `make dev`; it serves at http://127.0.0.1:8000, with interactive docs at `/docs`. **It has no authentication yet**, and every check spends your Anthropic credit, so run it only on your own machine.
+
+`POST /v1/omissions` runs the validated omission preset on one summary:
+
+```sh
+curl -s http://127.0.0.1:8000/v1/omissions \
+  -H 'Content-Type: application/json' \
+  -d '{"source": "...transcript...", "summary": "...note...", "threshold": "strict"}'
+```
+
+`threshold` is optional: `strict` (the default) or `moderate`, as for the CLI. `source` and `summary` must not be blank, and each can be up to 200,000 characters. A check takes about 30 to 60 seconds, so give your HTTP client a long timeout.
+
+```json
+{
+  "flagged": true,
+  "alarm": {"score": 0.97, "threshold": 0.9, "level": "strict"},
+  "omissions": [
+    {"fact": "Allergic to penicillin. No other drug allergies.", "severity": "critical",
+     "verdict": "absent", "missing_confidence": 0.97, "quote": null}
+  ],
+  "counts": {"total": 35, "present": 29, "partial": 3, "absent": 3},
+  "pipeline": "omission_all_opus",
+  "validated_preset": "omission_all_opus",
+  "usage": {"calls": 4, "input_tokens": 31620, "output_tokens": 8140, "cost_usd": 0.29}
+}
+```
+
+`omissions` lists the facts not fully recorded, most important first. Every finished check answers **200, flagged or not** ([ADR 0008](docs/adr/0008-the-api-returns-200-for-a-flagged-summary.md)). Other statuses mean the check couldn't finish:
+
+| Status | Meaning |
+|---|---|
+| 400 | The body isn't UTF-8 text. |
+| 404 | No such route. `detail` names the method and path, and points to `/docs`. |
+| 405 | The route doesn't take that method, such as `GET /v1/omissions`. |
+| 422 | The request is unusable: not a JSON object, a blank or too-long text, an unknown threshold, or an unexpected field. |
+| 500 | An unexpected error, a bug in groundline. Details are in the server log. |
+| 502 | The model or Anthropic's API failed: an unusable reply, a refusal or an outage. `detail` names the step and what the check had spent; for an Anthropic API error it gives only the status and error type. Retrying later may work. |
+| 503 | `ANTHROPIC_API_KEY` is missing or was rejected, or `.env` can't be read. `detail` says where groundline looked and how to fix it. The API also warns at startup if the key is missing or `.env` can't be read. |
+
+Every error answers with JSON: `{"detail": ...}`. Error responses and the server log never contain text from the source or summary. The log records each finished check's outcome, number of omissions and cost, and each failure.
+
 ## Pipelines, presets and profiles
 
 - **A pipeline spec** says how to check: which steps run, which implementation does each (for example `check.llm_batch`), whether each step is on, and each step's settings, such as model, effort and thresholds. Specs are YAML or JSON. Every spec is validated before any model call, and the validation reports every problem at once.
