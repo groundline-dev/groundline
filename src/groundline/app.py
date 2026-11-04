@@ -3,8 +3,12 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from sqlalchemy.ext.asyncio import AsyncEngine
 
+from groundline.api_keys import APIKeys
+from groundline.core.errors import SetupError
 from groundline.db import check_connection
+from groundline.db.connection import make_engine
 from groundline.settings import Settings
 
 logger = logging.getLogger("groundline")
@@ -30,7 +34,9 @@ def _log_to_console() -> None:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
-    # Nothing needs the database yet, so the API starts whether or not it's up.
+    # Public health stays available; protected routes reject if storage is down.
+    engine: AsyncEngine | None = None
+    app.state.api_keys = None
     url = Settings().database_url
     if url is None:
         logging.getLogger("groundline.db").warning(
@@ -38,7 +44,22 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
         )
     else:
         await check_connection(url.get_secret_value())
-    yield
+        try:
+            # Keep a lazy engine even if the startup probe failed, so later
+            # requests can recover when PostgreSQL becomes available.
+            engine = make_engine(url.get_secret_value())
+        except SetupError:
+            logging.getLogger("groundline.db").error(
+                "API-key storage is unavailable; check DATABASE_URL"
+            )
+        else:
+            app.state.api_keys = APIKeys(engine)
+    try:
+        yield
+    finally:
+        app.state.api_keys = None
+        if engine is not None:
+            await engine.dispose()
 
 
 _log_to_console()
