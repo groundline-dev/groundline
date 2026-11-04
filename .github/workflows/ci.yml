@@ -23,6 +23,24 @@ jobs:
       - run: make setup
       - run: make check
 
+  docker:
+    # Build the image, start the app container and check that /health returns 200.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          tags: groundline:dev
+          # Load the image into the runner's Docker so the smoke test can run it.
+          load: true
+          cache-from: type=gha
+          # mode=max also caches the build stage, which holds the dependency layer.
+          cache-to: type=gha,mode=max
+      - run: scripts/docker-smoke-test groundline:dev
+
   dependency-review:
     # Block PRs that add a dependency with a known high or critical vulnerability.
     if: github.event_name == 'pull_request'

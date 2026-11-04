@@ -43,6 +43,7 @@ from groundline.evaluators.commissions import report as commissions_report
 from groundline.evaluators.models import AlarmOutput
 from groundline.evaluators.omissions import report as omissions_report
 from groundline.evaluators.report import format_cost, result_json
+from groundline.keys_cli import app as keys_app
 from groundline.presets import load_preset
 
 app = typer.Typer(
@@ -50,6 +51,7 @@ app = typer.Typer(
     no_args_is_help=True,
     pretty_exceptions_enable=False,
 )
+app.add_typer(keys_app, name="keys")
 
 EXIT_NOT_FLAGGED, EXIT_FLAGGED, EXIT_ERROR = 0, 1, 2
 
