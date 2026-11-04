@@ -46,6 +46,10 @@ class APIKeyNotFoundError(Exception):
     """No API key has the requested identifier."""
 
 
+class APIKeyInputError(ValueError):
+    """Invalid input, described without echoing its potentially secret value."""
+
+
 class APIKeyInfo(BaseModel):
     """Public metadata: no credential or hash, including on serialization."""
 
@@ -85,7 +89,9 @@ def api_key_name(name: str | None) -> str:
             f"{secrets.token_hex(4)}"
         )
     if not name.isprintable() or not name.strip():
-        raise ValueError("API-key name must be non-empty, printable, and on one line")
+        raise APIKeyInputError(
+            "API-key name must be non-empty, printable, and on one line"
+        )
     return name.strip()
 
 
@@ -111,7 +117,7 @@ class APIKeys:
     ) -> CreatedAPIKey:
         label = api_key_name(name)
         if expires_in is not None and expires_in <= timedelta(0):
-            raise ValueError("API-key lifetime must be positive")
+            raise APIKeyInputError("API-key lifetime must be positive")
         secret = generate_api_key()
         credential = secret.get_secret_value()
         digest = hashlib.sha256(credential.encode()).hexdigest()
@@ -124,7 +130,7 @@ class APIKeys:
                 try:
                     expires_at = created_at + expires_in
                 except OverflowError:
-                    raise ValueError("API-key expiry is out of range") from None
+                    raise APIKeyInputError("API-key expiry is out of range") from None
             result = await connection.execute(
                 insert(api_keys)
                 .values(

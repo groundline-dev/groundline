@@ -37,6 +37,15 @@ class Settings(BaseSettings):
     """Where the database is, password included, such as
     postgresql+psycopg://groundline:...@localhost:5432/groundline."""
 
+    def require_database_url(self) -> str:
+        """Require storage only when an operation actually uses it."""
+        if self.database_url is None:
+            raise SetupError(
+                "DATABASE_URL is not set. Add it to the environment or .env; "
+                "see DEVELOPMENT.md for database setup."
+            )
+        return self.database_url.get_secret_value()
+
     def anthropic_key(self, needed_by: str | None = None) -> str:
         """The Anthropic API key, or an error explaining how to provide it.
 
