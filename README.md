@@ -169,7 +169,7 @@ curl -s http://127.0.0.1:8000/v1/omissions \
 }
 ```
 
-`omissions` lists the facts not fully recorded, most important first. Every finished check answers **200, flagged or not** ([ADR 0008](docs/adr/0008-the-api-returns-200-for-a-flagged-summary.md)). Other statuses mean the check couldn't finish:
+`omissions` lists the facts not fully recorded, most important first. Every finished check answers **200, flagged or not** ([ADR 0008](docs/adr/0008-the-api-returns-200-for-a-flagged-summary.md)). Other statuses mean the check couldn't finish, and are the same for `POST /v1/commissions`:
 
 | Status | Meaning |
 |---|---|
@@ -182,6 +182,31 @@ curl -s http://127.0.0.1:8000/v1/omissions \
 | 503 | `ANTHROPIC_API_KEY` is missing or was rejected, or `.env` can't be read. `detail` says where groundline looked and how to fix it. The API also warns at startup if the key is missing or `.env` can't be read. |
 
 Every error answers with JSON: `{"detail": ...}`. Error responses and the server log never contain text from the source or summary. The log records each finished check's outcome, number of omissions and cost, and each failure.
+
+`POST /v1/commissions` runs the validated quick commission preset on one summary. It takes the same `source` and `summary` (no `threshold`, since the preset has a single alarm level):
+
+```sh
+curl -s http://127.0.0.1:8000/v1/commissions \
+  -H 'Content-Type: application/json' \
+  -d '{"source": "...transcript...", "summary": "...note..."}'
+```
+
+```json
+{
+  "flagged": true,
+  "alarm": {"score": 0.95, "threshold": 0.85, "level": "default"},
+  "commissions": [
+    {"claim": "Motrin 800 mg every 6 hours for a week", "severity": "critical",
+     "support_verdict": "contradicted", "unsupported_confidence": 0.95,
+     "evidence": "take motrin 600 mg every 6 hours for a week", "evidence_found": true}
+  ],
+  "pipeline": "commission_quick",
+  "validated_preset": "commission_quick",
+  "usage": {"calls": 1, "input_tokens": 9800, "output_tokens": 420, "cost_usd": 0.002}
+}
+```
+
+`commissions` lists the claims in the summary that the source doesn't support, most important first. `support_verdict` is `contradicted` (the source says otherwise) or `unsupported` (the source doesn't mention it). For a contradicted claim, `evidence` is the passage of the source the model quoted; it is `null` for an unsupported one. `evidence_found` says whether that passage appears in the source word for word, ignoring case, punctuation and spacing. `true` means verified. `false` only means it couldn't be matched, which a reworded quote or markup in the source, such as a scribe's `<UNSURE>` tags, can cause, so check it by eye rather than assuming it was invented.
 
 ## Pipelines, presets and profiles
 

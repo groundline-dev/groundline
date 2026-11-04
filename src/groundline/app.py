@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from groundline.api import errors, omissions
+from groundline.api import commissions, errors, omissions
 from groundline.db import check_connection
 from groundline.settings import Settings, UnreadableSettingsError, read_settings
 
@@ -62,6 +62,7 @@ _log_to_console()
 app = FastAPI(title="groundline", lifespan=lifespan)
 errors.install(app)
 app.include_router(omissions.router)
+app.include_router(commissions.router)
 
 
 @app.get("/health")
