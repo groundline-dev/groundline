@@ -47,6 +47,13 @@ def test_runs_stages_and_passes_outputs_along():
     }
 
 
+def test_asking_for_a_step_the_pipeline_lacks_names_it():
+    result = run(pipeline(UPPER))
+
+    with pytest.raises(LookupError, match="the pipeline has no 'polish' stage"):
+        result.output("polish", Text)
+
+
 def test_a_switched_off_stage_passes_its_input_through():
     result = run(pipeline(UPPER, JOIN, {**POLISH, "enabled": False}))
 
@@ -82,7 +89,7 @@ def test_a_failing_stage_stops_the_run_and_names_the_step():
     assert error.value.step == "left"
     assert "model unavailable" in str(error.value)
     assert isinstance(error.value.__cause__, RuntimeError)
-    assert time.perf_counter() - started < 1  # the slow stage was cancelled
+    assert time.perf_counter() - started < 1  # the slow stage was canceled
 
 
 def test_a_failed_run_still_reports_the_calls_it_paid_for():

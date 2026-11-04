@@ -4,7 +4,7 @@ How to work on groundline itself. For what it does and how to use it, start with
 
 ## Setup
 
-Follow the README's [Setup](README.md#setup) section first: `make setup`, and an API key in `.env` if you'll make live calls. `make setup` installs the dependencies and enables the shared git hooks in [.githooks/](.githooks/).
+Follow the README's [Setup](README.md#setup) section first: `make setup`, and an Anthropic API key in `.env` if you'll make live calls. `make setup` installs the dependencies and enables the shared git hooks in [.githooks/](.githooks/).
 
 ## Running the API
 
@@ -46,7 +46,7 @@ make docker-smoke
 
 ## Database
 
-The API keeps its operational data, starting with API keys, in PostgreSQL 18. It never holds sources, summaries or results ([ADR 0009](docs/adr/0009-the-database-holds-no-patient-data.md)). The `groundline keys` commands require it; the omission and commission commands and Python evaluation functions do not. For now each developer runs Postgres natively; Docker is planned.
+The API keeps its operational data, starting with API keys, in PostgreSQL 18. It never holds sources, summaries or results ([ADR 0009](docs/adr/0009-the-database-holds-no-patient-data.md)). The `groundline keys` commands require it; neither check uses it, from the command line or from Python. For now each developer runs Postgres natively; Docker is planned.
 
 Install and start PostgreSQL 18:
 
@@ -161,7 +161,7 @@ The live endpoint smoke tests use fake API-key storage and a Bearer credential w
 
 `tests/test_parity.py` (omissions) and `tests/test_parity_commissions.py` (commissions) each replay a recorded run of a measured pipeline and check that groundline sends byte-identical prompts and reaches identical results. If you change a prompt, the rubric or a step's logic, expect them to fail. That means the `omission_all_opus` or `commission_quick` preset no longer matches the measured results.
 
-`tests/test_commission_prompts.py` also pins both commission prompts to omission-pipeline's versions by hash, including the refute prompt, which the preset leaves switched off and so no parity run exercises.
+`tests/test_commission_prompts.py` also pins both commission prompts by hash to the versions in omission-pipeline, the pipeline groundline was ported from, including the refute prompt, which the preset leaves switched off and so no parity run exercises.
 
 ## Editor schemas
 
@@ -201,12 +201,14 @@ src/groundline/
   core/                    the pipeline framework: steps, registry, specs, runner, cache, costs
   clients/                 the Anthropic client
   db/                      the database: tables, migrations, connection check, setup
-  evaluators/              what the checks share: severity, the alarm's output, report helpers
+  evaluators/              what the checks share: severity, the alarm step, report helpers,
+                           and the registry of built-in checks (builtin.py)
   evaluators/omissions/    the omission check's data models, stages and report
   evaluators/commissions/  the commission check's data models, stages and report
   profiles/clinical/       the clinical profile: prompts and severity rubric
   presets/                 validated pipeline specs (omission_all_opus, commission_quick)
   evaluate.py              evaluate(): the entry point the CLI and API share
+  result.py                EvaluationResult, what evaluate() returns
   api_keys.py              API-key generation, persistence, revocation and validation
   auth.py                  opt-in Bearer authentication dependency
   keys_cli.py              the groundline keys subgroup
@@ -226,7 +228,7 @@ tests/                     offline tests; test_live.py is marked live, test_db_s
 
 Commit message rules are in [AGENTS.md](AGENTS.md#commits) (Conventional Commits, e.g. `feat(parser): support nested groups`).
 
-The `commit-msg` hook adds a `Co-authored-by` line for every team member except the person committing. It recognises you by `git config user.email`, so make sure that matches your email in [.githooks/commit-msg](.githooks/commit-msg). To change the team, edit the list at the bottom of that file.
+The `commit-msg` hook adds a `Co-authored-by` line for every team member except the person committing. It recognizes you by `git config user.email`, so make sure that matches your email in [.githooks/commit-msg](.githooks/commit-msg). To change the team, edit the list at the bottom of that file.
 
 ## Upgrading uv
 

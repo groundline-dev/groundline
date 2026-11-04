@@ -4,7 +4,6 @@ The CLI, the API and evaluator adapters all call this, so they behave the same.
 """
 
 import asyncio
-from dataclasses import dataclass, field
 
 from groundline.clients import AnthropicClient
 from groundline.core import (
@@ -15,39 +14,27 @@ from groundline.core import (
     Pipeline,
     PipelineSpec,
     Registry,
-    RunResult,
     build_pipeline,
     pipeline_fingerprint,
     run_pipeline,
 )
-from groundline.evaluators.commissions import register_commissions
-from groundline.evaluators.omissions import register_omissions
+from groundline.evaluators.builtin import default_registry
 from groundline.presets import builtin_presets, load_preset
 from groundline.profiles import load_builtin_profile
+from groundline.result import EvaluationResult
 from groundline.settings import read_settings
 
 DEFAULT_PRESET = "omission_all_opus"
 DEFAULT_COMMISSIONS_PRESET = "commission_quick"
 
-
-@dataclass(frozen=True)
-class EvaluationResult:
-    pipeline: str
-    profile: str | None
-    validated_preset: str | None
-    """The built-in preset this run matched exactly (ignoring selectable
-    settings), or None if the pipeline or profile was changed."""
-    run: RunResult
-    """Every stage's output, status, model calls, usage and cost."""
-    warnings: list[str] = field(default_factory=list[str])
-
-
-def default_registry() -> Registry:
-    """A registry with every built-in step and implementation."""
-    registry = Registry()
-    register_omissions(registry)
-    register_commissions(registry)
-    return registry
+__all__ = [
+    "DEFAULT_COMMISSIONS_PRESET",
+    "DEFAULT_PRESET",
+    "EvaluationResult",
+    "default_registry",
+    "evaluate",
+    "evaluate_sync",
+]
 
 
 async def evaluate(

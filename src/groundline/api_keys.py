@@ -115,6 +115,11 @@ def valid_api_key_format(credential: str) -> bool:
     return _CREDENTIAL.fullmatch(credential) is not None
 
 
+def _digest(credential: str) -> str:
+    """The stored form of a key: its SHA-256 hash in hex (ADR 0010)."""
+    return hashlib.sha256(credential.encode()).hexdigest()
+
+
 class APIKeys:
     def __init__(self, engine: AsyncEngine):
         self._engine = engine
@@ -136,7 +141,7 @@ class APIKeys:
             raise APIKeyInputError("API-key lifetime must be positive")
         secret = generate_api_key()
         credential = secret.get_secret_value()
-        digest = hashlib.sha256(credential.encode()).hexdigest()
+        digest = _digest(credential)
         async with self._transaction() as connection:
             expires_at = None
             if expires_in is not None:
@@ -186,7 +191,7 @@ class APIKeys:
     async def authenticate(self, credential: str) -> APIKeyInfo | None:
         if not valid_api_key_format(credential):
             return None
-        digest = hashlib.sha256(credential.encode()).hexdigest()
+        digest = _digest(credential)
         async with self._transaction() as connection:
             result = await connection.execute(
                 select(*_PUBLIC_COLUMNS).where(

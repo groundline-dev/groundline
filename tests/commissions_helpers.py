@@ -1,26 +1,12 @@
 """Run commission stages offline: the real clinical prompts, scripted replies."""
 
-import asyncio
 import json
-from collections.abc import Sequence
 from typing import Any
 
-from groundline.core import (
-    FileCache,
-    Inputs,
-    PipelineSpec,
-    Registry,
-    RunResult,
-    StageSpec,
-    build_pipeline,
-    run_pipeline,
-)
+from groundline.core import FileCache, RunResult
 from groundline.evaluators.commissions import register_commissions
-from groundline.profiles import load_builtin_profile
-from tests.fakes import FakeClient
+from tests.fakes import FakeClient, ScriptedReplies, run_stages
 from tests.omission_helpers import SOURCE
-
-CLINICAL = load_builtin_profile("clinical")
 
 CHECK = {"step": "commissions_check", "implementation": "commissions_check.llm_quick"}
 REFUTE = {"step": "commissions_refute", "implementation": "commissions_refute.llm"}
@@ -45,21 +31,11 @@ def step_of(prompt: str) -> str:
     return "commissions_refute" if "<flagged_claims>" in prompt else "commissions_check"
 
 
-class Script:
+class Script(ScriptedReplies):
     """Scripted replies per step, given in order. Records each step's prompts."""
 
-    def __init__(self, **replies: str | Sequence[str]) -> None:
-        self.replies = {
-            step: [r] if isinstance(r, str) else list(r) for step, r in replies.items()
-        }
-        self.prompts: dict[str, list[str]] = {}
-
-    def __call__(self, prompt: str) -> str:
-        step = step_of(prompt)
-        self.prompts.setdefault(step, []).append(prompt)
-        queue = self.replies.get(step)
-        assert queue, f"no scripted reply left for {step}"
-        return queue.pop(0) if len(queue) > 1 else queue[0]
+    def step_of(self, prompt: str) -> str:
+        return step_of(prompt)
 
 
 def run(
@@ -70,22 +46,14 @@ def run(
     summary: str = SUMMARY,
     cache: FileCache | None = None,
 ) -> tuple[RunResult, FakeClient]:
-    registry = Registry()
-    register_commissions(registry)
-    spec = PipelineSpec(
-        name="test", profile="clinical", stages=[StageSpec(**s) for s in stages]
+    return run_stages(
+        register_commissions,
+        stages,
+        script,
+        source=source,
+        summary=summary,
+        cache=cache,
     )
-    pipeline = build_pipeline(spec, registry, profile=CLINICAL)
-    client = FakeClient(script)
-    result = asyncio.run(
-        run_pipeline(
-            pipeline,
-            Inputs(source=source, summary=summary),
-            client=client,
-            cache=cache,
-        )
-    )
-    return result, client
 
 
 # --- standard replies for the source and summary above --------------------------

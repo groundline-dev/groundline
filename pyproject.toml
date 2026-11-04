@@ -3,6 +3,8 @@ name = "groundline"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
+license = "Apache-2.0"
+license-files = ["LICENSE", "NOTICE"]
 authors = [
     { name = "Shannon Mulloy", email = "smulloy21@gmail.com" },
     { name = "Avinash Darshan", email = "avidars2@gmail.com" },

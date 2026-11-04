@@ -23,9 +23,9 @@ from groundline.core import (
     StageError,
     summarize_usage,
 )
-from groundline.evaluate import EvaluationResult
 from groundline.evaluators.models import AlarmOutput
-from groundline.evaluators.report import format_cost
+from groundline.evaluators.report import usage_text
+from groundline.result import EvaluationResult
 
 logger = logging.getLogger("groundline.api")
 
@@ -154,7 +154,4 @@ def _spent(error: StageError) -> str:
     """What a failed check had cost, if it made any calls."""
     if not error.calls:
         return ""
-    usage = summarize_usage(error.calls)
-    return (
-        f". Cost before stopping: {format_cost(usage.cost_usd)} · {usage.calls} calls"
-    )
+    return f". Cost before stopping: {usage_text(summarize_usage(error.calls))}"

@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from groundline.core.spec import spec_json_schema
-from groundline.evaluate import default_registry
+from groundline.evaluators.builtin import default_registry
 
 SCHEMA_PATH = Path(__file__).parent / "pipeline.schema.json"
 
