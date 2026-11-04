@@ -12,7 +12,7 @@ any unexpected error). Only a finished check that flags the summary exits with 1
 import json
 import os
 import time
-from collections.abc import Callable, Sequence
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Annotated
@@ -21,7 +21,6 @@ import platformdirs
 import typer
 
 from groundline.core import (
-    CallRecord,
     FileCache,
     ModelClient,
     ProfileError,
@@ -42,7 +41,7 @@ from groundline.evaluate import (
 from groundline.evaluators.commissions import report as commissions_report
 from groundline.evaluators.models import AlarmOutput
 from groundline.evaluators.omissions import report as omissions_report
-from groundline.evaluators.report import format_cost, result_json
+from groundline.evaluators.report import result_json, usage_text
 from groundline.presets import load_preset
 
 app = typer.Typer(
@@ -210,7 +209,8 @@ def _finish(run: Callable[[], int]) -> None:
     except StageError as error:
         typer.echo(f"error: {error}", err=True)
         if error.calls:
-            typer.echo(f"  Cost before stopping: {_cost(error.calls)}", err=True)
+            cost = usage_text(summarize_usage(error.calls))
+            typer.echo(f"  Cost before stopping: {cost}", err=True)
         code = EXIT_ERROR
     except (SetupError, SpecError, ProfileError, ValueError, OSError) as error:
         typer.echo(f"error: {error}", err=True)
@@ -281,14 +281,3 @@ def _write_json(path: Path, result: EvaluationResult) -> None:
         raise OSError(
             f"couldn't write the JSON result to {path}: {error.strerror or error}"
         ) from error
-
-
-def _cost(calls: Sequence[CallRecord]) -> str:
-    usage = summarize_usage(calls)
-    cost = (
-        f"{format_cost(usage.cost_usd)} · {usage.calls} calls · "
-        f"{usage.input_tokens:,} input / {usage.output_tokens:,} output tokens"
-    )
-    if usage.unpriced_models:
-        cost += f" (no price for {', '.join(usage.unpriced_models)})"
-    return cost
