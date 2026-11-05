@@ -36,7 +36,9 @@ trap cleanup EXIT
 
 start() {
   local output
-  output="$("${compose[@]}" up --detach --wait --quiet-pull 2>&1)" \
+  # --wait returns only once Postgres and the app pass their healthchecks, so the
+  # checks below don't run before the migrations finish.
+  output="$("${compose[@]}" up --detach --wait --wait-timeout 120 --quiet-pull 2>&1)" \
     || fail "docker compose up --wait failed:
 $output"
   base="http://$("${compose[@]}" port app 8000)"
