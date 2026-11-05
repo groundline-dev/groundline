@@ -16,7 +16,7 @@ A test deployment holds only test data ([ADR 0006](../docs/adr/0006-no-real-pati
 - **The security group admits one `/32` on port 8001:** the app speaks plain HTTP until ALL-90 adds HTTPS, so only the developer's own IP can reach it. The variable's validation rejects wider ranges, and there's no inbound rule for SSH.
 - **SSM Run Command instead of SSH:** the scripts reach the server through SSM, so there's no key pair to manage and no open port 22.
 - **The IAM role's policy is written out instead of attaching `AmazonSSMManagedInstanceCore`:** that managed policy also grants `ssm:GetParameter` and `ssm:GetParameters` on every parameter in the project. Our copy keeps the SSM agent's actions and allows reading only `/groundline/anthropic-api-key`.
-- **IMDSv2 with a hop limit of 1:** the metadata service only answers token requests, and its replies don't get past Docker's bridge network, so the containers can't get the role's credentials. The SSM agent and the startup script run on the server itself and still can. Nothing in the containers uses AWS.
+- **IMDSv2 with a hop limit of 1:** every metadata request needs a session token, and the reply that carries the token doesn't get past Docker's bridge network, so the containers can't get the role's credentials. The SSM agent and the startup script run on the server itself and still can. Nothing in the containers uses AWS.
 - **Standard CPU credits:** T4g instances default to unlimited credits, which bill CPU use above the baseline at about $0.04 per vCPU-hour with no ceiling. Standard credits slow the server down instead, so it costs what the budget expects.
 - **An encrypted 20 GB gp3 disk that's deleted on termination:** the data goes with the server, and the provider's `default_tags` don't reach the root disk, so it's tagged separately.
 - **The 8-hour limit:** the startup script writes a deadline and installs a systemd timer that shuts the server down once it passes. `instance_initiated_shutdown_behavior = "terminate"` makes that shutdown delete the server. The deadline is written before anything else, so a server whose startup fails still goes away. With `auto_terminate_hours = 0` there's no timer, and a shutdown only stops the server, so it keeps its data.
@@ -25,8 +25,8 @@ A test deployment holds only test data ([ADR 0006](../docs/adr/0006-no-real-pati
 
 ## What needs updating
 
-- **Compose and buildx:** `bootstrap.sh.tftpl` downloads both at pinned versions and checks each file's sha256, since Amazon Linux doesn't package them. To update one, change its URL and take the new sum from the release's checksums file.
-- **Terraform and the AWS provider:** `versions.tf` pins both with `~>`. Raise the pin, run `terraform -chdir=infra init -upgrade`, then `make infra-check`.
+- **Compose and buildx:** `bootstrap.sh.tftpl` downloads both at pinned versions and checks each file's sha256, since Amazon Linux doesn't package them. To update one, change its URL and its sha256 in the `install_plugin` call, taking the new one from the release's checksums file.
+- **Terraform and the AWS provider:** `versions.tf` pins both with `~>`. Raise the pin, run `terraform -chdir=infra init -upgrade`, then `make infra-check`, and commit the updated `.terraform.lock.hcl`.
 - **The SSM agent's actions:** our policy copies `AmazonSSMManagedInstanceCore` by hand. If AWS adds actions to that policy and Run Command stops working, compare the two.
 - **The Anthropic parameter's key:** the role has no `kms:Decrypt`. Reading the parameter works only because it uses the default `aws/ssm` key. Moving it to a customer managed key breaks startup until the role gets `kms:Decrypt` on that key.
 - **The AMI:** each new server gets the newest Amazon Linux 2023 arm64 AMI. `ignore_changes = [ami]` keeps a newer AMI from replacing a running server, so a running server keeps the AMI it started with.
