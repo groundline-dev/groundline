@@ -178,7 +178,9 @@ class APIKeys:
         A key holds 256 random bits and is stored as its SHA-256 hash
         (ADR 0010). `name` is a label, not a unique identifier: without one,
         a friendly name is generated. Raises `APIKeyInputError` for a name
-        over 128 characters or a lifetime that isn't positive.
+        that is blank, not printable, on more than one line or over 128
+        characters, and for a lifetime that isn't positive or whose expiry
+        date is out of range.
         """
         label = api_key_name(name)
         if expires_in is not None and expires_in <= timedelta(0):

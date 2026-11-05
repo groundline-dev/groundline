@@ -34,7 +34,7 @@ You need [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13 (0.1
    make db
    ```
 
-   It returns once Postgres is accepting connections, or fails if it doesn't start. If it stops with `set POSTGRES_PASSWORD in .env`, `.env` is missing or a password is still blank. For any other failure, `docker compose ps` shows whether the container is running, and `docker compose logs postgres` shows why it stopped.
+   It returns once Postgres is accepting connections, or fails if it doesn't start. If it stops with `set POSTGRES_PASSWORD in .env` or `set GROUNDLINE_DB_PASSWORD in .env`, `.env` is missing or that password is still blank. For any other failure, `docker compose ps` shows whether the container is running, and `docker compose logs postgres` shows why it stopped.
 
 5. Create the app's login and database, and apply the migrations:
 
@@ -88,6 +88,26 @@ scripts/db-setup                                      # apply it
 - **Changing `GROUNDLINE_DB_PASSWORD`:** change it in `.env` and rerun `scripts/db-setup`.
 - **Changing `POSTGRES_PASSWORD`:** changing `.env` isn't enough, because Postgres reads it only when the volume is created. Also run `docker compose exec postgres psql -U postgres -c "ALTER ROLE postgres PASSWORD 'NEW'"`.
 - **Starting over:** `docker compose down --volumes` deletes the database, with every API key in it.
+
+### Backups
+
+Nothing backs up the database: the Docker volume keeps it across restarts, but whoever runs the server is responsible for backups. It holds only API keys, so losing it means issuing new keys. To back it up and restore it:
+
+```sh
+docker compose exec -T postgres pg_dump -U postgres -Fc groundline > groundline.dump
+docker compose exec -T postgres pg_restore -U postgres --clean --if-exists -d groundline < groundline.dump
+```
+
+To check that a dump restores, restore it into a scratch database and compare the row count with `SELECT count(*) FROM api_keys` on the live database:
+
+```sh
+docker compose exec -T postgres createdb -U postgres restore_check
+docker compose exec -T postgres pg_restore -U postgres -d restore_check < groundline.dump
+docker compose exec -T postgres psql -U postgres -d restore_check -c "SELECT count(*) FROM api_keys"
+docker compose exec -T postgres dropdb -U postgres restore_check
+```
+
+A major Postgres upgrade, such as 18 to 19, uses the same commands: back up, check the dump restores, change the image in `compose.yaml`, delete the volume, start the stack so setup creates the database again, then restore. Check the dump before deleting the volume, because a bad dump can't be fixed after that.
 
 ## Tests
 

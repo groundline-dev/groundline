@@ -1,4 +1,5 @@
-# groundline and its Postgres database. See DEVELOPMENT.md, "Docker".
+# groundline and its Postgres database. See DEVELOPMENT.md, "Getting started"
+# and "Running the whole stack in Docker".
 #
 #   docker compose up --build        the whole stack      (make docker-run)
 #   docker compose up -d --wait postgres   only Postgres, for `make dev` (make db)
