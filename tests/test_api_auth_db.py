@@ -1,4 +1,4 @@
-"""Real API-key lifecycle on the omissions route; only the model is faked."""
+"""Real API-key lifecycle on the check routes; only the model is faked."""
 
 import re
 from pathlib import Path
@@ -10,35 +10,44 @@ from sqlalchemy import Engine, func, select, update
 from typer.testing import CliRunner
 
 from groundline.api import common
-from groundline.api import omissions as api
 from groundline.app import app
 from groundline.cli import app as cli
 from groundline.db import api_keys
+from tests.auth_helpers import BODY, ENDPOINTS, Endpoint
 from tests.fakes import FakeClient
-from tests.omission_helpers import SOURCE, SUMMARY, not_flagged_script
 
 pytestmark = pytest.mark.db
 runner = CliRunner()
-BODY = {"source": SOURCE, "summary": SUMMARY}
+
+
+@pytest.fixture(params=ENDPOINTS, ids=lambda e: e.path)
+def endpoint(request: pytest.FixtureRequest) -> Endpoint:
+    return request.param
 
 
 @pytest.fixture
-def model(db_url: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> FakeClient:
+def model(
+    endpoint: Endpoint,
+    db_url: str,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+) -> FakeClient:
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("DATABASE_URL", db_url)
-    client = FakeClient(not_flagged_script())
+    client = FakeClient(endpoint.not_flagged())
     monkeypatch.setitem(app.dependency_overrides, common.model_client, lambda: client)
     return client
 
 
 @pytest.fixture
-def evaluation(monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
-    spy = AsyncMock(wraps=api.evaluate)
-    monkeypatch.setattr(api, "evaluate", spy)
+def evaluation(endpoint: Endpoint, monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+    spy = AsyncMock(wraps=endpoint.module.evaluate)
+    monkeypatch.setattr(endpoint.module, "evaluate", spy)
     return spy
 
 
-def test_cli_revocation_stops_the_next_omissions_request(
+def test_cli_revocation_stops_the_next_check(
+    endpoint: Endpoint,
     db_engine: Engine,
     model: FakeClient,
     evaluation: AsyncMock,
@@ -55,28 +64,29 @@ def test_cli_revocation_stops_the_next_omissions_request(
     assert identifier is not None
 
     with TestClient(app) as client:
-        response = client.post("/v1/omissions", json=BODY, headers=headers)
+        response = client.post(endpoint.path, json=BODY, headers=headers)
         assert response.status_code == 200
         body = response.json()
         assert body["flagged"] is False
-        assert body["usage"]["calls"] == 4
-        assert len(model.requests) == 4
+        assert body["usage"]["calls"] == endpoint.calls
+        assert len(model.requests) == endpoint.calls
         assert credential not in response.text
 
         revoked = runner.invoke(cli, ["keys", "revoke", str(identifier)])
         assert revoked.exit_code == 0, revoked.stderr
-        rejected = client.post("/v1/omissions", json=BODY, headers=headers)
+        rejected = client.post(endpoint.path, json=BODY, headers=headers)
         assert rejected.status_code == 401
         assert rejected.json() == {"detail": "Invalid or missing API key"}
         assert rejected.headers["www-authenticate"] == "Bearer"
         assert evaluation.await_count == 1
-        assert len(model.requests) == 4
+        assert len(model.requests) == endpoint.calls
         assert client.get("/health").json() == {"status": "ok"}
     assert credential not in rejected.text + caplog.text
 
 
 @pytest.mark.parametrize("state", ["unknown", "expired"])
-def test_unknown_and_expired_api_keys_cannot_run_omissions(
+def test_unknown_and_expired_api_keys_cannot_run_a_check(
+    endpoint: Endpoint,
     state: str,
     db_engine: Engine,
     model: FakeClient,
@@ -98,7 +108,7 @@ def test_unknown_and_expired_api_keys_cannot_run_omissions(
                 connection.execute(update(api_keys).values(expires_at=func.now()))
                 assert connection.scalar(select(api_keys.c.status)) == "active"
         response = client.post(
-            "/v1/omissions",
+            endpoint.path,
             json=BODY,
             headers={"Authorization": f"Bearer {credential}"},
         )

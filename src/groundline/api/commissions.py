@@ -13,7 +13,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends
 
 from groundline.api.common import (
-    FAILURE_RESPONSES,
+    PROTECTED_RESPONSES,
     Alarm,
     ApiModel,
     CheckRequest,
@@ -23,6 +23,7 @@ from groundline.api.common import (
     model_client,
     usage_of,
 )
+from groundline.auth import require_api_key
 from groundline.core import ModelClient
 from groundline.evaluate import DEFAULT_COMMISSIONS_PRESET, evaluate
 from groundline.evaluators.commissions.models import (
@@ -87,7 +88,11 @@ class CommissionsResponse(ApiModel):
     """The model calls the check made, and what they cost."""
 
 
-@router.post("/commissions", responses=FAILURE_RESPONSES)
+@router.post(
+    "/commissions",
+    dependencies=[Depends(require_api_key)],
+    responses=PROTECTED_RESPONSES,
+)
 async def commissions(
     request: CommissionsRequest,
     client: Annotated[ModelClient | None, Depends(model_client)],

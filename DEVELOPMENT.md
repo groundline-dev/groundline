@@ -35,8 +35,8 @@ make docker-run
 ```
 
 - **No API key in the container:** `.env` is mounted only if it exists when the container starts. If the app tells you to copy `.env.example` to `.env` and names `/home/groundline/.env`, that's the path inside the container. Create `.env` in the repo folder, then stop the container and run `make docker-run` again.
-- **No database yet:** inside the container, `localhost` is the container itself, so the app logs that it can't connect to the database at `localhost:5432` and keeps running. Nothing uses the database yet. A Compose file that runs Postgres next to the app is planned (ALL-70).
-- **Running the image with your own `docker run`:** include `127.0.0.1` in the port, as `make docker-run` does: `-p 127.0.0.1:8001:8000`. Without an IP, as in `-p 8000:8000`, Docker listens on every network interface, so anyone on your network can reach the API. On Linux, this also gets past firewalls such as ufw. The API has no authentication yet, and every request spends Anthropic credit.
+- **No database yet:** inside the container, `localhost` is the container itself, so the app logs that it can't connect to the database at `localhost:5432` and keeps running. `/health` works, but both check endpoints answer 503 (`Authentication is unavailable`), since they look up API keys in the database. A Compose file that runs Postgres next to the app is planned (ALL-70).
+- **Running the image with your own `docker run`:** include `127.0.0.1` in the port, as `make docker-run` does: `-p 127.0.0.1:8001:8000`. Without an IP, as in `-p 8000:8000`, Docker listens on every network interface, so anyone on your network can reach the API. On Linux, this also gets past firewalls such as ufw. The check endpoints require an API key, but the API serves plain HTTP, so anyone on your network could read a key in transit.
 
 Build the image, start it and check that `/health` returns 200. CI runs the same check on every PR. Run it before pushing if you changed the Dockerfile, `.dockerignore`, the dependencies, or how the app starts. It runs on a free port Docker picks, so it works while `make dev` is running:
 
@@ -131,9 +131,9 @@ async def example(
     return {"api_key_id": str(api_key.id)}
 ```
 
-`POST /v1/omissions` uses `dependencies=[Depends(require_api_key)]` on its route decorator because it needs authentication without using the returned metadata. The example above shows how a handler can use that metadata.
+`POST /v1/omissions` and `POST /v1/commissions` use `dependencies=[Depends(require_api_key)]` on their route decorators, because each needs authentication but not the returned metadata. Both also pass `responses=PROTECTED_RESPONSES` (`api/common.py`), which documents the 401 and 503. The example above shows how a handler can use that metadata.
 
-The dependency declares Bearer security in OpenAPI and returns safe API-key metadata. Missing, malformed, unknown, revoked, and expired credentials produce the same 401 response with `WWW-Authenticate: Bearer`. Storage failures produce a generic 503, with no credentials or database error details exposed. Leave public routes such as `/health` without this dependency; it is not global middleware. FastAPI parses JSON before dependencies: broken JSON retains 422 and non-UTF-8 bodies retain 400 even without credentials. For readable JSON, authentication rejects credentials before field validation or evaluation.
+The dependency declares Bearer security in OpenAPI and returns safe API-key metadata. Missing, malformed, unknown, revoked, and expired credentials produce the same 401 response with `WWW-Authenticate: Bearer`. Storage failures produce a generic 503, with no credentials or database error details exposed. It is not global middleware, so every route needs it except probes such as `/health`; a test in `tests/test_api_auth.py` lists the public probes and fails if any other route in the OpenAPI schema lacks it ([ADR 0012](docs/adr/0012-only-probes-and-docs-pages-are-public.md)). FastAPI parses JSON before dependencies: broken JSON retains 422 and non-UTF-8 bodies retain 400 even without credentials. For readable JSON, authentication rejects credentials before field validation or evaluation.
 
 ## Tests
 
@@ -149,7 +149,7 @@ Run the database tests, which need PostgreSQL 18 running locally as described in
 uv run pytest -m db
 ```
 
-API-key coverage includes real create/revoke commands, commit failure, concurrent revocation, expiry, and authentication through two running application instances. Shared fixtures in `tests/conftest.py` create throwaway databases; they never use the developer's `DATABASE_URL`. `tests/test_auth.py` checks the shared dependency on a test-only route. `tests/test_api_omissions_auth.py` exercises the production omissions route offline, including rejected requests doing no pipeline/model work and OpenAPI security. `tests/test_api_omissions_auth_db.py` runs that route with its real lifespan and PostgreSQL, proving acceptance, CLI revocation, unknown credentials, and expiry with a fake model client. Run the database suite explicitly when changing API-key behavior: the default suite and CI exclude it.
+API-key coverage includes real create/revoke commands, commit failure, concurrent revocation, expiry, and authentication through two running application instances. Shared fixtures in `tests/conftest.py` create throwaway databases; they never use the developer's `DATABASE_URL`. `tests/test_auth.py` checks the shared dependency on a test-only route. `tests/test_api_auth.py` exercises both production check routes offline, including rejected requests doing no pipeline/model work and OpenAPI security. `tests/test_api_auth_db.py` runs both routes with the app's real lifespan and PostgreSQL, proving acceptance, CLI revocation, unknown credentials, and expiry with a fake model client. Run the database suite explicitly when changing API-key behavior: the default suite and CI exclude it.
 
 Run the live smoke tests, which call the real Anthropic API on short examples: the omission preset, the commission preset and the `/v1/omissions` and `/v1/commissions` endpoints (still about $0.09 per run in all, as the commission calls add under a cent). They're excluded from the default run:
 
@@ -157,7 +157,7 @@ Run the live smoke tests, which call the real Anthropic API on short examples: t
 uv run pytest -m live -s
 ```
 
-The live omissions endpoint smoke test uses fake API-key storage and a Bearer credential with the real authentication dependency, so it needs no PostgreSQL database. The marked database tests cover real credential persistence and revocation.
+The live endpoint smoke tests use fake API-key storage and a Bearer credential with the real authentication dependency, so they need no PostgreSQL database. The marked database tests cover real credential persistence and revocation.
 
 `tests/test_parity.py` (omissions) and `tests/test_parity_commissions.py` (commissions) each replay a recorded run of a measured pipeline and check that groundline sends byte-identical prompts and reaches identical results. If you change a prompt, the rubric or a step's logic, expect them to fail. That means the `omission_all_opus` or `commission_quick` preset no longer matches the measured results.
 
