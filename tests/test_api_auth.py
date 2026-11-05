@@ -194,7 +194,12 @@ def test_openapi_documents_authentication_errors(endpoint: Endpoint):
     assert "Authentication" in operation["responses"]["503"]["description"]
 
 
-def test_openapi_requires_an_api_key_on_every_route_but_health():
+# Probes only (ADR 0012). A public route that takes or returns data needs a
+# new ADR, not an entry here.
+PUBLIC_ROUTES = {"/health"}
+
+
+def test_openapi_requires_an_api_key_on_every_route_but_public_probes():
     schema = app.openapi()
     assert schema["components"]["securitySchemes"]["HTTPBearer"] == {
         "type": "http",
@@ -202,7 +207,7 @@ def test_openapi_requires_an_api_key_on_every_route_but_health():
     }
     for path, operations in schema["paths"].items():
         for method, operation in operations.items():
-            if path == "/health":
+            if path in PUBLIC_ROUTES:
                 assert "security" not in operation
             else:
                 assert operation.get("security") == [{"HTTPBearer": []}], (

@@ -1,0 +1,3 @@
+# Only probes and docs pages are public
+
+groundline's API takes sources and summaries, which in production will be clinical data, so a route that ships without authentication by mistake could expose that data. We protect each route with the `require_api_key` dependency rather than global middleware, which makes forgetting it the likely failure. So every route needs an API key except health and readiness probes and the API docs pages, none of which take or return a source, a summary or anything derived from them. A test lists the public routes in the OpenAPI schema and fails if any other route lacks an API key; adding a probe means adding it to that list. A public route that takes or returns data would be a new decision that supersedes this one.
