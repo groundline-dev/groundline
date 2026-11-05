@@ -53,8 +53,9 @@ services:
       DATABASE_URL: postgresql+psycopg://groundline:${GROUNDLINE_DB_PASSWORD:?set GROUNDLINE_DB_PASSWORD in .env (see .env.example)}@postgres:5432/groundline
     ports:
       # Loopback by default. A server that callers reach over the network sets
-      # APP_BIND_ADDRESS=0.0.0.0 in .env.
-      - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_HOST_PORT:-8000}:8000"
+      # APP_BIND_ADDRESS=0.0.0.0 in .env. 8001, not 8000, so the stack can run
+      # alongside `make dev`.
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_HOST_PORT:-8001}:8000"
     depends_on:
       setup:
         condition: service_completed_successfully

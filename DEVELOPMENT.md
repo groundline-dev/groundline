@@ -22,18 +22,18 @@ The README's [Using the API](README.md#using-the-api) describes the endpoints. E
 
 [compose.yaml](compose.yaml) runs the whole stack: Postgres, a one-off `setup` service that prepares the database, then the app, built from the [Dockerfile](Dockerfile). You need [Docker](https://docs.docker.com/get-started/get-docker/) installed and running, and the database passwords in `.env` (see [Database](#database)).
 
-Build the image and start the stack at http://127.0.0.1:8000. Stop it with Ctrl+C:
+Build the image and start the stack at http://127.0.0.1:8001. Stop it with Ctrl+C:
 
 ```sh
 make docker-run    # docker compose up --build
 ```
 
-`make dev` uses port 8000 too, so stop one before starting the other, or set `APP_HOST_PORT` in `.env`. To build the image on its own, run `make docker-build`.
+The stack uses port 8001, so it can run alongside `make dev` on 8000. To use another port, set `APP_HOST_PORT` in `.env`. To build the image without starting the stack, for example to check that a Dockerfile change still builds, run `make docker-build`.
 
 - **Settings:** the containers don't get all of `.env`, which holds the admin password. Each gets only the variables its `environment:` in `compose.yaml` lists, and only `setup` gets the admin password ([ADR 0012](docs/adr/0012-the-app-never-runs-as-a-postgres-superuser.md)). When you add a setting to `Settings`, add it to the app's `environment:` too; `tests/test_compose.py` fails until you do.
 - **If the app doesn't start:** it waits for `setup` to finish. If setup fails, for example on a migration, Docker retries it and the app stays down. The error is in `docker compose logs setup`.
 - **On a server:** the app's port is on `127.0.0.1` by default, so only this computer can reach it. A server that callers reach over the network sets `APP_BIND_ADDRESS=0.0.0.0` in `.env`. Postgres's port is always on `127.0.0.1`.
-- **Running the image with your own `docker run`:** include `127.0.0.1` in the port, as `compose.yaml` does by default: `-p 127.0.0.1:8000:8000`. Without an IP, as in `-p 8000:8000`, Docker listens on every network interface, so anyone on your network can reach the API. On Linux, this also gets past firewalls such as ufw.
+- **Running the image with your own `docker run`:** include `127.0.0.1` in the port, as `compose.yaml` does by default: `-p 127.0.0.1:8001:8000`. Without an IP, as in `-p 8000:8000`, Docker listens on every network interface, so anyone on your network can reach the API. On Linux, this also gets past firewalls such as ufw.
 
 Check the whole stack before pushing if you changed the Dockerfile, `compose.yaml`, `.dockerignore`, the dependencies, or how the app starts. CI runs the same check on every PR:
 
