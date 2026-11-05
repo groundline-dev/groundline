@@ -8,7 +8,7 @@ Follow the README's [Setup](README.md#setup) section first: `make setup`, and an
 
 ## Running the API
 
-Start the API with auto-reload at http://127.0.0.1:8000 (interactive docs at `/docs`):
+Start the API with auto-reload at http://127.0.0.1:8000 (interactive docs at `/docs` and `/api`):
 
 ```sh
 make dev
@@ -17,6 +17,8 @@ make dev
 Use this for day-to-day work. It reloads when you edit the source, which the container doesn't.
 
 The README's [Using the API](README.md#using-the-api) describes the endpoints. Each endpoint has a request and response model of its own in `src/groundline/api/`, so refactoring the pipeline's models can't change the API by accident.
+
+The docs page is generated from those models. Each request and response model carries an example in `json_schema_extra`, and `tests/test_api_docs.py` checks that every example still fits its model. FastAPI leaves `null` values out of examples in the docs, so keep them out of the examples too. The app's `description` in `src/groundline/app.py` holds the versioning policy shown at the top of the page.
 
 ### In Docker
 
@@ -131,7 +133,7 @@ async def example(
     return {"api_key_id": str(api_key.id)}
 ```
 
-`POST /v1/omissions` and `POST /v1/commissions` use `dependencies=[Depends(require_api_key)]` on their route decorators, because each needs authentication but not the returned metadata. Both also pass `responses=PROTECTED_RESPONSES` (`api/common.py`), which documents the 401 and 503. The example above shows how a handler can use that metadata.
+`POST /v1/omissions` and `POST /v1/commissions` use `dependencies=[Depends(require_api_key)]` on their route decorators, because each needs authentication but not the returned metadata. Both also pass `responses=PROTECTED_RESPONSES` (`api/common.py`), which documents every error status a check can answer, with an example of each. The example above shows how a handler can use that metadata.
 
 The dependency declares Bearer security in OpenAPI and returns safe API-key metadata. Missing, malformed, unknown, revoked, and expired credentials produce the same 401 response with `WWW-Authenticate: Bearer`. Storage failures produce a generic 503, with no credentials or database error details exposed. Leave public routes such as `/health` without this dependency; it is not global middleware. FastAPI parses JSON before dependencies: broken JSON retains 422 and non-UTF-8 bodies retain 400 even without credentials. For readable JSON, authentication rejects credentials before field validation or evaluation.
 

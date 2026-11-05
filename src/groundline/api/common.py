@@ -9,12 +9,17 @@ written to be safe, or left to `groundline.api.errors`, which never repeats one.
 import logging
 from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Annotated
+from typing import Annotated, Any
 
 import anthropic
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from groundline.api.errors import (
+    AUTHENTICATION_UNAVAILABLE,
+    INVALID_API_KEY,
+    UNEXPECTED,
+)
 from groundline.core import (
     ModelClient,
     ModelError,
@@ -39,30 +44,153 @@ one request can't spend dollars on a huge input."""
 # may quote the source or summary.
 UPSTREAM_CAUSES = (ReplyError, ModelError, anthropic.APIError)
 
-FAILURE_RESPONSES: dict[int | str, dict[str, str]] = {
-    502: {"description": "The model or Anthropic's API failed."},
-    503: {"description": "The Anthropic API key is missing or rejected."},
-}
-"""The statuses a model failure can cause, beyond 200 and the 422 FastAPI
-documents. Check routes use `PROTECTED_RESPONSES`, which adds authentication's."""
-
-PROTECTED_RESPONSES: dict[int | str, dict[str, str]] = {
-    **FAILURE_RESPONSES,
-    401: {"description": "The API key is missing or invalid."},
-    503: {
-        "description": "Authentication is unavailable, or the Anthropic API key is "
-        "missing or rejected."
-    },
-}
-"""`FAILURE_RESPONSES` for a route that also depends on `require_api_key`."""
-
 
 class ApiModel(BaseModel):
     model_config = ConfigDict(extra="forbid", use_attribute_docstrings=True)
 
 
+class ErrorBody(ApiModel):
+    """The body of every error but a 422."""
+
+    detail: str
+
+
+class Problem(ApiModel):
+    """One thing wrong with a request. It never repeats the rejected value."""
+
+    loc: list[str | int]
+    """Where the problem is, such as ["body", "source"]."""
+    msg: str
+    type: str
+
+
+class InvalidRequestBody(ApiModel):
+    """The body of a 422."""
+
+    detail: list[Problem]
+
+
+def _error(
+    model: type[ApiModel], description: str, **examples: object
+) -> dict[str, Any]:
+    """An error status's entry in a route's `responses`, with its examples."""
+    return {
+        "model": model,
+        "description": description,
+        "content": {
+            "application/json": {
+                "examples": {name: {"value": value} for name, value in examples.items()}
+            }
+        },
+    }
+
+
+ANTHROPIC_KEY_MISSING = {
+    "detail": "ANTHROPIC_API_KEY is not set.\n"
+    "  Looked in: the environment, and /home/groundline/.env (not found)\n"
+    "  Fix: export ANTHROPIC_API_KEY=..., or copy .env.example to .env and add "
+    "it there."
+}
+
+FAILURE_RESPONSES: dict[int | str, dict[str, Any]] = {
+    400: _error(
+        ErrorBody,
+        "The body isn't UTF-8 text.",
+        not_utf8={"detail": "There was an error parsing the body"},
+    ),
+    422: _error(
+        InvalidRequestBody,
+        "The request is unusable: broken JSON, a blank or too-long text, or an "
+        "unexpected field. The response never repeats the rejected value.",
+        blank_and_extra={
+            "detail": [
+                {
+                    "loc": ["body", "source"],
+                    "msg": "String should have at least 1 character",
+                    "type": "string_too_short",
+                },
+                {
+                    "loc": ["body"],
+                    "msg": "Extra inputs are not permitted",
+                    "type": "extra_forbidden",
+                },
+            ]
+        },
+    ),
+    500: _error(
+        ErrorBody,
+        "An unexpected error, a bug in groundline. The details are in the server log.",
+        unexpected={"detail": UNEXPECTED},
+    ),
+    502: _error(
+        ErrorBody,
+        "The model or Anthropic's API failed. Retrying later may work.",
+        omissions_unusable_reply={
+            "detail": "stage 'extract' failed: unusable reply after 1 retry: no "
+            "JSON object in the reply (the reply was 8 characters). Cost before "
+            "stopping: $0.0043 · 2 calls · 1,054 input / 4 output tokens"
+        },
+        commissions_anthropic_error={
+            "detail": "stage 'commissions_check' failed: the Anthropic API "
+            "answered 529 (OverloadedError)"
+        },
+    ),
+    503: _error(
+        ErrorBody,
+        "The Anthropic API key is missing or rejected.",
+        anthropic_key_missing=ANTHROPIC_KEY_MISSING,
+    ),
+}
+"""The statuses a check can answer besides 200, with examples. FastAPI's own 422
+entry is replaced, since groundline's 422 leaves out the rejected value. Check
+routes use `PROTECTED_RESPONSES`, which adds authentication's."""
+
+PROTECTED_RESPONSES: dict[int | str, dict[str, Any]] = {
+    **FAILURE_RESPONSES,
+    401: {
+        **_error(
+            ErrorBody,
+            "The API key is missing or invalid.",
+            invalid_key={"detail": INVALID_API_KEY},
+        ),
+        "headers": {
+            "WWW-Authenticate": {
+                "description": "Always `Bearer`.",
+                "schema": {"type": "string"},
+            }
+        },
+    },
+    503: _error(
+        ErrorBody,
+        "Authentication is unavailable, or the Anthropic API key is missing or "
+        "rejected.",
+        authentication_unavailable={"detail": AUTHENTICATION_UNAVAILABLE},
+        anthropic_key_missing=ANTHROPIC_KEY_MISSING,
+    ),
+}
+"""`FAILURE_RESPONSES` for a route that also depends on `require_api_key`."""
+
+_EXAMPLE_SOURCE = (
+    "Doctor: Any allergies? Patient: Penicillin, it gives me a rash. Doctor: "
+    "Your knee is sprained. Take Motrin 600 mg every 6 hours for a week, and "
+    "come back if it isn't better in two weeks."
+)
+_EXAMPLE_SUMMARY = (
+    "Sprained knee. Allergic to penicillin. Motrin 800 mg every 6 hours for a "
+    "week. Return if not improving in two weeks."
+)
+"""An invented consultation for the docs' examples. FastAPI leaves out null
+values when it puts an example in the docs, so no example holds one."""
+
+
 class CheckRequest(ApiModel):
     """The body of every check: a source and the summary to check against it."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [{"source": _EXAMPLE_SOURCE, "summary": _EXAMPLE_SUMMARY}]
+        }
+    )
 
     source: Annotated[str, Field(min_length=1, max_length=MAX_CHARS)]
     """The original material, such as a consultation transcript."""

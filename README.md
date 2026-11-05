@@ -168,7 +168,7 @@ for c in refute.commissions:
 
 ## Using the API
 
-Set up [PostgreSQL](DEVELOPMENT.md#database) and configure `DATABASE_URL` and `ANTHROPIC_API_KEY` first. Start the API with `make dev`; it serves at http://127.0.0.1:8000, with interactive docs at `/docs`. Both check endpoints require a groundline API key, and every check spends your Anthropic credit. `/health` remains public.
+Set up [PostgreSQL](DEVELOPMENT.md#database) and configure `DATABASE_URL` and `ANTHROPIC_API_KEY` first. Start the API with `make dev`; it serves at http://127.0.0.1:8000, with interactive docs at `/docs` (also at `/api`) and a read-only reference at `/redoc`. The docs list each endpoint with example requests and responses, and explain how the API is versioned. Both check endpoints require a groundline API key, and every check spends your Anthropic credit. `/health` remains public.
 
 ### `POST /v1/omissions`
 

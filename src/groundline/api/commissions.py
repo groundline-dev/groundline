@@ -11,6 +11,7 @@ import time
 from typing import Annotated
 
 from fastapi import APIRouter, Depends
+from pydantic import ConfigDict
 
 from groundline.api.common import (
     PROTECTED_RESPONSES,
@@ -38,7 +39,7 @@ from groundline.result import EvaluationResult
 
 logger = logging.getLogger("groundline.api")
 
-router = APIRouter(prefix="/v1")
+router = APIRouter()
 
 
 class CommissionsRequest(CheckRequest):
@@ -74,6 +75,35 @@ class Commission(ApiModel):
 
 
 class CommissionsResponse(ApiModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "flagged": True,
+                    "alarm": {"score": 0.95, "threshold": 0.85, "level": "default"},
+                    "commissions": [
+                        {
+                            "claim": "Motrin 800 mg every 6 hours for a week",
+                            "severity": "critical",
+                            "support_verdict": "contradicted",
+                            "unsupported_confidence": 0.95,
+                            "evidence": "Take Motrin 600 mg every 6 hours for a week",
+                            "evidence_found": True,
+                        }
+                    ],
+                    "pipeline": "commission_quick",
+                    "validated_preset": "commission_quick",
+                    "usage": {
+                        "calls": 1,
+                        "input_tokens": 9800,
+                        "output_tokens": 420,
+                        "cost_usd": 0.002,
+                    },
+                }
+            ]
+        }
+    )
+
     flagged: bool
     """Whether the alarm score reached the threshold."""
     alarm: CommissionsAlarm

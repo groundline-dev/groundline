@@ -1,8 +1,11 @@
 import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
+from importlib.metadata import version
 
-from fastapi import FastAPI
+from fastapi import APIRouter, FastAPI, Request
+from fastapi.openapi.docs import get_swagger_ui_html
+from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from groundline.api import commissions, errors, omissions
@@ -81,11 +84,63 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             await engine.dispose()
 
 
+DESCRIPTION = """
+groundline checks an AI-written summary, such as a clinical note, against the
+source it was written from, such as a consultation transcript. It reports the
+facts the summary leaves out (omissions) and the statements in it the source
+doesn't support (commissions). It is research code, **not for clinical use**,
+and must not be used with real patient data yet.
+
+### Authentication
+
+Both checks need a groundline API key, sent as `Authorization: Bearer gl_...`.
+Create one with `groundline keys create`, then use **Authorize** below.
+`/health` is public.
+
+### Versions
+
+Both checks are under `/v1`. Within v1, a change only adds:
+new endpoints, or new fields in a response. A change that could break a
+caller, such as removing or renaming a field or changing a status code, gets a
+new prefix, `/v2`. groundline is still pre-1.0, so it doesn't yet promise how
+long an old version stays available after a new one ships. The version next to
+the title is groundline's release, not the API version.
+
+See the [README](https://github.com/groundline-dev/groundline#using-the-api)
+for more, including what each status means.
+"""
+
 _log_to_console()
-app = FastAPI(title="groundline", lifespan=lifespan)
+app = FastAPI(
+    title="groundline",
+    version=version("groundline"),
+    description=DESCRIPTION,
+    openapi_tags=[
+        {"name": "v1", "description": "The checks, version 1. Each needs an API key."}
+    ],
+    lifespan=lifespan,
+)
 errors.install(app)
-app.include_router(omissions.router)
-app.include_router(commissions.router)
+v1 = APIRouter(prefix="/v1", tags=["v1"])
+v1.include_router(omissions.router)
+v1.include_router(commissions.router)
+app.include_router(v1)
+
+
+@app.get("/api", include_in_schema=False)
+def api_docs(request: Request) -> HTMLResponse:
+    """The interactive API docs: the same page as /docs, built the way FastAPI
+    builds it, including the path prefix of an app behind a proxy."""
+    assert app.openapi_url is not None  # the docs are generated from it
+    root = request.scope.get("root_path", "").rstrip("/")
+    redirect = app.swagger_ui_oauth2_redirect_url
+    return get_swagger_ui_html(
+        openapi_url=root + app.openapi_url,
+        title=f"{app.title} - Swagger UI",
+        oauth2_redirect_url=root + redirect if redirect else None,
+        init_oauth=app.swagger_ui_init_oauth,
+        swagger_ui_parameters=app.swagger_ui_parameters,
+    )
 
 
 @app.get("/health")
