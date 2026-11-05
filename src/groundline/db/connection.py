@@ -45,13 +45,18 @@ async def check_connection(
     engine: AsyncEngine | None = None,
     was_connected: bool | None = None,
 ) -> bool:
-    """Try connecting; return whether it worked, and log the result.
+    """Run SELECT 1 against the database, log the result, and return whether it worked.
 
-    The log gives where and why, never the password. A caller that polls passes
-    the previous result as `was_connected`, and then only a change is logged.
-    A supplied engine is borrowed, with its own connection settings; timeout
-    applies only when this function creates an engine. Only engines created
-    here are disposed here.
+    Log lines name the host, port and database and the driver's reason for
+    failing, but never the password.
+
+    To avoid repeating the same line on every poll of /ready, pass the previous
+    result as `was_connected`. The function then logs only when the database
+    goes down or comes back.
+
+    If you pass `engine`, the function uses it and leaves it open, and `timeout`
+    has no effect. Otherwise it creates its own engine with `timeout` and closes
+    it before returning.
     """
     try:
         url = make_url(raw)
