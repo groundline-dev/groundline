@@ -1,4 +1,4 @@
-.PHONY: setup dev test check fix docker-build docker-run docker-smoke
+.PHONY: setup dev db test-fast test-db test-live check fix docker-build docker-run docker-smoke
 
 setup:
 	uv sync
@@ -7,8 +7,21 @@ setup:
 dev:
 	uv run fastapi dev
 
-test:
+# Only Postgres, from compose.yaml, for `make dev` and the database tests.
+db:
+	docker compose up --detach --wait postgres
+
+# The tests that need nothing running and cost nothing (make check runs them too).
+test-fast:
 	uv run pytest
+
+# The database tests, against the Postgres from compose.yaml (started first).
+test-db: db
+	uv run pytest -m db
+
+# The live tests call the real Anthropic API and cost money.
+test-live:
+	uv run pytest -m live -s
 
 # Read-only: the same checks the pre-commit hook and CI run, plus the tests.
 check:
@@ -19,21 +32,16 @@ fix:
 	uv run ruff check --fix
 	uv run ruff format
 
-# The app in Docker, built from the Dockerfile (see DEVELOPMENT.md).
+# The app image, built from the Dockerfile (see DEVELOPMENT.md).
 IMAGE ?= groundline:dev
-# The port on your machine; the app inside the container always listens on 8000.
-# 8001, not 8000, so it can run alongside `make dev`.
-DOCKER_PORT ?= 8001
 
 docker-build:
 	docker build --tag $(IMAGE) .
 
-# .env, if present, is mounted read-only where the app looks for it (its working
-# folder), so the app reads it the same way as under `make dev`. --env-file would
-# keep quotes around values as part of the value.
+# The whole stack from compose.yaml: Postgres, setup, then the app.
 docker-run:
-	docker run --rm --publish 127.0.0.1:$(DOCKER_PORT):8000 $(if $(wildcard .env),--volume "$(CURDIR)/.env:/home/groundline/.env:ro") $(IMAGE)
+	docker compose up --build
 
-# Build the image, start it and check that /health returns 200.
+# Build the image, then start the Compose stack and smoke-test it.
 docker-smoke: docker-build
-	scripts/docker-smoke-test $(IMAGE)
+	scripts/docker-smoke-test

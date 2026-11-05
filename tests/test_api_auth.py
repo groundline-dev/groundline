@@ -196,7 +196,7 @@ def test_openapi_documents_authentication_errors(endpoint: Endpoint):
 
 # Probes only (ADR 0012). A public route that takes or returns data needs a
 # new ADR, not an entry here.
-PUBLIC_ROUTES = {"/health"}
+PUBLIC_ROUTES = {"/health", "/ready"}
 
 
 def test_openapi_requires_an_api_key_on_every_route_but_public_probes():

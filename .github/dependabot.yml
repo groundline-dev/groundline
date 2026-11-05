@@ -58,6 +58,18 @@ updates:
       security:
         applies-to: security-updates
         patterns: ["*"]
+  # The Postgres image in compose.yaml, pinned by digest. Dependabot updates the
+  # digest within major version 18; a new major needs a dump and restore (see
+  # "Backups" in DEVELOPMENT.md), so it's left to a person.
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    ignore:
+      - dependency-name: postgres
+        update-types: [version-update:semver-major]
   - package-ecosystem: pre-commit
     directory: /
     schedule:

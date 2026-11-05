@@ -1,24 +1,44 @@
-"""Shared, opt-in PostgreSQL fixtures; never use the developer's database."""
+"""PostgreSQL fixtures, used only by the tests that ask for them.
+
+They never touch the developer's database. They log in with DATABASE_ADMIN_URL
+(from the environment or .env, pointing at the Compose Postgres) and create a
+throwaway login and database for each test module.
+"""
 
 import uuid
 from collections.abc import Iterator
 
 import pytest
-from sqlalchemy import Engine, create_engine
+from sqlalchemy import Engine, create_engine, make_url
 
 from groundline.db import api_keys
 from groundline.db.setup import drop_database, setup_database
+from groundline.settings import Settings
+
+
+@pytest.fixture(scope="session")
+def admin_url() -> str:
+    url = Settings().database_admin_url
+    if url is None:
+        pytest.fail(
+            "DATABASE_ADMIN_URL is not set; the database tests need it to create "
+            "throwaway databases. Start Postgres with `make db` and see .env.example."
+        )
+    return url.get_secret_value()
 
 
 @pytest.fixture(scope="module")
-def db_url() -> Iterator[str]:
+def db_url(admin_url: str) -> Iterator[str]:
     name = f"groundline_test_{uuid.uuid4().hex[:8]}"
-    url = f"postgresql+psycopg://{name}:pw-{name}@localhost:5432/{name}"
-    setup_database(url)
+    server = make_url(admin_url)
+    url = server.set(
+        username=name, password=f"pw-{name}", database=name
+    ).render_as_string(hide_password=False)
+    setup_database(url, admin_url)
     try:
         yield url
     finally:
-        drop_database(url)
+        drop_database(url, admin_url)
 
 
 @pytest.fixture

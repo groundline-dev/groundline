@@ -9,7 +9,13 @@ from groundline.settings import MissingAPIKeyError, Settings
 def isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Keep the developer's real key and .env out of these tests."""
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.delenv("DATABASE_URL", raising=False)
+    for name in (
+        "DATABASE_URL",
+        "DATABASE_ADMIN_URL",
+        "GROUNDLINE_DB_PASSWORD",
+        "POSTGRES_HOST_PORT",
+    ):
+        monkeypatch.delenv(name, raising=False)
     monkeypatch.chdir(tmp_path)
 
 
@@ -94,3 +100,47 @@ def test_reads_the_database_url_and_hides_it():
 
 def test_the_database_url_is_optional():
     assert Settings().database_url is None
+
+
+def test_reads_the_admin_url_as_a_secret(monkeypatch: pytest.MonkeyPatch):
+    url = "postgresql+psycopg://postgres:admin-secret@localhost:5433/postgres"
+    monkeypatch.setenv("DATABASE_ADMIN_URL", url)
+
+    settings = Settings()
+
+    assert settings.database_admin_url is not None
+    assert settings.database_admin_url.get_secret_value() == url
+    assert "admin-secret" not in repr(settings)
+
+
+def test_a_dotenv_url_can_reuse_a_password_set_above_it():
+    """In .env each password is set once and the URLs refer to it with ${...},
+    the same way compose.yaml does."""
+    Path(".env").write_text(
+        "GROUNDLINE_DB_PASSWORD=0f1e2d3c\n"
+        "DATABASE_URL=postgresql+psycopg://groundline:${GROUNDLINE_DB_PASSWORD}"
+        "@localhost:5433/groundline\n"
+    )
+
+    url = Settings().database_url
+
+    assert url is not None
+    assert url.get_secret_value() == (
+        "postgresql+psycopg://groundline:0f1e2d3c@localhost:5433/groundline"
+    )
+
+
+@pytest.mark.parametrize(
+    "port_line,port", [("POSTGRES_HOST_PORT=6543\n", "6543"), ("", "5433")]
+)
+def test_a_dotenv_url_follows_the_postgres_port(port_line: str, port: str):
+    """Changing POSTGRES_HOST_PORT in .env also changes the port in DATABASE_URL."""
+    Path(".env").write_text(
+        port_line + "DATABASE_URL=postgresql+psycopg://groundline:pw"
+        "@localhost:${POSTGRES_HOST_PORT:-5433}/groundline\n"
+    )
+
+    url = Settings().database_url
+
+    assert url is not None
+    assert f"@localhost:{port}/" in url.get_secret_value()
