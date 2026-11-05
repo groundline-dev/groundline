@@ -1,4 +1,5 @@
-.PHONY: setup dev db test-fast test-db test-live check fix docker-build docker-run docker-smoke
+.PHONY: setup dev db test-fast test-db test-live check fix docker-build docker-run docker-smoke \
+	deploy aws-smoke aws-smoke-live destroy
 
 setup:
 	uv sync
@@ -45,3 +46,19 @@ docker-run:
 # Build the image, then start the Compose stack and smoke-test it.
 docker-smoke: docker-build
 	scripts/docker-smoke-test
+
+# The AWS test server (see DEVELOPMENT.md, "Deploying to AWS"). It costs money
+# while it runs: make destroy when you're done.
+deploy:
+	scripts/aws-deploy
+
+# Checks the server from here without calling Claude.
+aws-smoke:
+	scripts/aws-smoke-test
+
+# Also sends one real commission check, which costs under a cent.
+aws-smoke-live:
+	scripts/aws-smoke-test --live
+
+destroy:
+	scripts/aws-destroy
