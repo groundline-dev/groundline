@@ -104,3 +104,12 @@ print(json.dumps({"source": SOURCE, "summary": SUMMARY}))
 ')"
   expect 200 POST /v1/commissions --json "$body" --header "Authorization: Bearer $api_key"
 fi
+
+# Every check passed. Revoke the API key now instead of on exit, so the
+# reminder is the last thing printed. A failed check exits before this line,
+# and the exit trap revokes the key then.
+trap - EXIT
+revoke
+echo
+echo "All checks passed. The server is still running and costing money; make aws-status"
+echo "shows when it terminates itself. When you're done, run make aws-destroy."
