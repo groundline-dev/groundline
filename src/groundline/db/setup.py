@@ -14,9 +14,10 @@ from importlib.resources import files
 import psycopg
 from alembic import command
 from alembic.config import Config
+from alembic.util import CommandError
 from psycopg import sql
 from sqlalchemy import URL, make_url
-from sqlalchemy.exc import ArgumentError
+from sqlalchemy.exc import ArgumentError, SQLAlchemyError
 
 from groundline.core.errors import SetupError
 from groundline.db.config import DRIVERS
@@ -24,7 +25,7 @@ from groundline.db.connection import scrub
 from groundline.settings import Settings
 
 EXAMPLE_PASSWORD = "CHANGE_ME"
-CONNECT_TIMEOUT = 5  # seconds
+CONNECT_TIMEOUT_SECONDS = 5
 
 
 class DatabaseSetupError(SetupError):
@@ -38,10 +39,11 @@ def setup_database(app_raw: str, admin_raw: str) -> None:
     role = sql.Identifier(str(app_url.username))
     database = sql.Identifier(str(app_url.database))
     with _admin_connection(admin_url, app_url) as admin:
-        is_superuser = admin.execute(
+        row = admin.execute(
             "SELECT rolsuper FROM pg_roles WHERE rolname = %s", (app_url.username,)
         ).fetchone()
-        if is_superuser and is_superuser[0]:
+        is_superuser = row is not None and row[0]
+        if is_superuser:
             # Setting its password would change a superuser's login, and the API
             # would then run with every privilege.
             raise DatabaseSetupError(
@@ -51,13 +53,21 @@ def setup_database(app_raw: str, admin_raw: str) -> None:
         if not _exists(admin, "pg_roles", "rolname", app_url.username):
             admin.execute(sql.SQL("CREATE ROLE {}").format(role))
         admin.execute(
-            sql.SQL("ALTER ROLE {} LOGIN PASSWORD {}").format(
-                role, sql.Literal(app_url.password)
-            )
+            # NOCREATEDB and NOCREATEROLE also take those rights from a login
+            # that existed before setup ran (ADR 0012).
+            sql.SQL(
+                "ALTER ROLE {} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD {}"
+            ).format(role, sql.Literal(app_url.password))
         )
         if not _exists(admin, "pg_database", "datname", app_url.database):
             admin.execute(sql.SQL("CREATE DATABASE {} OWNER {}").format(database, role))
-    migrate(app_raw, "head")
+    try:
+        migrate(app_raw, "head")
+    except (SQLAlchemyError, CommandError) as error:
+        # The app's login runs the migrations, so its password could be in a
+        # driver message.
+        reason = scrub(str(error), app_url.password)
+        raise DatabaseSetupError(f"the migrations failed:\n  {reason}") from None
 
 
 def drop_database(app_raw: str, admin_raw: str) -> None:
@@ -130,7 +140,7 @@ def _admin_connection(admin_url: URL, app_url: URL) -> Generator[psycopg.Connect
             user=admin_url.username,
             password=admin_url.password,
             dbname=admin_url.database,
-            connect_timeout=CONNECT_TIMEOUT,
+            connect_timeout=CONNECT_TIMEOUT_SECONDS,
             autocommit=True,
         )
     except psycopg.Error as error:

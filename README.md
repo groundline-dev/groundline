@@ -168,7 +168,7 @@ for c in refute.commissions:
 
 ## Using the API
 
-Set up [PostgreSQL](DEVELOPMENT.md#database) and configure `DATABASE_URL` and `ANTHROPIC_API_KEY` first. Start the API with `make dev`; it serves at http://127.0.0.1:8000, with interactive docs at `/docs`. To run the API and Postgres together in Docker instead, see [In Docker](DEVELOPMENT.md#in-docker). The omissions endpoint requires a groundline API key; `/health` and `/ready` are public. `/health` answers 200 while the app is running, and `/ready` answers 503 while the database is unavailable. **The commissions endpoint has no authentication yet**, and every check spends your Anthropic credit, so run it only on your own machine.
+Set up [PostgreSQL](DEVELOPMENT.md#database) and configure `ANTHROPIC_API_KEY` first; `make dev` reads `DATABASE_URL` from `.env`. Start the API with `make dev`; it serves at http://127.0.0.1:8000, with interactive docs at `/docs`. To run the API and Postgres together in Docker instead, see [In Docker](DEVELOPMENT.md#in-docker). The omissions endpoint requires a groundline API key; `/health` and `/ready` are public. `/health` answers 200 while the app is running, and `/ready` answers 503 while the database is unavailable. **The commissions endpoint has no authentication yet**, and every check spends your Anthropic credit, so run it only on your own machine.
 
 ### `POST /v1/omissions`
 

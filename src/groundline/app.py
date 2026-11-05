@@ -18,8 +18,12 @@ db_logger = logging.getLogger("groundline.db")
 
 
 class _Database:
-    """The app's database and whether it answered the last check, so /ready
-    logs only when that changes."""
+    """The app's database engine, plus whether it answered the last check: the
+    startup check, then each /ready check.
+
+    Something may poll /ready every few seconds. Because the last result is
+    kept, a check logs only when the database goes down or comes back,
+    instead of logging the same error on every poll."""
 
     def __init__(self, url: str, engine: AsyncEngine, connected: bool) -> None:
         self.url = url
@@ -110,7 +114,7 @@ app.include_router(commissions.router)
 @app.get("/health")
 def health() -> dict[str, str]:
     """Whether the app is running. It never touches the database, so an outage
-    doesn't make Compose restart a working app."""
+    doesn't mark a working app unhealthy in Compose."""
     return {"status": "ok"}
 
 

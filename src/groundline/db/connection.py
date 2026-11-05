@@ -101,12 +101,14 @@ async def check_connection(
 
 
 def scrub(message: str, *passwords: str | None) -> str:
-    """`message` on one line, with each password in it replaced by ***."""
-    message = " ".join(message.split())
+    """`message` on one line, with each password in it replaced by ***.
+
+    Passwords are replaced before the lines are joined, so one containing
+    whitespace still matches."""
     for password in passwords:
         if password:
             message = message.replace(password, "***")
-    return message
+    return " ".join(message.split())
 
 
 def _reason(error: Exception, password: str | None) -> str:

@@ -104,7 +104,7 @@ def test_restart_policies(services: dict[str, Any]):
 
 
 def test_the_app_health_check_ignores_the_database(services: dict[str, Any]):
-    """A database outage must not mark the app unhealthy and restart it."""
+    """A database outage must not mark the app unhealthy."""
     check = str(services["app"]["healthcheck"]["test"])
 
     assert "/health" in check
