@@ -78,7 +78,9 @@ If you run the image with your own `docker run`, publish the port on `127.0.0.1`
 
 ## Deploying to AWS
 
-`make deploy` creates a test server in your own AWS project: an EC2 instance that runs the Compose stack at a commit you choose. Only your computer's public IP can reach it, over plain HTTP, so it's for testing with test data. Real callers need HTTPS first (ALL-90). Each server is disposable. Its data survives container restarts and reboots, until `make destroy` or a deployment of another commit deletes the server and the data with it. Each AWS project has room for one server, since the IAM role and the budget have fixed names.
+`make deploy` creates a test server in your AWS project: an EC2 instance that runs the Compose stack at a commit you choose. Only your computer's public IP can reach it, over plain HTTP, so it's for testing with test data. Real callers need HTTPS first (ALL-90). Each server is disposable. Its data survives container restarts and reboots, until `make destroy`, a deployment of another commit, or the 5-hour limit deletes the server and the data with it.
+
+Several developers can share one AWS project, each with their own server. Each server's resources are named and tagged after the `deployment_name` in that developer's `infra/terraform.tfvars`.
 
 The Terraform is in [infra/](infra/), and the server's startup script is [infra/bootstrap.sh.tftpl](infra/bootstrap.sh.tftpl).
 
@@ -92,13 +94,13 @@ The Terraform is in [infra/](infra/), and the server's startup script is [infra/
    ```
 
    The scripts use `AWS_REGION` instead if it's set.
-3. Copy the settings file and fill in your email address. The $5-a-month budget alert goes to it:
+3. Copy the settings file and fill in your `deployment_name`, such as your first name, and your email address. The deployment name has to be different from everyone else's in the AWS project, and the $5-a-month budget alert goes to the email address:
 
    ```sh
    cp infra/terraform.tfvars.example infra/terraform.tfvars
    ```
 
-   The alert covers your whole AWS project, not only this server.
+   The alert covers your whole AWS project, not only your server, so everyone sharing the project gets it when anyone's server runs long.
 4. To make model calls, store an Anthropic API key in Parameter Store as `/groundline/anthropic-api-key`. Without it, the server still starts and `make aws-smoke` still passes, but every model call fails with 503. `read -rs` keeps the Anthropic API key off the screen and out of your shell history:
 
    ```sh
@@ -107,7 +109,7 @@ The Terraform is in [infra/](infra/), and the server's startup script is [infra/
    unset ANTHROPIC_KEY
    ```
 
-   Only the server reads the Anthropic API key, when it starts. Terraform and the scripts only check that the parameter exists, so the Anthropic API key never lands in Terraform state. To change it, add `--overwrite` to `put-parameter`, then run `make destroy` and `make deploy`.
+   Every server in the AWS project reads this one parameter, so only the first person to deploy needs to create it. Only the server reads the Anthropic API key, when it starts. Terraform and the scripts only check that the parameter exists, so the Anthropic API key never lands in Terraform state. To change it, add `--overwrite` to `put-parameter`, then run `make destroy` and `make deploy`.
 
 ### Deploying and checking
 
@@ -119,6 +121,7 @@ make destroy          # delete it, then check that everything is gone
 ```
 
 - **`make deploy`** runs the commit you have checked out, which must be pushed to GitHub, since the server clones it from there. To run another, use `REF=<branch, tag or commit> make deploy`. The server takes about 5 to 10 minutes to build the image and start. If your IP changes, rerun `make deploy` with the same commit: only the security group changes. Deploying another commit replaces the server, with its data.
+- **The 5-hour limit:** each server shuts itself down 5 hours after it first starts, and AWS then terminates it, deleting its data. A redeploy of the same commit doesn't reset the limit, but a redeploy of another commit does, since that creates a new server. After the limit, `make deploy` creates a new server, and `make destroy` cleans up the security group, IAM role and budget the old one left behind. To change the limit, set `auto_terminate_hours` in `infra/terraform.tfvars`; 0 turns it off.
 - **`make aws-smoke`** waits up to 15 minutes for `/health` to answer 200. It then creates an API key on the server with `groundline keys create`, through SSM Run Command, and sends an empty `POST /v1/omissions` with an unknown API key (expects 401) and with the new one (expects 422). That shows the server, Postgres, the migrations and authentication work, without spending Anthropic credit. It revokes that API key at the end, even when a check fails.
 - **`make aws-smoke-live`** runs the same checks, then sends the shortest test input to `POST /v1/commissions` and expects 200. It costs under a cent. Run it before demos and releases, and after changing a prompt, a preset, the model or how the Anthropic API key reaches the server.
 
@@ -140,17 +143,19 @@ SSM keeps each command's output, so anyone who can read your project's Run Comma
 
 ### Costs
 
-The server costs about $0.024 an hour in us-east-1, about $17 a month: $0.0168 for the `t4g.small` instance, $0.005 for its public IP and $0.002 for its 20 GB disk. Prices differ a little between Regions. Destroy it when you're done; the budget alert emails you when your project's costs pass $2.50 and $5 in a month.
+The server costs about $0.024 an hour in us-east-1, about $17 a month: $0.0168 for the `t4g.small` instance, $0.005 for its public IP and $0.002 for its 20 GB disk. Prices differ a little between Regions. A server that runs to its 5-hour limit costs about $0.12. Destroy it when you're done anyway: the IAM role, security group and budget it leaves behind are free, but they're clutter. The budget alert emails everyone who has deployed when the project's costs pass $2.50 and $5 in a month.
 
 ### Troubleshooting
 
 - **`make aws-smoke` times out:** it prints the end of the server's startup log (`/var/log/groundline-bootstrap.log`) and the containers' status and logs. A failed startup also leaves `/var/lib/groundline/bootstrap-failed`.
 - **Requests time out from a new network:** your IP changed. Rerun `make deploy` with the same commit.
+- **`make aws-smoke` can't find the instance, or it's terminated:** the server reached its 5-hour limit. Run `make deploy` again.
+- **`make deploy` fails because a role or budget already exists:** someone else in the AWS project uses the same `deployment_name`. Pick another one in `infra/terraform.tfvars`.
 - **AWS calls that worked start failing with Access Denied:** your project may have reached its spend limit, which pauses it. Check in AWS Settings, under Billing.
 
 ### Tearing down
 
-`make destroy` asks before deleting anything. It then asks AWS whether the instance, security group, IAM role, instance profile and budget are gone, and fails if any is still there or AWS can't say. It leaves the Anthropic API key's parameter, which Terraform didn't create, and prints the command to delete it.
+`make destroy` asks before deleting anything. It then asks AWS whether the instance, security group, IAM role, instance profile and budget are gone, and fails if any is still there or AWS can't say. It leaves the Anthropic API key's parameter, which Terraform didn't create, and prints the command to delete it. Everyone in the AWS project uses that parameter, so delete it only if no one else still deploys.
 
 Terraform state stays in `infra/` on your computer. Delete the server with `make destroy` from the same folder you created it from; another clone doesn't know about it.
 
