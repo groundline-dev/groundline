@@ -1,14 +1,19 @@
 """Error responses every route shares: structured JSON, and nothing from the request."""
 
 import logging
+from pathlib import Path
+from typing import Any
 
+import httpx2
 import pytest
+from anthropic import DefaultAsyncHttpxClient
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
 from groundline.api import common, errors
 from groundline.api.errors import safe_traceback
 from groundline.app import app
+from groundline.clients.anthropic import AnthropicClient
 from tests.auth_helpers import SECRET as API_KEY
 from tests.auth_helpers import FakeKeys
 
@@ -92,6 +97,39 @@ def test_a_body_that_is_not_utf8_is_a_400_that_repeats_nothing(body: bytes):
 
     assert response.status_code == 400
     assert response.json() == {"detail": "There was an error parsing the body"}
+
+
+@pytest.mark.parametrize("route", ["/v1/omissions", "/v1/commissions"])
+@pytest.mark.parametrize(
+    ("status", "kind"), [(401, "authentication_error"), (403, "permission_error")]
+)
+def test_a_rejected_anthropic_key_is_a_503_without_the_servers_env_path(
+    route: str, status: int, kind: str, tmp_path: Path
+):
+    """The real client, as it runs when the key came from a `.env` file: its error
+    names that file, which a response must not."""
+    env_file = tmp_path / ".env"
+
+    def reject(request: httpx2.Request) -> httpx2.Response:
+        error = {"type": kind, "message": "invalid x-api-key"}
+        return httpx2.Response(status, json={"type": "error", "error": error})
+
+    def real_client() -> AnthropicClient:
+        return AnthropicClient(
+            "sk-ant-not-a-real-key",
+            key_source=str(env_file),
+            http_client=DefaultAsyncHttpxClient(transport=httpx2.MockTransport(reject)),
+        )
+
+    app.dependency_overrides[common.model_client] = real_client
+
+    response = http.post(route, json={"source": "a", "summary": "b"})
+
+    assert response.status_code == 503
+    detail: Any = response.json()["detail"]
+    assert detail.startswith("ANTHROPIC_API_KEY ")
+    assert str(tmp_path) not in detail
+    assert "Key from" not in detail
 
 
 def test_an_error_outside_a_route_is_a_structured_500(

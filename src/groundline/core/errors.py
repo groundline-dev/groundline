@@ -17,3 +17,10 @@ class SetupError(Exception):
 
 class APIKeyRejectedError(SetupError):
     """The provider rejected the API key, or it lacks access to the model."""
+
+    def __init__(self, message: str, api_message: str | None = None) -> None:
+        super().__init__(message)
+        self._api_message = api_message
+
+    def api_message(self) -> str:
+        return self._api_message or str(self)
