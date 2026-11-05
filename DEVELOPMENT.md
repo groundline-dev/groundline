@@ -82,7 +82,7 @@ If you run the image with your own `docker run`, publish the port on `127.0.0.1`
 
 Several developers can share one AWS project, each with their own test deployment. Each test deployment's resources are named and tagged after the `deployment_name` in that developer's `infra/terraform.tfvars`.
 
-The Terraform is in [infra/](infra/), and the server's startup script is [infra/bootstrap.sh.tftpl](infra/bootstrap.sh.tftpl).
+The Terraform is in [infra/](infra/), and the server's startup script is [infra/bootstrap.sh.tftpl](infra/bootstrap.sh.tftpl). [infra/README.md](infra/README.md) explains why each AWS setting is what it is, and what needs updating over time.
 
 ### Before your first deployment
 
@@ -147,7 +147,7 @@ SSM keeps each command's output, so anyone who can read your project's Run Comma
 
 ### Costs
 
-The server costs about $0.024 an hour in us-east-1, about $17 a month: $0.0168 for the `t4g.small` instance, $0.005 for its public IP and $0.002 for its 20 GB disk. Prices differ a little between Regions. A server that runs to its 8-hour limit costs about $0.19. Destroy it when you're done anyway: the IAM role, security group and budget it leaves behind are free, but they're clutter. The budget alert emails everyone who has deployed when the project's costs pass $2.50 and $5 in a month.
+The server costs about $0.024 an hour in us-east-1, about $17 a month: $0.0168 for the `t4g.small` instance, $0.005 for its public IP and $0.002 for its 20 GB disk. Prices differ a little between Regions. The server uses standard CPU credits, so when it runs above its baseline CPU for long it slows down; it doesn't run up extra charges. A server that runs to its 8-hour limit costs about $0.19. Destroy it when you're done anyway: the IAM role, security group and budget it leaves behind are free, but they're clutter. The budget alert emails everyone who has deployed when the project's costs pass $2.50 and $5 in a month.
 
 ### Troubleshooting
 
