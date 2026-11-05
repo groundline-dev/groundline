@@ -159,7 +159,9 @@ src/groundline/
   auth.py                  the Bearer authentication dependency
   cli.py, keys_cli.py      the groundline command and its keys subgroup
   api/, app.py             the API's endpoints and the FastAPI app
-scripts/                   db-setup, and the stack check behind make docker-smoke
+infra/                     Terraform for the AWS test server, its startup script, and their tests
+scripts/                   db-setup, the stack check behind make docker-smoke, and the AWS
+                           scripts behind make deploy, aws-smoke, aws-smoke-live and destroy
 tests/                     the tests
 ```
 
