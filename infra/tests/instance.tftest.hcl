@@ -13,6 +13,7 @@ mock_provider "aws" {
 
 variables {
   region             = "eu-north-1"
+  deployment_name    = "alice"
   budget_alert_email = "alerts@example.com"
   tester_cidr        = "203.0.113.7/32"
   git_ref            = "0123456789abcdef0123456789abcdef01234567"
@@ -50,6 +51,98 @@ run "the_server_requires_imdsv2_and_has_an_encrypted_disposable_tagged_disk" {
     condition     = aws_instance.app.user_data_replace_on_change == true
     error_message = "Changing the startup script should replace the instance, since it runs only on first boot."
   }
+}
+
+run "the_server_and_its_disk_name_the_deployment" {
+  command = plan
+
+  assert {
+    condition     = aws_instance.app.tags["Name"] == "groundline-alice"
+    error_message = "The instance should be named groundline-<deployment_name>, so developers sharing an AWS project can tell servers apart."
+  }
+  assert {
+    condition     = lookup(aws_instance.app.root_block_device[0].tags, "deployment", "") == "alice"
+    error_message = "The root disk should be tagged deployment=<deployment_name>."
+  }
+  assert {
+    condition     = startswith(aws_security_group.app.name_prefix, "groundline-alice-")
+    error_message = "The security group's name should start with groundline-<deployment_name>-."
+  }
+}
+
+run "the_server_terminates_itself_after_five_hours_by_default" {
+  command = plan
+
+  assert {
+    condition     = aws_instance.app.instance_initiated_shutdown_behavior == "terminate"
+    error_message = "Shutting the server down from inside should terminate it, so the deadline leaves nothing running."
+  }
+  assert {
+    # 5 hours in seconds, written to the deadline file a systemd timer checks.
+    condition = (
+      strcontains(aws_instance.app.user_data, "18000")
+      && strcontains(aws_instance.app.user_data, "/var/lib/groundline/terminate-at")
+      && can(regex("systemctl enable (--now )?groundline-expire.timer", aws_instance.app.user_data))
+    )
+    error_message = "The startup script should write a deadline 18000 seconds away to /var/lib/groundline/terminate-at and enable groundline-expire.timer."
+  }
+}
+
+run "a_zero_deadline_leaves_the_server_running" {
+  command = plan
+  variables {
+    auto_terminate_hours = 0
+  }
+
+  assert {
+    # A long-lived deployment should keep its data if someone shuts it down from inside.
+    condition     = aws_instance.app.instance_initiated_shutdown_behavior == "stop"
+    error_message = "With auto_terminate_hours = 0, shutting the server down from inside should only stop it."
+  }
+  assert {
+    condition     = !strcontains(aws_instance.app.user_data, "groundline-expire")
+    error_message = "With auto_terminate_hours = 0, the startup script shouldn't set up groundline-expire.timer."
+  }
+}
+
+run "a_negative_deadline_is_rejected" {
+  command = plan
+  variables {
+    auto_terminate_hours = -1
+  }
+  expect_failures = [var.auto_terminate_hours]
+}
+
+run "a_fractional_deadline_is_rejected" {
+  command = plan
+  variables {
+    auto_terminate_hours = 1.5
+  }
+  expect_failures = [var.auto_terminate_hours]
+}
+
+run "a_deployment_name_with_capitals_is_rejected" {
+  command = plan
+  variables {
+    deployment_name = "Alice"
+  }
+  expect_failures = [var.deployment_name]
+}
+
+run "a_deployment_name_with_a_space_is_rejected" {
+  command = plan
+  variables {
+    deployment_name = "alice smith"
+  }
+  expect_failures = [var.deployment_name]
+}
+
+run "a_deployment_name_over_twenty_characters_is_rejected" {
+  command = plan
+  variables {
+    deployment_name = "abcdefghijklmnopqrstu"
+  }
+  expect_failures = [var.deployment_name]
 }
 
 run "the_startup_script_installs_docker_and_starts_the_pinned_revision" {

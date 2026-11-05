@@ -13,6 +13,7 @@ mock_provider "aws" {
 
 variables {
   region             = "eu-north-1"
+  deployment_name    = "alice"
   budget_alert_email = "alerts@example.com"
   tester_cidr        = "203.0.113.7/32"
   git_ref            = "0123456789abcdef0123456789abcdef01234567"
@@ -42,6 +43,16 @@ run "the_budget_is_five_dollars_of_cost_a_month" {
     # Filtering by the project tag needs an account-level billing setting.
     condition     = length(aws_budgets_budget.monthly.cost_filter) == 0
     error_message = "The budget should cover the whole AWS project, with no cost filter."
+  }
+}
+
+run "each_deployment_has_its_own_budget" {
+  command = plan
+
+  # Developers sharing an AWS project each get one, and budget names are unique per account.
+  assert {
+    condition     = aws_budgets_budget.monthly.name == "groundline-monthly-alice"
+    error_message = "The budget should be named after deployment_name, got ${aws_budgets_budget.monthly.name}."
   }
 }
 

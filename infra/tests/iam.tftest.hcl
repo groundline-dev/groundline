@@ -13,6 +13,7 @@ mock_provider "aws" {
 
 variables {
   region             = "eu-north-1"
+  deployment_name    = "alice"
   budget_alert_email = "alerts@example.com"
   tester_cidr        = "203.0.113.7/32"
   git_ref            = "0123456789abcdef0123456789abcdef01234567"
@@ -24,6 +25,19 @@ run "the_instance_role_is_for_ec2" {
   assert {
     condition     = jsondecode(aws_iam_role.instance.assume_role_policy).Statement[0].Principal.Service == "ec2.amazonaws.com"
     error_message = "Only EC2 should be able to assume the instance role."
+  }
+}
+
+run "the_role_and_instance_profile_are_named_after_the_deployment" {
+  command = plan
+
+  # IAM names are unique per account, so a fixed name would allow one deployment per AWS project.
+  assert {
+    condition = (
+      aws_iam_role.instance.name == "groundline-instance-alice"
+      && aws_iam_instance_profile.instance.name == "groundline-instance-alice"
+    )
+    error_message = "The IAM role and instance profile should be named groundline-instance-<deployment_name>."
   }
 }
 

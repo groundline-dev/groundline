@@ -13,6 +13,8 @@ kind. These tests read the files instead:
   Terraform state.
 - The server's role gets an AWS managed policy, which can read every parameter.
 - A second inbound rule opens the server to more than the tester's app port.
+- A resource isn't tagged with its deployment, so developers sharing an AWS
+  project can't tell whose it is.
 - Terraform state or a contributor's settings can be committed.
 
 They also check that the make targets run the deployment scripts and that
@@ -54,6 +56,14 @@ def test_every_resource_is_tagged_project_groundline():
         r'default_tags\s*\{\s*tags\s*=\s*\{[^}]*\bproject\s*=\s*"groundline"',
         all_terraform(),
     ), 'the aws provider should set default_tags { tags = { project = "groundline" } }'
+
+
+def test_every_resource_is_tagged_with_its_deployment():
+    """Developers share an AWS project, so each resource says whose it is."""
+    assert re.search(
+        r"default_tags\s*\{\s*tags\s*=\s*\{[^}]*\bdeployment\s*=\s*var\.deployment_name",
+        all_terraform(),
+    ), "the aws provider's default_tags should set deployment = var.deployment_name"
 
 
 AWS_REGION = (

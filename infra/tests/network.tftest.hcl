@@ -13,6 +13,7 @@ mock_provider "aws" {
 
 variables {
   region             = "eu-north-1"
+  deployment_name    = "alice"
   budget_alert_email = "alerts@example.com"
   tester_cidr        = "203.0.113.7/32"
   git_ref            = "0123456789abcdef0123456789abcdef01234567"
