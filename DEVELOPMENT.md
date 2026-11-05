@@ -12,28 +12,51 @@ You need [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13 (0.1
    make setup
    ```
 
-2. Copy `.env.example` to `.env`. Fill in `POSTGRES_PASSWORD` and `GROUNDLINE_DB_PASSWORD`, each from `openssl rand -hex 24`. Add `ANTHROPIC_API_KEY` if you'll make live model calls.
+2. Create your `.env` from the example. Skip this if you already have one: it replaces the file, and Postgres keeps the admin password it started with.
 
-3. Start Postgres on `127.0.0.1:5433`, then create the app's database and apply the migrations:
+   ```sh
+   cp .env.example .env
+   ```
+
+3. Fill in a random password for each database login. `POSTGRES_PASSWORD` is for the admin login, which only the database setup uses; `GROUNDLINE_DB_PASSWORD` is for the login the app uses. Each command fills in its password only if it's blank, so rerunning them doesn't change anything.
+
+   ```sh
+   sed -i.bak "s/^POSTGRES_PASSWORD=\$/&$(openssl rand -hex 24)/" .env
+   sed -i.bak "s/^GROUNDLINE_DB_PASSWORD=\$/&$(openssl rand -hex 24)/" .env
+   rm .env.bak
+   ```
+
+   Add `ANTHROPIC_API_KEY` to `.env` too if you'll make live model calls.
+
+4. Start Postgres on `127.0.0.1:5433`:
 
    ```sh
    make db
+   ```
+
+   It returns once Postgres is accepting connections, or fails if it doesn't start. If it stops with `set POSTGRES_PASSWORD in .env`, `.env` is missing or a password is still blank. For any other failure, `docker compose ps` shows whether the container is running, and `docker compose logs postgres` shows why it stopped.
+
+5. Create the app's login and database, and apply the migrations:
+
+   ```sh
    scripts/db-setup
    ```
 
-4. Start the API with auto-reload at http://127.0.0.1:8000 (interactive docs at `/docs`):
+   It's safe to rerun, and you need to after every pull that adds a migration.
+
+6. Start the API with auto-reload at http://127.0.0.1:8000 (interactive docs at `/docs`):
 
    ```sh
    make dev
    ```
 
-5. Run the tests and checks before you push:
+   To check that the app can reach the database, run `curl http://127.0.0.1:8000/ready` in another terminal. It returns `{"status":"ok"}`, or a 503 if the database isn't answering.
+
+7. Run the tests and checks before you push:
 
    ```sh
    make check
    ```
-
-After a pull, rerun `scripts/db-setup` to apply new migrations.
 
 ## Running the whole stack in Docker
 
