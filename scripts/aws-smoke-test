@@ -14,6 +14,7 @@
 # command's output, so the API key is in SSM's history.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+source scripts/aws-common.sh
 
 anthropic_parameter=/groundline/anthropic-api-key
 wait_minutes=15
@@ -24,11 +25,6 @@ case "${1:-}" in
   "") ;;
   *) echo "usage: $0 [--live]" >&2; exit 2 ;;
 esac
-
-fail() {
-  echo "error: $*" >&2
-  exit 1
-}
 
 # With nothing deployed, terraform output exits 0 and prints nothing, so an empty
 # value counts as missing too.
@@ -42,6 +38,10 @@ instance="$(output instance_id)"
 region="$(output region)"
 app_url="$(output app_url)"
 
+# A server that terminated itself fails here, with the aws-destroy reminder,
+# instead of after waiting for /health.
+require_running
+
 if $live; then
   # Checks only that the parameter exists: its value never leaves AWS.
   if ! errors="$(aws ssm get-parameter --region "$region" --name "$anthropic_parameter" 2>&1 >/dev/null)"; then
@@ -53,32 +53,11 @@ if $live; then
   fi
 fi
 
-# on_server COMMAND: run COMMAND on the server as root with SSM Run Command and
-# print its output. If it fails, also print its error output, and fail.
-on_server() {
-  local escaped="${1//\\/\\\\}"
-  escaped="${escaped//\"/\\\"}"
-  local id
-  id="$(aws ssm send-command --region "$region" --instance-ids "$instance" \
-    --document-name AWS-RunShellScript \
-    --parameters "{\"commands\":[\"$escaped\"]}" \
-    --query Command.CommandId --output text)" || return 1
-  local wait_status=0
-  aws ssm wait command-executed --region "$region" --command-id "$id" \
-    --instance-id "$instance" || wait_status=$?
-  aws ssm get-command-invocation --region "$region" --command-id "$id" \
-    --instance-id "$instance" --query StandardOutputContent --output text
-  if [ "$wait_status" != 0 ]; then
-    aws ssm get-command-invocation --region "$region" --command-id "$id" \
-      --instance-id "$instance" --query StandardErrorContent --output text >&2 || true
-  fi
-  return "$wait_status"
-}
-
 echo "Waiting up to $wait_minutes minutes for $app_url/health"
 deadline=$((SECONDS + wait_minutes * 60))
 until [ "$(curl --silent --max-time 10 --output /dev/null --write-out '%{http_code}' "$app_url/health" || true)" = 200 ]; do
   if [ "$SECONDS" -ge "$deadline" ]; then
+    require_running
     echo "--- the server's startup log ---" >&2
     on_server "tail -n 80 /var/log/groundline-bootstrap.log; cd /opt/groundline && docker compose ps --all && docker compose logs --tail 40" >&2 || true
     fail "$app_url/health didn't answer 200 within $wait_minutes minutes"

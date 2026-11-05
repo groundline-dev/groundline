@@ -163,6 +163,8 @@ def test_the_lock_file_and_example_settings_are_committed(path: str):
         ("aws-deploy", "scripts/aws-deploy"),
         ("aws-smoke", "scripts/aws-smoke-test"),
         ("aws-smoke-live", "scripts/aws-smoke-test --live"),
+        ("aws-status", "scripts/aws-status"),
+        ("aws-extend", "scripts/aws-extend"),
         ("aws-destroy", "scripts/aws-destroy"),
     ],
 )
@@ -186,6 +188,8 @@ def test_development_md_documents_deploying_to_aws():
         "make aws-deploy",
         "make aws-smoke",
         "make aws-smoke-live",
+        "make aws-status",
+        "make aws-extend",
         "make aws-destroy",
         "/groundline/anthropic-api-key",
         "terraform.tfvars",

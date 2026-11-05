@@ -1,5 +1,5 @@
 .PHONY: setup dev db test-fast test-db test-live check fix docker-build docker-run docker-smoke \
-	infra-check aws-deploy aws-smoke aws-smoke-live aws-destroy
+	infra-check aws-deploy aws-smoke aws-smoke-live aws-status aws-extend aws-destroy
 
 setup:
 	uv sync
@@ -69,6 +69,14 @@ aws-smoke:
 # Also sends one real commission check, which costs under a cent.
 aws-smoke-live:
 	scripts/aws-smoke-test --live
+
+# Shows when the server terminates itself, or reminds you to destroy what's left.
+aws-status:
+	scripts/aws-status
+
+# Moves the deadline to auto_terminate_hours from now, or to HOURS=n hours.
+aws-extend:
+	scripts/aws-extend $(HOURS)
 
 aws-destroy:
 	scripts/aws-destroy

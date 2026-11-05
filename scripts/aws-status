@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+# Show whether your AWS test deployment is running, and when it terminates
+# itself. If it already has, remind you to run make aws-destroy.
+#
+# Usage: scripts/aws-status   (make aws-status)
+#
+# It reads the deadline from the server through SSM Run Command, so it shows a
+# deadline make aws-extend moved.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+source scripts/aws-common.sh
+
+# With nothing deployed, terraform output exits 0 and prints nothing.
+instance="$(terraform -chdir=infra output -raw instance_id 2>/dev/null || true)"
+region="$(terraform -chdir=infra output -raw region 2>/dev/null || true)"
+[ -n "$instance" ] && [ -n "$region" ] || fail "nothing is deployed from this folder: run make aws-deploy"
+
+require_running
+echo "The server ($instance) is running at $(terraform -chdir=infra output -raw app_url)"
+
+deadline="$(on_server "cat $deadline_file 2>/dev/null || echo none" | tr -d '[:space:]')" \
+  || fail "couldn't read the deadline from the server; if it started in the last few minutes, try again shortly"
+case "$deadline" in
+  none)
+    echo "It has no time limit, so it costs about \$17 a month until you run make aws-destroy."
+    ;;
+  *[!0-9]* | "") fail "the server's deadline file holds '$deadline', not a time" ;;
+  *)
+    echo "It terminates itself, with its data, at $(describe_deadline "$deadline")."
+    echo "To give it more time, run make aws-extend (or make aws-extend HOURS=n)."
+    ;;
+esac

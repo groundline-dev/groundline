@@ -3,8 +3,9 @@
 These check the scripts' own logic on paths that are slow or costly to cause
 on a real server: the test API key is revoked even when a check fails, the
 live smoke test stops before doing anything when the Anthropic parameter is
-missing, and the teardown check fails when something survived or AWS can't
-say. A local HTTP server plays the app.
+missing, the teardown check fails when something survived or AWS can't say,
+and a server that terminated itself gets the reminder to run make aws-destroy.
+A local HTTP server plays the app.
 
 The stand-ins (tests/aws_fakes.py) answer the way the real tools do, but only
 the real run against AWS (DEVELOPMENT.md, "Deploying to AWS") shows that the
@@ -15,6 +16,7 @@ import json
 import os
 import subprocess
 import threading
+import time
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -28,6 +30,8 @@ from tests import aws_fakes
 ROOT = Path(__file__).resolve().parents[1]
 SMOKE_TEST = ROOT / "scripts" / "aws-smoke-test"
 DESTROY = ROOT / "scripts" / "aws-destroy"
+STATUS = ROOT / "scripts" / "aws-status"
+EXTEND = ROOT / "scripts" / "aws-extend"
 
 INSTANCE = "i-0123456789abcdef0"
 GROUP = "sg-0123456789abcdef0"
@@ -128,6 +132,7 @@ def run(script: Path, tmp_path: Path, world: dict[str, Any], *args: str) -> Run:
 
 
 def smoke_world(app: FakeApp, **fields: Any) -> dict[str, Any]:
+    fields.setdefault("existing", {INSTANCE: "running"})
     return aws_fakes.new_world(
         outputs={"instance_id": INSTANCE, "region": "eu-north-1", "app_url": app.url},
         ssm_replies=[
@@ -184,6 +189,88 @@ DESTROY_OUTPUTS = {
     "instance_profile_name": "groundline-instance",
     "budget_name": "groundline-monthly",
 }
+
+
+def test_the_smoke_test_stops_with_a_reminder_when_the_server_terminated(
+    app: FakeApp, tmp_path: Path
+):
+    result = run(
+        SMOKE_TEST, tmp_path, smoke_world(app, existing={INSTANCE: "terminated"})
+    )
+
+    assert result.returncode != 0, result.output
+    assert "make aws-destroy" in result.output
+    assert app.requests == [], "it shouldn't wait for /health on a terminated server"
+    assert result.sent_commands() == []
+
+
+def deadline_world(state: str, deadline: str, **fields: Any) -> dict[str, Any]:
+    """A deployed server in STATE whose deadline file holds DEADLINE."""
+    return aws_fakes.new_world(
+        outputs={
+            "instance_id": INSTANCE,
+            "region": "eu-north-1",
+            "app_url": "http://203.0.113.7:8000",
+            "auto_terminate_hours": "8",
+        },
+        existing={INSTANCE: state},
+        ssm_replies=[{"when": "terminate-at", "stdout": f"{deadline}\n"}],
+        **fields,
+    )
+
+
+def test_status_shows_the_deadline_and_how_to_extend_it(tmp_path: Path):
+    in_two_hours = str(int(time.time()) + 2 * 3600)
+
+    result = run(STATUS, tmp_path, deadline_world("running", in_two_hours))
+
+    assert result.returncode == 0, result.output
+    assert "terminates itself" in result.output
+    assert "h " in result.output and "from now" in result.output
+    assert "make aws-extend" in result.output
+
+
+def test_status_says_when_there_is_no_time_limit(tmp_path: Path):
+    result = run(STATUS, tmp_path, deadline_world("running", "none"))
+
+    assert result.returncode == 0, result.output
+    assert "no time limit" in result.output
+
+
+def test_status_reminds_to_destroy_a_server_that_terminated(tmp_path: Path):
+    result = run(STATUS, tmp_path, deadline_world("terminated", "0"))
+
+    assert result.returncode != 0, result.output
+    assert "make aws-destroy" in result.output
+    assert result.sent_commands() == []
+
+
+def test_extend_moves_the_deadline_to_the_limit_from_now_by_default(tmp_path: Path):
+    in_eight_hours = str(int(time.time()) + 8 * 3600)
+
+    result = run(EXTEND, tmp_path, deadline_world("running", in_eight_hours))
+
+    assert result.returncode == 0, result.output
+    [command] = result.sent_commands()
+    assert "+ 28800" in command, command
+    assert "-gt" in command, "it should never move the deadline earlier"
+    assert "terminates itself" in result.output
+
+
+def test_extend_refuses_more_hours_than_the_limit(tmp_path: Path):
+    result = run(EXTEND, tmp_path, deadline_world("running", "0"), "9")
+
+    assert result.returncode != 0, result.output
+    assert "1 to 8" in result.output
+    assert result.sent_commands() == []
+
+
+def test_extend_reminds_to_destroy_a_server_that_terminated(tmp_path: Path):
+    result = run(EXTEND, tmp_path, deadline_world("terminated", "0"))
+
+    assert result.returncode != 0, result.output
+    assert "make aws-destroy" in result.output
+    assert result.sent_commands() == []
 
 
 def test_destroy_checks_everything_is_gone_and_keeps_the_parameter(tmp_path: Path):

@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Give your AWS test deployment more time before it terminates itself: set its
+# deadline to HOURS from now. HOURS defaults to auto_terminate_hours (8 unless
+# you changed it), and can't be more, so a server can only outlast its limit if
+# someone keeps extending it. It never moves a deadline earlier.
+#
+# Usage: scripts/aws-extend [HOURS]   (make aws-extend, or make aws-extend HOURS=n)
+#
+# The server works out the new deadline from its own clock, through SSM Run Command.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+source scripts/aws-common.sh
+
+instance="$(terraform -chdir=infra output -raw instance_id 2>/dev/null || true)"
+region="$(terraform -chdir=infra output -raw region 2>/dev/null || true)"
+limit="$(terraform -chdir=infra output -raw auto_terminate_hours 2>/dev/null || true)"
+[ -n "$instance" ] && [ -n "$region" ] || fail "nothing is deployed from this folder: run make aws-deploy"
+[ "$limit" != 0 ] || fail "this deployment has no time limit (auto_terminate_hours is 0), so there's nothing to extend"
+[[ "$limit" =~ ^[0-9]+$ ]] || fail "couldn't read auto_terminate_hours from the Terraform state (got '$limit')"
+
+hours="${1:-$limit}"
+[[ "$hours" =~ ^[0-9]+$ ]] && [ "$hours" -ge 1 ] && [ "$hours" -le "$limit" ] \
+  || fail "HOURS should be a whole number from 1 to $limit (auto_terminate_hours), not '$hours'"
+
+require_running
+
+# Writes the new deadline to a temporary file and renames it, so the timer never
+# reads a half-written one. Prints the deadline it ends up with. It's one line,
+# since on_server sends it inside a JSON string, which can't hold a newline.
+seconds=$((hours * 3600))
+script="f=$deadline_file; [ -f \$f ] || { echo none; exit 0; }; new=\$((\$(date +%s) + $seconds)); if [ \$new -gt \$(cat \$f) ]; then echo \$new >\$f.new && mv \$f.new \$f; fi; cat \$f"
+deadline="$(on_server "$script" | tr -d '[:space:]')" \
+  || fail "couldn't change the deadline on the server; if it started in the last few minutes, try again shortly"
+
+case "$deadline" in
+  none) echo "The server has no time limit, so there's nothing to extend." ;;
+  *[!0-9]* | "") fail "the server's deadline file holds '$deadline', not a time" ;;
+  *)
+    if [ "$deadline" -gt $(($(date +%s) + seconds + 60)) ]; then
+      echo "It already had more than $hours hours left, so the deadline is unchanged."
+    fi
+    echo "It terminates itself, with its data, at $(describe_deadline "$deadline")."
+    ;;
+esac

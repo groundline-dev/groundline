@@ -70,7 +70,7 @@ run "the_server_and_its_disk_name_the_deployment" {
   }
 }
 
-run "the_server_terminates_itself_after_five_hours_by_default" {
+run "the_server_terminates_itself_after_eight_hours_by_default" {
   command = plan
 
   assert {
@@ -78,13 +78,13 @@ run "the_server_terminates_itself_after_five_hours_by_default" {
     error_message = "Shutting the server down from inside should terminate it, so the deadline leaves nothing running."
   }
   assert {
-    # 5 hours in seconds, written to the deadline file a systemd timer checks.
+    # 8 hours in seconds, written to the deadline file a systemd timer checks.
     condition = (
-      strcontains(aws_instance.app.user_data, "18000")
+      strcontains(aws_instance.app.user_data, "28800")
       && strcontains(aws_instance.app.user_data, "/var/lib/groundline/terminate-at")
       && can(regex("systemctl enable (--now )?groundline-expire.timer", aws_instance.app.user_data))
     )
-    error_message = "The startup script should write a deadline 18000 seconds away to /var/lib/groundline/terminate-at and enable groundline-expire.timer."
+    error_message = "The startup script should write a deadline 28800 seconds away to /var/lib/groundline/terminate-at and enable groundline-expire.timer."
   }
 }
 

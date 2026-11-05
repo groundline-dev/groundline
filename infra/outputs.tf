@@ -34,6 +34,6 @@ output "budget_name" {
 }
 
 output "auto_terminate_hours" {
-  description = "How many hours after its first boot the server terminates itself; 0 means never. scripts/aws-deploy prints it."
+  description = "How many hours after its first boot the server terminates itself; 0 means never. scripts/aws-deploy prints it, and scripts/aws-extend caps an extension at it."
   value       = var.auto_terminate_hours
 }

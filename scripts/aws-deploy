@@ -13,12 +13,9 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-anthropic_parameter=/groundline/anthropic-api-key
+source scripts/aws-common.sh
 
-fail() {
-  echo "error: $*" >&2
-  exit 1
-}
+anthropic_parameter=/groundline/anthropic-api-key
 
 for tool in terraform aws git curl; do
   command -v "$tool" >/dev/null || fail "$tool isn't installed (see DEVELOPMENT.md, \"Deploying to AWS\")"
@@ -55,12 +52,42 @@ fi
 
 echo "Deploying $commit to $region, reachable only from $ip"
 terraform -chdir=infra init -input=false
+# Tells a new server from an updated one below, since only a new one gets a new deadline.
+previous_instance="$(terraform -chdir=infra output -raw instance_id 2>/dev/null || true)"
 terraform -chdir=infra apply \
   -var "region=$region" -var "tester_cidr=$ip/32" -var "git_ref=$commit"
 
 echo
-echo "The server is starting; it takes about 5 to 10 minutes. Check it with: make aws-smoke"
+instance="$(terraform -chdir=infra output -raw instance_id)"
 hours="$(terraform -chdir=infra output -raw auto_terminate_hours)"
-if [ "$hours" != 0 ]; then
-  echo "It terminates itself, with its data, $hours hours after it first started. To get a new one, run make aws-deploy again."
+if [ "$instance" != "$previous_instance" ]; then
+  echo "The server is starting; it takes about 5 to 10 minutes. Check it with: make aws-smoke"
+else
+  echo "The server ($instance) was updated in place. Check it with: make aws-smoke"
 fi
+
+if [ "$hours" = 0 ]; then
+  echo "It has no time limit, so it costs about \$17 a month until you run make aws-destroy."
+  exit 0
+fi
+# A new server's clock starts when it first boots, about a minute from now. An
+# existing one keeps its deadline, which only the server knows.
+if [ "$instance" != "$previous_instance" ]; then
+  when="about $(describe_deadline $(($(date +%s) + hours * 3600 + 60)))"
+else
+  when="$(on_server "cat $deadline_file" 2>/dev/null | tr -d '[:space:]' || true)"
+  if [[ "$when" =~ ^[0-9]+$ ]]; then
+    when="$(describe_deadline "$when")"
+  else
+    when="the time make aws-status shows"
+  fi
+fi
+cat <<EOF
+
+It terminates itself, with its data, at $when.
+  make aws-status   shows how long it has left
+  make aws-extend   moves it to $hours hours from now (make aws-extend HOURS=n for fewer)
+When you're done, or once it has terminated itself, run make aws-destroy: terminating
+removes only the server and its data, not its security group, IAM role, instance
+profile or budget.
+EOF

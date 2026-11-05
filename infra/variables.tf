@@ -19,9 +19,9 @@ variable "deployment_name" {
 }
 
 variable "auto_terminate_hours" {
-  description = "How many hours after its first boot the server terminates itself, deleting its data. 0 keeps it running."
+  description = "How many hours after its first boot the server terminates itself, deleting its data, and the most make aws-extend can give it from the time it runs. 0 keeps it running."
   type        = number
-  default     = 5
+  default     = 8
 
   validation {
     condition     = var.auto_terminate_hours >= 0 && floor(var.auto_terminate_hours) == var.auto_terminate_hours
