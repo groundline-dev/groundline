@@ -12,8 +12,8 @@ from datetime import UTC, datetime
 import pytest
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
-from sqlalchemy import Engine, insert, select
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy import Engine, insert, select, text
+from sqlalchemy.exc import IntegrityError, ProgrammingError
 
 from groundline.db import api_keys, metadata
 from groundline.db.setup import (
@@ -42,6 +42,16 @@ def test_setup_refuses_a_superuser_role(admin_url: str):
     # The admin login, postgres, is a superuser: it can't be the app's login.
     with pytest.raises(DatabaseSetupError, match="superuser"):
         setup_database(admin_url, admin_url)
+
+
+@pytest.mark.parametrize("kind", ["DATABASE", "ROLE"])
+def test_the_apps_login_cant_create_databases_or_logins(db_engine: Engine, kind: str):
+    # ADR 0013. Autocommit, because CREATE DATABASE can't run in a transaction.
+    with (
+        db_engine.connect().execution_options(isolation_level="AUTOCOMMIT") as conn,
+        pytest.raises(ProgrammingError, match="permission denied"),
+    ):
+        conn.execute(text(f"CREATE {kind} groundline_forbidden"))
 
 
 def test_the_migrations_match_the_table_definition(db_engine: Engine):
