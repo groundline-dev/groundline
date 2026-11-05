@@ -39,13 +39,13 @@ make setup
 
 `make` targets sync automatically; run `uv sync` after a pull if your editor shows missing imports. Use `uv run <command>` to run anything else inside the environment without activating it.
 
-Model calls need an Anthropic API key. Copy `.env.example` to `.env` and add your key, or export `ANTHROPIC_API_KEY`. groundline stores its own API-key hashes and metadata in PostgreSQL. HTTP omission checks require PostgreSQL for authentication; CLI and Python checks do not. [DEVELOPMENT.md](DEVELOPMENT.md#database) explains how to set it up. `.env` is git-ignored; never commit a key. groundline reads `.env` from the folder you run it in, so run commands from the repo root. A missing or rejected Anthropic API key produces an error saying where groundline looked and how to fix it, before any paid call.
+Model calls need an Anthropic API key. Copy `.env.example` to `.env` and add your key, or export `ANTHROPIC_API_KEY`. groundline stores its own API-key hashes and metadata in PostgreSQL. HTTP omission checks require PostgreSQL for authentication; CLI and Python checks do not. [DEVELOPMENT.md](DEVELOPMENT.md#getting-started) explains how to set it up. `.env` is git-ignored; never commit a key. groundline reads `.env` from the folder you run it in, so run commands from the repo root. A missing or rejected Anthropic API key produces an error saying where groundline looked and how to fix it, before any paid call.
 
 **Live calls cost money.** A typical clinical note costs about $0.28 for the omission check and about $0.002 for the commission check. Agree a budget with your team before running anything at scale.
 
 ## Managing API keys
 
-These are groundline API keys for callers of protected HTTP endpoints, separate from the Anthropic API key used for model calls. Set `DATABASE_URL` and complete the [database setup](DEVELOPMENT.md#database) first; these commands access PostgreSQL directly and do not require the API server to be running or an Anthropic API key.
+These are groundline API keys for callers of protected HTTP endpoints, separate from the Anthropic API key used for model calls. Set `DATABASE_URL` and complete the [database setup](DEVELOPMENT.md#getting-started) first; these commands access PostgreSQL directly and do not require the API server to be running or an Anthropic API key.
 
 ```sh
 uv run groundline keys create
@@ -168,7 +168,7 @@ for c in refute.commissions:
 
 ## Using the API
 
-Set up [PostgreSQL](DEVELOPMENT.md#database) and configure `ANTHROPIC_API_KEY` first; `make dev` reads `DATABASE_URL` from `.env`. Start the API with `make dev`; it serves at http://127.0.0.1:8000, with interactive docs at `/docs`. To run the API and Postgres together in Docker instead, see [In Docker](DEVELOPMENT.md#in-docker). The omissions endpoint requires a groundline API key; `/health` and `/ready` are public. `/health` answers 200 while the app is running, and `/ready` answers 503 while the database is unavailable. **The commissions endpoint has no authentication yet**, and every check spends your Anthropic credit, so run it only on your own machine.
+Set up [PostgreSQL](DEVELOPMENT.md#getting-started) and configure `ANTHROPIC_API_KEY` first; `make dev` reads `DATABASE_URL` from `.env`. Start the API with `make dev`; it serves at http://127.0.0.1:8000, with interactive docs at `/docs`. To run the API and Postgres together in Docker instead, see [Running the whole stack in Docker](DEVELOPMENT.md#running-the-whole-stack-in-docker). The omissions endpoint requires a groundline API key; `/health` and `/ready` are public. `/health` answers 200 while the app is running, and `/ready` answers 503 while the database is unavailable. **The commissions endpoint has no authentication yet**, and every check spends your Anthropic credit, so run it only on your own machine.
 
 ### `POST /v1/omissions`
 
