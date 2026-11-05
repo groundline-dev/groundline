@@ -198,6 +198,8 @@ The `pre-commit` hook runs the checks in [.pre-commit-config.yaml](.pre-commit-c
 ## Layout
 
 ```
+.agents/skills/            agent skills (see AGENTS.md)
+.claude/skills/            links to .agents/skills/, so Claude Code finds the same skills
 Dockerfile                 the app image: a uv build stage and a slim runtime stage
 src/groundline/
   core/                    the pipeline framework: steps, registry, specs, runner, cache, costs
