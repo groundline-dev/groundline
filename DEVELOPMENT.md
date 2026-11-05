@@ -76,6 +76,84 @@ make docker-smoke
 
 If you run the image with your own `docker run`, publish the port on `127.0.0.1`, as in `-p 127.0.0.1:8001:8000`. A plain `-p 8000:8000` lets anyone on your network reach the API, even past firewalls such as ufw on Linux.
 
+## Deploying to AWS
+
+`make deploy` creates a test server in your own AWS project: an EC2 instance that runs the Compose stack at a commit you choose. Only your computer's public IP can reach it, over plain HTTP, so it's for testing with test data. Real callers need HTTPS first (ALL-90). Each server is disposable. Its data survives container restarts and reboots, until `make destroy` deletes the server and the data with it.
+
+The Terraform is in [infra/](infra/), and the server's startup script is [infra/bootstrap.sh.tftpl](infra/bootstrap.sh.tftpl).
+
+### Before your first deployment
+
+1. Install Terraform 1.17 or later (`brew install hashicorp/tap/terraform`) and the AWS CLI v2.
+2. Sign in with `aws login`. Find your project's Region in AWS Settings, under View all projects > Overview > Additional Info > Region, and set it:
+
+   ```sh
+   aws configure set region <your project's Region>
+   ```
+
+   The scripts use `AWS_REGION` instead if it's set.
+3. Copy the settings file and fill in your email address. The $5-a-month budget alert goes to it:
+
+   ```sh
+   cp infra/terraform.tfvars.example infra/terraform.tfvars
+   ```
+
+   The alert covers your whole AWS project, not only this server. AWS sends a confirmation email the first time.
+4. To make model calls, store an Anthropic API key in Parameter Store as `/groundline/anthropic-api-key`. Without it, the server still starts and `make aws-smoke` still passes, but every model call fails with 503. `read -rs` keeps the key off the screen and out of your shell history:
+
+   ```sh
+   read -rs ANTHROPIC_KEY   # paste the key and press Enter
+   aws ssm put-parameter --name /groundline/anthropic-api-key --type SecureString --value "$ANTHROPIC_KEY"
+   unset ANTHROPIC_KEY
+   ```
+
+   Only the server reads the key, when it starts. Terraform and the scripts only check that the parameter exists, so the key never lands in Terraform state. To change the key, add `--overwrite` to `put-parameter`, then run `make destroy` and `make deploy`.
+
+### Deploying and checking
+
+```sh
+make deploy           # create the server, or update it; Terraform shows the plan and asks first
+make aws-smoke        # check it from here, without calling Claude
+make aws-smoke-live   # also send one real commission check
+make destroy          # delete it, then check that everything is gone
+```
+
+- **`make deploy`** runs the commit you have checked out, which must be pushed to GitHub, since the server clones it from there. To run another, use `REF=<branch, tag or commit> make deploy`. The server takes about 5 to 10 minutes to build the image and start. If your IP changes, rerun `make deploy`: only the security group changes.
+- **`make aws-smoke`** waits up to 15 minutes for `/health` to answer 200. It then creates an API key on the server with `groundline keys create`, through SSM Run Command, and sends an empty `POST /v1/omissions` with an unknown key (expects 401) and with the new key (expects 422). That shows the server, Postgres, the migrations and authentication work, without spending Anthropic credit. It revokes the key at the end, even when a check fails.
+- **`make aws-smoke-live`** runs the same checks, then sends the shortest test input to `POST /v1/commissions` and expects 200. It costs under a cent. Run it before demos and releases, and after changing a prompt, a preset, the model or how the Anthropic API key reaches the server.
+
+### Keeping an API key for a demo
+
+The smoke test revokes its own key. To create one that lasts, run `groundline keys create` on the server through SSM Run Command:
+
+```sh
+instance="$(terraform -chdir=infra output -raw instance_id)"
+command="$(aws ssm send-command --instance-ids "$instance" --document-name AWS-RunShellScript \
+  --parameters '{"commands":["cd /opt/groundline && docker compose exec -T app groundline keys create --name demo"]}' \
+  --query Command.CommandId --output text)"
+aws ssm wait command-executed --command-id "$command" --instance-id "$instance"
+aws ssm get-command-invocation --command-id "$command" --instance-id "$instance" \
+  --query StandardOutputContent --output text
+```
+
+SSM keeps each command's output, so anyone who can read your project's Run Command history can see the key. The key goes when the server does; to revoke it sooner, run `groundline keys revoke <key-id>` the same way.
+
+### Costs
+
+The server costs about $0.024 an hour in us-east-1, about $17 a month: $0.0168 for the `t4g.small` instance, $0.005 for its public IP and $0.002 for its 20 GB disk. Prices differ a little between Regions. Destroy it when you're done; the budget alert emails you when your project's costs pass $2.50 and $5 in a month.
+
+### Troubleshooting
+
+- **`make aws-smoke` times out:** it prints the end of the server's startup log (`/var/log/groundline-bootstrap.log`) and the containers' status and logs. A failed startup also leaves `/var/lib/groundline/bootstrap-failed`.
+- **Requests time out from a new network:** your IP changed. Rerun `make deploy`.
+- **AWS calls that worked start failing with Access Denied:** your project may have reached its spend limit, which pauses it. Check in AWS Settings, under Billing.
+
+### Tearing down
+
+`make destroy` asks before deleting anything. It then asks AWS whether the instance, security group, IAM role, instance profile and budget are gone, and fails if any is still there or AWS can't say. It leaves the Anthropic API key's parameter, which Terraform didn't create, and prints the command to delete it.
+
+Terraform state stays in `infra/` on your computer. Delete the server with `make destroy` from the same folder you created it from; another clone doesn't know about it.
+
 ## Database
 
 To change a table, edit [src/groundline/db/tables.py](src/groundline/db/tables.py), then add a migration to match (a test fails until they agree). Don't store sources, summaries or results in the database.
@@ -123,7 +201,7 @@ If you change a prompt, the rubric or a step's logic, expect `tests/test_parity.
 
 ## Lint, format and type checks
 
-`make check` runs everything CI runs, without changing files: ruff, pyright in strict mode, the large-file check and the tests. `make fix` applies ruff's fixes and formatting. Pyright errors need fixing by hand.
+`make check` runs the checks CI runs, without changing files: ruff, pyright in strict mode, the large-file check and the tests. CI also runs the Docker stack check (`make docker-smoke`) and the Terraform checks: `terraform -chdir=infra fmt -check`, `validate` and `test`, which plan against a mock AWS provider and need no AWS credentials. `make fix` applies ruff's fixes and formatting. Pyright errors need fixing by hand.
 
 The `pre-commit` hook runs the same checks on staged files. If ruff fails, run `make fix` and stage the result.
 
