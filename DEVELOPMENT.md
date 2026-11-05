@@ -20,56 +20,58 @@ The README's [Using the API](README.md#using-the-api) describes the endpoints. E
 
 ### In Docker
 
-The [Dockerfile](Dockerfile) builds a production-style image. You need [Docker](https://docs.docker.com/get-started/get-docker/) installed and running.
+[compose.yaml](compose.yaml) runs the whole stack: Postgres, a one-off `setup` service that prepares the database, then the app, built from the [Dockerfile](Dockerfile). You need [Docker](https://docs.docker.com/get-started/get-docker/) installed and running, and the database passwords in `.env` (see [Database](#database)).
 
-Build the image:
-
-```sh
-make docker-build
-```
-
-Run it at http://127.0.0.1:8001. To use another port, add `DOCKER_PORT=<port>`. If you have a `.env`, it's mounted read-only into the container, so the app reads your API key the same way as under `make dev`. Stop it with Ctrl+C:
+Build the image and start the stack at http://127.0.0.1:8000. Stop it with Ctrl+C:
 
 ```sh
-make docker-run
+make docker-run    # docker compose up --build
 ```
 
-- **No API key in the container:** `.env` is mounted only if it exists when the container starts. If the app tells you to copy `.env.example` to `.env` and names `/home/groundline/.env`, that's the path inside the container. Create `.env` in the repo folder, then stop the container and run `make docker-run` again.
-- **No database yet:** inside the container, `localhost` is the container itself, so the app logs that it can't connect to the database at `localhost:5432` and keeps running. Nothing uses the database yet. A Compose file that runs Postgres next to the app is planned (ALL-70).
-- **Running the image with your own `docker run`:** include `127.0.0.1` in the port, as `make docker-run` does: `-p 127.0.0.1:8001:8000`. Without an IP, as in `-p 8000:8000`, Docker listens on every network interface, so anyone on your network can reach the API. On Linux, this also gets past firewalls such as ufw. The API has no authentication yet, and every request spends Anthropic credit.
+`make dev` uses port 8000 too, so stop one before starting the other, or set `APP_HOST_PORT` in `.env`. To build the image on its own, run `make docker-build`.
 
-Build the image, start it and check that `/health` returns 200. CI runs the same check on every PR. Run it before pushing if you changed the Dockerfile, `.dockerignore`, the dependencies, or how the app starts. It runs on a free port Docker picks, so it works while `make dev` is running:
+- **Settings:** the containers don't get all of `.env`, which holds the admin password. Each gets only the variables its `environment:` in `compose.yaml` lists, and only `setup` gets the admin password ([ADR 0012](docs/adr/0012-the-app-never-runs-as-a-postgres-superuser.md)). When you add a setting to `Settings`, add it to the app's `environment:` too; `tests/test_compose.py` fails until you do.
+- **If the app doesn't start:** it waits for `setup` to finish. If setup fails, for example on a migration, Docker retries it and the app stays down. The error is in `docker compose logs setup`.
+- **On a server:** the app's port is on `127.0.0.1` by default, so only this computer can reach it. A server that callers reach over the network sets `APP_BIND_ADDRESS=0.0.0.0` in `.env`. Postgres's port is always on `127.0.0.1`.
+- **Running the image with your own `docker run`:** include `127.0.0.1` in the port, as `compose.yaml` does: `-p 127.0.0.1:8001:8000`. Without an IP, as in `-p 8000:8000`, Docker listens on every network interface, so anyone on your network can reach the API. On Linux, this also gets past firewalls such as ufw.
+
+Check the whole stack before pushing if you changed the Dockerfile, `compose.yaml`, `.dockerignore`, the dependencies, or how the app starts. CI runs the same check on every PR:
 
 ```sh
 make docker-smoke
 ```
 
+It builds the image and starts the stack as its own Compose project, `groundline-smoke`, with random passwords and ports, so it doesn't touch a stack you have running. It checks that `/health` and `/ready` answer 200, that Postgres refuses a wrong password, that the app container doesn't have the admin password, and that an API key still works after the stack restarts. Then it removes its containers and its volume.
+
 ## Database
 
-The API keeps its operational data, starting with API keys, in PostgreSQL 18. It never holds sources, summaries or results ([ADR 0009](docs/adr/0009-the-database-holds-no-patient-data.md)). The `groundline keys` commands require it; neither check uses it, from the command line or from Python. For now each developer runs Postgres natively; Docker is planned.
+The API keeps its operational data, starting with API keys, in PostgreSQL 18. It never holds sources, summaries or results ([ADR 0009](docs/adr/0009-the-database-holds-no-patient-data.md)). The `groundline keys` commands require it; neither check uses it, from the command line or from Python.
 
-Install and start PostgreSQL 18:
+Postgres runs in Docker, from `compose.yaml`, for `make dev`, the whole stack, the database tests and CI. Running groundline against a Postgres you manage yourself is planned (ALL-88).
 
-```sh
-# macOS
-brew install postgresql@18
-brew link postgresql@18   # Homebrew doesn't put versioned Postgres on the PATH by itself
-brew services start postgresql@18
+Set it up once:
 
-# Ubuntu/Debian (with the PostgreSQL apt repository: https://www.postgresql.org/download/linux/)
-sudo apt install postgresql-18
-sudo -u postgres createuser --superuser "$USER"   # once: lets the setup script act as you
-```
+1. Copy `.env.example` to `.env` and fill in `POSTGRES_PASSWORD` and `GROUNDLINE_DB_PASSWORD`, each from `openssl rand -hex 24`. The `DATABASE_URL` and `DATABASE_ADMIN_URL` lines below them reuse these.
+2. Start Postgres on `127.0.0.1:5433`:
 
-Then set `DATABASE_URL` in `.env` (copy the line from `.env.example` and choose a password), and run:
+   ```sh
+   make db    # docker compose up --detach --wait postgres
+   ```
 
-```sh
-scripts/db-setup
-```
+3. Create the app's login and database, and apply the migrations:
 
-It creates the role and database the URL names, sets the role's password to the one in the URL, and applies the migrations. It's safe to rerun, and rerunning it is how you apply new migrations after a pull. It only works on a database on this machine, and it refuses a superuser role or the example password. It needs psql 15 or later: if another Postgres is linked (`psql --version`), unlink it first.
+   ```sh
+   scripts/db-setup
+   ```
 
-When the API starts, it checks the connection. If it can't connect, it logs an error under `groundline.db`, saying where and why but never the password, and keeps running. Public `/health` remains available. With a valid database URL, the API keeps a pooled async engine so protected requests can recover when PostgreSQL becomes available; it disposes that engine on shutdown. Restart after correcting a missing or invalid `DATABASE_URL`.
+Postgres has two logins ([ADR 0012](docs/adr/0012-the-app-never-runs-as-a-postgres-superuser.md)). The admin, `postgres`, gets its password from `POSTGRES_PASSWORD`. The app's login, `groundline`, owns the `groundline` database and isn't a superuser. `scripts/db-setup` logs in as the admin with `DATABASE_ADMIN_URL`, creates the login and database `DATABASE_URL` names if they're missing, sets the login's password to the one in that URL, and applies the migrations. It's safe to rerun, and rerunning it is how you apply new migrations after a pull. It refuses a superuser as the app's login and the example password `CHANGE_ME`. In the whole stack, the `setup` service runs it before the app starts.
+
+Postgres is on port 5433, not 5432, so a Postgres installed on your computer can keep 5432. To use another port, set `POSTGRES_HOST_PORT` in `.env`; the URLs follow it.
+
+- **Changing a password:** `POSTGRES_PASSWORD` sets the admin's password only when the database volume is first created; changing `.env` later doesn't change it. Change it in the database too: `docker compose exec postgres psql -U postgres -c "ALTER ROLE postgres PASSWORD 'NEW'"`. For `GROUNDLINE_DB_PASSWORD`, change `.env` and rerun `scripts/db-setup`, which sets the new one.
+- **Starting over:** `docker compose down --volumes` deletes the database volume, with every API key in it.
+
+When the API starts, it checks the connection. If it can't connect, it logs an error under `groundline.db`, saying where and why but never the password, and keeps running. `/health` keeps answering 200, so an outage doesn't make Docker restart the app. `GET /ready` answers 200 when the database answers and 503 when it doesn't, and logs once when the database goes away and once when it comes back. The API keeps a pooled async engine that tests each connection before using it, so it recovers after Postgres restarts without restarting itself; it disposes the engine on shutdown. Restart after correcting a missing or invalid `DATABASE_URL`.
 
 Point `DATABASE_URL` at the primary database. Authentication reads use READ COMMITTED and require a read-write server; they do not use cached validation results or a read replica that could lag behind revocation ([ADR 0011](docs/adr/0011-api-key-authentication-checks-the-database.md)). Connection pooling reuses connections, not query results.
 
@@ -81,6 +83,17 @@ scripts/db-setup                                      # apply it
 ```
 
 A test checks that the migrations and `tables.py` agree.
+
+### Backups
+
+Whoever runs the server is responsible for backups: the volume keeps the data across restarts, but nothing backs it up. The database holds only API keys, so losing it means issuing new ones. Back up and restore with `pg_dump`:
+
+```sh
+docker compose exec -T postgres pg_dump -U postgres -Fc groundline > groundline.dump
+docker compose exec -T postgres pg_restore -U postgres --clean --if-exists -d groundline < groundline.dump
+```
+
+A major Postgres upgrade, such as 18 to 19, uses the same two commands. Back up, change the image in `compose.yaml`, delete the volume, start the stack so setup creates the database again, then restore.
 
 ## API-key module
 
@@ -143,13 +156,13 @@ Run the tests. These are offline, free, and need no real API key; model calls us
 make test
 ```
 
-Run the database tests, which need PostgreSQL 18 running locally as described in [Database](#database). Each run creates a throwaway role and database, and drops them afterwards. They're excluded from the default run and CI; run them explicitly:
+Run the database tests, which need the Compose Postgres running (`make db`) and `DATABASE_ADMIN_URL` set, as in [Database](#database). Each run creates a throwaway login and database through the admin login, and drops them afterwards. They're excluded from the default run; CI runs them in a separate step:
 
 ```sh
 uv run pytest -m db
 ```
 
-API-key coverage includes real create/revoke commands, commit failure, concurrent revocation, expiry, and authentication through two running application instances. Shared fixtures in `tests/conftest.py` create throwaway databases; they never use the developer's `DATABASE_URL`. `tests/test_auth.py` checks the shared dependency on a test-only route. `tests/test_api_omissions_auth.py` exercises the production omissions route offline, including rejected requests doing no pipeline/model work and OpenAPI security. `tests/test_api_omissions_auth_db.py` runs that route with its real lifespan and PostgreSQL, proving acceptance, CLI revocation, unknown credentials, and expiry with a fake model client. Run the database suite explicitly when changing API-key behavior: the default suite and CI exclude it.
+API-key coverage includes real create/revoke commands, commit failure, concurrent revocation, expiry, and authentication through two running application instances. Shared fixtures in `tests/conftest.py` create throwaway databases; they never use the developer's `DATABASE_URL`. `tests/test_auth.py` checks the shared dependency on a test-only route. `tests/test_api_omissions_auth.py` exercises the production omissions route offline, including rejected requests doing no pipeline/model work and OpenAPI security. `tests/test_api_omissions_auth_db.py` runs that route with its real lifespan and PostgreSQL, proving acceptance, CLI revocation, unknown credentials, and expiry with a fake model client. Run the database suite explicitly when changing API-key behavior: the default suite excludes it.
 
 Run the live smoke tests, which call the real Anthropic API on short examples: the omission preset, the commission preset and the `/v1/omissions` and `/v1/commissions` endpoints (still about $0.09 per run in all, as the commission calls add under a cent). They're excluded from the default run:
 
@@ -197,6 +210,7 @@ The `pre-commit` hook runs the checks in [.pre-commit-config.yaml](.pre-commit-c
 
 ```
 Dockerfile                 the app image: a uv build stage and a slim runtime stage
+compose.yaml               the stack: Postgres, the setup service and the app
 src/groundline/
   core/                    the pipeline framework: steps, registry, specs, runner, cache, costs
   clients/                 the Anthropic client
@@ -215,8 +229,8 @@ src/groundline/
   cli.py                   the groundline command
   api/                     the API's endpoints, with their own request and response models
   app.py                   the FastAPI app
-scripts/db-setup           creates the local database and applies migrations
-scripts/docker-smoke-test  starts the image and checks /health (make docker-smoke)
+scripts/db-setup           creates the app's database login and database, and applies migrations
+scripts/docker-smoke-test  starts the Compose stack and checks it (make docker-smoke)
 tests/                     offline tests; test_live.py is marked live, test_db_schema.py is marked db
 ```
 

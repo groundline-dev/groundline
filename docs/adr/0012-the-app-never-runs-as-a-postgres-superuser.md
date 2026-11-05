@@ -1,0 +1,3 @@
+# The app never runs as a Postgres superuser
+
+The app connects to Postgres with its own login, `groundline`, which owns the `groundline` database: it can change tables and read and write rows there, but it can't create logins or databases, reach other databases or change server settings. The admin login is used once, by a separate setup step that creates that login: `scripts/db-setup` locally, or the `setup` service in `compose.yaml`. The app container never gets the admin password. The app could connect as admin and skip the setup step, but then a bug or a leaked `DATABASE_URL` could control the whole database. Whether migrations should have a login of their own is still open.
