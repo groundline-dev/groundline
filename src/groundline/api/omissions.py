@@ -15,13 +15,13 @@ from fastapi import APIRouter, Depends
 from pydantic import ConfigDict
 
 from groundline.api.common import (
-    PROTECTED_RESPONSES,
     Alarm,
     ApiModel,
     CheckRequest,
     Usage,
     alarm_of,
     check_failures,
+    check_responses,
     model_client,
     usage_of,
 )
@@ -123,7 +123,7 @@ class OmissionsResponse(ApiModel):
 @router.post(
     "/omissions",
     dependencies=[Depends(require_api_key)],
-    responses=PROTECTED_RESPONSES,
+    responses=check_responses(load_preset(DEFAULT_PRESET)),
 )
 async def omissions(
     request: OmissionsRequest,

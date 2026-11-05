@@ -21,15 +21,20 @@ from groundline.api.errors import (
     UNEXPECTED,
 )
 from groundline.core import (
+    CallRecord,
     ModelClient,
     ModelError,
+    PipelineSpec,
     ReplyError,
     SetupError,
     StageError,
+    build_pipeline,
     summarize_usage,
 )
+from groundline.evaluate import default_registry, model_users
 from groundline.evaluators.models import AlarmOutput
 from groundline.evaluators.report import usage_text
+from groundline.profiles import load_builtin_profile
 from groundline.result import EvaluationResult
 
 logger = logging.getLogger("groundline.api")
@@ -71,79 +76,63 @@ class InvalidRequestBody(ApiModel):
 
 
 def _error(
-    model: type[ApiModel], description: str, **examples: object
+    model: type[ApiModel], description: str, **examples: tuple[str, object]
 ) -> dict[str, Any]:
-    """An error status's entry in a route's `responses`, with its examples."""
+    """An error status's entry in a route's `responses`. Each example is a
+    label for the docs' picker and the body."""
     return {
         "model": model,
         "description": description,
         "content": {
             "application/json": {
-                "examples": {name: {"value": value} for name, value in examples.items()}
+                "examples": {
+                    name: {"summary": summary, "value": value}
+                    for name, (summary, value) in examples.items()
+                }
             }
         },
     }
 
 
-ANTHROPIC_KEY_MISSING = {
-    "detail": "ANTHROPIC_API_KEY is not set.\n"
-    "  Looked in: the environment, and /home/groundline/.env (not found)\n"
-    "  Fix: export ANTHROPIC_API_KEY=..., or copy .env.example to .env and add "
-    "it there."
-}
-
 FAILURE_RESPONSES: dict[int | str, dict[str, Any]] = {
     400: _error(
         ErrorBody,
         "The body isn't UTF-8 text.",
-        not_utf8={"detail": "There was an error parsing the body"},
+        not_utf8=("Not UTF-8", {"detail": "There was an error parsing the body"}),
     ),
     422: _error(
         InvalidRequestBody,
-        "The request is unusable: broken JSON, a blank or too-long text, or an "
-        "unexpected field. The response never repeats the rejected value.",
-        blank_and_extra={
-            "detail": [
-                {
-                    "loc": ["body", "source"],
-                    "msg": "String should have at least 1 character",
-                    "type": "string_too_short",
-                },
-                {
-                    "loc": ["body"],
-                    "msg": "Extra inputs are not permitted",
-                    "type": "extra_forbidden",
-                },
-            ]
-        },
+        "The request is unusable: broken JSON, not a JSON object, a blank or "
+        "too-long text, an unexpected field, or (omissions only) an unknown "
+        "threshold. The response never repeats the rejected value.",
+        blank_and_extra=(
+            "A blank source and an extra field",
+            {
+                "detail": [
+                    {
+                        "loc": ["body", "source"],
+                        "msg": "String should have at least 1 character",
+                        "type": "string_too_short",
+                    },
+                    {
+                        "loc": ["body"],
+                        "msg": "Extra inputs are not permitted",
+                        "type": "extra_forbidden",
+                    },
+                ]
+            },
+        ),
     ),
     500: _error(
         ErrorBody,
         "An unexpected error, a bug in groundline. The details are in the server log.",
-        unexpected={"detail": UNEXPECTED},
-    ),
-    502: _error(
-        ErrorBody,
-        "The model or Anthropic's API failed. Retrying later may work.",
-        omissions_unusable_reply={
-            "detail": "stage 'extract' failed: unusable reply after 1 retry: no "
-            "JSON object in the reply (the reply was 8 characters). Cost before "
-            "stopping: $0.0043 · 2 calls · 1,054 input / 4 output tokens"
-        },
-        commissions_anthropic_error={
-            "detail": "stage 'commissions_check' failed: the Anthropic API "
-            "answered 529 (OverloadedError)"
-        },
-    ),
-    503: _error(
-        ErrorBody,
-        "The Anthropic API key is missing or rejected.",
-        anthropic_key_missing=ANTHROPIC_KEY_MISSING,
+        unexpected=("Unexpected error", {"detail": UNEXPECTED}),
     ),
 }
-"""The statuses a check can answer besides 200, with examples. FastAPI's own 422
-entry is replaced, since groundline's 422 leaves out the rejected value. Check
-routes use `PROTECTED_RESPONSES`, which adds authentication's."""
+"""The statuses any check can answer besides 200, 502 and 503, with examples. FastAPI's
+own 422 entry is replaced, since groundline's 422 leaves out the rejected value.
+Check routes use `check_responses`, which adds authentication's 401 and the
+502 and 503, whose examples depend on the route's pipeline."""
 
 PROTECTED_RESPONSES: dict[int | str, dict[str, Any]] = {
     **FAILURE_RESPONSES,
@@ -151,7 +140,7 @@ PROTECTED_RESPONSES: dict[int | str, dict[str, Any]] = {
         **_error(
             ErrorBody,
             "The API key is missing or invalid.",
-            invalid_key={"detail": INVALID_API_KEY},
+            invalid_key=("Invalid or missing key", {"detail": INVALID_API_KEY}),
         ),
         "headers": {
             "WWW-Authenticate": {
@@ -160,15 +149,67 @@ PROTECTED_RESPONSES: dict[int | str, dict[str, Any]] = {
             }
         },
     },
-    503: _error(
-        ErrorBody,
-        "Authentication is unavailable, or the Anthropic API key is missing or "
-        "rejected.",
-        authentication_unavailable={"detail": AUTHENTICATION_UNAVAILABLE},
-        anthropic_key_missing=ANTHROPIC_KEY_MISSING,
-    ),
 }
-"""`FAILURE_RESPONSES` for a route that also depends on `require_api_key`."""
+"""`FAILURE_RESPONSES` plus the 401 of a route that depends on `require_api_key`."""
+
+
+def check_responses(spec: PipelineSpec) -> dict[int | str, dict[str, Any]]:
+    """Every error status a check route can answer, for its `responses`:
+    `PROTECTED_RESPONSES`, a 502 whose examples fail in the pipeline's first
+    model call, priced at its model, and a 503 that names the stages needing
+    the Anthropic API key, as the real one does."""
+    profile = load_builtin_profile(spec.profile) if spec.profile else None
+    pipeline = build_pipeline(spec, default_registry(), profile)
+    stage = next(s for s in pipeline.stages if s.enabled and s.implementation.models())
+    # Illustrative token counts: a first prompt and its retry, each answered
+    # with "not json".
+    call = CallRecord(
+        step=stage.step,
+        model=stage.implementation.models()[0],
+        input_tokens=800,
+        output_tokens=2,
+        seconds=1.0,
+    )
+    cost = usage_text(summarize_usage([call, call]))
+    failed = f"stage '{stage.step}' failed"
+    upstream = _error(
+        ErrorBody,
+        "The model or Anthropic's API failed. Retrying later may work.",
+        unusable_reply=(
+            "Unusable reply",
+            {
+                "detail": f"{failed}: unusable reply after 1 retry: no JSON object "
+                f"in the reply (the reply was 8 characters). Cost before stopping: "
+                f"{cost}"
+            },
+        ),
+        anthropic_error=(
+            "Anthropic API error",
+            {"detail": f"{failed}: the Anthropic API answered 529 (OverloadedError)"},
+        ),
+    )
+    unavailable = _error(
+        ErrorBody,
+        "Authentication is unavailable, the Anthropic API key is missing or "
+        "rejected, or the settings can't be read.",
+        authentication_unavailable=(
+            "Authentication unavailable",
+            {"detail": AUTHENTICATION_UNAVAILABLE},
+        ),
+        anthropic_key_missing=(
+            "Anthropic API key not set",
+            {
+                "detail": "ANTHROPIC_API_KEY is not set.\n"
+                f"  Needed by: {model_users(pipeline)}\n"
+                "  Looked in: the environment, and /home/groundline/.env (not "
+                "found)\n"
+                "  Fix: export ANTHROPIC_API_KEY=..., or copy .env.example to "
+                ".env and add it there."
+            },
+        ),
+    )
+    return PROTECTED_RESPONSES | {502: upstream, 503: unavailable}
+
 
 _EXAMPLE_SOURCE = (
     "Doctor: Any allergies? Patient: Penicillin, it gives me a rash. Doctor: "

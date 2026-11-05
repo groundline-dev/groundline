@@ -14,13 +14,13 @@ from fastapi import APIRouter, Depends
 from pydantic import ConfigDict
 
 from groundline.api.common import (
-    PROTECTED_RESPONSES,
     Alarm,
     ApiModel,
     CheckRequest,
     Usage,
     alarm_of,
     check_failures,
+    check_responses,
     model_client,
     usage_of,
 )
@@ -97,7 +97,7 @@ class CommissionsResponse(ApiModel):
                         "calls": 1,
                         "input_tokens": 9800,
                         "output_tokens": 420,
-                        "cost_usd": 0.002,
+                        "cost_usd": 0.0012,
                     },
                 }
             ]
@@ -121,7 +121,7 @@ class CommissionsResponse(ApiModel):
 @router.post(
     "/commissions",
     dependencies=[Depends(require_api_key)],
-    responses=PROTECTED_RESPONSES,
+    responses=check_responses(load_preset(DEFAULT_COMMISSIONS_PRESET)),
 )
 async def commissions(
     request: CommissionsRequest,

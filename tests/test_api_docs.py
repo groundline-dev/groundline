@@ -7,14 +7,20 @@ import pytest
 from fastapi.testclient import TestClient
 
 from groundline.api.commissions import CommissionsRequest, CommissionsResponse
-from groundline.api.common import PROTECTED_RESPONSES, ApiModel, InvalidRequestBody
+from groundline.api.common import ApiModel, ErrorBody, InvalidRequestBody
 from groundline.api.omissions import OmissionsRequest, OmissionsResponse
 from groundline.app import app
+from groundline.evaluate import DEFAULT_COMMISSIONS_PRESET, DEFAULT_PRESET
+from groundline.presets import load_preset
 from tests.auth_helpers import ENDPOINTS, HEADERS, FakeKeys
 
 http = TestClient(app)  # no API key: the docs are public
 schema = app.openapi()
 CHECKS = [endpoint.path for endpoint in ENDPOINTS]
+ERROR_MODELS: dict[str, type[ApiModel]] = {
+    "ErrorBody": ErrorBody,
+    "InvalidRequestBody": InvalidRequestBody,
+}
 
 
 def test_api_serves_the_interactive_docs_without_a_key():
@@ -70,10 +76,12 @@ def test_each_check_has_a_valid_example_for_every_error(path: str):
     for status, response in responses.items():
         if status == "200":
             continue
-        model = PROTECTED_RESPONSES[int(status)]["model"]
-        examples = response["content"]["application/json"]["examples"]
+        content = response["content"]["application/json"]
+        model = ERROR_MODELS[content["schema"]["$ref"].rsplit("/", 1)[-1]]
+        examples = content["examples"]
         assert examples, status
         for example in examples.values():
+            assert example["summary"], status
             model.model_validate(example["value"])
 
 
@@ -100,3 +108,30 @@ def test_a_401_documents_its_bearer_challenge():
     responses = schema["paths"][CHECKS[0]]["post"]["responses"]
 
     assert "WWW-Authenticate" in responses["401"]["headers"]
+
+
+@pytest.mark.parametrize(
+    ("path", "preset"),
+    [
+        ("/v1/omissions", DEFAULT_PRESET),
+        ("/v1/commissions", DEFAULT_COMMISSIONS_PRESET),
+    ],
+)
+def test_each_checks_502_examples_name_its_own_first_stage(path: str, preset: str):
+    spec = load_preset(preset)
+    stage = next(s.step for s in spec.stages if s.enabled and "model" in s.settings)
+    response = schema["paths"][path]["post"]["responses"]["502"]
+    examples = list(response["content"]["application/json"]["examples"].values())
+
+    assert len(examples) == 2
+    assert all(f"stage '{stage}'" in e["value"]["detail"] for e in examples)
+
+
+@pytest.mark.parametrize("path", CHECKS)
+def test_the_503_example_names_the_stages_needing_the_anthropic_key(path: str):
+    response = schema["paths"][path]["post"]["responses"]["503"]
+    examples = response["content"]["application/json"]["examples"]
+    detail = examples["anthropic_key_missing"]["value"]["detail"]
+
+    assert "  Needed by: " in detail and "(claude-" in detail
+    assert "(no price" not in str(schema["paths"][path]["post"]["responses"]["502"])

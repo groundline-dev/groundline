@@ -225,7 +225,7 @@ curl -s http://127.0.0.1:8000/v1/commissions \
   ],
   "pipeline": "commission_quick",
   "validated_preset": "commission_quick",
-  "usage": {"calls": 1, "input_tokens": 9800, "output_tokens": 420, "cost_usd": 0.002}
+  "usage": {"calls": 1, "input_tokens": 9800, "output_tokens": 420, "cost_usd": 0.0012}
 }
 ```
 
