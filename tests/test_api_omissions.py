@@ -152,7 +152,9 @@ def test_a_missing_key_is_a_503_with_the_clis_message(
     response = http.post("/v1/omissions", json=check())
 
     assert response.status_code == 503
-    assert response.json()["detail"].startswith("ANTHROPIC_API_KEY is not set.")
+    detail = response.json()["detail"]
+    assert detail.startswith("ANTHROPIC_API_KEY is not set.")
+    assert str(Path.cwd()) not in detail  # no path of the server's
 
 
 def test_a_rejected_key_is_a_503():
@@ -349,6 +351,7 @@ def test_unreadable_settings_are_a_503_without_their_text(tmp_path: Path):
     detail = response.json()["detail"]
     assert detail.startswith("can't read the settings (UnicodeDecodeError).")
     assert "tenofovir" not in detail
+    assert str(tmp_path) not in detail  # no path of the server's
 
 
 def test_a_finished_check_is_logged_without_its_input(

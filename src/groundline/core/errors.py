@@ -8,6 +8,12 @@ class SetupError(Exception):
     failure, because the fix is in the environment, not the stage.
     """
 
+    def api_message(self) -> str:
+        """What an HTTP response may say about this error. By default, the whole
+        message; an error that names something on the server, such as a file
+        path, overrides it to leave that out."""
+        return str(self)
+
 
 class APIKeyRejectedError(SetupError):
     """The provider rejected the API key, or it lacks access to the model."""

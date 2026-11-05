@@ -127,7 +127,7 @@ def check_failures() -> Generator[None]:
         yield
     except SetupError as error:
         logger.warning("can't check: %s", error)
-        raise HTTPException(503, detail=str(error)) from error
+        raise HTTPException(503, detail=error.api_message()) from error
     except StageError as error:
         spent = _spent(error)
         cause = type(error.__cause__).__name__

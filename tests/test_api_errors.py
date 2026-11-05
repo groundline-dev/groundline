@@ -80,6 +80,20 @@ def test_a_malformed_request_is_a_4xx_not_a_crash(body: bytes):
     assert SECRET not in response.text
 
 
+@pytest.mark.parametrize(
+    "body",
+    [b"\xc3\x28", b'{"source": "\xc3\x28", "summary": "b"}'],
+    ids=["bad UTF-8", "bad UTF-8 inside JSON"],
+)
+def test_a_body_that_is_not_utf8_is_a_400_that_repeats_nothing(body: bytes):
+    response = http.post(
+        "/v1/omissions", content=body, headers={"content-type": "application/json"}
+    )
+
+    assert response.status_code == 400
+    assert response.json() == {"detail": "There was an error parsing the body"}
+
+
 def test_an_error_outside_a_route_is_a_structured_500(
     caplog: pytest.LogCaptureFixture,
 ):

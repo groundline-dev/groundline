@@ -17,11 +17,30 @@ ENV_FILE = ".env"
 
 
 class MissingAPIKeyError(SetupError):
-    pass
+    def __init__(self, name: str, needed_by: str | None) -> None:
+        super().__init__(_missing_key_message(name, needed_by))
+        self.name = name
+        self.needed_by = needed_by
+
+    def api_message(self) -> str:
+        """The message without the path of the server's `.env`."""
+        return _missing_key_message(self.name, self.needed_by, show_path=False)
 
 
 class UnreadableSettingsError(SetupError):
-    pass
+    def __init__(self, error_type: str) -> None:
+        super().__init__(
+            f"can't read the settings ({error_type}).\n"
+            f"  Fix: check that {dotenv_path()} is a readable UTF-8 text file."
+        )
+        self.error_type = error_type
+
+    def api_message(self) -> str:
+        """The message without the path of the server's `.env`."""
+        return (
+            f"can't read the settings ({self.error_type}).\n"
+            f"  Fix: check that the server's {ENV_FILE} is a readable UTF-8 text file."
+        )
 
 
 def dotenv_path() -> Path:
@@ -58,9 +77,7 @@ class Settings(BaseSettings):
         rather than when settings are loaded.
         """
         if self.anthropic_api_key is None:
-            raise MissingAPIKeyError(
-                _missing_key_message("ANTHROPIC_API_KEY", needed_by)
-            )
+            raise MissingAPIKeyError("ANTHROPIC_API_KEY", needed_by)
         return self.anthropic_api_key.get_secret_value()
 
     def anthropic_key_source(self) -> str:
@@ -76,23 +93,25 @@ def read_settings() -> Settings:
     try:
         return Settings()
     except Exception as error:
-        raise UnreadableSettingsError(
-            f"can't read the settings ({type(error).__name__}).\n"
-            f"  Fix: check that {dotenv_path()} is a readable UTF-8 text file."
-        ) from error
+        raise UnreadableSettingsError(type(error).__name__) from error
 
 
-def _missing_key_message(name: str, needed_by: str | None) -> str:
-    path = dotenv_path()
-    if not path.is_file():
-        status = "not found"
-    else:
-        status = f"found, but it has no {name}, or it's blank"
+def _missing_key_message(
+    name: str, needed_by: str | None, *, show_path: bool = True
+) -> str:
+    """Where the key was looked for and how to fix it. An HTTP response leaves
+    the path out (`show_path=False`), since it is a detail of the server."""
     lines = [f"{name} is not set."]
     if needed_by:
         lines.append(f"  Needed by: {needed_by}")
-    lines += [
-        f"  Looked in: the environment, and {path} ({status})",
-        f"  Fix: export {name}=..., or copy .env.example to .env and add it there.",
-    ]
+    if show_path:
+        path = dotenv_path()
+        if not path.is_file():
+            status = "not found"
+        else:
+            status = f"found, but it has no {name}, or it's blank"
+        lines.append(f"  Looked in: the environment, and {path} ({status})")
+    lines.append(
+        f"  Fix: export {name}=..., or copy .env.example to .env and add it there."
+    )
     return "\n".join(lines)

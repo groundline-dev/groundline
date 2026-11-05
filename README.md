@@ -237,16 +237,16 @@ Every finished check answers **200, flagged or not** ([ADR 0008](docs/adr/0008-t
 
 | Status | Meaning |
 |---|---|
-| 400 | The body isn't UTF-8 text. |
+| 400 | The body isn't valid UTF-8 text. (Bytes that begin like UTF-16 or UTF-32 text are read as that and answer 422 if they aren't JSON.) |
 | 401 | The groundline API key is missing, malformed, unknown, revoked, or expired. Includes `WWW-Authenticate: Bearer`. |
 | 404 | No such route. `detail` names the method and path, and points to `/docs`. |
 | 405 | The route doesn't take that method, such as `GET /v1/omissions`. |
 | 422 | The request is unusable: broken JSON, not a JSON object, a blank or too-long text, an unexpected field, or (omissions only) an unknown `threshold`. |
 | 500 | An unexpected error, a bug in groundline. Details are in the server log. |
 | 502 | The model or Anthropic's API failed: an unusable reply, a refusal or an outage. `detail` names the step and what the check had spent; for an Anthropic API error it gives only the status and error type. Retrying later may work. |
-| 503 | `ANTHROPIC_API_KEY` is missing or rejected, or settings cannot be read. It's also 503 when authentication is unavailable (missing/unusable `DATABASE_URL` or unavailable storage), with `{"detail": "Authentication is unavailable"}`. Model setup errors provide setup guidance. |
+| 503 | `ANTHROPIC_API_KEY` is missing or rejected, or settings cannot be read. It's also 503 when authentication is unavailable (missing/unusable `DATABASE_URL` or unavailable storage), with `{"detail": "Authentication is unavailable"}`. Model setup errors provide setup guidance, without the path of the server's `.env`. |
 
-JSON parsing happens before authentication: broken JSON returns 422 and non-UTF-8 bodies return 400 even without credentials. For readable JSON, authentication precedes field validation. Requests rejected by authentication never start the pipeline or make model calls.
+JSON parsing happens before authentication: broken JSON returns 422 and invalid UTF-8 bodies return 400 even without credentials. For readable JSON, authentication precedes field validation. Requests rejected by authentication never start the pipeline or make model calls.
 
 Every error answers with JSON: `{"detail": ...}`. Error responses and the server log never contain text from the source or summary. The log records each finished check's outcome, number of omissions or commissions, and cost, and each failure.
 
