@@ -87,7 +87,7 @@ gone "instance profile" "$profile" aws iam get-instance-profile --instance-profi
 gone budget "$budget" aws budgets describe-budget --account-id "$account" --budget-name "$budget"
 
 [ "$leftover" = 0 ] \
-  || fail "something may be left over; see above, and check the AWS console for resources tagged project=groundline"
+  || fail "something may be left over; see above, and check the AWS console for resources tagged app=groundline"
 
 echo
 echo "The Anthropic API key's parameter is still in Parameter Store. Every deployment in"

@@ -23,7 +23,7 @@ provider "aws" {
   # its own (main.tf).
   default_tags {
     tags = {
-      project    = "groundline"
+      app        = "groundline"
       deployment = var.deployment_name
     }
   }

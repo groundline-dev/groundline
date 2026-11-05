@@ -44,8 +44,8 @@ run "the_server_requires_imdsv2_and_has_an_encrypted_disposable_tagged_disk" {
   }
   assert {
     # The provider's default_tags don't reach the root disk; it needs its own.
-    condition     = lookup(aws_instance.app.root_block_device[0].tags, "project", "") == "groundline"
-    error_message = "The root disk should be tagged project=groundline."
+    condition     = lookup(aws_instance.app.root_block_device[0].tags, "app", "") == "groundline"
+    error_message = "The root disk should be tagged app=groundline."
   }
   assert {
     condition     = aws_instance.app.user_data_replace_on_change == true

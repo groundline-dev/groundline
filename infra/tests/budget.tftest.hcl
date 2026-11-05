@@ -40,7 +40,7 @@ run "the_budget_is_five_dollars_of_cost_a_month" {
     error_message = "The budget should leave out credits and refunds."
   }
   assert {
-    # Filtering by the project tag needs an account-level billing setting.
+    # Filtering by the app tag needs an account-level billing setting.
     condition     = length(aws_budgets_budget.monthly.cost_filter) == 0
     error_message = "The budget should cover the whole AWS project, with no cost filter."
   }

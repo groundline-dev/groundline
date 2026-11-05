@@ -1,7 +1,7 @@
 # Emails budget_alert_email when the AWS project's actual cost this month
 # passes $2.50 and $5, to catch a server someone forgot to destroy (R2).
 #
-# It covers the whole AWS project: limiting it to the project tag needs an
+# It covers the whole AWS project: limiting it to the app tag needs an
 # account-level billing setting. Each deployment has its own, named after
 # deployment_name, so everyone sharing an AWS project hears when the project's
 # cost runs high, whoever's server caused it. Credits and refunds are left out, since on the

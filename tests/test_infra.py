@@ -50,12 +50,13 @@ def blocks(kind: str, label: str) -> list[str]:
     return re.findall(pattern, all_terraform(), re.MULTILINE | re.DOTALL)
 
 
-def test_every_resource_is_tagged_project_groundline():
-    """The provider's default_tags tag every resource it creates."""
+def test_every_resource_is_tagged_app_groundline():
+    """The provider's default_tags tag every resource it creates. The key is app,
+    since AWS Settings uses "project" for the AWS account itself."""
     assert re.search(
-        r'default_tags\s*\{\s*tags\s*=\s*\{[^}]*\bproject\s*=\s*"groundline"',
+        r'default_tags\s*\{\s*tags\s*=\s*\{[^}]*\bapp\s*=\s*"groundline"',
         all_terraform(),
-    ), 'the aws provider should set default_tags { tags = { project = "groundline" } }'
+    ), 'the aws provider should set default_tags { tags = { app = "groundline" } }'
 
 
 def test_every_resource_is_tagged_with_its_deployment():

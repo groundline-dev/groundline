@@ -151,7 +151,7 @@ resource "aws_instance" "app" {
     delete_on_termination = true
     # The provider's default_tags don't reach the root disk.
     tags = {
-      project    = "groundline"
+      app        = "groundline"
       deployment = var.deployment_name
     }
   }
