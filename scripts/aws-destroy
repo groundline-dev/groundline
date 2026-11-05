@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Destroy the AWS test server with Terraform, then ask AWS directly whether the
+# Destroy your AWS test deployment with Terraform, then ask AWS directly whether the
 # instance, security group, IAM role, instance profile and budget are gone.
 # It fails if any is still there, or if AWS can't say (an expired sign-in, say).
 #

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Create (or update) the AWS test server with Terraform: an EC2 instance that
-# runs the Compose stack at a given commit, reachable only from this computer's
+# Create (or update) your AWS test deployment with Terraform: the Compose stack
+# at a given commit, on an EC2 instance reachable only from this computer's
 # public IP. See DEVELOPMENT.md, "Deploying to AWS".
 #
 # Usage: scripts/aws-deploy            (make deploy)

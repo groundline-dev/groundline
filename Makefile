@@ -47,7 +47,7 @@ docker-run:
 docker-smoke: docker-build
 	scripts/docker-smoke-test
 
-# The AWS test server (see DEVELOPMENT.md, "Deploying to AWS"). It costs money
+# Your AWS test deployment (see DEVELOPMENT.md, "Deploying to AWS"). It costs money
 # while it runs: make destroy when you're done.
 deploy:
 	scripts/aws-deploy

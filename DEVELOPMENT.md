@@ -78,9 +78,9 @@ If you run the image with your own `docker run`, publish the port on `127.0.0.1`
 
 ## Deploying to AWS
 
-`make deploy` creates a test server in your AWS project: an EC2 instance that runs the Compose stack at a commit you choose. Only your computer's public IP can reach it, over plain HTTP, so it's for testing with test data. Real callers need HTTPS first (ALL-90). Each server is disposable. Its data survives container restarts and reboots, until `make destroy`, a deployment of another commit, or the 5-hour limit deletes the server and the data with it.
+`make deploy` creates a test deployment in your AWS project: the Compose stack at a commit you choose, on an EC2 instance. Only your computer's public IP can reach it, over plain HTTP, so it's for testing with test data. Real callers need HTTPS first (ALL-90). Each test deployment is disposable. Its data survives container restarts and reboots, until `make destroy`, a deployment of another commit, or the 5-hour limit deletes the server and the data with it.
 
-Several developers can share one AWS project, each with their own server. Each server's resources are named and tagged after the `deployment_name` in that developer's `infra/terraform.tfvars`.
+Several developers can share one AWS project, each with their own test deployment. Each test deployment's resources are named and tagged after the `deployment_name` in that developer's `infra/terraform.tfvars`.
 
 The Terraform is in [infra/](infra/), and the server's startup script is [infra/bootstrap.sh.tftpl](infra/bootstrap.sh.tftpl).
 
@@ -242,7 +242,7 @@ src/groundline/
   auth.py                  the Bearer authentication dependency
   cli.py, keys_cli.py      the groundline command and its keys subgroup
   api/, app.py             the API's endpoints and the FastAPI app
-infra/                     Terraform for the AWS test server, its startup script, and their tests
+infra/                     Terraform for AWS test deployments, the startup script, and their tests
 scripts/                   db-setup, the stack check behind make docker-smoke, and the AWS
                            scripts behind make deploy, aws-smoke, aws-smoke-live and destroy
 tests/                     the tests

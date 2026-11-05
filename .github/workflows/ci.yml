@@ -50,7 +50,7 @@ jobs:
       - run: scripts/docker-smoke-test
 
   terraform:
-    # The Terraform for the AWS test server (infra/): formatting, validation and
+    # The Terraform for AWS test deployments (infra/): formatting, validation and
     # its tests, which plan against a mock AWS provider. No AWS credentials, so
     # nothing is created.
     runs-on: ubuntu-latest

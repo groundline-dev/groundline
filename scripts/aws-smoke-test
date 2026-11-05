@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Check the AWS test server from this computer:
+# Check your AWS test deployment from this computer:
 #   - /health answers 200, waiting up to 15 minutes for the server to start
 #   - an API key created on the server through SSM Run Command is accepted:
 #     an empty POST /v1/omissions gets 401 with an unknown API key and 422 with

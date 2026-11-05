@@ -1,5 +1,5 @@
-# The test server: an EC2 instance in the default VPC, its security group and
-# its IAM role. bootstrap.sh.tftpl runs on its first boot.
+# A test deployment: an EC2 instance in the default VPC, its security group
+# and its IAM role. bootstrap.sh.tftpl runs on its first boot.
 
 data "aws_partition" "current" {}
 data "aws_caller_identity" "current" {}
@@ -22,7 +22,7 @@ locals {
 
 resource "aws_security_group" "app" {
   name_prefix = "groundline-${var.deployment_name}-"
-  description = "groundline test server: the app port from the tester IP only"
+  description = "groundline test deployment: the app port from the tester IP only"
 }
 
 resource "aws_vpc_security_group_ingress_rule" "app" {
@@ -47,7 +47,7 @@ resource "aws_vpc_security_group_egress_rule" "all" {
 
 resource "aws_iam_role" "instance" {
   name        = "groundline-instance-${var.deployment_name}"
-  description = "The groundline test server: SSM Run Command and its Anthropic API key"
+  description = "The server of a groundline test deployment: SSM Run Command and its Anthropic API key"
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"

@@ -39,7 +39,7 @@ EOF
 chmod 755 /usr/local/sbin/groundline-expire
 cat >/etc/systemd/system/groundline-expire.service <<'EOF'
 [Unit]
-Description=Shut the groundline test server down once its deadline passes
+Description=Shut the groundline server down once its deadline passes
 
 [Service]
 Type=oneshot
@@ -47,7 +47,7 @@ ExecStart=/usr/local/sbin/groundline-expire
 EOF
 cat >/etc/systemd/system/groundline-expire.timer <<'EOF'
 [Unit]
-Description=Check the groundline test server's deadline every 5 minutes
+Description=Check the groundline server's deadline every 5 minutes
 
 [Timer]
 OnBootSec=1min

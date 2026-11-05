@@ -8,7 +8,7 @@ variable "region" {
 }
 
 variable "deployment_name" {
-  description = "Names this deployment's resources, so several can share an AWS project: your name for a test server, or a name such as staging."
+  description = "Names this deployment's resources, so several can share an AWS project: your name for a test deployment, or a name such as staging."
   type        = string
 
   validation {
