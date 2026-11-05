@@ -159,7 +159,9 @@ def test_a_missing_key_is_a_503_with_the_clis_message(
 
 def test_a_rejected_key_is_a_503():
     def rejected(prompt: str) -> str:
-        raise APIKeyRejectedError("ANTHROPIC_API_KEY was rejected")
+        raise APIKeyRejectedError(
+            "ANTHROPIC_API_KEY was rejected", "ANTHROPIC_API_KEY was rejected"
+        )
 
     use_client(rejected)
 

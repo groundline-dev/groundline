@@ -51,7 +51,11 @@ SELECT format('DROP ROLE IF EXISTS %I', :'role') \gexec
 
 
 class DatabaseSetupError(SetupError):
-    pass
+    """Raised only by the db-setup command, never while answering a request, so
+    its messages may name anything; an HTTP response would get a generic line."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message, "Database setup failed; see the server log.")
 
 
 def setup_database(raw: str) -> None:

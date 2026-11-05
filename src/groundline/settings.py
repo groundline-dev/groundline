@@ -18,28 +18,17 @@ ENV_FILE = ".env"
 
 class MissingAPIKeyError(SetupError):
     def __init__(self, name: str, needed_by: str | None) -> None:
-        super().__init__(_missing_key_message(name, needed_by))
-        self.name = name
-        self.needed_by = needed_by
-
-    def api_message(self) -> str:
-        """The message without the path of the server's `.env`."""
-        return _missing_key_message(self.name, self.needed_by, show_path=False)
+        super().__init__(
+            _missing_key_message(name, needed_by),
+            _missing_key_message(name, needed_by, show_path=False),
+        )
 
 
 class UnreadableSettingsError(SetupError):
     def __init__(self, error_type: str) -> None:
         super().__init__(
-            f"can't read the settings ({error_type}).\n"
-            f"  Fix: check that {dotenv_path()} is a readable UTF-8 text file."
-        )
-        self.error_type = error_type
-
-    def api_message(self) -> str:
-        """The message without the path of the server's `.env`."""
-        return (
-            f"can't read the settings ({self.error_type}).\n"
-            f"  Fix: check that the server's {ENV_FILE} is a readable UTF-8 text file."
+            _unreadable_message(error_type),
+            _unreadable_message(error_type, show_path=False),
         )
 
 
@@ -63,10 +52,11 @@ class Settings(BaseSettings):
     def require_database_url(self) -> str:
         """Require storage only when an operation actually uses it."""
         if self.database_url is None:
-            raise SetupError(
+            message = (
                 "DATABASE_URL is not set. Add it to the environment or .env; "
                 "see DEVELOPMENT.md for database setup."
             )
+            raise SetupError(message, message)
         return self.database_url.get_secret_value()
 
     def anthropic_key(self, needed_by: str | None = None) -> str:
@@ -94,6 +84,16 @@ def read_settings() -> Settings:
         return Settings()
     except Exception as error:
         raise UnreadableSettingsError(type(error).__name__) from error
+
+
+def _unreadable_message(error_type: str, *, show_path: bool = True) -> str:
+    """Why the settings can't be read and how to fix it. An HTTP response leaves
+    the path out (`show_path=False`), since it is a detail of the server."""
+    file = dotenv_path() if show_path else f"the server's {ENV_FILE}"
+    return (
+        f"can't read the settings ({error_type}).\n"
+        f"  Fix: check that {file} is a readable UTF-8 text file."
+    )
 
 
 def _missing_key_message(
