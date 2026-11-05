@@ -1,35 +1,98 @@
 #!/usr/bin/env bash
-# Start the groundline image and check that /health answers 200.
-# Usage: scripts/docker-smoke-test [IMAGE]   (default: groundline:dev)
+# Start the Compose stack and check that:
+#   - /health and /ready answer 200
+#   - Postgres refuses a wrong password
+#   - the app container doesn't have the admin password
+#   - an API key created with `groundline keys create` still works after the
+#     containers are removed and started again
+#
+# Usage: scripts/docker-smoke-test   (`make docker-smoke` builds the image, then
+# runs this)
+#
+# It runs as its own Compose project, with random passwords and ports that
+# Docker picks, so it doesn't share containers, ports or the database volume
+# with a stack you have running. Its cleanup removes only its own data.
 set -euo pipefail
+cd "$(dirname "$0")/.."
 
-image="${1:-groundline:dev}"
-name="groundline-smoke-$$"
+project="groundline-smoke"
+compose=(docker compose --project-name "$project")
 
-cleanup() { docker rm --force "$name" >/dev/null 2>&1 || true; }
+# When Compose fills in ${...}, these shell variables override .env.
+POSTGRES_PASSWORD="$(openssl rand -hex 24)"
+GROUNDLINE_DB_PASSWORD="$(openssl rand -hex 24)"
+export POSTGRES_PASSWORD GROUNDLINE_DB_PASSWORD
+export APP_BIND_ADDRESS=127.0.0.1 APP_HOST_PORT=0 POSTGRES_HOST_PORT=0
+
+fail() {
+  echo "error: $*" >&2
+  echo "--- compose logs ---" >&2
+  "${compose[@]}" logs --no-color >&2 || true
+  exit 1
+}
+
+cleanup() { "${compose[@]}" down --volumes --remove-orphans >/dev/null 2>&1 || true; }
 trap cleanup EXIT
 
-# No host port given, so Docker picks a free one: this can't clash with `make dev`
-# or a running `make docker-run`, and can't reach some other server on 8000.
-docker run --detach --name "$name" --publish "127.0.0.1::8000" "$image" >/dev/null
-url="http://$(docker port "$name" 8000/tcp | head -n 1)/health"
+start() {
+  local output
+  # --wait returns only once Postgres and the app pass their healthchecks, so the
+  # checks below don't run before the migrations finish.
+  output="$("${compose[@]}" up --detach --wait --wait-timeout 120 --quiet-pull 2>&1)" \
+    || fail "docker compose up --wait failed:
+$output"
+  base="http://$("${compose[@]}" port app 8000)"
+}
 
-# Poll for up to 30 seconds while the app starts.
-for _ in $(seq 1 30); do
-  # --max-time so a connection that never answers can't stall the loop.
-  status="$(curl --silent --max-time 2 --output /dev/null --write-out '%{http_code}' "$url" || true)"
-  if [ "$status" = "200" ]; then
-    echo "ok: GET /health returned 200"
-    exit 0
-  fi
-  if [ "$(docker inspect --format '{{.State.Running}}' "$name")" != "true" ]; then
-    echo "error: the container exited before /health answered" >&2
-    break
-  fi
-  sleep 1
-done
+# expect STATUS METHOD PATH [curl arguments...]
+expect() {
+  local want="$1" method="$2" path="$3"
+  shift 3
+  local got
+  got="$(curl --silent --max-time 10 --output /dev/null --write-out '%{http_code}' \
+    --request "$method" "$@" "$base$path" || true)"
+  [ "$got" = "$want" ] || fail "$method $path returned ${got:-nothing}, expected $want"
+  echo "ok: $method $path returned $want"
+}
 
-echo "error: GET ${url} did not return 200 (last status: ${status:-none})" >&2
-echo "--- container logs ---" >&2
-docker logs "$name" >&2 || true
-exit 1
+start
+expect 200 GET /health
+expect 200 GET /ready
+
+# Connect from the app container with a wrong password. A Postgres that
+# trusts connections would let it in, so a refusal shows it checks passwords.
+refused="$("${compose[@]}" exec -T app python -c '
+import psycopg
+try:
+    psycopg.connect("host=postgres dbname=groundline user=groundline password=wrong-password connect_timeout=5")
+except psycopg.OperationalError as error:
+    print(error)
+else:
+    print("connected")
+' 2>&1 || true)"
+case "$refused" in
+  *"password authentication failed"*) echo "ok: Postgres refused a wrong password" ;;
+  *) fail "Postgres didn't refuse a wrong password: $refused" ;;
+esac
+
+if "${compose[@]}" exec -T app env | grep --quiet --fixed-strings \
+  -e "$POSTGRES_PASSWORD" -e DATABASE_ADMIN_URL; then
+  fail "the app container can see the admin password"
+fi
+echo "ok: the app container doesn't have the admin password"
+
+created="$("${compose[@]}" exec -T app groundline keys create --name smoke-test)" \
+  || fail "groundline keys create failed"
+key="$(sed -n 's/^API key: \(gl_[A-Za-z0-9_-]*\)$/\1/p' <<<"$created")"
+[ -n "$key" ] || fail "groundline keys create printed no API key"
+echo "ok: created an API key"
+
+# Stop and remove the containers, keeping the volume, then start again.
+"${compose[@]}" down >/dev/null 2>&1 || fail "docker compose down failed"
+start
+
+# Authentication runs before the body is checked: an accepted key reaches
+# validation (422), an unknown one is turned away (401).
+expect 401 POST /v1/omissions --json '{}' --header "Authorization: Bearer gl_unknown"
+expect 422 POST /v1/omissions --json '{}' --header "Authorization: Bearer $key"
+echo "ok: the API key survived restarting the stack"

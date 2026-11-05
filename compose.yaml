@@ -1,0 +1,80 @@
+# groundline and its Postgres database. See DEVELOPMENT.md, "Getting started"
+# and "Running the whole stack in Docker".
+#
+#   docker compose up --build        the whole stack      (make docker-run)
+#   docker compose up -d --wait postgres   only Postgres, for `make dev` (make db)
+#
+# Compose fills in the variables below from the shell or .env. One written with
+# `:?` stops Compose with its message when it's missing; `:-` gives a default.
+
+services:
+  postgres:
+    # Pinned by digest, so every pull gets the same image. Dependabot updates the
+    # digest and stays on major version 18.
+    image: postgres:18@sha256:3a4264520e121176619f54ff867d12774bc81e95e7b84db58d63bccdb6144b81
+    environment:
+      # Sets the admin login's password only when the volume is first created.
+      # With it set, the image checks passwords on every TCP connection.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (see .env.example)}
+    volumes:
+      # Postgres 18 keeps its data in /var/lib/postgresql/18/docker.
+      - postgres-data:/var/lib/postgresql
+    ports:
+      # Always on loopback: nothing outside this computer needs the database.
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
+    healthcheck:
+      test: ["CMD", "pg_isready", "--username=postgres", "--host=127.0.0.1"]
+      interval: 2s
+      timeout: 5s
+      retries: 15
+    restart: unless-stopped
+
+  # Creates the app's login and database if they're missing, runs the
+  # migrations, then exits. Its errors are in `docker compose logs setup`.
+  setup:
+    build: .
+    image: groundline:dev
+    command: ["python", "-m", "groundline.db.setup"]
+    environment:
+      DATABASE_URL: postgresql+psycopg://groundline:${GROUNDLINE_DB_PASSWORD:?set GROUNDLINE_DB_PASSWORD in .env (see .env.example)}@postgres:5432/groundline
+      DATABASE_ADMIN_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (see .env.example)}@postgres:5432/postgres
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # unless-stopped would start it again each time it finishes.
+    restart: on-failure
+
+  app:
+    build: .
+    image: groundline:dev
+    # No env_file: .env holds the admin password, which only setup gets
+    # (ADR 0013). Add each new setting here.
+    environment:
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      DATABASE_URL: postgresql+psycopg://groundline:${GROUNDLINE_DB_PASSWORD:?set GROUNDLINE_DB_PASSWORD in .env (see .env.example)}@postgres:5432/groundline
+    ports:
+      # Loopback by default. A server that callers reach over the network sets
+      # APP_BIND_ADDRESS=0.0.0.0 in .env. 8001, not 8000, so the stack can run
+      # alongside `make dev`.
+      - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_HOST_PORT:-8001}:8000"
+    depends_on:
+      setup:
+        condition: service_completed_successfully
+    # Checks /health, which answers whenever the app is running. /ready also
+    # checks the database, so using it here would mark the app unhealthy
+    # whenever the database is down, even though the app itself is fine.
+    # The image has no curl, so Python makes the request.
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4)
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+    restart: unless-stopped
+
+volumes:
+  postgres-data:

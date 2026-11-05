@@ -1,64 +1,61 @@
-"""The setup script's checks that need no database."""
+"""Test how the setup script rejects bad database URLs.
+
+Before it creates anything, setup_database checks both URLs it's given: each
+must be a valid postgresql+psycopg:// URL without the example password
+CHANGE_ME. These tests pass it bad URLs and check the error it raises.
+
+Unlike the `db` tests, these run on every `uv run pytest`, even on a computer
+with Postgres running. If a URL passed every check, setup would log in to that
+Postgres as admin and create a role. To prevent that, every admin URL here
+points at 127.0.0.1:1. Nothing listens on port 1, so setup can't connect.
+"""
+
+from pathlib import Path
 
 import pytest
-from sqlalchemy import make_url
 
 from groundline.db import setup
-from groundline.db.setup import (
-    DatabaseSetupError,
-    admin_env,
-    psql_major,
-    setup_database,
-)
+from groundline.db.setup import DatabaseSetupError, setup_database
 
-
-@pytest.fixture(autouse=True)
-def no_psql(monkeypatch: pytest.MonkeyPatch) -> None:
-    """These tests run by default, so they must never reach a real Postgres:
-    a URL that passes every check would otherwise create its role."""
-
-    def refuse(*args: object) -> str:
-        raise AssertionError("a setup test reached psql")
-
-    monkeypatch.setattr(setup, "_run_admin_sql", refuse)
-
-
-def test_the_example_password_is_refused():
-    with pytest.raises(DatabaseSetupError, match="CHANGE_ME"):
-        setup_database("postgresql+psycopg://groundline:CHANGE_ME@localhost/groundline")
+APP = "postgresql+psycopg://groundline:app-secret@localhost:5433/groundline"
+ADMIN = "postgresql+psycopg://postgres:admin-secret@127.0.0.1:1/postgres"
 
 
 @pytest.mark.parametrize(
-    "output,major",
+    "app_url,admin_url,named",
     [
-        ("psql (PostgreSQL) 18.3 (Homebrew)\n", 18),
-        ("psql (PostgreSQL) 14.11 (Ubuntu 14.11-0ubuntu0.22.04.1)\n", 14),
-        ("something else\n", None),
+        (
+            "postgresql+psycopg://groundline:CHANGE_ME@localhost/groundline",
+            ADMIN,
+            "DATABASE_URL",
+        ),
+        (
+            APP,
+            "postgresql+psycopg://postgres:CHANGE_ME@127.0.0.1:1/postgres",
+            "DATABASE_ADMIN_URL",
+        ),
     ],
 )
-def test_reads_the_psql_version(output: str, major: int | None):
-    assert psql_major(output) == major
+def test_the_example_password_is_refused_in_either_url(
+    app_url: str, admin_url: str, named: str
+):
+    with pytest.raises(DatabaseSetupError, match="CHANGE_ME") as error:
+        setup_database(app_url, admin_url)
 
-
-def test_libpq_settings_in_the_shell_are_ignored(monkeypatch: pytest.MonkeyPatch):
-    monkeypatch.setenv("PGHOST", "db.example.com")
-    monkeypatch.setenv("PGPORT", "6543")
-    monkeypatch.setenv("PGUSER", "someone")
-    url = make_url("postgresql+psycopg://gl:pw@localhost:5432/gl")
-
-    env = admin_env(url)
-
-    assert not any(name.startswith("PG") for name in env)
-    assert env["GROUNDLINE_DB_ROLE"] == "gl"
+    assert named in str(error.value)
 
 
 @pytest.mark.parametrize(
     "raw", ["postgresql://gl:pw-secret@:x/", "not a url pw-secret"]
 )
-def test_a_malformed_url_is_a_setup_error_without_the_password(raw: str):
-    with pytest.raises(DatabaseSetupError, match="isn't a valid URL") as error:
-        setup_database(raw)
+@pytest.mark.parametrize("which", ["DATABASE_URL", "DATABASE_ADMIN_URL"])
+def test_a_malformed_url_is_a_setup_error_without_the_password(raw: str, which: str):
+    urls = (raw, ADMIN) if which == "DATABASE_URL" else (APP, raw)
 
+    with pytest.raises(DatabaseSetupError, match="isn't a valid URL") as error:
+        setup_database(*urls)
+
+    assert which in str(error.value)
     assert "pw-secret" not in str(error.value)
 
 
@@ -70,8 +67,49 @@ def test_a_malformed_url_is_a_setup_error_without_the_password(raw: str):
         "mysql://gl:pw-secret@localhost/gl",
     ],
 )
-def test_only_the_psycopg_driver_is_accepted(raw: str):
+@pytest.mark.parametrize("which", ["DATABASE_URL", "DATABASE_ADMIN_URL"])
+def test_only_the_psycopg_driver_is_accepted(raw: str, which: str):
+    urls = (raw, ADMIN) if which == "DATABASE_URL" else (APP, raw)
+
     with pytest.raises(DatabaseSetupError, match="postgresql\\+psycopg://") as error:
-        setup_database(raw)
+        setup_database(*urls)
 
     assert "pw-secret" not in str(error.value)
+
+
+def test_a_database_on_another_host_is_allowed():
+    """Inside Compose, setup reaches Postgres at postgres:5432, so the app URL's
+    host can't be limited to localhost."""
+    app_url = "postgresql+psycopg://groundline:app-secret@postgres:5432/groundline"
+
+    # The URL passes every check, so setup goes on to connect to the admin
+    # server and fails there, since nothing listens on 127.0.0.1:1.
+    with pytest.raises(DatabaseSetupError, match="can't connect") as error:
+        setup_database(app_url, ADMIN)
+
+    assert "this machine" not in str(error.value)
+
+
+def test_an_unreachable_admin_server_is_a_setup_error_without_passwords():
+    with pytest.raises(DatabaseSetupError, match="can't connect") as error:
+        setup_database(APP, ADMIN)
+
+    message = str(error.value)
+    assert "DATABASE_ADMIN_URL" in message
+    assert "admin-secret" not in message and "app-secret" not in message
+
+
+def test_main_explains_a_missing_admin_url(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    monkeypatch.chdir(tmp_path)  # no .env
+    monkeypatch.delenv("DATABASE_ADMIN_URL", raising=False)
+    # Nothing answers at postgres:1, in case main gets past its checks.
+    monkeypatch.setenv(
+        "DATABASE_URL", "postgresql+psycopg://groundline:app-secret@postgres:1/gl"
+    )
+
+    with pytest.raises(SystemExit) as exited:
+        setup.main()
+
+    assert "DATABASE_ADMIN_URL is not set" in str(exited.value.code)

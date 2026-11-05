@@ -39,7 +39,10 @@ class Settings(BaseSettings):
     anthropic_api_key: SecretStr | None = None
     database_url: SecretStr | None = None
     """Where the database is, password included, such as
-    postgresql+psycopg://groundline:...@localhost:5432/groundline."""
+    postgresql+psycopg://groundline:...@localhost:5433/groundline."""
+    database_admin_url: SecretStr | None = None
+    """The Postgres admin login, which only setup and the database tests use to
+    create the app's login and database. The app itself never gets it (ADR 0013)."""
 
     def require_database_url(self) -> str:
         """Require storage only when an operation actually uses it."""
