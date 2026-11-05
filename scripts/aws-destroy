@@ -3,7 +3,7 @@
 # instance, security group, IAM role, instance profile and budget are gone.
 # It fails if any is still there, or if AWS can't say (an expired sign-in, say).
 #
-# Usage: scripts/aws-destroy   (make destroy)
+# Usage: scripts/aws-destroy   (make aws-destroy)
 #
 # It leaves the Anthropic API key's parameter, which was created outside
 # Terraform, and prints the command to delete it.

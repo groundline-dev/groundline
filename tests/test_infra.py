@@ -159,10 +159,10 @@ def test_the_lock_file_and_example_settings_are_committed(path: str):
 @pytest.mark.parametrize(
     ("target", "command"),
     [
-        ("deploy", "scripts/aws-deploy"),
+        ("aws-deploy", "scripts/aws-deploy"),
         ("aws-smoke", "scripts/aws-smoke-test"),
         ("aws-smoke-live", "scripts/aws-smoke-test --live"),
-        ("destroy", "scripts/aws-destroy"),
+        ("aws-destroy", "scripts/aws-destroy"),
     ],
 )
 def test_each_make_target_runs_its_script(target: str, command: str):
@@ -182,10 +182,10 @@ def test_development_md_documents_deploying_to_aws():
 
     assert section, 'DEVELOPMENT.md has no "## Deploying to AWS" section'
     for mention in [
-        "make deploy",
+        "make aws-deploy",
         "make aws-smoke",
         "make aws-smoke-live",
-        "make destroy",
+        "make aws-destroy",
         "/groundline/anthropic-api-key",
         "terraform.tfvars",
         "Region",

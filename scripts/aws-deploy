@@ -3,7 +3,7 @@
 # at a given commit, on an EC2 instance reachable only from this computer's
 # public IP. See DEVELOPMENT.md, "Deploying to AWS".
 #
-# Usage: scripts/aws-deploy            (make deploy)
+# Usage: scripts/aws-deploy            (make aws-deploy)
 #        REF=<branch|tag|commit> scripts/aws-deploy
 #
 # The server runs REF (default HEAD), which must be pushed to GitHub. The Region
@@ -62,5 +62,5 @@ echo
 echo "The server is starting; it takes about 5 to 10 minutes. Check it with: make aws-smoke"
 hours="$(terraform -chdir=infra output -raw auto_terminate_hours)"
 if [ "$hours" != 0 ]; then
-  echo "It terminates itself, with its data, $hours hours after it first started. To get a new one, run make deploy again."
+  echo "It terminates itself, with its data, $hours hours after it first started. To get a new one, run make aws-deploy again."
 fi

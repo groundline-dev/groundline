@@ -78,7 +78,7 @@ If you run the image with your own `docker run`, publish the port on `127.0.0.1`
 
 ## Deploying to AWS
 
-`make deploy` creates a test deployment in your AWS project: the Compose stack at a commit you choose, on an EC2 instance. Only your computer's public IP can reach it, over plain HTTP, so it's for testing with test data. Real callers need HTTPS first (ALL-90). Each test deployment is disposable. Its data survives container restarts and reboots, until `make destroy`, a deployment of another commit, or the 5-hour limit deletes the server and the data with it.
+`make aws-deploy` creates a test deployment in your AWS project: the Compose stack at a commit you choose, on an EC2 instance. Only your computer's public IP can reach it, over plain HTTP, so it's for testing with test data. Real callers need HTTPS first (ALL-90). Each test deployment is disposable. Its data survives container restarts and reboots, until `make aws-destroy`, a deployment of another commit, or the 5-hour limit deletes the server and the data with it.
 
 Several developers can share one AWS project, each with their own test deployment. Each test deployment's resources are named and tagged after the `deployment_name` in that developer's `infra/terraform.tfvars`.
 
@@ -109,19 +109,19 @@ The Terraform is in [infra/](infra/), and the server's startup script is [infra/
    unset ANTHROPIC_KEY
    ```
 
-   Every server in the AWS project reads this one parameter, so only the first person to deploy needs to create it. Only the server reads the Anthropic API key, when it starts. Terraform and the scripts only check that the parameter exists, so the Anthropic API key never lands in Terraform state. To change it, add `--overwrite` to `put-parameter`, then run `make destroy` and `make deploy`.
+   Every server in the AWS project reads this one parameter, so only the first person to deploy needs to create it. Only the server reads the Anthropic API key, when it starts. Terraform and the scripts only check that the parameter exists, so the Anthropic API key never lands in Terraform state. To change it, add `--overwrite` to `put-parameter`, then run `make aws-destroy` and `make aws-deploy`.
 
 ### Deploying and checking
 
 ```sh
-make deploy           # create the server, or update it; Terraform shows the plan and asks first
+make aws-deploy           # create the server, or update it; Terraform shows the plan and asks first
 make aws-smoke        # check it from here, without calling Claude
 make aws-smoke-live   # also send one real commission check
-make destroy          # delete it, then check that everything is gone
+make aws-destroy          # delete it, then check that everything is gone
 ```
 
-- **`make deploy`** runs the commit you have checked out, which must be pushed to GitHub, since the server clones it from there. To run another, use `REF=<branch, tag or commit> make deploy`. The server takes about 5 to 10 minutes to build the image and start. If your IP changes, rerun `make deploy` with the same commit: only the security group changes. Deploying another commit replaces the server, with its data.
-- **The 5-hour limit:** each server shuts itself down 5 hours after it first starts, and AWS then terminates it, deleting its data. A redeploy of the same commit doesn't reset the limit, but a redeploy of another commit does, since that creates a new server. After the limit, `make deploy` creates a new server, and `make destroy` cleans up the security group, IAM role and budget the old one left behind. To change the limit, set `auto_terminate_hours` in `infra/terraform.tfvars`; 0 turns it off.
+- **`make aws-deploy`** runs the commit you have checked out, which must be pushed to GitHub, since the server clones it from there. To run another, use `REF=<branch, tag or commit> make aws-deploy`. The server takes about 5 to 10 minutes to build the image and start. If your IP changes, rerun `make aws-deploy` with the same commit: only the security group changes. Deploying another commit replaces the server, with its data.
+- **The 5-hour limit:** each server shuts itself down 5 hours after it first starts, and AWS then terminates it, deleting its data. A redeploy of the same commit doesn't reset the limit, but a redeploy of another commit does, since that creates a new server. After the limit, `make aws-deploy` creates a new server, and `make aws-destroy` cleans up the security group, IAM role and budget the old one left behind. To change the limit, set `auto_terminate_hours` in `infra/terraform.tfvars`; 0 turns it off.
 - **`make aws-smoke`** waits up to 15 minutes for `/health` to answer 200. It then creates an API key on the server with `groundline keys create`, through SSM Run Command, and sends an empty `POST /v1/omissions` with an unknown API key (expects 401) and with the new one (expects 422). That shows the server, Postgres, the migrations and authentication work, without spending Anthropic credit. It revokes that API key at the end, even when a check fails.
 - **`make aws-smoke-live`** runs the same checks, then sends the shortest test input to `POST /v1/commissions` and expects 200. It costs under a cent. Run it before demos and releases, and after changing a prompt, a preset, the model or how the Anthropic API key reaches the server.
 
@@ -148,16 +148,16 @@ The server costs about $0.024 an hour in us-east-1, about $17 a month: $0.0168 f
 ### Troubleshooting
 
 - **`make aws-smoke` times out:** it prints the end of the server's startup log (`/var/log/groundline-bootstrap.log`) and the containers' status and logs. A failed startup also leaves `/var/lib/groundline/bootstrap-failed`.
-- **Requests time out from a new network:** your IP changed. Rerun `make deploy` with the same commit.
-- **`make aws-smoke` can't find the instance, or it's terminated:** the server reached its 5-hour limit. Run `make deploy` again.
-- **`make deploy` fails because a role or budget already exists:** someone else in the AWS project uses the same `deployment_name`. Pick another one in `infra/terraform.tfvars`.
+- **Requests time out from a new network:** your IP changed. Rerun `make aws-deploy` with the same commit.
+- **`make aws-smoke` can't find the instance, or it's terminated:** the server reached its 5-hour limit. Run `make aws-deploy` again.
+- **`make aws-deploy` fails because a role or budget already exists:** someone else in the AWS project uses the same `deployment_name`. Pick another one in `infra/terraform.tfvars`.
 - **AWS calls that worked start failing with Access Denied:** your project may have reached its spend limit, which pauses it. Check in AWS Settings, under Billing.
 
 ### Tearing down
 
-`make destroy` asks before deleting anything. It then asks AWS whether the instance, security group, IAM role, instance profile and budget are gone, and fails if any is still there or AWS can't say. It leaves the Anthropic API key's parameter, which Terraform didn't create, and prints the command to delete it. Everyone in the AWS project uses that parameter, so delete it only if no one else still deploys.
+`make aws-destroy` asks before deleting anything. It then asks AWS whether the instance, security group, IAM role, instance profile and budget are gone, and fails if any is still there or AWS can't say. It leaves the Anthropic API key's parameter, which Terraform didn't create, and prints the command to delete it. Everyone in the AWS project uses that parameter, so delete it only if no one else still deploys.
 
-Terraform state stays in `infra/` on your computer. Delete the server with `make destroy` from the same folder you created it from; another clone doesn't know about it.
+Terraform state stays in `infra/` on your computer. Delete the server with `make aws-destroy` from the same folder you created it from; another clone doesn't know about it.
 
 ## Database
 
@@ -206,7 +206,7 @@ If you change a prompt, the rubric or a step's logic, expect `tests/test_parity.
 
 ## Lint, format and type checks
 
-`make check` runs the checks CI runs, without changing files: ruff, pyright in strict mode, the large-file check and the tests. CI also runs the Docker stack check (`make docker-smoke`) and the Terraform checks: `terraform -chdir=infra fmt -check`, `validate` and `test`, which plan against a mock AWS provider and need no AWS credentials. `make fix` applies ruff's fixes and formatting. Pyright errors need fixing by hand.
+`make check` runs ruff, pyright in strict mode, the large-file check and the tests, without changing files. CI runs it too, along with the database tests (`make test-db`), the Docker stack check (`make docker-smoke`) and the Terraform checks (`make infra-check`). `make infra-check` needs Terraform, but no AWS credentials: its tests plan against a mock AWS provider. Run it when you change `infra/`. `make fix` applies ruff's fixes and formatting. Pyright errors need fixing by hand.
 
 The `pre-commit` hook runs the same checks on staged files. If ruff fails, run `make fix` and stage the result.
 
@@ -244,7 +244,7 @@ src/groundline/
   api/, app.py             the API's endpoints and the FastAPI app
 infra/                     Terraform for AWS test deployments, the startup script, and their tests
 scripts/                   db-setup, the stack check behind make docker-smoke, and the AWS
-                           scripts behind make deploy, aws-smoke, aws-smoke-live and destroy
+                           scripts behind make aws-deploy, aws-smoke, aws-smoke-live and aws-destroy
 tests/                     the tests
 ```
 

@@ -40,7 +40,7 @@ run "the_server_requires_imdsv2_and_has_an_encrypted_disposable_tagged_disk" {
   }
   assert {
     condition     = aws_instance.app.root_block_device[0].delete_on_termination == true
-    error_message = "The root disk should be deleted with the instance, so make destroy leaves no volume."
+    error_message = "The root disk should be deleted with the instance, so make aws-destroy leaves no volume."
   }
   assert {
     # The provider's default_tags don't reach the root disk; it needs its own.

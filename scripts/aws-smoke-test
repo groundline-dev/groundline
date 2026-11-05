@@ -35,7 +35,7 @@ fail() {
 output() {
   local value
   value="$(terraform -chdir=infra output -raw "$1")" && [ -n "$value" ] \
-    || fail "no $1 in the Terraform state: run make deploy first"
+    || fail "no $1 in the Terraform state: run make aws-deploy first"
   printf '%s' "$value"
 }
 instance="$(output instance_id)"
