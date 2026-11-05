@@ -1,11 +1,11 @@
-"""The setup script and the api_keys table, against a real local Postgres.
+"""Test the setup script and the api_keys table against a real Postgres.
 
-Marked `db`, so excluded by default. Run with `uv run pytest -m db`: they need
-PostgreSQL 18 running locally, and an OS user that's a Postgres superuser, as
-DEVELOPMENT.md describes. Each run uses a throwaway role and database.
+These tests are marked `db`, so a plain `uv run pytest` skips them. To run them,
+start the Compose Postgres with `make db`, set DATABASE_ADMIN_URL as
+DEVELOPMENT.md describes, and run `uv run pytest -m db`. Each run uses a
+throwaway role and database.
 """
 
-import getpass
 import uuid
 from datetime import UTC, datetime
 
@@ -34,16 +34,14 @@ def add_key(db_engine: Engine, **values: object) -> dict[str, object]:
         return dict(result.mappings().one())
 
 
-def test_setup_is_safe_to_rerun(db_url: str):
-    setup_database(db_url)
+def test_setup_is_safe_to_rerun(db_url: str, admin_url: str):
+    setup_database(db_url, admin_url)
 
 
-def test_setup_refuses_a_superuser_role():
-    # Your OS user is a superuser on a developer machine, as DEVELOPMENT.md sets up.
-    me = getpass.getuser()
-
+def test_setup_refuses_a_superuser_role(admin_url: str):
+    # The admin login, postgres, is a superuser: it can't be the app's login.
     with pytest.raises(DatabaseSetupError, match="superuser"):
-        setup_database(f"postgresql+psycopg://{me}:new-password@localhost/{me}_x")
+        setup_database(admin_url, admin_url)
 
 
 def test_the_migrations_match_the_table_definition(db_engine: Engine):
