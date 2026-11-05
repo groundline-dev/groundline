@@ -61,10 +61,7 @@ jobs:
         with:
           terraform_version: "~1.17"
           terraform_wrapper: false
-      - run: terraform -chdir=infra fmt -check -recursive
-      - run: terraform -chdir=infra init -input=false
-      - run: terraform -chdir=infra validate
-      - run: terraform -chdir=infra test
+      - run: make infra-check
 
   dependency-review:
     # Block PRs that add a dependency with a known high or critical vulnerability.
