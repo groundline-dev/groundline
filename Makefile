@@ -1,4 +1,4 @@
-.PHONY: setup dev test check fix docker-build docker-run docker-smoke
+.PHONY: setup dev test test-api check fix docker-build docker-run docker-smoke
 
 setup:
 	uv sync
@@ -9,6 +9,10 @@ dev:
 
 test:
 	uv run pytest
+
+# Offline API scenarios; optional pytest flags include --junitxml=PATH.
+test-api:
+	uv run pytest -v tests/test_health.py $(wildcard tests/test_api_*.py) $(PYTEST_ARGS)
 
 # Read-only: the same checks the pre-commit hook and CI run, plus the tests.
 check:
