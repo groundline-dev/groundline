@@ -3,7 +3,7 @@
 Logs in with DATABASE_ADMIN_URL and creates the login and database that
 DATABASE_URL names, if they don't exist. It sets that login's password to the
 one in DATABASE_URL, then applies the migrations as the app's login. Safe to
-rerun. The app's login must not be a superuser (ADR 0012).
+rerun. The app's login must not be a superuser (ADR 0013).
 """
 
 import sys
@@ -54,7 +54,7 @@ def setup_database(app_raw: str, admin_raw: str) -> None:
             admin.execute(sql.SQL("CREATE ROLE {}").format(role))
         admin.execute(
             # NOCREATEDB and NOCREATEROLE also take those rights from a login
-            # that existed before setup ran (ADR 0012).
+            # that existed before setup ran (ADR 0013).
             sql.SQL(
                 "ALTER ROLE {} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD {}"
             ).format(role, sql.Literal(app_url.password))

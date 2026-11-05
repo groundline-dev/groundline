@@ -14,7 +14,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends
 
 from groundline.api.common import (
-    FAILURE_RESPONSES,
+    PROTECTED_RESPONSES,
     Alarm,
     ApiModel,
     CheckRequest,
@@ -93,14 +93,7 @@ class OmissionsResponse(ApiModel):
 @router.post(
     "/omissions",
     dependencies=[Depends(require_api_key)],
-    responses={
-        **FAILURE_RESPONSES,
-        401: {"description": "The API key is missing or invalid."},
-        503: {
-            "description": "Authentication is unavailable, or the Anthropic API key "
-            "is missing or rejected."
-        },
-    },
+    responses=PROTECTED_RESPONSES,
 )
 async def omissions(
     request: OmissionsRequest,

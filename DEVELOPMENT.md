@@ -138,7 +138,9 @@ uv run python -m groundline.presets.schema
 
 ## Protecting an endpoint
 
-To require an API key on a route, add `dependencies=[Depends(require_api_key)]` from `groundline.auth`, as `POST /v1/omissions` does. To use the key's metadata in the handler, take it as a parameter instead: `api_key: Annotated[APIKeyInfo, Depends(require_api_key)]`. Leave public routes such as `/health` without it.
+To require an API key on a route, add `dependencies=[Depends(require_api_key)]` from `groundline.auth`, and `responses=PROTECTED_RESPONSES` from `groundline.api.common` to document the 401 and 503, as `POST /v1/omissions` and `POST /v1/commissions` do. To use the key's metadata in the handler, take it as a parameter instead: `api_key: Annotated[APIKeyInfo, Depends(require_api_key)]`.
+
+Every route needs it except probes such as `/health` and `/ready` and the docs pages ([ADR 0012](docs/adr/0012-only-probes-and-docs-pages-are-public.md)). A test in `tests/test_api_auth.py` lists the public probes and fails if any other route lacks an API key.
 
 ## Layout
 

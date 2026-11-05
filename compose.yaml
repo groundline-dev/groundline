@@ -48,7 +48,7 @@ services:
     build: .
     image: groundline:dev
     # No env_file: .env holds the admin password, which only setup gets
-    # (ADR 0012). Add each new setting here.
+    # (ADR 0013). Add each new setting here.
     environment:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
       DATABASE_URL: postgresql+psycopg://groundline:${GROUNDLINE_DB_PASSWORD:?set GROUNDLINE_DB_PASSWORD in .env (see .env.example)}@postgres:5432/groundline

@@ -42,7 +42,7 @@ class Settings(BaseSettings):
     postgresql+psycopg://groundline:...@localhost:5433/groundline."""
     database_admin_url: SecretStr | None = None
     """The Postgres admin login, which only setup and the database tests use to
-    create the app's login and database. The app itself never gets it (ADR 0012)."""
+    create the app's login and database. The app itself never gets it (ADR 0013)."""
 
     def require_database_url(self) -> str:
         """Require storage only when an operation actually uses it."""
