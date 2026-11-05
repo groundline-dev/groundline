@@ -6,6 +6,7 @@ from typing import Annotated
 from fastapi import Depends, HTTPException, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
+from groundline.api.errors import AUTHENTICATION_UNAVAILABLE, INVALID_API_KEY
 from groundline.api_keys import APIKeyInfo, APIKeys, valid_api_key_format
 
 logger = logging.getLogger("groundline.auth")
@@ -15,7 +16,7 @@ _bearer = HTTPBearer(auto_error=False)
 def _unauthorized() -> HTTPException:
     return HTTPException(
         status_code=401,
-        detail="Invalid or missing API key",
+        detail=INVALID_API_KEY,
         headers={"WWW-Authenticate": "Bearer"},
     )
 
@@ -29,7 +30,7 @@ async def require_api_key(
         raise _unauthorized()
     keys = getattr(request.app.state, "api_keys", None)
     if not isinstance(keys, APIKeys):
-        raise HTTPException(status_code=503, detail="Authentication is unavailable")
+        raise HTTPException(status_code=503, detail=AUTHENTICATION_UNAVAILABLE)
     try:
         info = await keys.authenticate(credentials.credentials)
     except Exception as error:
@@ -37,7 +38,7 @@ async def require_api_key(
         # an HTTP response or a server traceback. Never log the exception here.
         logger.error("API-key authentication is unavailable: %s", type(error).__name__)
         raise HTTPException(
-            status_code=503, detail="Authentication is unavailable"
+            status_code=503, detail=AUTHENTICATION_UNAVAILABLE
         ) from None
     if info is None:
         raise _unauthorized()

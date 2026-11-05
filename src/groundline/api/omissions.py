@@ -12,15 +12,16 @@ import time
 from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends
+from pydantic import ConfigDict
 
 from groundline.api.common import (
-    PROTECTED_RESPONSES,
     Alarm,
     ApiModel,
     CheckRequest,
     Usage,
     alarm_of,
     check_failures,
+    check_responses,
     model_client,
     usage_of,
 )
@@ -38,7 +39,7 @@ logger = logging.getLogger("groundline.api")
 ThresholdLevel = Literal["strict", "moderate"]
 """The preset's threshold levels. A test keeps this in step with the preset."""
 
-router = APIRouter(prefix="/v1")
+router = APIRouter()
 
 
 class OmissionsRequest(CheckRequest):
@@ -76,6 +77,35 @@ class Counts(ApiModel):
 
 
 class OmissionsResponse(ApiModel):
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [
+                {
+                    "flagged": False,
+                    "alarm": {"score": 0.475, "threshold": 0.9, "level": "strict"},
+                    "omissions": [
+                        {
+                            "fact": "Motrin 600 mg every 6 hours for a week.",
+                            "severity": "critical",
+                            "verdict": "partial",
+                            "missing_confidence": 0.95,
+                            "quote": "Motrin 800 mg every 6 hours for a week.",
+                        }
+                    ],
+                    "counts": {"total": 4, "present": 3, "partial": 1, "absent": 0},
+                    "pipeline": "omission_all_opus",
+                    "validated_preset": "omission_all_opus",
+                    "usage": {
+                        "calls": 4,
+                        "input_tokens": 31620,
+                        "output_tokens": 8140,
+                        "cost_usd": 0.29,
+                    },
+                }
+            ]
+        }
+    )
+
     flagged: bool
     """Whether the alarm score reached the threshold."""
     alarm: OmissionsAlarm
@@ -93,7 +123,7 @@ class OmissionsResponse(ApiModel):
 @router.post(
     "/omissions",
     dependencies=[Depends(require_api_key)],
-    responses=PROTECTED_RESPONSES,
+    responses=check_responses(load_preset(DEFAULT_PRESET)),
 )
 async def omissions(
     request: OmissionsRequest,
