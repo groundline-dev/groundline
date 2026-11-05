@@ -31,6 +31,14 @@ run "the_server_requires_imdsv2_and_has_an_encrypted_disposable_tagged_disk" {
     error_message = "The instance should require IMDSv2 (http_tokens = required)."
   }
   assert {
+    condition     = aws_instance.app.metadata_options[0].http_put_response_hop_limit == 1
+    error_message = "The metadata hop limit should be 1, so containers can't get the instance role's credentials."
+  }
+  assert {
+    condition     = aws_instance.app.credit_specification[0].cpu_credits == "standard"
+    error_message = "The instance should use standard CPU credits, so heavy CPU use slows it down instead of costing extra."
+  }
+  assert {
     condition = (
       aws_instance.app.root_block_device[0].encrypted == true
       && aws_instance.app.root_block_device[0].volume_type == "gp3"

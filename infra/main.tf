@@ -139,9 +139,20 @@ resource "aws_instance" "app" {
   # The startup script runs only on first boot, so a change needs a new server.
   user_data_replace_on_change = true
 
+  # A hop limit of 1 stops the metadata service's replies one hop out, so the
+  # containers, which sit behind Docker's bridge network, can't get the role's
+  # credentials. The SSM agent and the startup script run on the server itself.
   metadata_options {
-    http_tokens   = "required"
-    http_endpoint = "enabled"
+    http_tokens                 = "required"
+    http_endpoint               = "enabled"
+    http_put_response_hop_limit = 1
+  }
+
+  # T4g instances default to unlimited CPU credits, where CPU use above the
+  # baseline costs extra with no ceiling. Standard credits slow the server down
+  # instead, so its cost stays what the budget expects.
+  credit_specification {
+    cpu_credits = "standard"
   }
 
   root_block_device {
