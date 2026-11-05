@@ -17,11 +17,19 @@ ENV_FILE = ".env"
 
 
 class MissingAPIKeyError(SetupError):
-    pass
+    def __init__(self, name: str, needed_by: str | None) -> None:
+        super().__init__(
+            _missing_key_message(name, needed_by),
+            _missing_key_message(name, needed_by, show_path=False),
+        )
 
 
 class UnreadableSettingsError(SetupError):
-    pass
+    def __init__(self, error_type: str) -> None:
+        super().__init__(
+            _unreadable_message(error_type),
+            _unreadable_message(error_type, show_path=False),
+        )
 
 
 def dotenv_path() -> Path:
@@ -42,15 +50,16 @@ class Settings(BaseSettings):
     postgresql+psycopg://groundline:...@localhost:5433/groundline."""
     database_admin_url: SecretStr | None = None
     """The Postgres admin login, which only setup and the database tests use to
-    create the app's login and database. The app itself never gets it (ADR 0012)."""
+    create the app's login and database. The app itself never gets it (ADR 0013)."""
 
     def require_database_url(self) -> str:
         """Require storage only when an operation actually uses it."""
         if self.database_url is None:
-            raise SetupError(
+            message = (
                 "DATABASE_URL is not set. Add it to the environment or .env; "
                 "see DEVELOPMENT.md for database setup."
             )
+            raise SetupError(message, message)
         return self.database_url.get_secret_value()
 
     def anthropic_key(self, needed_by: str | None = None) -> str:
@@ -61,9 +70,7 @@ class Settings(BaseSettings):
         rather than when settings are loaded.
         """
         if self.anthropic_api_key is None:
-            raise MissingAPIKeyError(
-                _missing_key_message("ANTHROPIC_API_KEY", needed_by)
-            )
+            raise MissingAPIKeyError("ANTHROPIC_API_KEY", needed_by)
         return self.anthropic_api_key.get_secret_value()
 
     def anthropic_key_source(self) -> str:
@@ -79,23 +86,35 @@ def read_settings() -> Settings:
     try:
         return Settings()
     except Exception as error:
-        raise UnreadableSettingsError(
-            f"can't read the settings ({type(error).__name__}).\n"
-            f"  Fix: check that {dotenv_path()} is a readable UTF-8 text file."
-        ) from error
+        raise UnreadableSettingsError(type(error).__name__) from error
 
 
-def _missing_key_message(name: str, needed_by: str | None) -> str:
-    path = dotenv_path()
-    if not path.is_file():
-        status = "not found"
-    else:
-        status = f"found, but it has no {name}, or it's blank"
+def _unreadable_message(error_type: str, *, show_path: bool = True) -> str:
+    """Why the settings can't be read and how to fix it. An HTTP response leaves
+    the path out (`show_path=False`), since it is a detail of the server."""
+    file = dotenv_path() if show_path else f"the server's {ENV_FILE}"
+    return (
+        f"can't read the settings ({error_type}).\n"
+        f"  Fix: check that {file} is a readable UTF-8 text file."
+    )
+
+
+def _missing_key_message(
+    name: str, needed_by: str | None, *, show_path: bool = True
+) -> str:
+    """Where the key was looked for and how to fix it. An HTTP response leaves
+    the path out (`show_path=False`), since it is a detail of the server."""
     lines = [f"{name} is not set."]
     if needed_by:
         lines.append(f"  Needed by: {needed_by}")
-    lines += [
-        f"  Looked in: the environment, and {path} ({status})",
-        f"  Fix: export {name}=..., or copy .env.example to .env and add it there.",
-    ]
+    if show_path:
+        path = dotenv_path()
+        if not path.is_file():
+            status = "not found"
+        else:
+            status = f"found, but it has no {name}, or it's blank"
+        lines.append(f"  Looked in: the environment, and {path} ({status})")
+    lines.append(
+        f"  Fix: export {name}=..., or copy .env.example to .env and add it there."
+    )
     return "\n".join(lines)

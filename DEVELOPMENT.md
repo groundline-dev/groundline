@@ -44,7 +44,7 @@ You need [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13 (0.1
 
    It's safe to rerun, and you need to after every pull that adds a migration.
 
-6. Start the API with auto-reload at http://127.0.0.1:8000 (interactive docs at `/docs`):
+6. Start the API with auto-reload at http://127.0.0.1:8000 (interactive docs at `/docs` and `/api`):
 
    ```sh
    make dev
@@ -225,13 +225,21 @@ uv run python -m groundline.profiles.schema
 uv run python -m groundline.presets.schema
 ```
 
+## API docs
+
+The docs page is generated from the request and response models in `src/groundline/api/`. Each model carries an example in `json_schema_extra`, and `tests/test_api_docs.py` checks that every example still fits its model. FastAPI leaves `null` values out of examples in the docs, so keep them out of the examples too. The app's `description` in `src/groundline/app.py` holds the versioning policy shown at the top of the page.
+
 ## Protecting an endpoint
 
-To require an API key on a route, add `dependencies=[Depends(require_api_key)]` from `groundline.auth`, as `POST /v1/omissions` does. To use the key's metadata in the handler, take it as a parameter instead: `api_key: Annotated[APIKeyInfo, Depends(require_api_key)]`. Leave public routes such as `/health` without it.
+To require an API key on a route, add `dependencies=[Depends(require_api_key)]` from `groundline.auth`, and `responses=PROTECTED_RESPONSES` from `groundline.api.common` to document the 401 and 503. `POST /v1/omissions` and `POST /v1/commissions` pass `responses=check_responses(...)` instead, which documents every error status a check can answer, with a labeled example of each. It builds the route's preset, so the 502 examples name the first stage that calls a model, at that model's price, and the 503 example lists the stages that need the Anthropic API key. To use the key's metadata in the handler, take it as a parameter instead: `api_key: Annotated[APIKeyInfo, Depends(require_api_key)]`.
+
+Every route needs it except probes such as `/health` and `/ready` and the docs pages ([ADR 0012](docs/adr/0012-only-probes-and-docs-pages-are-public.md)). A test in `tests/test_api_auth.py` lists the public probes and fails if any other route lacks an API key.
 
 ## Layout
 
 ```
+.agents/skills/            agent skills (see AGENTS.md)
+.claude/skills/            links to .agents/skills/, so Claude Code finds the same skills
 Dockerfile                 the app image
 compose.yaml               the stack: Postgres, the setup service and the app
 src/groundline/

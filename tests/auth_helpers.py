@@ -1,17 +1,51 @@
-"""Shared fake API-key storage and a test-only protected route."""
+"""Shared fake API-key storage, the protected check routes, and a test-only
+protected route."""
 
+from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
+from types import ModuleType
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import Depends, FastAPI
 
-from groundline.api import errors
+from groundline.api import commissions, errors, omissions
 from groundline.api_keys import APIKeyInfo, APIKeys
 from groundline.app import health, lifespan
 from groundline.auth import require_api_key
+from tests.commissions_helpers import Script, issues_reply
+from tests.omission_helpers import SOURCE, SUMMARY, not_flagged_script
 
 SECRET = "gl_" + "a" * 43
+HEADERS = {"Authorization": f"Bearer {SECRET}"}
+BODY = {"source": SOURCE, "summary": SUMMARY}
+
+
+@dataclass(frozen=True)
+class Endpoint:
+    path: str
+    module: ModuleType
+    """The route's module, where the tests spy on `evaluate`."""
+    not_flagged: Callable[[], Callable[[str], str]]
+    calls: int
+    """The model calls one not-flagged check makes."""
+
+
+ENDPOINTS = [
+    Endpoint(
+        "/v1/omissions",
+        omissions,
+        not_flagged_script,
+        4,
+    ),
+    Endpoint(
+        "/v1/commissions",
+        commissions,
+        lambda: Script(commissions_check=issues_reply()),
+        1,
+    ),
+]
 
 
 class FakeKeys(APIKeys):

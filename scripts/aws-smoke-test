@@ -102,5 +102,5 @@ from tests.commissions_helpers import SUMMARY
 from tests.omission_helpers import SOURCE
 print(json.dumps({"source": SOURCE, "summary": SUMMARY}))
 ')"
-  expect 200 POST /v1/commissions --json "$body"
+  expect 200 POST /v1/commissions --json "$body" --header "Authorization: Bearer $api_key"
 fi

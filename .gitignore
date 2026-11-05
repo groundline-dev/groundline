@@ -15,9 +15,13 @@ wheels/
 
 # Secrets
 .env
+.env.old
 
 # Terraform: local state, providers, and each contributor's settings
 infra/.terraform/
 *.tfstate
 *.tfstate.*
 infra/terraform.tfvars
+
+# Database backups, which hold API-key hashes
+*.dump

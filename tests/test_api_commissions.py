@@ -16,6 +16,7 @@ from groundline.api import common
 from groundline.app import app
 from groundline.core import APIKeyRejectedError
 from groundline.evaluate import DEFAULT_COMMISSIONS_PRESET
+from tests.auth_helpers import HEADERS, FakeKeys
 from tests.commissions_helpers import (
     DOSE,
     DOSE_ISSUE,
@@ -31,7 +32,7 @@ from tests.commissions_helpers import (
 from tests.fakes import FakeClient
 from tests.omission_helpers import SOURCE
 
-http = TestClient(app)
+http = TestClient(app, headers=HEADERS)
 
 SECRET = "patient is HIV positive and takes tenofovir"
 
@@ -40,6 +41,7 @@ SECRET = "patient is HIV positive and takes tenofovir"
 def isolated(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     """No real .env, and no client override left behind."""
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(app.state, "api_keys", FakeKeys(), raising=False)
     yield
     app.dependency_overrides.clear()
 
@@ -221,11 +223,14 @@ def test_a_missing_key_is_a_503_with_the_clis_message(
     detail = response.json()["detail"]
     assert detail.startswith("ANTHROPIC_API_KEY is not set.")
     assert "claude-haiku-5-5" in detail  # says which model needs it
+    assert str(Path.cwd()) not in detail  # no path of the server's
 
 
 def test_a_rejected_key_is_a_503():
     def rejected(prompt: str) -> str:
-        raise APIKeyRejectedError("ANTHROPIC_API_KEY was rejected")
+        raise APIKeyRejectedError(
+            "ANTHROPIC_API_KEY was rejected", "ANTHROPIC_API_KEY was rejected"
+        )
 
     use_client(rejected)
 

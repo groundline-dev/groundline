@@ -22,3 +22,7 @@ The rules below apply only when discussing or changing the design. In other work
 - Offer to write an ADR only when the decision is (1) hard to reverse, (2) surprising without context, and (3) a real trade-off between alternatives. Otherwise skip it.
 - Files: `docs/adr/NNNN-slug.md`, next number after the highest existing. Create the folder when the first ADR is needed.
 - Format: a title plus 1-3 sentences (context, decision, why). Add Status, Considered Options or Consequences only when they add value.
+
+## Skills
+
+Skills live in `.agents/skills/`. `.claude/skills/` links to the same folders, so edit only the `.agents/` copy.

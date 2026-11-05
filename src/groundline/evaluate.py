@@ -61,7 +61,7 @@ async def evaluate(
     validated, warnings = _compare_with_presets(pipeline)
 
     own_client = None
-    needed_by = _model_users(pipeline)
+    needed_by = model_users(pipeline)
     if client is None and needed_by:
         settings = read_settings()
         client = own_client = AnthropicClient(
@@ -112,7 +112,7 @@ def evaluate_sync(
     )
 
 
-def _model_users(pipeline: Pipeline) -> str:
+def model_users(pipeline: Pipeline) -> str:
     """Which stages call which models, e.g. "extract, rank (claude-opus-5-5)";
     empty if no enabled stage calls a model."""
     steps_by_model: dict[str, list[str]] = {}

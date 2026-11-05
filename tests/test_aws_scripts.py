@@ -51,8 +51,9 @@ KEYS_CREATE_OUTPUT = (
 
 @dataclass
 class FakeApp:
-    """Answers /health with 200 and POST /v1/omissions with what `statuses`
-    gives for the Bearer token. Records each request."""
+    """Answers /health with 200, POST /v1/omissions with what `statuses` gives
+    for the Bearer token, and POST /v1/commissions with 200 for the test key and
+    401 otherwise. Records each request."""
 
     statuses: dict[str, int] = field(default_factory=lambda: {KEY: 422, "default": 401})
     requests: list[tuple[str, str]] = field(default_factory=lambda: [])
@@ -83,6 +84,8 @@ def app() -> Iterator[FakeApp]:
             token = (self.headers.get("Authorization") or "").removeprefix("Bearer ")
             if self.path == "/v1/omissions":
                 self.answer(fake.statuses.get(token, fake.statuses["default"]))
+            elif self.path == "/v1/commissions":
+                self.answer(200 if token == KEY else 401)
             else:
                 self.answer(404)
 
@@ -179,6 +182,17 @@ def test_the_live_smoke_test_stops_first_without_the_anthropic_parameter(
     assert PARAMETER in result.output
     assert not result.sent_commands(), "it created a key before checking"
     assert not any(path == "/v1/commissions" for _, path in app.requests)
+
+
+def test_the_live_smoke_test_sends_the_test_key_with_its_commission_check(
+    app: FakeApp, tmp_path: Path
+):
+    """Commission checks need an API key, like omission checks (ALL-74)."""
+    result = run(SMOKE_TEST, tmp_path, smoke_world(app), "--live")
+
+    assert result.returncode == 0, result.output
+    assert ("POST", "/v1/commissions") in app.requests
+    assert any(f"keys revoke {KEY_ID}" in c for c in result.sent_commands())
 
 
 DESTROY_OUTPUTS = {

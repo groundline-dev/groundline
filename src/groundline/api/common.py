@@ -9,23 +9,34 @@ written to be safe, or left to `groundline.api.errors`, which never repeats one.
 import logging
 from collections.abc import Generator
 from contextlib import contextmanager
-from typing import Annotated
+from typing import Annotated, Any
 
 import anthropic
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from groundline.api.errors import (
+    AUTHENTICATION_UNAVAILABLE,
+    INVALID_API_KEY,
+    UNEXPECTED,
+)
 from groundline.core import (
+    CallRecord,
     ModelClient,
     ModelError,
+    PipelineSpec,
     ReplyError,
     SetupError,
     StageError,
+    build_pipeline,
     summarize_usage,
 )
+from groundline.evaluate import default_registry, model_users
 from groundline.evaluators.models import AlarmOutput
 from groundline.evaluators.report import usage_text
+from groundline.profiles import load_builtin_profile
 from groundline.result import EvaluationResult
+from groundline.settings import MissingAPIKeyError
 
 logger = logging.getLogger("groundline.api")
 
@@ -39,19 +50,187 @@ one request can't spend dollars on a huge input."""
 # may quote the source or summary.
 UPSTREAM_CAUSES = (ReplyError, ModelError, anthropic.APIError)
 
-FAILURE_RESPONSES: dict[int | str, dict[str, str]] = {
-    502: {"description": "The model or Anthropic's API failed."},
-    503: {"description": "The Anthropic API key is missing or rejected."},
-}
-"""The statuses a check can answer beyond 200 and the 422 FastAPI documents."""
-
 
 class ApiModel(BaseModel):
     model_config = ConfigDict(extra="forbid", use_attribute_docstrings=True)
 
 
+class ErrorBody(ApiModel):
+    """The body of every error but a 422."""
+
+    detail: str
+
+
+class Problem(ApiModel):
+    """One thing wrong with a request. It never repeats the rejected value."""
+
+    loc: list[str | int]
+    """Where the problem is, such as ["body", "source"]."""
+    msg: str
+    type: str
+
+
+class InvalidRequestBody(ApiModel):
+    """The body of a 422."""
+
+    detail: list[Problem]
+
+
+def _error(
+    model: type[ApiModel], description: str, **examples: tuple[str, object]
+) -> dict[str, Any]:
+    """An error status's entry in a route's `responses`. Each example is a
+    label for the docs' picker and the body."""
+    return {
+        "model": model,
+        "description": description,
+        "content": {
+            "application/json": {
+                "examples": {
+                    name: {"summary": summary, "value": value}
+                    for name, (summary, value) in examples.items()
+                }
+            }
+        },
+    }
+
+
+FAILURE_RESPONSES: dict[int | str, dict[str, Any]] = {
+    400: _error(
+        ErrorBody,
+        "The body isn't valid UTF-8 text. Bytes that begin like UTF-16 or UTF-32 "
+        "text are read as that, and answer 422 if they aren't JSON.",
+        not_utf8=("Not UTF-8", {"detail": "There was an error parsing the body"}),
+    ),
+    422: _error(
+        InvalidRequestBody,
+        "The request is unusable: broken JSON, not a JSON object, a blank or "
+        "too-long text, an unexpected field, or (omissions only) an unknown "
+        "threshold. The response never repeats the rejected value.",
+        blank_and_extra=(
+            "A blank source and an extra field",
+            {
+                "detail": [
+                    {
+                        "loc": ["body", "source"],
+                        "msg": "String should have at least 1 character",
+                        "type": "string_too_short",
+                    },
+                    {
+                        "loc": ["body"],
+                        "msg": "Extra inputs are not permitted",
+                        "type": "extra_forbidden",
+                    },
+                ]
+            },
+        ),
+    ),
+    500: _error(
+        ErrorBody,
+        "An unexpected error, a bug in groundline. The details are in the server log.",
+        unexpected=("Unexpected error", {"detail": UNEXPECTED}),
+    ),
+}
+"""The statuses any check can answer besides 200, 502 and 503, with examples. FastAPI's
+own 422 entry is replaced, since groundline's 422 leaves out the rejected value.
+Check routes use `check_responses`, which adds authentication's 401 and the
+502 and 503, whose examples depend on the route's pipeline."""
+
+PROTECTED_RESPONSES: dict[int | str, dict[str, Any]] = {
+    **FAILURE_RESPONSES,
+    401: {
+        **_error(
+            ErrorBody,
+            "The API key is missing or invalid.",
+            invalid_key=("Invalid or missing key", {"detail": INVALID_API_KEY}),
+        ),
+        "headers": {
+            "WWW-Authenticate": {
+                "description": "Always `Bearer`.",
+                "schema": {"type": "string"},
+            }
+        },
+    },
+}
+"""`FAILURE_RESPONSES` plus the 401 of a route that depends on `require_api_key`."""
+
+
+def check_responses(spec: PipelineSpec) -> dict[int | str, dict[str, Any]]:
+    """Every error status a check route can answer, for its `responses`:
+    `PROTECTED_RESPONSES`, a 502 whose examples fail in the pipeline's first
+    model call, priced at its model, and a 503 that names the stages needing
+    the Anthropic API key, as the real one does."""
+    profile = load_builtin_profile(spec.profile) if spec.profile else None
+    pipeline = build_pipeline(spec, default_registry(), profile)
+    stage = next(s for s in pipeline.stages if s.enabled and s.implementation.models())
+    # Illustrative token counts: a first prompt and its retry, each answered
+    # with "not json".
+    call = CallRecord(
+        step=stage.step,
+        model=stage.implementation.models()[0],
+        input_tokens=800,
+        output_tokens=2,
+        seconds=1.0,
+    )
+    cost = usage_text(summarize_usage([call, call]))
+    failed = f"stage '{stage.step}' failed"
+    upstream = _error(
+        ErrorBody,
+        "The model or Anthropic's API failed. Retrying later may work.",
+        unusable_reply=(
+            "Unusable reply",
+            {
+                "detail": f"{failed}: unusable reply after 1 retry: no JSON object "
+                f"in the reply (the reply was 8 characters). Cost before stopping: "
+                f"{cost}"
+            },
+        ),
+        anthropic_error=(
+            "Anthropic API error",
+            {"detail": f"{failed}: the Anthropic API answered 529 (OverloadedError)"},
+        ),
+    )
+    unavailable = _error(
+        ErrorBody,
+        "Authentication is unavailable, the Anthropic API key is missing or "
+        "rejected, or the settings can't be read.",
+        authentication_unavailable=(
+            "Authentication unavailable",
+            {"detail": AUTHENTICATION_UNAVAILABLE},
+        ),
+        anthropic_key_missing=(
+            "Anthropic API key not set",
+            {
+                "detail": MissingAPIKeyError(
+                    "ANTHROPIC_API_KEY", model_users(pipeline)
+                ).api_message()
+            },
+        ),
+    )
+    return PROTECTED_RESPONSES | {502: upstream, 503: unavailable}
+
+
+_EXAMPLE_SOURCE = (
+    "Doctor: Any allergies? Patient: Penicillin, it gives me a rash. Doctor: "
+    "Your knee is sprained. Take Motrin 600 mg every 6 hours for a week, and "
+    "come back if it isn't better in two weeks."
+)
+_EXAMPLE_SUMMARY = (
+    "Sprained knee. Allergic to penicillin. Motrin 800 mg every 6 hours for a "
+    "week. Return if not improving in two weeks."
+)
+"""An invented consultation for the docs' examples. FastAPI leaves out null
+values when it puts an example in the docs, so no example holds one."""
+
+
 class CheckRequest(ApiModel):
     """The body of every check: a source and the summary to check against it."""
+
+    model_config = ConfigDict(
+        json_schema_extra={
+            "examples": [{"source": _EXAMPLE_SOURCE, "summary": _EXAMPLE_SUMMARY}]
+        }
+    )
 
     source: Annotated[str, Field(min_length=1, max_length=MAX_CHARS)]
     """The original material, such as a consultation transcript."""
@@ -116,7 +295,7 @@ def check_failures() -> Generator[None]:
         yield
     except SetupError as error:
         logger.warning("can't check: %s", error)
-        raise HTTPException(503, detail=str(error)) from error
+        raise HTTPException(503, detail=error.api_message()) from error
     except StageError as error:
         spent = _spent(error)
         cause = type(error.__cause__).__name__
