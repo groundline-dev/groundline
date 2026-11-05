@@ -6,14 +6,15 @@
 # It logs to /var/log/groundline-bootstrap.log, which scripts/aws-smoke-test
 # prints if the app doesn't start. At the end it leaves
 # /var/lib/groundline/bootstrap-done, or bootstrap-failed if a command failed.
-set -euo pipefail
+# -E makes the ERR trap fire inside functions too.
+set -Eeuo pipefail
 
 log=/var/log/groundline-bootstrap.log
-state=/var/lib/groundline
-app=/opt/groundline
+marker_dir=/var/lib/groundline
+checkout=/opt/groundline
 exec >>"$log" 2>&1
-mkdir -p "$state"
-trap 'echo "groundline bootstrap: failed at line $LINENO"; touch "$state/bootstrap-failed"' ERR
+mkdir -p "$marker_dir"
+trap 'echo "groundline bootstrap: failed at line $LINENO"; touch "$marker_dir/bootstrap-failed"' ERR
 # cloud-init doesn't set HOME, and the Docker CLI keeps its settings there.
 export HOME=/root
 
@@ -40,37 +41,40 @@ install_plugin docker-buildx \
   https://github.com/docker/buildx/releases/download/v0.38.2/buildx-v0.38.2.linux-arm64 \
   46c0f334772de3cb0b341cc415caf7339fb5cfc8b8438ebcb5a10e7f23800d36
 
-git clone --quiet ${repository_url} "$app"
-git -C "$app" checkout --quiet --detach ${git_ref}
-cd "$app"
+git clone --quiet "${repository_url}" "$checkout"
+git -C "$checkout" checkout --quiet --detach "${git_ref}"
+cd "$checkout"
 
 # .env, readable only by root. Hex passwords are safe in a URL and in Compose.
+# Generated first, since a failed command inside echo "$(...)" wouldn't stop the script.
+postgres_password="$(openssl rand -hex 24)"
+groundline_db_password="$(openssl rand -hex 24)"
 umask 077
 {
-  echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)"
-  echo "GROUNDLINE_DB_PASSWORD=$(openssl rand -hex 24)"
+  echo "POSTGRES_PASSWORD=$postgres_password"
+  echo "GROUNDLINE_DB_PASSWORD=$groundline_db_password"
   echo "APP_BIND_ADDRESS=0.0.0.0"
 } >.env
 chmod 600 .env
 
 # The Anthropic API key is optional: without the parameter, the app starts and
 # answers everything except model calls. Any other error stops the startup.
-errors="$(mktemp)"
-if key="$(aws ssm get-parameter --region ${region} --name ${anthropic_parameter_name} \
-  --with-decryption --query Parameter.Value --output text 2>"$errors")"; then
-  echo "ANTHROPIC_API_KEY=$key" >>.env
+errors_file="$(mktemp)"
+if anthropic_api_key="$(aws ssm get-parameter --region "${region}" --name "${anthropic_parameter_name}" \
+  --with-decryption --query Parameter.Value --output text 2>"$errors_file")"; then
+  echo "ANTHROPIC_API_KEY=$anthropic_api_key" >>.env
   echo "groundline bootstrap: read the Anthropic API key from ${anthropic_parameter_name}"
-elif grep --quiet ParameterNotFound "$errors"; then
+elif grep --quiet ParameterNotFound "$errors_file"; then
   echo "groundline bootstrap: ${anthropic_parameter_name} doesn't exist, so the app has no Anthropic API key"
 else
-  cat "$errors"
+  cat "$errors_file"
   false
 fi
-rm -f "$errors"
-unset key
+rm -f "$errors_file"
+unset anthropic_api_key
 
 # Builds the image, then starts Postgres, setup and the app.
 docker compose up -d --quiet-pull
 
-touch "$state/bootstrap-done"
+touch "$marker_dir/bootstrap-done"
 echo "groundline bootstrap: done at $(date -u); the app starts once setup finishes"

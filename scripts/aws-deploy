@@ -7,12 +7,13 @@
 #        REF=<branch|tag|commit> scripts/aws-deploy
 #
 # The server runs REF (default HEAD), which must be pushed to GitHub. The Region
-# is AWS_REGION, or the one `aws configure get region` gives. Rerunning it after
-# your IP changes updates only the security group.
+# is AWS_REGION, or the one `aws configure get region` gives. Rerunning it with
+# the same commit after your IP changes updates only the security group; another
+# commit replaces the server, and its data with it.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-parameter=/groundline/anthropic-api-key
+anthropic_parameter=/groundline/anthropic-api-key
 
 fail() {
   echo "error: $*" >&2
@@ -32,21 +33,21 @@ region="${AWS_REGION:-$(aws configure get region || true)}"
 
 ref="${REF:-HEAD}"
 commit="$(git rev-parse --verify --quiet "$ref^{commit}")" || fail "$ref isn't a commit"
-git fetch --quiet origin
-[ -n "$(git branch --remotes --contains "$commit")" ] \
+git fetch --quiet --prune origin
+[ -n "$(git for-each-ref --contains "$commit" refs/remotes/origin)" ] \
   || fail "$ref ($commit) isn't on GitHub yet: push it first, since the server clones it from there"
 
-ip="$(curl --fail --silent --show-error --max-time 10 https://checkip.amazonaws.com | tr -d '[:space:]')"
+ip="$(curl --fail --silent --show-error --max-time 10 https://checkip.amazonaws.com | tr -d '[:space:]')" || ip=""
 [[ "$ip" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || fail "couldn't find this computer's public IPv4 address (got '$ip')"
 
 # Checks only that the parameter exists: its value never leaves AWS.
-if ! errors="$(aws ssm get-parameter --region "$region" --name "$parameter" 2>&1 >/dev/null)"; then
+if ! errors="$(aws ssm get-parameter --region "$region" --name "$anthropic_parameter" 2>&1 >/dev/null)"; then
   case "$errors" in
     *ParameterNotFound*)
-      echo "warning: $parameter doesn't exist, so the server will have no Anthropic API key." >&2
+      echo "warning: $anthropic_parameter doesn't exist, so the server will have no Anthropic API key." >&2
       echo "         make aws-smoke works without it; make aws-smoke-live doesn't." >&2
       ;;
-    *) fail "couldn't check $parameter: $errors" ;;
+    *) fail "couldn't check $anthropic_parameter: $errors" ;;
   esac
 fi
 

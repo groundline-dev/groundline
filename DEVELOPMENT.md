@@ -78,13 +78,13 @@ If you run the image with your own `docker run`, publish the port on `127.0.0.1`
 
 ## Deploying to AWS
 
-`make deploy` creates a test server in your own AWS project: an EC2 instance that runs the Compose stack at a commit you choose. Only your computer's public IP can reach it, over plain HTTP, so it's for testing with test data. Real callers need HTTPS first (ALL-90). Each server is disposable. Its data survives container restarts and reboots, until `make destroy` deletes the server and the data with it.
+`make deploy` creates a test server in your own AWS project: an EC2 instance that runs the Compose stack at a commit you choose. Only your computer's public IP can reach it, over plain HTTP, so it's for testing with test data. Real callers need HTTPS first (ALL-90). Each server is disposable. Its data survives container restarts and reboots, until `make destroy` or a deployment of another commit deletes the server and the data with it. Each AWS project has room for one server, since the IAM role and the budget have fixed names.
 
 The Terraform is in [infra/](infra/), and the server's startup script is [infra/bootstrap.sh.tftpl](infra/bootstrap.sh.tftpl).
 
 ### Before your first deployment
 
-1. Install Terraform 1.17 or later (`brew install hashicorp/tap/terraform`) and the AWS CLI v2.
+1. Install Terraform 1.17 or later (`brew install hashicorp/tap/terraform`) and the AWS CLI v2. The server goes in your Region's default VPC, which every new AWS project has; if you deleted yours, `aws ec2 create-default-vpc` creates it again.
 2. Sign in with `aws login`. Find your project's Region in AWS Settings, under View all projects > Overview > Additional Info > Region, and set it:
 
    ```sh
@@ -98,8 +98,8 @@ The Terraform is in [infra/](infra/), and the server's startup script is [infra/
    cp infra/terraform.tfvars.example infra/terraform.tfvars
    ```
 
-   The alert covers your whole AWS project, not only this server. AWS sends a confirmation email the first time.
-4. To make model calls, store an Anthropic API key in Parameter Store as `/groundline/anthropic-api-key`. Without it, the server still starts and `make aws-smoke` still passes, but every model call fails with 503. `read -rs` keeps the key off the screen and out of your shell history:
+   The alert covers your whole AWS project, not only this server.
+4. To make model calls, store an Anthropic API key in Parameter Store as `/groundline/anthropic-api-key`. Without it, the server still starts and `make aws-smoke` still passes, but every model call fails with 503. `read -rs` keeps the Anthropic API key off the screen and out of your shell history:
 
    ```sh
    read -rs ANTHROPIC_KEY   # paste the key and press Enter
@@ -107,7 +107,7 @@ The Terraform is in [infra/](infra/), and the server's startup script is [infra/
    unset ANTHROPIC_KEY
    ```
 
-   Only the server reads the key, when it starts. Terraform and the scripts only check that the parameter exists, so the key never lands in Terraform state. To change the key, add `--overwrite` to `put-parameter`, then run `make destroy` and `make deploy`.
+   Only the server reads the Anthropic API key, when it starts. Terraform and the scripts only check that the parameter exists, so the Anthropic API key never lands in Terraform state. To change it, add `--overwrite` to `put-parameter`, then run `make destroy` and `make deploy`.
 
 ### Deploying and checking
 
@@ -118,13 +118,13 @@ make aws-smoke-live   # also send one real commission check
 make destroy          # delete it, then check that everything is gone
 ```
 
-- **`make deploy`** runs the commit you have checked out, which must be pushed to GitHub, since the server clones it from there. To run another, use `REF=<branch, tag or commit> make deploy`. The server takes about 5 to 10 minutes to build the image and start. If your IP changes, rerun `make deploy`: only the security group changes.
-- **`make aws-smoke`** waits up to 15 minutes for `/health` to answer 200. It then creates an API key on the server with `groundline keys create`, through SSM Run Command, and sends an empty `POST /v1/omissions` with an unknown key (expects 401) and with the new key (expects 422). That shows the server, Postgres, the migrations and authentication work, without spending Anthropic credit. It revokes the key at the end, even when a check fails.
+- **`make deploy`** runs the commit you have checked out, which must be pushed to GitHub, since the server clones it from there. To run another, use `REF=<branch, tag or commit> make deploy`. The server takes about 5 to 10 minutes to build the image and start. If your IP changes, rerun `make deploy` with the same commit: only the security group changes. Deploying another commit replaces the server, with its data.
+- **`make aws-smoke`** waits up to 15 minutes for `/health` to answer 200. It then creates an API key on the server with `groundline keys create`, through SSM Run Command, and sends an empty `POST /v1/omissions` with an unknown API key (expects 401) and with the new one (expects 422). That shows the server, Postgres, the migrations and authentication work, without spending Anthropic credit. It revokes that API key at the end, even when a check fails.
 - **`make aws-smoke-live`** runs the same checks, then sends the shortest test input to `POST /v1/commissions` and expects 200. It costs under a cent. Run it before demos and releases, and after changing a prompt, a preset, the model or how the Anthropic API key reaches the server.
 
 ### Keeping an API key for a demo
 
-The smoke test revokes its own key. To create one that lasts, run `groundline keys create` on the server through SSM Run Command:
+The smoke test revokes its own API key. To create one that lasts, run `groundline keys create` on the server through SSM Run Command:
 
 ```sh
 instance="$(terraform -chdir=infra output -raw instance_id)"
@@ -136,7 +136,7 @@ aws ssm get-command-invocation --command-id "$command" --instance-id "$instance"
   --query StandardOutputContent --output text
 ```
 
-SSM keeps each command's output, so anyone who can read your project's Run Command history can see the key. The key goes when the server does; to revoke it sooner, run `groundline keys revoke <key-id>` the same way.
+SSM keeps each command's output, so anyone who can read your project's Run Command history can see the API key. It goes when the server does; to revoke it sooner, run `groundline keys revoke <key-id>` the same way.
 
 ### Costs
 
@@ -145,7 +145,7 @@ The server costs about $0.024 an hour in us-east-1, about $17 a month: $0.0168 f
 ### Troubleshooting
 
 - **`make aws-smoke` times out:** it prints the end of the server's startup log (`/var/log/groundline-bootstrap.log`) and the containers' status and logs. A failed startup also leaves `/var/lib/groundline/bootstrap-failed`.
-- **Requests time out from a new network:** your IP changed. Rerun `make deploy`.
+- **Requests time out from a new network:** your IP changed. Rerun `make deploy` with the same commit.
 - **AWS calls that worked start failing with Access Denied:** your project may have reached its spend limit, which pauses it. Check in AWS Settings, under Billing.
 
 ### Tearing down

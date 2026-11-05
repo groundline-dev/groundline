@@ -5,7 +5,8 @@ data "aws_partition" "current" {}
 data "aws_caller_identity" "current" {}
 
 # AWS's public parameter for the newest Amazon Linux 2023 arm64 AMI. It holds no
-# secret; the Anthropic parameter is never read here, so the key stays out of state.
+# secret. The Anthropic parameter is never read here, so the Anthropic API key
+# stays out of state.
 data "aws_ssm_parameter" "al2023_arm64" {
   name = "/aws/service/ami-amazon-linux-latest/al2023-ami-kernel-default-arm64"
 }
@@ -21,7 +22,7 @@ locals {
 
 resource "aws_security_group" "app" {
   name_prefix = "groundline-"
-  description = "groundline test server: the app port from the tester's IP only"
+  description = "groundline test server: the app port from the tester IP only"
 }
 
 resource "aws_vpc_security_group_ingress_rule" "app" {

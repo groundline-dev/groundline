@@ -10,24 +10,24 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-parameter=/groundline/anthropic-api-key
+anthropic_parameter=/groundline/anthropic-api-key
 
 fail() {
   echo "error: $*" >&2
   exit 1
 }
 
-# Read before destroying: the outputs are gone afterwards.
-output() {
-  terraform -chdir=infra output -raw "$1" \
-    || fail "no $1 in the Terraform state: is anything deployed?"
-}
+# Read before destroying: the outputs are gone afterwards. A deployment that
+# failed partway may lack some, so a missing one is checked below, not here.
+output() { terraform -chdir=infra output -raw "$1" 2>/dev/null || true; }
 instance="$(output instance_id)"
 region="$(output region)"
 group="$(output security_group_id)"
 role="$(output iam_role_name)"
 profile="$(output instance_profile_name)"
 budget="$(output budget_name)"
+region="${region:-${AWS_REGION:-$(aws configure get region || true)}}"
+[ -n "$region" ] || fail "no AWS Region: run aws configure set region <your project's Region>"
 account="$(aws sts get-caller-identity --query Account --output text)" \
   || fail "the AWS CLI isn't signed in: run aws login"
 
@@ -38,47 +38,57 @@ terraform -chdir=infra destroy \
 
 echo
 echo "Checking that everything is gone"
-left=0
+leftover=0
 
-# gone WHAT COMMAND...: passes only when COMMAND fails with a not-found error.
+# gone WHAT ID COMMAND...: passes only when COMMAND fails with a not-found error.
+# An empty ID means Terraform had no output naming it, so it can't be checked.
 gone() {
-  local what="$1" errors
-  shift
+  local what="$1" id="$2" errors
+  shift 2
+  if [ -z "$id" ]; then
+    echo "error: couldn't check the $what: Terraform had no output naming it" >&2
+    leftover=1
+    return
+  fi
   if errors="$("$@" 2>&1 >/dev/null)"; then
-    echo "error: $what still exists" >&2
-    left=1
+    echo "error: $what $id still exists" >&2
+    leftover=1
     return
   fi
   case "$errors" in
-    *NotFound* | *NoSuchEntity*) echo "ok: $what is gone" ;;
+    *NotFound* | *NoSuchEntity*) echo "ok: $what $id is gone" ;;
     *)
-      echo "error: couldn't check $what: $errors" >&2
-      left=1
+      echo "error: couldn't check $what $id: $errors" >&2
+      leftover=1
       ;;
   esac
 }
 
-if state="$(aws ec2 describe-instances --region "$region" --instance-ids "$instance" \
+# A terminated instance stays visible for about an hour, so terminated counts as gone.
+if [ -z "$instance" ]; then
+  gone instance ""
+elif instance_state="$(aws ec2 describe-instances --region "$region" --instance-ids "$instance" \
   --query 'Reservations[0].Instances[0].State.Name' --output text 2>&1)"; then
-  if [ "$state" = terminated ]; then
+  if [ "$instance_state" = terminated ]; then
     echo "ok: instance $instance is terminated"
   else
-    echo "error: instance $instance is $state, not terminated" >&2
-    left=1
+    echo "error: instance $instance is $instance_state, not terminated" >&2
+    leftover=1
   fi
 else
-  case "$state" in
+  case "$instance_state" in
     *NotFound*) echo "ok: instance $instance is gone" ;;
-    *) echo "error: couldn't check instance $instance: $state" >&2; left=1 ;;
+    *) echo "error: couldn't check instance $instance: $instance_state" >&2; leftover=1 ;;
   esac
 fi
-gone "security group $group" aws ec2 describe-security-groups --region "$region" --group-ids "$group"
-gone "IAM role $role" aws iam get-role --role-name "$role"
-gone "instance profile $profile" aws iam get-instance-profile --instance-profile-name "$profile"
-gone "budget $budget" aws budgets describe-budget --account-id "$account" --budget-name "$budget"
+gone "security group" "$group" aws ec2 describe-security-groups --region "$region" --group-ids "$group"
+gone "IAM role" "$role" aws iam get-role --role-name "$role"
+gone "instance profile" "$profile" aws iam get-instance-profile --instance-profile-name "$profile"
+gone budget "$budget" aws budgets describe-budget --account-id "$account" --budget-name "$budget"
 
-[ "$left" = 0 ] || fail "something is left over; see above, and check the AWS console for resources tagged project=groundline"
+[ "$leftover" = 0 ] \
+  || fail "something may be left over; see above, and check the AWS console for resources tagged project=groundline"
 
 echo
 echo "The Anthropic API key's parameter is still in Parameter Store. To delete it:"
-echo "  aws ssm delete-parameter --name $parameter --region $region"
+echo "  aws ssm delete-parameter --name $anthropic_parameter --region $region"
