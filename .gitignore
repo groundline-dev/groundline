@@ -15,3 +15,8 @@ wheels/
 
 # Secrets
 .env
+!.env.example
+.env.*
+
+# Bloat
+.DS_Store
