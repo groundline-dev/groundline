@@ -125,5 +125,5 @@ A running copy of groundline, with its own database and API keys, that serves ca
 _Avoid_: install, instance, environment, stack (instance and stack name the cloud resources a deployment runs on)
 
 **Test deployment**:
-A deployment a developer creates to try one commit, reachable only from their own computer and deleted, with its data, when they're done or after a few hours.
+A deployment a developer creates to try one commit, reachable only from their own computer. Its server and data are deleted when the developer is done, or at a deadline they can extend.
 _Avoid_: test server, dev server, staging (a staging deployment serves callers and lasts)

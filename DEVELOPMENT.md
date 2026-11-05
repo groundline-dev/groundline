@@ -78,7 +78,7 @@ If you run the image with your own `docker run`, publish the port on `127.0.0.1`
 
 ## Deploying to AWS
 
-`make aws-deploy` creates a test deployment in your AWS project: the Compose stack at a commit you choose, on an EC2 instance. Only your computer's public IP can reach it, over plain HTTP, so it's for testing with test data. Real callers need HTTPS first (ALL-90). Each test deployment is disposable. Its data survives container restarts and reboots, until `make aws-destroy`, a deployment of another commit, or the 5-hour limit deletes the server and the data with it.
+`make aws-deploy` creates a test deployment in your AWS project: the Compose stack at a commit you choose, on an EC2 instance. Only your computer's public IP can reach it, over plain HTTP, so it's for testing with test data. Real callers need HTTPS first (ALL-90). Each test deployment is disposable. Its data survives container restarts and reboots, until `make aws-destroy`, a deployment of another commit, or the time limit deletes the server and the data with it.
 
 Several developers can share one AWS project, each with their own test deployment. Each test deployment's resources are named and tagged after the `deployment_name` in that developer's `infra/terraform.tfvars`.
 
@@ -114,14 +114,18 @@ The Terraform is in [infra/](infra/), and the server's startup script is [infra/
 ### Deploying and checking
 
 ```sh
-make aws-deploy           # create the server, or update it; Terraform shows the plan and asks first
+make aws-deploy       # create the server, or update it; Terraform shows the plan and asks first
 make aws-smoke        # check it from here, without calling Claude
 make aws-smoke-live   # also send one real commission check
-make aws-destroy          # delete it, then check that everything is gone
+make aws-status       # show when it terminates itself
+make aws-extend       # move that to 8 hours from now (HOURS=n for fewer)
+make aws-destroy      # delete it, then check that everything is gone
 ```
 
 - **`make aws-deploy`** runs the commit you have checked out, which must be pushed to GitHub, since the server clones it from there. To run another, use `REF=<branch, tag or commit> make aws-deploy`. The server takes about 5 to 10 minutes to build the image and start. If your IP changes, rerun `make aws-deploy` with the same commit: only the security group changes. Deploying another commit replaces the server, with its data.
-- **The 5-hour limit:** each server shuts itself down 5 hours after it first starts, and AWS then terminates it, deleting its data. A redeploy of the same commit doesn't reset the limit, but a redeploy of another commit does, since that creates a new server. After the limit, `make aws-deploy` creates a new server, and `make aws-destroy` cleans up the security group, IAM role and budget the old one left behind. To change the limit, set `auto_terminate_hours` in `infra/terraform.tfvars`; 0 turns it off.
+- **The time limit:** each server shuts itself down 8 hours after it first starts, and AWS then terminates it, deleting its disk and its data. `make aws-deploy` prints the time, and `make aws-status` shows how long is left. A redeploy of the same commit doesn't reset the limit, but a redeploy of another commit does, since that creates a new server.
+- **`make aws-extend`** moves the deadline to 8 hours from now, or to `HOURS=n` hours from now for fewer. It never moves it earlier, and never more than 8 hours ahead, so a server outlasts the limit only while someone keeps extending it. To change the limit, set `auto_terminate_hours` in `infra/terraform.tfvars` and redeploy; 0 turns it off.
+- **After the server terminates itself,** its security group, IAM role, instance profile and budget are still there. They're free, but a later deployment with the same `deployment_name` fails until they're gone. Run `make aws-destroy` to remove them, or `make aws-deploy` for a new server. `make aws-status` and `make aws-smoke` remind you when the server has terminated.
 - **`make aws-smoke`** waits up to 15 minutes for `/health` to answer 200. It then creates an API key on the server with `groundline keys create`, through SSM Run Command, and sends an empty `POST /v1/omissions` with an unknown API key (expects 401) and with the new one (expects 422). That shows the server, Postgres, the migrations and authentication work, without spending Anthropic credit. It revokes that API key at the end, even when a check fails.
 - **`make aws-smoke-live`** runs the same checks, then sends the shortest test input to `POST /v1/commissions` and expects 200. It costs under a cent. Run it before demos and releases, and after changing a prompt, a preset, the model or how the Anthropic API key reaches the server.
 
@@ -143,13 +147,13 @@ SSM keeps each command's output, so anyone who can read your project's Run Comma
 
 ### Costs
 
-The server costs about $0.024 an hour in us-east-1, about $17 a month: $0.0168 for the `t4g.small` instance, $0.005 for its public IP and $0.002 for its 20 GB disk. Prices differ a little between Regions. A server that runs to its 5-hour limit costs about $0.12. Destroy it when you're done anyway: the IAM role, security group and budget it leaves behind are free, but they're clutter. The budget alert emails everyone who has deployed when the project's costs pass $2.50 and $5 in a month.
+The server costs about $0.024 an hour in us-east-1, about $17 a month: $0.0168 for the `t4g.small` instance, $0.005 for its public IP and $0.002 for its 20 GB disk. Prices differ a little between Regions. A server that runs to its 8-hour limit costs about $0.19. Destroy it when you're done anyway: the IAM role, security group and budget it leaves behind are free, but they're clutter. The budget alert emails everyone who has deployed when the project's costs pass $2.50 and $5 in a month.
 
 ### Troubleshooting
 
 - **`make aws-smoke` times out:** it prints the end of the server's startup log (`/var/log/groundline-bootstrap.log`) and the containers' status and logs. A failed startup also leaves `/var/lib/groundline/bootstrap-failed`.
 - **Requests time out from a new network:** your IP changed. Rerun `make aws-deploy` with the same commit.
-- **`make aws-smoke` can't find the instance, or it's terminated:** the server reached its 5-hour limit. Run `make aws-deploy` again.
+- **`make aws-smoke` or `make aws-status` says the server has terminated:** it reached its time limit. Run `make aws-destroy` to remove what it left behind, or `make aws-deploy` for a new server.
 - **`make aws-deploy` fails because a role or budget already exists:** someone else in the AWS project uses the same `deployment_name`. Pick another one in `infra/terraform.tfvars`.
 - **AWS calls that worked start failing with Access Denied:** your project may have reached its spend limit, which pauses it. Check in AWS Settings, under Billing.
 
