@@ -30,9 +30,13 @@ fail() {
   exit 1
 }
 
+# With nothing deployed, terraform output exits 0 and prints nothing, so an empty
+# value counts as missing too.
 output() {
-  terraform -chdir=infra output -raw "$1" \
+  local value
+  value="$(terraform -chdir=infra output -raw "$1")" && [ -n "$value" ] \
     || fail "no $1 in the Terraform state: run make deploy first"
+  printf '%s' "$value"
 }
 instance="$(output instance_id)"
 region="$(output region)"
