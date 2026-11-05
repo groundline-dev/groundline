@@ -25,6 +25,9 @@ def make_engine(raw: str, *, timeout: int = 5) -> AsyncEngine:
         return create_async_engine(
             url,
             hide_parameters=True,
+            # Test each pooled connection before handing it out, so connections
+            # broken by a Postgres restart are replaced instead of failing a request.
+            pool_pre_ping=True,
             isolation_level="READ COMMITTED",
             connect_args={
                 "connect_timeout": timeout,
@@ -36,19 +39,28 @@ def make_engine(raw: str, *, timeout: int = 5) -> AsyncEngine:
 
 
 async def check_connection(
-    raw: str, *, timeout: int = 5, engine: AsyncEngine | None = None
+    raw: str,
+    *,
+    timeout: int = 5,
+    engine: AsyncEngine | None = None,
+    was_connected: bool | None = None,
 ) -> bool:
-    """Try connecting; log and return False if it fails.
+    """Try connecting; return whether it worked, and log the result.
 
-    The log gives where and why, never the password. A supplied engine is
-    borrowed, with its own connection settings; timeout applies only when this
-    function creates an engine. Only engines created here are disposed here.
+    The log gives where and why, never the password. A caller that polls passes
+    the previous result as `was_connected`, and then only a change is logged.
+    A supplied engine is borrowed, with its own connection settings; timeout
+    applies only when this function creates an engine. Only engines created
+    here are disposed here.
     """
     try:
         url = make_url(raw)
     except (SQLAlchemyError, ValueError):
         # The parser's message quotes the whole URL, password included.
-        logger.error("can't connect to the database: DATABASE_URL isn't a valid URL")
+        if was_connected is not False:
+            logger.error(
+                "can't connect to the database: DATABASE_URL isn't a valid URL"
+            )
         return False
     where = f"{url.host or 'localhost'}:{url.port or 5432}/{url.database}"
     owns_engine = engine is None
@@ -63,6 +75,8 @@ async def check_connection(
                 await engine.dispose()
     except ImportError as error:
         # A URL such as postgresql+asyncpg:// names a driver that isn't installed.
+        if was_connected is False:
+            return False
         logger.error(
             "can't connect to the database at %s: the %s driver isn't installed; "
             "use postgresql+psycopg:// in DATABASE_URL",
@@ -71,17 +85,31 @@ async def check_connection(
         )
         return False
     except (SQLAlchemyError, OSError) as error:
-        password = url.password if isinstance(url.password, str) else None
-        logger.error(
-            "can't connect to the database at %s: %s", where, _reason(error, password)
-        )
+        if was_connected is not False:
+            password = url.password if isinstance(url.password, str) else None
+            logger.error(
+                "can't connect to the database at %s: %s",
+                where,
+                _reason(error, password),
+            )
         return False
-    logger.info("connected to the database at %s", where)
+    if was_connected is False:
+        logger.info("the database at %s answers again", where)
+    elif was_connected is None:
+        logger.info("connected to the database at %s", where)
     return True
+
+
+def scrub(message: str, *passwords: str | None) -> str:
+    """`message` on one line, with each password in it replaced by ***."""
+    message = " ".join(message.split())
+    for password in passwords:
+        if password:
+            message = message.replace(password, "***")
+    return message
 
 
 def _reason(error: Exception, password: str | None) -> str:
     """The driver's own explanation, on one line, with the password removed."""
     inner = error.orig if isinstance(error, DBAPIError) else error
-    reason = " ".join(str(inner).split())
-    return reason.replace(password, "***") if password else reason
+    return scrub(str(inner), password)
