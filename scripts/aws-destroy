@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# Destroy the AWS test server with Terraform, then ask AWS directly whether the
+# instance, security group, IAM role, instance profile and budget are gone.
+# It fails if any is still there, or if AWS can't say (an expired sign-in, say).
+#
+# Usage: scripts/aws-destroy   (make destroy)
+#
+# It leaves the Anthropic API key's parameter, which was created outside
+# Terraform, and prints the command to delete it.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+parameter=/groundline/anthropic-api-key
+
+fail() {
+  echo "error: $*" >&2
+  exit 1
+}
+
+# Read before destroying: the outputs are gone afterwards.
+output() {
+  terraform -chdir=infra output -raw "$1" \
+    || fail "no $1 in the Terraform state: is anything deployed?"
+}
+instance="$(output instance_id)"
+region="$(output region)"
+group="$(output security_group_id)"
+role="$(output iam_role_name)"
+profile="$(output instance_profile_name)"
+budget="$(output budget_name)"
+account="$(aws sts get-caller-identity --query Account --output text)" \
+  || fail "the AWS CLI isn't signed in: run aws login"
+
+# Destroying doesn't use these values, but Terraform asks for every required
+# variable without a default.
+terraform -chdir=infra destroy \
+  -var "region=$region" -var "tester_cidr=127.0.0.1/32" -var "git_ref=unused"
+
+echo
+echo "Checking that everything is gone"
+left=0
+
+# gone WHAT COMMAND...: passes only when COMMAND fails with a not-found error.
+gone() {
+  local what="$1" errors
+  shift
+  if errors="$("$@" 2>&1 >/dev/null)"; then
+    echo "error: $what still exists" >&2
+    left=1
+    return
+  fi
+  case "$errors" in
+    *NotFound* | *NoSuchEntity*) echo "ok: $what is gone" ;;
+    *)
+      echo "error: couldn't check $what: $errors" >&2
+      left=1
+      ;;
+  esac
+}
+
+if state="$(aws ec2 describe-instances --region "$region" --instance-ids "$instance" \
+  --query 'Reservations[0].Instances[0].State.Name' --output text 2>&1)"; then
+  if [ "$state" = terminated ]; then
+    echo "ok: instance $instance is terminated"
+  else
+    echo "error: instance $instance is $state, not terminated" >&2
+    left=1
+  fi
+else
+  case "$state" in
+    *NotFound*) echo "ok: instance $instance is gone" ;;
+    *) echo "error: couldn't check instance $instance: $state" >&2; left=1 ;;
+  esac
+fi
+gone "security group $group" aws ec2 describe-security-groups --region "$region" --group-ids "$group"
+gone "IAM role $role" aws iam get-role --role-name "$role"
+gone "instance profile $profile" aws iam get-instance-profile --instance-profile-name "$profile"
+gone "budget $budget" aws budgets describe-budget --account-id "$account" --budget-name "$budget"
+
+[ "$left" = 0 ] || fail "something is left over; see above, and check the AWS console for resources tagged project=groundline"
+
+echo
+echo "The Anthropic API key's parameter is still in Parameter Store. To delete it:"
+echo "  aws ssm delete-parameter --name $parameter --region $region"

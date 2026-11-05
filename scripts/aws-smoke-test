@@ -1,0 +1,112 @@
+#!/usr/bin/env bash
+# Check the AWS test server from this computer:
+#   - /health answers 200, waiting up to 15 minutes for the server to start
+#   - an API key created on the server through SSM Run Command is accepted:
+#     an empty POST /v1/omissions gets 401 with an unknown key and 422 with it,
+#     since the key is checked before the body. No Claude call is made.
+#   - with --live, one real commission check answers 200 (under a cent)
+#
+# Usage: scripts/aws-smoke-test          (make aws-smoke)
+#        scripts/aws-smoke-test --live   (make aws-smoke-live)
+#
+# It revokes its API key at the end, even when a check fails: SSM keeps each
+# command's output, so the key is in SSM's history.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+parameter=/groundline/anthropic-api-key
+wait_seconds="${AWS_SMOKE_WAIT_SECONDS:-900}"
+
+live=false
+case "${1:-}" in
+  --live) live=true ;;
+  "") ;;
+  *) echo "usage: $0 [--live]" >&2; exit 2 ;;
+esac
+
+fail() {
+  echo "error: $*" >&2
+  exit 1
+}
+
+output() {
+  terraform -chdir=infra output -raw "$1" \
+    || fail "no $1 in the Terraform state: run make deploy first"
+}
+instance="$(output instance_id)"
+region="$(output region)"
+base="$(output app_url)"
+
+if $live; then
+  # Checks only that the parameter exists: its value never leaves AWS.
+  aws ssm get-parameter --region "$region" --name "$parameter" >/dev/null \
+    || fail "$parameter doesn't exist, so the server has no Anthropic API key (see DEVELOPMENT.md, \"Deploying to AWS\")"
+fi
+
+# on_server COMMAND: run COMMAND on the server as root with SSM Run Command and
+# print its output. Fails if the command fails.
+on_server() {
+  local id
+  id="$(aws ssm send-command --region "$region" --instance-ids "$instance" \
+    --document-name AWS-RunShellScript \
+    --parameters "{\"commands\":[\"$1\"]}" \
+    --query Command.CommandId --output text)" || return 1
+  local waited=0
+  aws ssm wait command-executed --region "$region" --command-id "$id" \
+    --instance-id "$instance" || waited=$?
+  aws ssm get-command-invocation --region "$region" --command-id "$id" \
+    --instance-id "$instance" --query StandardOutputContent --output text
+  return "$waited"
+}
+
+echo "Waiting up to $((wait_seconds / 60)) minutes for $base/health"
+deadline=$((SECONDS + wait_seconds))
+until [ "$(curl --silent --max-time 10 --output /dev/null --write-out '%{http_code}' "$base/health" || true)" = 200 ]; do
+  if [ "$SECONDS" -ge "$deadline" ]; then
+    echo "--- the server's startup log ---" >&2
+    on_server "tail -n 80 /var/log/groundline-bootstrap.log; cd /opt/groundline && docker compose ps --all && docker compose logs --tail 40" >&2 || true
+    fail "$base/health didn't answer 200 within $((wait_seconds / 60)) minutes"
+  fi
+  sleep 10
+done
+echo "ok: GET /health returned 200"
+
+created="$(on_server "cd /opt/groundline && docker compose exec -T app groundline keys create --name aws-smoke-test")" \
+  || fail "groundline keys create failed on the server: $created"
+key_id="$(sed -n 's/^ID: \([0-9a-f-]*\)$/\1/p' <<<"$created")"
+key="$(sed -n 's/^API key: \(gl_[A-Za-z0-9_-]*\)$/\1/p' <<<"$created")"
+[ -n "$key_id" ] && [ -n "$key" ] || fail "groundline keys create printed no API key"
+
+revoke() {
+  on_server "cd /opt/groundline && docker compose exec -T app groundline keys revoke $key_id" >/dev/null \
+    && echo "ok: revoked the test API key" \
+    || echo "warning: couldn't revoke the test API key $key_id; revoke it by hand (DEVELOPMENT.md)" >&2
+}
+trap revoke EXIT
+echo "ok: created a test API key"
+
+# expect STATUS METHOD PATH [curl arguments...]
+expect() {
+  local want="$1" method="$2" path="$3"
+  shift 3
+  local got
+  got="$(curl --silent --max-time 120 --output /dev/null --write-out '%{http_code}' \
+    --request "$method" "$@" "$base$path" || true)"
+  [ "$got" = "$want" ] || fail "$method $path returned ${got:-nothing}, expected $want"
+  echo "ok: $method $path returned $want"
+}
+
+json=(--header "Content-Type: application/json")
+expect 401 POST /v1/omissions "${json[@]}" --data '{}' --header "Authorization: Bearer gl_unknown"
+expect 422 POST /v1/omissions "${json[@]}" --data '{}' --header "Authorization: Bearer $key"
+
+if $live; then
+  # The shortest test input: a short transcript and a note with one changed dose.
+  body="$(uv run --quiet python -c '
+import json
+from tests.commissions_helpers import SUMMARY
+from tests.omission_helpers import SOURCE
+print(json.dumps({"source": SOURCE, "summary": SUMMARY}))
+')"
+  expect 200 POST /v1/commissions "${json[@]}" --data "$body"
+fi
