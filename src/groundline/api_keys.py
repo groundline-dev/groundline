@@ -1,7 +1,25 @@
 """Issue, revoke, and authenticate groundline API keys against PostgreSQL.
 
-The caller owns the async engine. Every operation uses a fresh transaction;
-authentication is never cached (ADR 0011). No plaintext credential enters SQL.
+The module doesn't depend on the CLI or FastAPI. The caller creates the async
+engine with `groundline.db.connection.make_engine`, which connects to the
+primary database and hides SQL parameters from errors, and closes it when done:
+
+    engine = make_engine(Settings().require_database_url())
+    try:
+        created = await APIKeys(engine).create(
+            name="integration", expires_in=timedelta(days=90)
+        )
+    finally:
+        await engine.dispose()
+
+Use an engine only in the event loop that created it. The CLI creates and
+closes one inside each command's `asyncio.run`; the API keeps one for its
+whole lifespan.
+
+Every operation uses a fresh transaction, and authentication is never cached
+(ADR 0011). No plaintext credential enters SQL. No method returns the stored
+hash. Bad input, unknown identifiers and storage failures each raise their own
+exception type, with a message that is safe to show.
 """
 
 import hashlib
@@ -62,7 +80,12 @@ class APIKeyInputError(ValueError):
 
 
 class APIKeyInfo(BaseModel):
-    """Public metadata: no credential or hash, including on serialization."""
+    """Public metadata: no credential or hash, including on serialization.
+
+    `status` is only ever `active` or `revoked`. An expired key keeps its
+    stored status; the CLI shows it as `expired` by comparing `expires_at`
+    with the current time.
+    """
 
     model_config = ConfigDict(frozen=True)
 
@@ -77,12 +100,24 @@ class APIKeyInfo(BaseModel):
 
 @dataclass(frozen=True)
 class CreatedAPIKey:
+    """A new key's metadata and its plaintext, returned only after commit.
+
+    `secret` is redacted in reprs and logs. Read the plaintext explicitly with
+    `secret.get_secret_value()`; it can't be retrieved again later.
+    """
+
     info: APIKeyInfo
     secret: SecretStr
 
 
 @dataclass(frozen=True)
 class RevokedAPIKey:
+    """A revoked key's metadata, and whether this call revoked it.
+
+    `changed` is False when the key was already revoked; `revoked_at` then
+    keeps the time of the first revocation.
+    """
+
     info: APIKeyInfo
     changed: bool
 
@@ -121,6 +156,8 @@ def _digest(credential: str) -> str:
 
 
 class APIKeys:
+    """API-key storage on an async engine the caller creates and closes."""
+
     def __init__(self, engine: AsyncEngine):
         self._engine = engine
 
@@ -136,6 +173,13 @@ class APIKeys:
     async def create(
         self, *, name: str | None = None, expires_in: timedelta | None = None
     ) -> CreatedAPIKey:
+        """Store a new key and return it with its plaintext secret.
+
+        A key holds 256 random bits and is stored as its SHA-256 hash
+        (ADR 0010). `name` is a label, not a unique identifier: without one,
+        a friendly name is generated. Raises `APIKeyInputError` for a name
+        over 128 characters or a lifetime that isn't positive.
+        """
         label = api_key_name(name)
         if expires_in is not None and expires_in <= timedelta(0):
             raise APIKeyInputError("API-key lifetime must be positive")
@@ -167,6 +211,7 @@ class APIKeys:
         return CreatedAPIKey(info, secret)
 
     async def revoke(self, identifier: UUID) -> RevokedAPIKey:
+        """Revoke the key with this ID; raise `APIKeyNotFoundError` if none."""
         async with self._transaction() as connection:
             result = await connection.execute(
                 update(api_keys)
@@ -189,6 +234,11 @@ class APIKeys:
         return RevokedAPIKey(info, changed)
 
     async def authenticate(self, credential: str) -> APIKeyInfo | None:
+        """Return the metadata of an active, unexpired key, otherwise None.
+
+        Expired keys fail even though their stored status is still `active`.
+        Authenticating doesn't update `last_used_at`.
+        """
         if not valid_api_key_format(credential):
             return None
         digest = _digest(credential)
@@ -208,7 +258,12 @@ class APIKeys:
         return info
 
     async def list_all(self) -> list[APIKeyInfo]:
-        """List all keys newest first, returning metadata only, never hashes."""
+        """List all keys newest first, returning metadata only, never hashes.
+
+        Keys created at the same time are ordered by ID, descending. The list
+        is empty when there are no keys. Names longer than the 128-character
+        limit for new keys are still returned in full.
+        """
         async with self._transaction() as connection:
             result = await connection.execute(
                 select(*_PUBLIC_COLUMNS).order_by(
