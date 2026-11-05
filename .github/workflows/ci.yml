@@ -49,6 +49,23 @@ jobs:
           cache-to: type=gha,mode=max
       - run: scripts/docker-smoke-test
 
+  terraform:
+    # The Terraform for the AWS test server (infra/): formatting, validation and
+    # its tests, which plan against a mock AWS provider. No AWS credentials, so
+    # nothing is created.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4.0.1
+        with:
+          terraform_version: "~1.17"
+          terraform_wrapper: false
+      - run: terraform -chdir=infra fmt -check -recursive
+      - run: terraform -chdir=infra init -input=false
+      - run: terraform -chdir=infra validate
+      - run: terraform -chdir=infra test
+
   dependency-review:
     # Block PRs that add a dependency with a known high or critical vulnerability.
     if: github.event_name == 'pull_request'
