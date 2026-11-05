@@ -33,6 +33,6 @@ docker-build:
 docker-run:
 	docker compose up --build
 
-# Build the image, start it and check that /health returns 200.
+# Build the image, then start the Compose stack and smoke-test it.
 docker-smoke: docker-build
-	scripts/docker-smoke-test $(IMAGE)
+	scripts/docker-smoke-test

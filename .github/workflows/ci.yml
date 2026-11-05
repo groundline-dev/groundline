@@ -17,14 +17,23 @@ jobs:
     runs-on: ubuntu-latest
     # A normal run takes under a minute; stop a hung one well before GitHub's 6-hour default.
     timeout-minutes: 15
+    env:
+      # Throwaway passwords for the Postgres this job starts and then discards.
+      POSTGRES_PASSWORD: ci-admin-password
+      GROUNDLINE_DB_PASSWORD: ci-app-password
+      DATABASE_ADMIN_URL: postgresql+psycopg://postgres:ci-admin-password@localhost:5433/postgres
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - run: make setup
       - run: make check
+      # The database tests, including the migration-drift check, against the
+      # same Postgres image and health check as compose.yaml.
+      - run: make db
+      - run: uv run pytest -m db
 
   docker:
-    # Build the image, start the app container and check that /health returns 200.
+    # Build the image, then start the Compose stack and smoke-test it.
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
@@ -39,7 +48,7 @@ jobs:
           cache-from: type=gha
           # mode=max also caches the build stage, which holds the dependency layer.
           cache-to: type=gha,mode=max
-      - run: scripts/docker-smoke-test groundline:dev
+      - run: scripts/docker-smoke-test
 
   dependency-review:
     # Block PRs that add a dependency with a known high or critical vulnerability.
