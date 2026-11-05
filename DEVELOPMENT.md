@@ -55,9 +55,7 @@ If you run the image with your own `docker run`, publish the port on `127.0.0.1`
 
 ## Database
 
-Postgres holds API keys only, never sources, summaries or results ([ADR 0009](docs/adr/0009-the-database-holds-no-patient-data.md)). The CLI and Python checks don't need it; the API and `groundline keys` do.
-
-To change a table, edit [src/groundline/db/tables.py](src/groundline/db/tables.py), then add a migration to match (a test fails until they agree):
+To change a table, edit [src/groundline/db/tables.py](src/groundline/db/tables.py), then add a migration to match (a test fails until they agree). Don't store sources, summaries or results in the database.
 
 ```sh
 uv run alembic revision -m "add api_keys.owner_id"   # then fill in upgrade() and downgrade()
@@ -67,21 +65,16 @@ scripts/db-setup                                      # apply it
 - **Changing `GROUNDLINE_DB_PASSWORD`:** change it in `.env` and rerun `scripts/db-setup`.
 - **Changing `POSTGRES_PASSWORD`:** changing `.env` isn't enough, because Postgres reads it only when the volume is created. Also run `docker compose exec postgres psql -U postgres -c "ALTER ROLE postgres PASSWORD 'NEW'"`.
 - **Starting over:** `docker compose down --volumes` deletes the database, with every API key in it.
-- **Backing up and restoring:**
-
-  ```sh
-  docker compose exec -T postgres pg_dump -U postgres -Fc groundline > groundline.dump
-  docker compose exec -T postgres pg_restore -U postgres --clean --if-exists -d groundline < groundline.dump
-  ```
 
 ## Tests
 
-`make test` runs the offline tests. They're free and don't need an Anthropic API key or Postgres.
+There are three test suites. Each needs something different, so run each one when your change calls for it:
 
-Two more suites are excluded from the default run:
+- **`make test-fast`** runs the tests that need nothing running and cost nothing. Run them before every push; `make check` runs them too.
+- **`make test-db`** starts Postgres, then runs the tests that need it. Run them when you change the tables, migrations, API keys or authentication. Each run creates its own throwaway database and drops it afterwards.
+- **`make test-live`** calls the real Anthropic API, for about $0.09 a run. Run it when you change what groundline sends to the model: a prompt, the rubric, a preset, model settings or the Anthropic client.
 
-- **Database tests** (`uv run pytest -m db`) need `make db` running. Run them when you change API keys or authentication. They create and drop their own throwaway database.
-- **Live tests** (`uv run pytest -m live -s`) call the real Anthropic API, for about $0.09 a run.
+CI runs the fast and database tests on every PR, but never the live tests.
 
 If you change a prompt, the rubric or a step's logic, expect `tests/test_parity.py` and `tests/test_parity_commissions.py` to fail. They replay recorded runs of the measured presets, so a failure means `omission_all_opus` or `commission_quick` no longer matches its measured results.
 

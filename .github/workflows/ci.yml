@@ -29,8 +29,7 @@ jobs:
       - run: make check
       # The database tests, including the migration-drift check, against the
       # same Postgres image and health check as compose.yaml.
-      - run: make db
-      - run: uv run pytest -m db
+      - run: make test-db
 
   docker:
     # Build the image, then start the Compose stack and smoke-test it.

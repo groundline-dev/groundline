@@ -1,4 +1,4 @@
-.PHONY: setup dev db test check fix docker-build docker-run docker-smoke
+.PHONY: setup dev db test-fast test-db test-live check fix docker-build docker-run docker-smoke
 
 setup:
 	uv sync
@@ -11,8 +11,17 @@ dev:
 db:
 	docker compose up --detach --wait postgres
 
-test:
+# The tests that need nothing running and cost nothing (make check runs them too).
+test-fast:
 	uv run pytest
+
+# The database tests, against the Postgres from compose.yaml (started first).
+test-db: db
+	uv run pytest -m db
+
+# The live tests call the real Anthropic API and cost money.
+test-live:
+	uv run pytest -m live -s
 
 # Read-only: the same checks the pre-commit hook and CI run, plus the tests.
 check:
