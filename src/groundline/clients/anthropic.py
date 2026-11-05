@@ -38,6 +38,14 @@ class AnthropicClient:
             api_key=api_key, max_retries=max_retries, http_client=http_client
         )
 
+    def _rejected(self, what: str, fix: str) -> APIKeyRejectedError:
+        """The error for a key that was refused. Where the key came from can be a
+        path on the server, so only the full message names it, not an HTTP response."""
+        return APIKeyRejectedError(
+            f"{what}\n  Key from: {self._key_source}\n  Fix: {fix}",
+            f"{what}\n  Fix: {fix}",
+        )
+
     async def complete(
         self, prompt: str, *, model: str, effort: Effort, max_tokens: int
     ) -> ModelReply:
@@ -49,20 +57,18 @@ class AnthropicClient:
                 messages=[{"role": "user", "content": prompt}],
             )
         except anthropic.AuthenticationError as error:
-            raise APIKeyRejectedError(
+            raise self._rejected(
                 f"ANTHROPIC_API_KEY was rejected by the Anthropic API "
-                f"({error.status_code}: {_detail(error)}).\n"
-                f"  Key from: {self._key_source}\n"
-                "  Fix: check the key is complete, hasn't been revoked, "
-                "and belongs to the workspace you expect."
+                f"({error.status_code}: {_detail(error)}).",
+                "check the key is complete, hasn't been revoked, "
+                "and belongs to the workspace you expect.",
             ) from error
         except anthropic.PermissionDeniedError as error:
-            raise APIKeyRejectedError(
+            raise self._rejected(
                 f"ANTHROPIC_API_KEY doesn't have access to {model} "
-                f"({error.status_code}: {_detail(error)}).\n"
-                f"  Key from: {self._key_source}\n"
-                "  Fix: use a key from a workspace that can use this model, "
-                "or change the stage's model setting."
+                f"({error.status_code}: {_detail(error)}).",
+                "use a key from a workspace that can use this model, "
+                "or change the stage's model setting.",
             ) from error
         text = "".join(block.text for block in message.content if block.type == "text")
         reply = ModelReply(

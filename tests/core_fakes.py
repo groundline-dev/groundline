@@ -127,7 +127,7 @@ class SetupProblem(Implementation):
     step: ClassVar[str] = "left"
 
     async def run(self, ctx: StageContext) -> Text:
-        raise SetupError("key was rejected")
+        raise SetupError("key was rejected", "key was rejected")
 
 
 class Peeker(Implementation):

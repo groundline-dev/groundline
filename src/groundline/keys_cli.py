@@ -99,10 +99,11 @@ def _create(name: str | None, expires_in: str | None) -> None:
             f"API key: {created.secret.get_secret_value()}"
         )
     except OSError:
-        raise SetupError(
+        message = (
             f"API key {info.id} was created, but its output could not be written. "
             "Revoke it and create a replacement."
-        ) from None
+        )
+        raise SetupError(message, message) from None
 
 
 @app.command()

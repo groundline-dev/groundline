@@ -223,11 +223,14 @@ def test_a_missing_key_is_a_503_with_the_clis_message(
     detail = response.json()["detail"]
     assert detail.startswith("ANTHROPIC_API_KEY is not set.")
     assert "claude-haiku-5-5" in detail  # says which model needs it
+    assert str(Path.cwd()) not in detail  # no path of the server's
 
 
 def test_a_rejected_key_is_a_503():
     def rejected(prompt: str) -> str:
-        raise APIKeyRejectedError("ANTHROPIC_API_KEY was rejected")
+        raise APIKeyRejectedError(
+            "ANTHROPIC_API_KEY was rejected", "ANTHROPIC_API_KEY was rejected"
+        )
 
     use_client(rejected)
 

@@ -15,8 +15,11 @@ wheels/
 
 # Secrets
 .env
-!.env.example
 .env.*
+!.env.example
+
+# Database backups, which hold API-key hashes
+*.dump
 
 # Bloat
 .DS_Store

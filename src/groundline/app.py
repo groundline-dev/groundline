@@ -3,7 +3,7 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from importlib.metadata import version
 
-from fastapi import APIRouter, FastAPI, Request
+from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncEngine
@@ -18,6 +18,26 @@ from groundline.settings import UnreadableSettingsError, read_settings
 logger = logging.getLogger("groundline")
 api_logger = logging.getLogger("groundline.api")
 db_logger = logging.getLogger("groundline.db")
+
+
+class _Database:
+    """The app's database engine, plus whether it answered the last check: the
+    startup check, then each /ready check.
+
+    Something may poll /ready every few seconds. Because the last result is
+    kept, a check logs only when the database goes down or comes back,
+    instead of logging the same error on every poll."""
+
+    def __init__(self, url: str, engine: AsyncEngine, connected: bool) -> None:
+        self.url = url
+        self.engine = engine
+        self.connected = connected
+
+    async def check(self) -> bool:
+        self.connected = await check_connection(
+            self.url, engine=self.engine, was_connected=self.connected
+        )
+        return self.connected
 
 
 class _UvicornStyle(logging.Formatter):
@@ -70,16 +90,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
     # Public health stays available when settings or storage are unavailable.
     engine: AsyncEngine | None = None
     app.state.api_keys = None
+    app.state.database = None
     url = _database_url()
     try:
         if url is not None and (engine := _storage_engine(url)) is not None:
-            await check_connection(url, engine=engine)
+            connected = await check_connection(url, engine=engine)
             # Keep the engine after a failed probe so later requests can
             # recover when PostgreSQL becomes available.
             app.state.api_keys = APIKeys(engine)
+            app.state.database = _Database(url, engine, connected)
         yield
     finally:
         app.state.api_keys = None
+        app.state.database = None
         if engine is not None:
             await engine.dispose()
 
@@ -95,7 +118,7 @@ and must not be used with real patient data yet.
 
 Both checks need a groundline API key, sent as `Authorization: Bearer gl_...`.
 Create one with `groundline keys create`, then use **Authorize** below.
-`/health` is public.
+`/health` and `/ready` are public.
 
 ### Versions
 
@@ -145,4 +168,15 @@ def api_docs(request: Request) -> HTMLResponse:
 
 @app.get("/health")
 def health() -> dict[str, str]:
+    """Whether the app is running. It never touches the database, so an outage
+    doesn't mark a working app unhealthy in Compose."""
+    return {"status": "ok"}
+
+
+@app.get("/ready", responses={503: {"description": "The database isn't answering."}})
+async def ready(request: Request) -> dict[str, str]:
+    """Whether the app can serve requests that need the database."""
+    database: _Database | None = getattr(request.app.state, "database", None)
+    if database is None or not await database.check():
+        raise HTTPException(503, detail="the database isn't available")
     return {"status": "ok"}

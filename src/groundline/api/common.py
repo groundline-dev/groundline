@@ -36,6 +36,7 @@ from groundline.evaluators.models import AlarmOutput
 from groundline.evaluators.report import usage_text
 from groundline.profiles import load_builtin_profile
 from groundline.result import EvaluationResult
+from groundline.settings import MissingAPIKeyError
 
 logger = logging.getLogger("groundline.api")
 
@@ -97,7 +98,8 @@ def _error(
 FAILURE_RESPONSES: dict[int | str, dict[str, Any]] = {
     400: _error(
         ErrorBody,
-        "The body isn't UTF-8 text.",
+        "The body isn't valid UTF-8 text. Bytes that begin like UTF-16 or UTF-32 "
+        "text are read as that, and answer 422 if they aren't JSON.",
         not_utf8=("Not UTF-8", {"detail": "There was an error parsing the body"}),
     ),
     422: _error(
@@ -199,12 +201,9 @@ def check_responses(spec: PipelineSpec) -> dict[int | str, dict[str, Any]]:
         anthropic_key_missing=(
             "Anthropic API key not set",
             {
-                "detail": "ANTHROPIC_API_KEY is not set.\n"
-                f"  Needed by: {model_users(pipeline)}\n"
-                "  Looked in: the environment, and /home/groundline/.env (not "
-                "found)\n"
-                "  Fix: export ANTHROPIC_API_KEY=..., or copy .env.example to "
-                ".env and add it there."
+                "detail": MissingAPIKeyError(
+                    "ANTHROPIC_API_KEY", model_users(pipeline)
+                ).api_message()
             },
         ),
     )
@@ -296,7 +295,7 @@ def check_failures() -> Generator[None]:
         yield
     except SetupError as error:
         logger.warning("can't check: %s", error)
-        raise HTTPException(503, detail=str(error)) from error
+        raise HTTPException(503, detail=error.api_message()) from error
     except StageError as error:
         spent = _spent(error)
         cause = type(error.__cause__).__name__
