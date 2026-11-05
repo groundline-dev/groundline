@@ -15,3 +15,9 @@ wheels/
 
 # Secrets
 .env
+
+# Terraform: local state, providers, and each contributor's settings
+infra/.terraform/
+*.tfstate
+*.tfstate.*
+infra/terraform.tfvars

@@ -1,0 +1,76 @@
+#!/bin/bash
+# groundline's startup script. Terraform fills in the $${...} values (main.tf),
+# and cloud-init runs it once, as root, on the server's first boot. Shell
+# variables are written $name, without braces, so Terraform leaves them alone.
+#
+# It logs to /var/log/groundline-bootstrap.log, which scripts/aws-smoke-test
+# prints if the app doesn't start. At the end it leaves
+# /var/lib/groundline/bootstrap-done, or bootstrap-failed if a command failed.
+set -euo pipefail
+
+log=/var/log/groundline-bootstrap.log
+state=/var/lib/groundline
+app=/opt/groundline
+exec >>"$log" 2>&1
+mkdir -p "$state"
+trap 'echo "groundline bootstrap: failed at line $LINENO"; touch "$state/bootstrap-failed"' ERR
+# cloud-init doesn't set HOME, and the Docker CLI keeps its settings there.
+export HOME=/root
+
+echo "groundline bootstrap: started at $(date -u)"
+
+# Docker starts at boot, so the containers come back after a reboot.
+dnf install -y docker git openssl
+systemctl enable --now docker
+
+# Amazon Linux doesn't package Compose or buildx (which Compose uses to build the
+# image), so install them at pinned versions and check their sha256.
+plugins=/usr/local/lib/docker/cli-plugins
+mkdir -p "$plugins"
+install_plugin() {
+  local name="$1" url="$2" sha256="$3"
+  curl --fail --silent --show-error --location --retry 3 --output "$plugins/$name" "$url"
+  echo "$sha256  $plugins/$name" | sha256sum --check || { rm -f "$plugins/$name"; false; }
+  chmod 755 "$plugins/$name"
+}
+install_plugin docker-compose \
+  https://github.com/docker/compose/releases/download/v5.7.0/docker-compose-linux-aarch64 \
+  15861535d14e26555736b49376c95e14bfd94285366c8446bfac7156a972e76f
+install_plugin docker-buildx \
+  https://github.com/docker/buildx/releases/download/v0.38.2/buildx-v0.38.2.linux-arm64 \
+  46c0f334772de3cb0b341cc415caf7339fb5cfc8b8438ebcb5a10e7f23800d36
+
+git clone --quiet ${repository_url} "$app"
+git -C "$app" checkout --quiet --detach ${git_ref}
+cd "$app"
+
+# .env, readable only by root. Hex passwords are safe in a URL and in Compose.
+umask 077
+{
+  echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)"
+  echo "GROUNDLINE_DB_PASSWORD=$(openssl rand -hex 24)"
+  echo "APP_BIND_ADDRESS=0.0.0.0"
+} >.env
+chmod 600 .env
+
+# The Anthropic API key is optional: without the parameter, the app starts and
+# answers everything except model calls. Any other error stops the startup.
+errors="$(mktemp)"
+if key="$(aws ssm get-parameter --region ${region} --name ${anthropic_parameter_name} \
+  --with-decryption --query Parameter.Value --output text 2>"$errors")"; then
+  echo "ANTHROPIC_API_KEY=$key" >>.env
+  echo "groundline bootstrap: read the Anthropic API key from ${anthropic_parameter_name}"
+elif grep --quiet ParameterNotFound "$errors"; then
+  echo "groundline bootstrap: ${anthropic_parameter_name} doesn't exist, so the app has no Anthropic API key"
+else
+  cat "$errors"
+  false
+fi
+rm -f "$errors"
+unset key
+
+# Builds the image, then starts Postgres, setup and the app.
+docker compose up -d --quiet-pull
+
+touch "$state/bootstrap-done"
+echo "groundline bootstrap: done at $(date -u); the app starts once setup finishes"

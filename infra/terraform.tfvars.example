@@ -1,0 +1,7 @@
+# Copy to terraform.tfvars (git-ignored) and fill in your email address.
+# scripts/aws-deploy fills in region, tester_cidr and git_ref.
+
+budget_alert_email = "you@example.com"
+
+# Optional: a bigger Graviton (arm64) server.
+# instance_type = "t4g.medium"
