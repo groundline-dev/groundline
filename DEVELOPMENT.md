@@ -194,11 +194,13 @@ A major Postgres upgrade, such as 18 to 19, uses the same commands: back up, che
 
 ## Tests
 
-There are three test suites. Each needs something different, so run each one when your change calls for it:
+There are three test suites. They differ in what they use for Postgres and Claude, so run each one when your change calls for it:
 
-- **`make test-fast`** runs the tests that need nothing running and cost nothing. Run them before every push; `make check` runs them too.
-- **`make test-db`** starts Postgres, then runs the tests that need it. Run them when you change the tables, migrations, API keys or authentication. Each run creates its own throwaway database and drops it afterwards.
-- **`make test-live`** calls the real Anthropic API, for about $0.09 a run. Run it when you change what groundline sends to the model: a prompt, the rubric, a preset, model settings or the Anthropic client.
+- **`make test-fast`** runs every test except the two groups below, with fakes in place of Postgres and Claude: a fake Claude returns recorded replies, and API keys are kept in memory. It covers the pipeline steps, the API's endpoints and errors, the CLI, the schemas, the replayed preset runs, and the checks of `compose.yaml`, the Terraform files and the AWS scripts. It needs nothing running and costs nothing. Run it before every push; `make check` runs it too.
+- **`make test-db`** starts Postgres, then runs the tests that need a real one: storing API keys and checking them on requests, the migrations and the schema, `/ready`, and `groundline keys`. Run it when you change the tables, migrations, API keys or authentication. Each run creates its own throwaway database and drops it afterwards.
+- **`make test-live`** runs the tests that call the real Anthropic API, for about $0.09 a run. Run it when you change what groundline sends to the model: a prompt, the rubric, a preset, model settings or the Anthropic client.
+
+None of them starts the Docker stack, runs `terraform test` or touches AWS: `make docker-smoke`, `make infra-check` and `make aws-smoke` do that.
 
 CI runs the fast and database tests on every PR, but never the live tests.
 

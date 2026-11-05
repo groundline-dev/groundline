@@ -12,7 +12,8 @@ dev:
 db:
 	docker compose up --detach --wait postgres
 
-# The tests that need nothing running and cost nothing (make check runs them too).
+# Every test except those for test-db and test-live, with fakes in place of
+# Postgres and Claude. Needs nothing running, costs nothing; make check runs it too.
 test-fast:
 	uv run pytest
 
