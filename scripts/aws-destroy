@@ -90,5 +90,6 @@ gone budget "$budget" aws budgets describe-budget --account-id "$account" --budg
   || fail "something may be left over; see above, and check the AWS console for resources tagged project=groundline"
 
 echo
-echo "The Anthropic API key's parameter is still in Parameter Store. To delete it:"
+echo "The Anthropic API key's parameter is still in Parameter Store. Every deployment in"
+echo "this AWS project reads it, so delete it only if no one else here still deploys:"
 echo "  aws ssm delete-parameter --name $anthropic_parameter --region $region"

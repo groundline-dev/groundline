@@ -24,7 +24,9 @@ for tool in terraform aws git curl; do
   command -v "$tool" >/dev/null || fail "$tool isn't installed (see DEVELOPMENT.md, \"Deploying to AWS\")"
 done
 [ -f infra/terraform.tfvars ] \
-  || fail "infra/terraform.tfvars is missing: copy infra/terraform.tfvars.example and fill in your email"
+  || fail "infra/terraform.tfvars is missing: copy infra/terraform.tfvars.example and fill in your name and email"
+grep --quiet '^[[:space:]]*deployment_name[[:space:]]*=' infra/terraform.tfvars \
+  || fail "infra/terraform.tfvars has no deployment_name: add one, such as deployment_name = \"alice\" (see infra/terraform.tfvars.example)"
 
 aws sts get-caller-identity --output text --query Account >/dev/null \
   || fail "the AWS CLI isn't signed in: run aws login"
@@ -58,3 +60,7 @@ terraform -chdir=infra apply \
 
 echo
 echo "The server is starting; it takes about 5 to 10 minutes. Check it with: make aws-smoke"
+hours="$(terraform -chdir=infra output -raw auto_terminate_hours)"
+if [ "$hours" != 0 ]; then
+  echo "It terminates itself, with its data, $hours hours after it first started. To get a new one, run make deploy again."
+fi

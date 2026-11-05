@@ -32,3 +32,8 @@ output "instance_profile_name" {
 output "budget_name" {
   value = aws_budgets_budget.monthly.name
 }
+
+output "auto_terminate_hours" {
+  description = "How many hours after its first boot the server terminates itself; 0 means never. scripts/aws-deploy prints it."
+  value       = var.auto_terminate_hours
+}

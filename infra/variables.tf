@@ -1,9 +1,32 @@
 # scripts/aws-deploy fills in region, tester_cidr and git_ref.
-# budget_alert_email goes in terraform.tfvars (see terraform.tfvars.example).
+# deployment_name and budget_alert_email go in terraform.tfvars (see
+# terraform.tfvars.example).
 
 variable "region" {
   description = "The AWS Region to deploy to: your AWS project's Region."
   type        = string
+}
+
+variable "deployment_name" {
+  description = "Names this deployment's resources, so several can share an AWS project: your name for a test server, or a name such as staging."
+  type        = string
+
+  validation {
+    # IAM role names can be 64 characters, and groundline-instance- takes 20.
+    condition     = can(regex("^[a-z][a-z0-9-]{0,19}$", var.deployment_name))
+    error_message = "deployment_name should be 1 to 20 lowercase letters, digits and hyphens, starting with a letter, such as alice."
+  }
+}
+
+variable "auto_terminate_hours" {
+  description = "How many hours after its first boot the server terminates itself, deleting its data. 0 keeps it running."
+  type        = number
+  default     = 5
+
+  validation {
+    condition     = var.auto_terminate_hours >= 0 && floor(var.auto_terminate_hours) == var.auto_terminate_hours
+    error_message = "auto_terminate_hours should be a whole number of hours, or 0 to keep the server running."
+  }
 }
 
 variable "budget_alert_email" {

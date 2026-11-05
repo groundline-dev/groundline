@@ -21,7 +21,7 @@ locals {
 # --- Network: only the tester's IP reaches the app's port (R6) ---
 
 resource "aws_security_group" "app" {
-  name_prefix = "groundline-"
+  name_prefix = "groundline-${var.deployment_name}-"
   description = "groundline test server: the app port from the tester IP only"
 }
 
@@ -46,7 +46,7 @@ resource "aws_vpc_security_group_egress_rule" "all" {
 # --- IAM: SSM Run Command and the one Anthropic parameter (R4) ---
 
 resource "aws_iam_role" "instance" {
-  name        = "groundline-instance"
+  name        = "groundline-instance-${var.deployment_name}"
   description = "The groundline test server: SSM Run Command and its Anthropic API key"
 
   assume_role_policy = jsonencode({
@@ -64,7 +64,7 @@ resource "aws_iam_role" "instance" {
 # grants on every parameter. The last statement allows reading only the
 # Anthropic parameter.
 resource "aws_iam_role_policy" "instance" {
-  name = "groundline-instance"
+  name = "groundline-instance-${var.deployment_name}"
   role = aws_iam_role.instance.id
 
   policy = jsonencode({
@@ -111,7 +111,7 @@ resource "aws_iam_role_policy" "instance" {
 }
 
 resource "aws_iam_instance_profile" "instance" {
-  name = "groundline-instance"
+  name = "groundline-instance-${var.deployment_name}"
   role = aws_iam_role.instance.name
 }
 
@@ -124,11 +124,17 @@ resource "aws_instance" "app" {
   vpc_security_group_ids      = [aws_security_group.app.id]
   associate_public_ip_address = true
 
+  # With a deadline, the startup script shuts the server down when it passes,
+  # and this makes that shutdown terminate the server. Without one, a shutdown
+  # from inside only stops it, so a long-lived deployment keeps its data.
+  instance_initiated_shutdown_behavior = var.auto_terminate_hours > 0 ? "terminate" : "stop"
+
   user_data = templatefile("${path.module}/bootstrap.sh.tftpl", {
     region                   = var.region
     repository_url           = var.repository_url
     git_ref                  = var.git_ref
     anthropic_parameter_name = var.anthropic_parameter_name
+    auto_terminate_seconds   = var.auto_terminate_hours * 3600
   })
   # The startup script runs only on first boot, so a change needs a new server.
   user_data_replace_on_change = true
@@ -145,12 +151,13 @@ resource "aws_instance" "app" {
     delete_on_termination = true
     # The provider's default_tags don't reach the root disk.
     tags = {
-      project = "groundline"
+      project    = "groundline"
+      deployment = var.deployment_name
     }
   }
 
   tags = {
-    Name = "groundline"
+    Name = "groundline-${var.deployment_name}"
   }
 
   lifecycle {

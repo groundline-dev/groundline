@@ -2,11 +2,13 @@
 # passes $2.50 and $5, to catch a server someone forgot to destroy (R2).
 #
 # It covers the whole AWS project: limiting it to the project tag needs an
-# account-level billing setting. Credits and refunds are left out, since on the
+# account-level billing setting. Each deployment has its own, named after
+# deployment_name, so everyone sharing an AWS project hears when the project's
+# cost runs high, whoever's server caused it. Credits and refunds are left out, since on the
 # Free plan credits bring the cost to $0 and the alert would never fire.
 
 resource "aws_budgets_budget" "monthly" {
-  name         = "groundline-monthly"
+  name         = "groundline-monthly-${var.deployment_name}"
   budget_type  = "COST"
   time_unit    = "MONTHLY"
   limit_amount = "5"

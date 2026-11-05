@@ -20,6 +20,47 @@ export HOME=/root
 
 echo "groundline bootstrap: started at $(date -u)"
 
+%{ if auto_terminate_seconds > 0 ~}
+# The deadline: once it passes, a systemd timer shuts the server down, which
+# terminates it (main.tf). It's set first, so a server whose startup fails still
+# goes away. The timer checks every 5 minutes, and keeps checking after a reboot.
+echo "$(( $(date +%s) + ${auto_terminate_seconds} ))" >"$marker_dir/terminate-at"
+echo "groundline bootstrap: the server terminates itself at $(date -u -d "@$(cat "$marker_dir/terminate-at")")"
+cat >/usr/local/sbin/groundline-expire <<'EOF'
+#!/bin/sh
+# Shuts the server down once the time in /var/lib/groundline/terminate-at passes.
+set -eu
+deadline="$(cat /var/lib/groundline/terminate-at)"
+if [ "$(date +%s)" -ge "$deadline" ]; then
+  logger "groundline: the deadline passed, so the server is shutting down and terminating"
+  systemctl poweroff
+fi
+EOF
+chmod 755 /usr/local/sbin/groundline-expire
+cat >/etc/systemd/system/groundline-expire.service <<'EOF'
+[Unit]
+Description=Shut the groundline test server down once its deadline passes
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/groundline-expire
+EOF
+cat >/etc/systemd/system/groundline-expire.timer <<'EOF'
+[Unit]
+Description=Check the groundline test server's deadline every 5 minutes
+
+[Timer]
+OnBootSec=1min
+OnUnitActiveSec=5min
+
+[Install]
+WantedBy=timers.target
+EOF
+systemctl daemon-reload
+systemctl enable --now groundline-expire.timer
+
+%{ endif ~}
+
 # Docker starts at boot, so the containers come back after a reboot.
 dnf install -y docker git openssl
 systemctl enable --now docker
