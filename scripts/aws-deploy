@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Create (or update) your AWS test deployment with Terraform: the Compose stack
 # at a given commit, on an EC2 instance reachable only from this computer's
-# public IP. See DEVELOPMENT.md, "Deploying to AWS".
+# public IP. See docs/deploying-to-aws.md.
 #
 # Usage: scripts/aws-deploy            (make aws-deploy)
 #        REF=<branch|tag|commit> scripts/aws-deploy
@@ -9,7 +9,8 @@
 # The server runs REF (default HEAD), which must be pushed to GitHub. The Region
 # is AWS_REGION, or the one `aws configure get region` gives. Rerunning it with
 # the same commit after your IP changes updates only the security group; another
-# commit replaces the server, and its data with it.
+# commit replaces the server, and its data with it. Before changing anything, it
+# says in plain words what will change and asks.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -17,24 +18,27 @@ source scripts/aws-common.sh
 
 anthropic_parameter=/groundline/anthropic-api-key
 
-for tool in terraform aws git curl; do
-  command -v "$tool" >/dev/null || fail "$tool isn't installed (see DEVELOPMENT.md, \"Deploying to AWS\")"
+for tool in terraform aws git curl jq; do
+  command -v "$tool" >/dev/null || fail "$tool isn't installed (see docs/deploying-to-aws.md)"
 done
 [ -f infra/terraform.tfvars ] \
   || fail "infra/terraform.tfvars is missing: copy infra/terraform.tfvars.example and fill in your name and email"
 grep --quiet '^[[:space:]]*deployment_name[[:space:]]*=' infra/terraform.tfvars \
   || fail "infra/terraform.tfvars has no deployment_name: add one, such as deployment_name = \"alice\" (see infra/terraform.tfvars.example)"
 
-aws sts get-caller-identity --output text --query Account >/dev/null \
-  || fail "the AWS CLI isn't signed in: run aws login"
+# Reads the Region first: without one, the sign-in check fails even when signed in.
 region="${AWS_REGION:-$(aws configure get region || true)}"
-[ -n "$region" ] || fail "no AWS Region: run aws configure set region <your project's Region>"
+[ -n "$region" ] || fail "no AWS Region: run aws configure set region <your project's Region code, such as us-east-2>"
+aws sts get-caller-identity --region "$region" --output text --query Account >/dev/null \
+  || fail "the AWS CLI isn't signed in: run aws login"
 
 ref="${REF:-HEAD}"
 commit="$(git rev-parse --verify --quiet "$ref^{commit}")" || fail "$ref isn't a commit"
 git fetch --quiet --prune origin
 [ -n "$(git for-each-ref --contains "$commit" refs/remotes/origin)" ] \
   || fail "$ref ($commit) isn't on GitHub yet: push it first, since the server clones it from there"
+# What to call the commit: REF as given, or the branch checked out.
+ref_name="${REF:-$(git branch --show-current)}"
 
 ip="$(curl --fail --silent --show-error --max-time 10 https://checkip.amazonaws.com | tr -d '[:space:]')" || ip=""
 [[ "$ip" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || fail "couldn't find this computer's public IPv4 address (got '$ip')"
@@ -43,18 +47,23 @@ ip="$(curl --fail --silent --show-error --max-time 10 https://checkip.amazonaws.
 if ! errors="$(aws ssm get-parameter --region "$region" --name "$anthropic_parameter" 2>&1 >/dev/null)"; then
   case "$errors" in
     *ParameterNotFound*)
-      echo "warning: $anthropic_parameter doesn't exist, so the server will have no Anthropic API key." >&2
+      warn "$anthropic_parameter doesn't exist, so the server will have no Anthropic API key."
       echo "         make aws-smoke works without it; make aws-smoke-live doesn't." >&2
       ;;
     *) fail "couldn't check $anthropic_parameter: $errors" ;;
   esac
 fi
 
-echo "Deploying $commit to $region, reachable only from $ip"
-terraform -chdir=infra init -input=false
+echo "Deploying ${commit:0:7}${ref_name:+ ($ref_name)} to $region, reachable only from $ip"
+# Its output only matters when it fails.
+init_log="$(terraform -chdir=infra init -input=false 2>&1)" || {
+  echo "$init_log" >&2
+  fail "terraform init failed"
+}
 # Tells a new server from an updated one below, since only a new one gets a new deadline.
 previous_instance="$(terraform -chdir=infra output -raw instance_id 2>/dev/null || true)"
-terraform -chdir=infra apply \
+
+plan_and_apply "Nothing to change: the server already runs ${commit:0:7} and accepts requests from $ip." \
   -var "region=$region" -var "tester_cidr=$ip/32" -var "git_ref=$commit"
 
 echo
@@ -63,7 +72,7 @@ hours="$(terraform -chdir=infra output -raw auto_terminate_hours)"
 if [ "$instance" != "$previous_instance" ]; then
   echo "The server is starting; it takes about 5 to 10 minutes. Check it with: make aws-smoke"
 else
-  echo "The server ($instance) was updated in place. Check it with: make aws-smoke"
+  echo "The server ($instance) is up to date. Check it with: make aws-smoke"
 fi
 
 if [ "$hours" = 0 ]; then

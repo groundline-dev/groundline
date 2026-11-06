@@ -1,5 +1,5 @@
 .PHONY: setup dev db test-fast test-db test-live check fix docker-build docker-run docker-smoke \
-	infra-check aws-deploy aws-smoke aws-smoke-live aws-status aws-extend aws-destroy
+	infra-check aws-up aws-deploy aws-smoke aws-smoke-live aws-key aws-status aws-extend aws-destroy
 
 setup:
 	uv sync
@@ -59,6 +59,11 @@ infra-check:
 
 # Your AWS test deployment (see DEVELOPMENT.md, "Deploying to AWS"). It costs money
 # while it runs: make aws-destroy when you're done.
+
+# Does whatever first-time setup is missing, then runs aws-deploy and aws-smoke.
+aws-up:
+	scripts/aws-up
+
 aws-deploy:
 	scripts/aws-deploy
 
@@ -69,6 +74,10 @@ aws-smoke:
 # Also sends one real commission check, which costs under a cent.
 aws-smoke-live:
 	scripts/aws-smoke-test --live
+
+# Creates an API key on the server and prints it, or revokes one with REVOKE=<ID>.
+aws-key:
+	scripts/aws-key $(if $(REVOKE),--revoke $(REVOKE))
 
 # Shows when the server terminates itself, or reminds you to destroy what's left.
 aws-status:

@@ -8,7 +8,7 @@ and a server that terminated itself gets the reminder to run make aws-destroy.
 A local HTTP server plays the app.
 
 The stand-ins (tests/aws_fakes.py) answer the way the real tools do, but only
-the real run against AWS (DEVELOPMENT.md, "Deploying to AWS") shows that the
+the real run against AWS (docs/deploying-to-aws.md) shows that the
 scripts' AWS calls are right.
 """
 
@@ -109,7 +109,14 @@ class Run:
         return [command["script"] for command in self.world["commands"]]
 
 
-def run(script: Path, tmp_path: Path, world: dict[str, Any], *args: str) -> Run:
+def run(
+    script: Path,
+    tmp_path: Path,
+    world: dict[str, Any],
+    *args: str,
+    answer: str = "",
+) -> Run:
+    """Run the script against the stand-ins, typing answer at its prompts."""
     assert script.is_file(), f"{script.relative_to(ROOT)} is missing"
     world_path = tmp_path / "world.json"
     world_path.write_text(json.dumps(world))
@@ -122,7 +129,7 @@ def run(script: Path, tmp_path: Path, world: dict[str, Any], *args: str) -> Run:
         [str(script), *args],
         cwd=ROOT,
         env=env,
-        stdin=subprocess.DEVNULL,
+        input=answer,
         capture_output=True,
         text=True,
         timeout=120,
@@ -292,9 +299,10 @@ def test_destroy_checks_everything_is_gone_and_keeps_the_parameter(tmp_path: Pat
         outputs=DESTROY_OUTPUTS, existing={INSTANCE: "terminated"}
     )
 
-    result = run(DESTROY, tmp_path, world)
+    result = run(DESTROY, tmp_path, world, answer="yes\n")
 
     assert result.returncode == 0, result.output
+    assert f"delete your server ({INSTANCE}) and its data" in result.output
     assert result.world["destroyed"]
     assert f"aws ssm delete-parameter --name {PARAMETER}" in result.output
     assert not any("delete-parameter" in call for call in result.world["calls"])
@@ -303,7 +311,7 @@ def test_destroy_checks_everything_is_gone_and_keeps_the_parameter(tmp_path: Pat
 def test_destroy_fails_when_the_instance_is_still_running(tmp_path: Path):
     world = aws_fakes.new_world(outputs=DESTROY_OUTPUTS, existing={INSTANCE: "running"})
 
-    result = run(DESTROY, tmp_path, world)
+    result = run(DESTROY, tmp_path, world, answer="yes\n")
 
     assert result.returncode != 0, result.output
     assert INSTANCE in result.output
@@ -313,7 +321,17 @@ def test_destroy_fails_when_aws_cannot_say_what_is_left(tmp_path: Path):
     """An expired sign-in isn't the same as "not found": the check can't pass."""
     world = aws_fakes.new_world(outputs=DESTROY_OUTPUTS, error="ExpiredToken")
 
-    result = run(DESTROY, tmp_path, world)
+    result = run(DESTROY, tmp_path, world, answer="yes\n")
 
     assert result.returncode != 0, result.output
     assert "ExpiredToken" in result.output
+
+
+def test_destroy_deletes_nothing_unless_the_answer_is_yes(tmp_path: Path):
+    world = aws_fakes.new_world(outputs=DESTROY_OUTPUTS)
+
+    result = run(DESTROY, tmp_path, world, answer="no\n")
+
+    assert result.returncode != 0, result.output
+    assert "cancelled: nothing changed" in result.output
+    assert not result.world["destroyed"]

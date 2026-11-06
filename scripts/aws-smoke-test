@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Check your AWS test deployment from this computer:
 #   - /health answers 200, waiting up to 15 minutes for the server to start
-#   - an API key created on the server through SSM Run Command is accepted:
-#     an empty POST /v1/omissions gets 401 with an unknown API key and 422 with
-#     the new one, since the API key is checked before the body. No Claude call
-#     is made.
+#   - API keys work: an empty POST /v1/omissions gets 401 with an unknown API
+#     key, and 422 with one created on the server through SSM Run Command. The
+#     server checks the API key before the body, so 422 shows the key was
+#     accepted, which needs the app, Postgres and its migrations. The empty body
+#     is rejected before any Claude call.
 #   - with --live, one real commission check answers 200 (under a cent)
 #
 # Usage: scripts/aws-smoke-test          (make aws-smoke)
@@ -47,24 +48,43 @@ if $live; then
   if ! errors="$(aws ssm get-parameter --region "$region" --name "$anthropic_parameter" 2>&1 >/dev/null)"; then
     case "$errors" in
       *ParameterNotFound*)
-        fail "$anthropic_parameter doesn't exist, so the server has no Anthropic API key (see DEVELOPMENT.md, \"Deploying to AWS\")" ;;
+        fail "$anthropic_parameter doesn't exist, so the server has no Anthropic API key (see docs/deploying-to-aws.md)" ;;
       *) fail "couldn't check $anthropic_parameter: $errors" ;;
     esac
   fi
 fi
 
-echo "Waiting up to $wait_minutes minutes for $app_url/health"
+# In a terminal, one line shows the time so far, rewritten every 10 seconds or so.
+# Elsewhere, such as in a log, a line a minute says it's still waiting.
+started=$SECONDS
 deadline=$((SECONDS + wait_minutes * 60))
+last_minute=-1
 until [ "$(curl --silent --max-time 10 --output /dev/null --write-out '%{http_code}' "$app_url/health" || true)" = 200 ]; do
+  elapsed=$((SECONDS - started))
+  if [ -t 1 ]; then
+    printf '\rWaiting for the server to start... %d:%02d' $((elapsed / 60)) $((elapsed % 60))
+  elif [ $((elapsed / 60)) != "$last_minute" ]; then
+    last_minute=$((elapsed / 60))
+    echo "Waiting for the server to start... $last_minute min"
+  fi
   if [ "$SECONDS" -ge "$deadline" ]; then
+    [ -t 1 ] && echo
     require_running
     echo "--- the server's startup log ---" >&2
     on_server "tail -n 80 /var/log/groundline-bootstrap.log; cd /opt/groundline && docker compose ps --all && docker compose logs --tail 40" >&2 || true
-    fail "$app_url/health didn't answer 200 within $wait_minutes minutes"
+    fail "the server didn't start within $wait_minutes minutes: $app_url/health never answered 200"
   fi
   sleep 10
 done
-echo "ok: GET /health returned 200"
+# Ends the rewritten line, if there was one.
+[ -t 1 ] && [ "$SECONDS" -gt "$started" ] && echo
+
+if $live; then
+  echo "Checking the server. The last check calls Claude, which costs under a cent:"
+else
+  echo "Checking the server, without calling Claude:"
+fi
+ok "the server answers (GET /health returned 200)"
 
 keys_create_output="$(on_server "cd /opt/groundline && docker compose exec -T app groundline keys create --name aws-smoke-test")" \
   || fail "groundline keys create failed on the server: $keys_create_output"
@@ -73,26 +93,36 @@ api_key="$(sed -n 's/^API key: \(gl_[A-Za-z0-9_-]*\)$/\1/p' <<<"$keys_create_out
 [ -n "$api_key_id" ] && [ -n "$api_key" ] || fail "groundline keys create printed no API key"
 
 revoke() {
-  on_server "cd /opt/groundline && docker compose exec -T app groundline keys revoke $api_key_id" >/dev/null \
-    && echo "ok: revoked the test API key" \
-    || echo "warning: couldn't revoke the test API key $api_key_id; revoke it by hand (DEVELOPMENT.md)" >&2
+  if on_server "cd /opt/groundline && docker compose exec -T app groundline keys revoke $api_key_id" >/dev/null; then
+    ok "revoked the test API key"
+  else
+    warn "couldn't revoke the test API key; revoke it with make aws-key REVOKE=$api_key_id"
+  fi
 }
 trap revoke EXIT
-echo "ok: created a test API key"
+ok "created a test API key on the server"
 
-# expect STATUS METHOD PATH [curl arguments...]
+# expect STATUS SHOWS FAILURE METHOD PATH [curl arguments...]: send the request,
+# and say what passing SHOWS or, on any other status, what FAILURE means.
 expect() {
-  local want="$1" method="$2" path="$3"
-  shift 3
+  local want="$1" shows="$2" failure="$3" method="$4" path="$5"
+  shift 5
   local got
   got="$(curl --silent --max-time 120 --output /dev/null --write-out '%{http_code}' \
     --request "$method" "$@" "$app_url$path" || true)"
-  [ "$got" = "$want" ] || fail "$method $path returned ${got:-nothing}, expected $want"
-  echo "ok: $method $path returned $want"
+  [ "$got" = "$want" ] || fail "$failure ($method $path returned ${got:-nothing}, expected $want)"
+  ok "$shows"
 }
 
-expect 401 POST /v1/omissions --json '{}' --header "Authorization: Bearer gl_unknown"
-expect 422 POST /v1/omissions --json '{}' --header "Authorization: Bearer $api_key"
+# Both send an empty body. The server checks the API key before the body, so the
+# test API key gets 422 for the missing fields, and Claude is never called.
+expect 401 "an unknown API key is turned away (401)" \
+  "the server didn't turn away an unknown API key" \
+  POST /v1/omissions --json '{}' --header "Authorization: Bearer gl_unknown"
+expect 422 "the test API key is accepted: the empty request got past the key check and was
+    rejected only for its missing fields (422), so the app, Postgres and API keys work" \
+  "the server didn't accept the API key it just created" \
+  POST /v1/omissions --json '{}' --header "Authorization: Bearer $api_key"
 
 if $live; then
   # The shortest test input: a short transcript and a note with one changed dose.
@@ -102,7 +132,9 @@ from tests.commissions_helpers import SUMMARY
 from tests.omission_helpers import SOURCE
 print(json.dumps({"source": SOURCE, "summary": SUMMARY}))
 ')"
-  expect 200 POST /v1/commissions --json "$body" --header "Authorization: Bearer $api_key"
+  expect 200 "a real commission check got an answer from Claude (200)" \
+    "the commission check failed; a 503 means the server has no Anthropic API key" \
+    POST /v1/commissions --json "$body" --header "Authorization: Bearer $api_key"
 fi
 
 # Every check passed. Revoke the API key now instead of on exit, so the

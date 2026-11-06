@@ -9,7 +9,10 @@ test writes it before the run and reads it afterwards.
 They answer only the calls the scripts make, the way the real tools answer:
 
 - `terraform output -raw NAME` prints an output until `terraform destroy`
-  runs, then fails as it does with no state.
+  runs, or a destroy plan is applied, then fails as it does with no state.
+- `terraform plan -destroy -out=FILE` writes a plan deleting each resource the
+  outputs name, which `terraform show -json FILE` prints and `terraform apply
+  FILE` carries out.
 - `aws ssm send-command` records the command. `aws ssm wait command-executed`
   and `aws ssm get-command-invocation` report it with the status and output of
   the first entry in `ssm_replies` whose `when` text it contains.
@@ -103,10 +106,52 @@ def _terraform(world: dict[str, Any], args: list[str]) -> int:
     if args[:1] == ["destroy"]:
         world["destroyed"] = True
         return 0
+    if args[:1] == ["plan"] and "-destroy" in args:
+        return _destroy_plan(world, args)
+    if args[:2] == ["show", "-json"] and len(args) == 3:
+        sys.stdout.write(Path(args[2]).read_text())
+        return 0
+    if args[:1] == ["show"] and len(args) == 2:
+        print("(the full Terraform plan)")
+        return 0
+    if args[:1] == ["apply"] and args[-1].endswith("tfplan"):
+        if json.loads(Path(args[-1]).read_text())["resource_changes"]:
+            world["destroyed"] = True
+        return 0
     if args[:1] in (["init"], ["apply"], ["version"]):
         return 0
     print(f"fake terraform: unsupported call: {args}", file=sys.stderr)
     return 2
+
+
+# The resource each output names, as `terraform show -json` gives its type.
+_OUTPUT_TYPES = {
+    "instance_id": "aws_instance",
+    "security_group_id": "aws_security_group",
+    "iam_role_name": "aws_iam_role",
+    "instance_profile_name": "aws_iam_instance_profile",
+    "budget_name": "aws_budgets_budget",
+}
+
+
+def _destroy_plan(world: dict[str, Any], args: list[str]) -> int:
+    """Write a plan that deletes each resource the outputs name, in the shape of
+    `terraform show -json`, and exit as -detailed-exitcode does: 2 for changes,
+    0 for none."""
+    out = next(arg.removeprefix("-out=") for arg in args if arg.startswith("-out="))
+    outputs: dict[str, str] = {} if world["destroyed"] else world["outputs"]
+    changes = [
+        {
+            "mode": "managed",
+            "type": kind,
+            "change": {"actions": ["delete"], "before": {"id": outputs[name]}},
+        }
+        for name, kind in _OUTPUT_TYPES.items()
+        if name in outputs
+    ]
+    plan: dict[str, Any] = {"variables": {}, "resource_changes": changes}
+    Path(out).write_text(json.dumps(plan))
+    return 2 if changes else 0
 
 
 class AWSError(Exception):

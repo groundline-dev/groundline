@@ -5,17 +5,14 @@
 #
 # Usage: scripts/aws-destroy   (make aws-destroy)
 #
-# It leaves the Anthropic API key's parameter, which was created outside
+# Before deleting anything, it says in plain words what will go and asks. It
+# leaves the Anthropic API key's parameter, which was created outside
 # Terraform, and prints the command to delete it.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+source scripts/aws-common.sh
 
 anthropic_parameter=/groundline/anthropic-api-key
-
-fail() {
-  echo "error: $*" >&2
-  exit 1
-}
 
 # Read before destroying: the outputs are gone afterwards. A deployment that
 # failed partway may lack some, so a missing one is checked below, not here.
@@ -27,13 +24,13 @@ role="$(output iam_role_name)"
 profile="$(output instance_profile_name)"
 budget="$(output budget_name)"
 region="${region:-${AWS_REGION:-$(aws configure get region || true)}}"
-[ -n "$region" ] || fail "no AWS Region: run aws configure set region <your project's Region>"
-account="$(aws sts get-caller-identity --query Account --output text)" \
+[ -n "$region" ] || fail "no AWS Region: run aws configure set region <your project's Region code, such as us-east-2>"
+account="$(aws sts get-caller-identity --region "$region" --query Account --output text)" \
   || fail "the AWS CLI isn't signed in: run aws login"
 
 # Destroying doesn't use these values, but Terraform asks for every required
 # variable without a default.
-terraform -chdir=infra destroy \
+plan_and_apply "Nothing to delete: Terraform's state in infra/ lists no resources." -destroy \
   -var "region=$region" -var "tester_cidr=127.0.0.1/32" -var "git_ref=unused"
 
 echo
@@ -46,19 +43,19 @@ gone() {
   local what="$1" id="$2" errors
   shift 2
   if [ -z "$id" ]; then
-    echo "error: couldn't check the $what: Terraform had no output naming it" >&2
+    error "couldn't check the $what: Terraform had no output naming it"
     leftover=1
     return
   fi
   if errors="$("$@" 2>&1 >/dev/null)"; then
-    echo "error: $what $id still exists" >&2
+    error "$what $id still exists"
     leftover=1
     return
   fi
   case "$errors" in
-    *NotFound* | *NoSuchEntity*) echo "ok: $what $id is gone" ;;
+    *NotFound* | *NoSuchEntity*) ok "$what $id is gone" ;;
     *)
-      echo "error: couldn't check $what $id: $errors" >&2
+      error "couldn't check $what $id: $errors"
       leftover=1
       ;;
   esac
@@ -70,15 +67,15 @@ if [ -z "$instance" ]; then
 elif instance_state="$(aws ec2 describe-instances --region "$region" --instance-ids "$instance" \
   --query 'Reservations[0].Instances[0].State.Name' --output text 2>&1)"; then
   if [ "$instance_state" = terminated ]; then
-    echo "ok: instance $instance is terminated"
+    ok "instance $instance is terminated"
   else
-    echo "error: instance $instance is $instance_state, not terminated" >&2
+    error "instance $instance is $instance_state, not terminated"
     leftover=1
   fi
 else
   case "$instance_state" in
-    *NotFound*) echo "ok: instance $instance is gone" ;;
-    *) echo "error: couldn't check instance $instance: $instance_state" >&2; leftover=1 ;;
+    *NotFound*) ok "instance $instance is gone" ;;
+    *) error "couldn't check instance $instance: $instance_state"; leftover=1 ;;
   esac
 fi
 gone "security group" "$group" aws ec2 describe-security-groups --region "$region" --group-ids "$group"

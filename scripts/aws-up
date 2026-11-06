@@ -1,0 +1,157 @@
+#!/usr/bin/env bash
+# Run a test deployment with one command: do whatever first-time setup is
+# missing, deploy, and check the server. See docs/deploying-to-aws.md.
+#
+# Usage: scripts/aws-up               (make aws-up)
+#        REF=<branch|tag|commit> scripts/aws-up
+#
+# It offers to install missing tools with Homebrew, sets your Region, signs you
+# in, writes infra/terraform.tfvars, offers to store the Anthropic API key and
+# offers to push your branch, asking only about what isn't set up yet, so it
+# also works as the everyday command. It then runs scripts/aws-deploy, which says in
+# plain words what will change and asks first, and scripts/aws-smoke-test.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+source scripts/aws-common.sh
+
+anthropic_parameter=/groundline/anthropic-api-key
+
+# ask PROMPT [DEFAULT]: read one line into $answer, or DEFAULT if it's empty.
+ask() {
+  local suffix=""
+  [ -n "${2:-}" ] && suffix=" [$2]"
+  read -rp "$1$suffix: " answer
+  answer="${answer:-${2:-}}"
+}
+
+# confirm QUESTION: true if the answer is yes or empty.
+confirm() {
+  local reply
+  read -rp "$1 [Y/n]: " reply
+  case "$reply" in "" | [Yy] | [Yy][Ee][Ss]) return 0 ;; *) return 1 ;; esac
+}
+
+step "Step 1 of 3: setup"
+
+# Homebrew's name for each tool this needs.
+missing="" formulas=""
+for tool in terraform:hashicorp/tap/terraform aws:awscli jq:jq git:git curl:curl; do
+  command -v "${tool%%:*}" >/dev/null || { missing+="${tool%%:*}"$'\n' formulas+=" ${tool#*:}"; }
+done
+if [ -n "$missing" ]; then
+  missing="$(printf %s "$missing" | join_names)"
+  command -v brew >/dev/null \
+    || fail "this needs $missing: install them, then run this again (see docs/deploying-to-aws.md, \"Setting up by hand\")"
+  echo "This needs $missing, which Homebrew can install with:"
+  echo "  brew install$formulas"
+  confirm "Install them now?" || fail "install $missing, then run this again"
+  # shellcheck disable=SC2086  # one formula a word
+  brew install $formulas
+fi
+terraform_version="$(terraform version -json | jq -r .terraform_version)"
+IFS=. read -r major minor _ <<<"$terraform_version"
+if [ "$major" -lt 1 ] || { [ "$major" = 1 ] && [ "$minor" -lt 17 ]; }; then
+  fail "Terraform $terraform_version is too old: this needs 1.17 or later (brew upgrade hashicorp/tap/terraform)"
+fi
+
+# Asks for the Region before checking the sign-in: without a Region, every AWS
+# call fails, so the check would send a signed-in user to aws login, which asks
+# for the Region itself and exits on a wrong one.
+region="${AWS_REGION:-$(aws configure get region || true)}"
+if [ -z "$region" ]; then
+  echo "Your AWS project works only in its own Region. Find it in AWS Settings, under"
+  echo "View all projects > Overview > Additional Info > Region. Enter its code, such as"
+  echo "us-east-2, not its name, such as US East (Ohio)."
+  while :; do
+    ask "Region code"
+    [[ "$answer" =~ ^[a-z]{2}(-[a-z]+)+-[0-9]+$ ]] && break
+    echo "That isn't a Region code. Codes look like us-east-2 or eu-west-1: lowercase, with hyphens."
+  done
+  region="$answer"
+  aws configure set region "$region"
+fi
+
+if ! aws sts get-caller-identity --region "$region" >/dev/null 2>&1; then
+  echo "Signing in to AWS: finish in the browser window that opens."
+  aws login
+fi
+
+if [ ! -f infra/terraform.tfvars ]; then
+  echo "Your deployment needs a name that no one else in the AWS project uses, such as"
+  echo "your first name, and an email address for the \$5-a-month budget alert."
+  suggested="$(id -un | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9-' | cut -c1-20)"
+  [[ "$suggested" =~ ^[a-z] ]] || suggested=""
+  while :; do
+    ask "Deployment name" "$suggested"
+    [[ "$answer" =~ ^[a-z][a-z0-9-]{0,19}$ ]] && break
+    echo "Use 1 to 20 lowercase letters, digits and hyphens, starting with a letter."
+  done
+  name="$answer"
+  while :; do
+    ask "Email address" "$(git config user.email || true)"
+    [[ "$answer" =~ ^[^@[:space:]\"\\]+@[^@[:space:]\"\\]+\.[^@[:space:]\"\\]+$ ]] && break
+    echo "That doesn't look like an email address."
+  done
+  email="$answer"
+  awk -v name="$name" -v email="$email" '
+    /^deployment_name[[:space:]]*=/ { print "deployment_name = \"" name "\""; next }
+    /^budget_alert_email[[:space:]]*=/ { print "budget_alert_email = \"" email "\""; next }
+    { print }
+  ' infra/terraform.tfvars.example >infra/terraform.tfvars
+  ok "wrote infra/terraform.tfvars"
+fi
+
+# Checks only that the parameter exists: its value never leaves AWS.
+if ! errors="$(aws ssm get-parameter --region "$region" --name "$anthropic_parameter" 2>&1 >/dev/null)"; then
+  case "$errors" in
+    *ParameterNotFound*)
+      echo "No one in this AWS project has stored an Anthropic API key yet. Without one, the"
+      echo "server starts and make aws-smoke passes, but every model call fails with 503."
+      # -s keeps the Anthropic API key off the screen and out of your shell history.
+      read -rsp "Paste an Anthropic API key to store it, or press Enter to skip: " key
+      echo
+      if [ -n "$key" ]; then
+        # Sends the key through stdin, since other processes can read a command's
+        # arguments. printf is a shell builtin, so it doesn't start one.
+        printf '%s' "$key" | aws ssm put-parameter --region "$region" --name "$anthropic_parameter" \
+          --type SecureString --value file:///dev/stdin >/dev/null
+        ok "stored the Anthropic API key as $anthropic_parameter"
+      fi
+      unset key
+      ;;
+    *) fail "couldn't check $anthropic_parameter: $errors" ;;
+  esac
+fi
+
+# The server clones the commit from GitHub, so it has to be pushed. REF names
+# its own commit, which scripts/aws-deploy checks.
+if [ -z "${REF:-}" ]; then
+  [ -z "$(git status --porcelain --untracked-files=no)" ] \
+    || warn "you have uncommitted changes: the server runs your last commit, without them."
+  git fetch --quiet origin
+  if [ -z "$(git for-each-ref --contains HEAD refs/remotes/origin)" ]; then
+    branch="$(git branch --show-current)"
+    [ -n "$branch" ] || fail "HEAD isn't on a branch or on GitHub: check out a pushed branch, or set REF"
+    echo "The server clones your commit from GitHub, but $(git rev-parse --short HEAD) isn't pushed yet."
+    confirm "Push $branch to GitHub now?" || fail "push $branch, then run this again"
+    git push --set-upstream origin "$branch"
+  fi
+fi
+
+name="$(sed -n 's/^[[:space:]]*deployment_name[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' infra/terraform.tfvars)"
+ok "set up: Region $region, deployment ${name:-(see infra/terraform.tfvars)}"
+
+step "Step 2 of 3: deploy"
+scripts/aws-deploy
+
+step "Step 3 of 3: check the server"
+scripts/aws-smoke-test
+
+app_url="$(terraform -chdir=infra output -raw app_url)"
+step "What next"
+cat <<EOF
+  make aws-key          creates an API key, for trying requests at $app_url/docs
+  make aws-smoke-live   sends one real commission check, which costs under a cent
+  make aws-destroy      deletes the server and its data when you're done
+EOF

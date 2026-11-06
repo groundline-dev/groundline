@@ -18,7 +18,7 @@ kind. These tests read the files instead:
 - Terraform state or a contributor's settings can be committed.
 
 They also check that the make targets run the deployment scripts and that
-DEVELOPMENT.md documents them. They only read files, so they don't need
+docs/deploying-to-aws.md documents them. They only read files, so they don't need
 Terraform or AWS.
 """
 
@@ -160,9 +160,11 @@ def test_the_lock_file_and_example_settings_are_committed(path: str):
 @pytest.mark.parametrize(
     ("target", "command"),
     [
+        ("aws-up", "scripts/aws-up"),
         ("aws-deploy", "scripts/aws-deploy"),
         ("aws-smoke", "scripts/aws-smoke-test"),
         ("aws-smoke-live", "scripts/aws-smoke-test --live"),
+        ("aws-key", "scripts/aws-key"),
         ("aws-status", "scripts/aws-status"),
         ("aws-extend", "scripts/aws-extend"),
         ("aws-destroy", "scripts/aws-destroy"),
@@ -179,15 +181,15 @@ def test_each_make_target_runs_its_script(target: str, command: str):
     )
 
 
-def test_development_md_documents_deploying_to_aws():
-    text = (ROOT / "DEVELOPMENT.md").read_text()
-    section = re.search(r"^## Deploying to AWS\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+def test_the_deploying_guide_documents_every_command_and_setting():
+    text = (ROOT / "docs" / "deploying-to-aws.md").read_text()
 
-    assert section, 'DEVELOPMENT.md has no "## Deploying to AWS" section'
     for mention in [
+        "make aws-up",
         "make aws-deploy",
         "make aws-smoke",
         "make aws-smoke-live",
+        "make aws-key",
         "make aws-status",
         "make aws-extend",
         "make aws-destroy",
@@ -196,4 +198,13 @@ def test_development_md_documents_deploying_to_aws():
         "Region",
         "groundline keys create",
     ]:
-        assert mention in section[1], f"the section doesn't mention {mention}"
+        assert mention in text, f"docs/deploying-to-aws.md doesn't mention {mention}"
+
+
+def test_development_md_points_to_the_deploying_guide():
+    text = (ROOT / "DEVELOPMENT.md").read_text()
+    section = re.search(r"^## Deploying to AWS\n(.*?)(?=^## |\Z)", text, re.M | re.S)
+
+    assert section, 'DEVELOPMENT.md has no "## Deploying to AWS" section'
+    assert "(docs/deploying-to-aws.md)" in section[1]
+    assert "make aws-up" in section[1]
