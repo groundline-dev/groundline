@@ -5,6 +5,7 @@
 #   - the app container doesn't have the admin password
 #   - an API key created with `groundline keys create` still works after the
 #     containers are removed and started again
+#   - both evaluators run their packaged presets/prompts against a model double
 #
 # Usage: scripts/docker-smoke-test   (`make docker-smoke` builds the image, then
 # runs this)
@@ -16,7 +17,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 project="groundline-smoke"
-compose=(docker compose --project-name "$project")
+compose=(docker compose --project-name "$project" -f compose.yaml -f compose.smoke.yaml)
 
 # When Compose fills in ${...}, these shell variables override .env.
 POSTGRES_PASSWORD="$(openssl rand -hex 24)"
@@ -41,18 +42,13 @@ start() {
   output="$("${compose[@]}" up --detach --wait --wait-timeout 120 --quiet-pull 2>&1)" \
     || fail "docker compose up --wait failed:
 $output"
-  base="http://$("${compose[@]}" port app 8000)"
 }
 
-# expect STATUS METHOD PATH [curl arguments...]
+# expect STATUS METHOD PATH [--json BODY] [--header HEADER]
 expect() {
-  local want="$1" method="$2" path="$3"
-  shift 3
-  local got
-  got="$(curl --silent --max-time 10 --output /dev/null --write-out '%{http_code}' \
-    --request "$method" "$@" "$base$path" || true)"
-  [ "$got" = "$want" ] || fail "$method $path returned ${got:-nothing}, expected $want"
-  echo "ok: $method $path returned $want"
+  # The internal network blocks outbound access. Probe from inside the app so
+  # this also works where Docker doesn't publish ports on internal networks.
+  "${compose[@]}" exec -T app python /smoke.py probe "$@" || fail "HTTP probe failed"
 }
 
 start
@@ -96,3 +92,6 @@ start
 expect 401 POST /v1/omissions --json '{}' --header "Authorization: Bearer gl_unknown"
 expect 422 POST /v1/omissions --json '{}' --header "Authorization: Bearer $key"
 echo "ok: the API key survived restarting the stack"
+
+"${compose[@]}" exec -T app python /smoke.py evaluate --api-key "$key" \
+  || fail "evaluator checks failed"

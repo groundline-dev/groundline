@@ -74,6 +74,8 @@ If you changed the Dockerfile, `compose.yaml`, `.dockerignore`, the dependencies
 make docker-smoke
 ```
 
+The smoke test uses `compose.smoke.yaml` to add a mock Anthropic HTTP service, dummy credentials and an internal network with no outbound internet access. It keeps the normal app image and startup, checks health/readiness and API-key persistence, then calls both evaluators and checks their findings, preset identity and model-call counts. Presets, prompts and the rubric load from the built image; only the smoke-test support script is mounted. It needs no real Anthropic API key or paid model calls, and CI runs the same script. HTTP probes execute inside the app container on loopback because its test network is isolated.
+
 If you run the image with your own `docker run`, publish the port on `127.0.0.1`, as in `-p 127.0.0.1:8001:8000`. A plain `-p 8000:8000` lets anyone on your network reach the API, even past firewalls such as ufw on Linux.
 
 ## Database
