@@ -27,14 +27,6 @@ The rules below apply only when discussing or changing the design. In other work
 
 A server started with `make aws-deploy` costs money until `make aws-destroy` deletes it or its time limit runs out. If you deployed one, don't finish your work until you've either run `make aws-destroy`, when the developer asked you to, or told the developer that the server is still running and when it terminates itself (`make aws-status` shows this).
 
-### Script output
-
-The `make aws-*` scripts print through the helpers in `scripts/aws-common.sh` (`step`, `bullet`, `doing`, `ask`, `choose`, `confirm` and the `ok`/`warning` helpers), which follow the layout described in the comment above `bullet()`. Use them instead of `echo` so every command looks the same. The helpers can't enforce the rules below, so follow them by hand:
-
-- Each question says what its answer leads to. A question whose answer can delete data has no default, so the developer has to type a choice.
-- Every command that leaves the server running ends with the same `what_next` block.
-- Each value is looked up once and reused, so it can't change partway through a run.
-
 ## Skills
 
 Skills live in `.agents/skills/`. `.claude/skills/` links to the same folders, so edit only the `.agents/` copy.
