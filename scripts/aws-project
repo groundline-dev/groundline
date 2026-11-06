@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Choose the AWS project the other make aws-* commands act on: show the one
+# you're signed in to, then open the browser to choose another. Use it to check
+# or delete a deployment you left in another project.
+#
+# Usage: scripts/aws-project   (make aws-project)
+set -euo pipefail
+cd "$(dirname "$0")/.."
+source scripts/aws-common.sh
+
+export AWS_PROFILE="${AWS_PROFILE:-$wizard_profile}"
+if signed_in; then
+  use_project
+  echo "The make aws-* commands now act on the AWS project you're signed in to:"
+  bullet "$(project_label), in $region"
+  if ! confirm "Switch the make aws-* commands to another AWS project?"; then
+    answer_ok "the make aws-* commands still act on $(project_label) in $region"
+    echo
+    exit 0
+  fi
+fi
+choose_project
+use_project
+answer_ok "the make aws-* commands now act on $(project_label) in $region"
+echo

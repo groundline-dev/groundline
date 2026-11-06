@@ -3,8 +3,9 @@
 These check the scripts' own logic on paths that are slow or costly to cause
 on a real server: the test API key is revoked even when a check fails, the
 live smoke test stops before doing anything when the Anthropic parameter is
-missing, the teardown check fails when something survived or AWS can't say,
-and a server that terminated itself gets the reminder to run make aws-destroy.
+missing, the teardown deletes the deployment's Anthropic parameter and fails
+when something survived or AWS can't say, and a server that terminated itself
+gets the reminder to run make aws-destroy.
 A local HTTP server plays the app.
 
 The stand-ins (tests/aws_fakes.py) answer the way the real tools do, but only
@@ -31,13 +32,13 @@ ROOT = Path(__file__).resolve().parents[1]
 SMOKE_TEST = ROOT / "scripts" / "aws-smoke-test"
 DESTROY = ROOT / "scripts" / "aws-destroy"
 STATUS = ROOT / "scripts" / "aws-status"
-EXTEND = ROOT / "scripts" / "aws-extend"
+RESET_DEADLINE = ROOT / "scripts" / "aws-reset-deadline"
 
 INSTANCE = "i-0123456789abcdef0"
 GROUP = "sg-0123456789abcdef0"
 KEY_ID = "5b0b8f9e-6f4e-4d8a-9c55-0b7f0e3c1a2d"
 KEY = "gl_smoketestsecret"
-PARAMETER = "/groundline/anthropic-api-key"
+PARAMETER = "/groundline/alice/anthropic-api-key"
 
 KEYS_CREATE_OUTPUT = (
     "Name: aws-smoke-test\n"
@@ -124,7 +125,10 @@ def run(
         **os.environ,
         **aws_fakes.install(tmp_path / "bin", world_path),
         "PATH": f"{tmp_path / 'bin'}{os.pathsep}{os.environ['PATH']}",
+        # Set, so the scripts don't read the profile make aws-up saved here.
+        "AWS_PROFILE": "test",
     }
+    env.pop("AWS_REGION", None)
     finished = subprocess.run(
         [str(script), *args],
         cwd=ROOT,
@@ -144,7 +148,12 @@ def run(
 def smoke_world(app: FakeApp, **fields: Any) -> dict[str, Any]:
     fields.setdefault("existing", {INSTANCE: "running"})
     return aws_fakes.new_world(
-        outputs={"instance_id": INSTANCE, "region": "eu-north-1", "app_url": app.url},
+        outputs={
+            "instance_id": INSTANCE,
+            "region": "eu-north-1",
+            "app_url": app.url,
+            "anthropic_parameter_name": PARAMETER,
+        },
         ssm_replies=[
             {"when": "keys create", "stdout": KEYS_CREATE_OUTPUT},
             {"when": "keys revoke", "stdout": f"Revoked: {KEY_ID} (aws-smoke-test)\n"},
@@ -209,6 +218,7 @@ DESTROY_OUTPUTS = {
     "iam_role_name": "groundline-instance",
     "instance_profile_name": "groundline-instance",
     "budget_name": "groundline-monthly",
+    "anthropic_parameter_name": PARAMETER,
 }
 
 
@@ -240,7 +250,7 @@ def deadline_world(state: str, deadline: str, **fields: Any) -> dict[str, Any]:
     )
 
 
-def test_status_shows_the_deadline_and_how_to_extend_it(tmp_path: Path):
+def test_status_shows_the_deadline_and_how_to_reset_it(tmp_path: Path):
     in_two_hours = str(int(time.time()) + 2 * 3600)
 
     result = run(STATUS, tmp_path, deadline_world("running", in_two_hours))
@@ -248,7 +258,7 @@ def test_status_shows_the_deadline_and_how_to_extend_it(tmp_path: Path):
     assert result.returncode == 0, result.output
     assert "terminates itself" in result.output
     assert "h " in result.output and "from now" in result.output
-    assert "make aws-extend" in result.output
+    assert "make aws-reset-deadline" in result.output
 
 
 def test_status_says_when_there_is_no_time_limit(tmp_path: Path):
@@ -266,10 +276,12 @@ def test_status_reminds_to_destroy_a_server_that_terminated(tmp_path: Path):
     assert result.sent_commands() == []
 
 
-def test_extend_moves_the_deadline_to_the_limit_from_now_by_default(tmp_path: Path):
+def test_reset_deadline_moves_the_deadline_to_the_limit_from_now_by_default(
+    tmp_path: Path,
+):
     in_eight_hours = str(int(time.time()) + 8 * 3600)
 
-    result = run(EXTEND, tmp_path, deadline_world("running", in_eight_hours))
+    result = run(RESET_DEADLINE, tmp_path, deadline_world("running", in_eight_hours))
 
     assert result.returncode == 0, result.output
     [command] = result.sent_commands()
@@ -278,40 +290,63 @@ def test_extend_moves_the_deadline_to_the_limit_from_now_by_default(tmp_path: Pa
     assert "terminates itself" in result.output
 
 
-def test_extend_refuses_more_hours_than_the_limit(tmp_path: Path):
-    result = run(EXTEND, tmp_path, deadline_world("running", "0"), "9")
+def test_reset_deadline_refuses_more_hours_than_the_limit(tmp_path: Path):
+    result = run(RESET_DEADLINE, tmp_path, deadline_world("running", "0"), "9")
 
     assert result.returncode != 0, result.output
     assert "1 to 8" in result.output
     assert result.sent_commands() == []
 
 
-def test_extend_reminds_to_destroy_a_server_that_terminated(tmp_path: Path):
-    result = run(EXTEND, tmp_path, deadline_world("terminated", "0"))
+def test_reset_deadline_reminds_to_destroy_a_server_that_terminated(tmp_path: Path):
+    result = run(RESET_DEADLINE, tmp_path, deadline_world("terminated", "0"))
 
     assert result.returncode != 0, result.output
     assert "make aws-destroy" in result.output
     assert result.sent_commands() == []
 
 
-def test_destroy_checks_everything_is_gone_and_keeps_the_parameter(tmp_path: Path):
+def deleted_parameters(result: Run) -> list[str]:
+    """The parameters each `aws ssm delete-parameter` named."""
+    return [
+        call[call.index("--name") + 1]
+        for call in result.world["calls"]
+        if call[:3] == ["aws", "ssm", "delete-parameter"]
+    ]
+
+
+def test_destroy_checks_everything_is_gone_and_deletes_the_parameter(tmp_path: Path):
     world = aws_fakes.new_world(
         outputs=DESTROY_OUTPUTS, existing={INSTANCE: "terminated"}
     )
 
-    result = run(DESTROY, tmp_path, world, answer="yes\n")
+    result = run(DESTROY, tmp_path, world, answer="1\n")
 
     assert result.returncode == 0, result.output
     assert f"delete your server ({INSTANCE}) and its data" in result.output
     assert result.world["destroyed"]
-    assert f"aws ssm delete-parameter --name {PARAMETER}" in result.output
-    assert not any("delete-parameter" in call for call in result.world["calls"])
+    assert deleted_parameters(result) == [PARAMETER]
+    assert not result.world["parameter_exists"]
+    assert "Revoke it in the Anthropic Console" in result.output
+
+
+def test_destroy_passes_when_no_anthropic_key_was_stored(tmp_path: Path):
+    world = aws_fakes.new_world(
+        outputs=DESTROY_OUTPUTS,
+        existing={INSTANCE: "terminated"},
+        parameter_exists=False,
+    )
+
+    result = run(DESTROY, tmp_path, world, answer="1\n")
+
+    assert result.returncode == 0, result.output
+    assert "no Anthropic API key was stored" in result.output
 
 
 def test_destroy_fails_when_the_instance_is_still_running(tmp_path: Path):
     world = aws_fakes.new_world(outputs=DESTROY_OUTPUTS, existing={INSTANCE: "running"})
 
-    result = run(DESTROY, tmp_path, world, answer="yes\n")
+    result = run(DESTROY, tmp_path, world, answer="1\n")
 
     assert result.returncode != 0, result.output
     assert INSTANCE in result.output
@@ -321,17 +356,72 @@ def test_destroy_fails_when_aws_cannot_say_what_is_left(tmp_path: Path):
     """An expired sign-in isn't the same as "not found": the check can't pass."""
     world = aws_fakes.new_world(outputs=DESTROY_OUTPUTS, error="ExpiredToken")
 
-    result = run(DESTROY, tmp_path, world, answer="yes\n")
+    result = run(DESTROY, tmp_path, world, answer="1\n")
 
     assert result.returncode != 0, result.output
     assert "ExpiredToken" in result.output
 
 
-def test_destroy_deletes_nothing_unless_the_answer_is_yes(tmp_path: Path):
+def test_destroy_deletes_nothing_when_cancelled(tmp_path: Path):
     world = aws_fakes.new_world(outputs=DESTROY_OUTPUTS)
 
-    result = run(DESTROY, tmp_path, world, answer="no\n")
+    result = run(DESTROY, tmp_path, world, answer="3\n")
 
     assert result.returncode != 0, result.output
     assert "cancelled: nothing changed" in result.output
     assert not result.world["destroyed"]
+    assert deleted_parameters(result) == []
+
+
+@pytest.mark.parametrize(("answer", "destroyed"), [("2\n1\n", True), ("2\n2\n", False)])
+def test_destroy_asks_again_after_showing_the_full_plan(
+    tmp_path: Path, answer: str, destroyed: bool
+):
+    world = aws_fakes.new_world(
+        outputs=DESTROY_OUTPUTS, existing={INSTANCE: "terminated"}
+    )
+
+    result = run(DESTROY, tmp_path, world, answer=answer)
+
+    assert "# aws_instance.server must be replaced" in result.output
+    assert "# forces replacement" in result.output
+    assert "Plan: 1 to add, 0 to change, 1 to destroy." in result.output
+    assert 'instance_type      = "t4g.small"' not in result.output
+    assert result.output.count("Show Terraform's plan first") == 1
+    assert (result.returncode == 0) == destroyed, result.output
+    assert result.world["destroyed"] == destroyed
+
+
+def test_destroy_deletes_nothing_when_enter_is_pressed(tmp_path: Path):
+    world = aws_fakes.new_world(outputs=DESTROY_OUTPUTS)
+
+    result = run(DESTROY, tmp_path, world, answer="\n")
+
+    assert result.returncode != 0, result.output
+    assert "Enter a number from 1 to 3" in result.output
+    assert not result.world["destroyed"]
+    assert deleted_parameters(result) == []
+
+
+@pytest.mark.parametrize(
+    "remote",
+    [
+        "git@github.com:alice/groundline.git",
+        "git@github.com:alice/groundline",
+        "ssh://git@github.com/alice/groundline.git",
+        "https://github.com/alice/groundline",
+        "https://github.com/alice/groundline.git",
+    ],
+)
+def test_the_server_clones_a_remote_over_https(remote: str):
+    """The server clones without signing in, so an SSH remote, such as a fork,
+    becomes its HTTPS address."""
+    finished = subprocess.run(
+        ["bash", "-c", 'source scripts/aws-common.sh && https_url "$1"', "_", remote],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+
+    assert finished.stdout.strip() == "https://github.com/alice/groundline.git"

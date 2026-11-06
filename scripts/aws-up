@@ -1,38 +1,33 @@
 #!/usr/bin/env bash
-# Run a test deployment with one command: do whatever first-time setup is
-# missing, deploy, and check the server. See docs/deploying-to-aws.md.
+# Run a test deployment with one command: choose the AWS project and the code,
+# do whatever first-time setup is missing, deploy, and check the server. See
+# docs/deploying-to-aws.md.
 #
-# Usage: scripts/aws-up               (make aws-up)
-#        REF=<branch|tag|commit> scripts/aws-up
+# Usage: scripts/aws-up   (make aws-up)
 #
-# It offers to install missing tools with Homebrew, sets your Region, signs you
-# in, writes infra/terraform.tfvars, offers to store the Anthropic API key and
-# offers to push your branch, asking only about what isn't set up yet, so it
-# also works as the everyday command. It then runs scripts/aws-deploy, which says in
-# plain words what will change and asks first, and scripts/aws-smoke-test.
+# On every run, it shows the AWS project you're signed in to, or asks you to
+# sign in again if that has expired, and lets you choose another in the
+# browser. It asks whether to deploy main or your current branch. It offers to
+# install missing tools with Homebrew, writes infra/terraform.tfvars, stores
+# your Anthropic API key and offers to push your branch, asking only about what
+# isn't set up yet. It then runs
+# scripts/aws-deploy, which says in plain words what will change and asks
+# first, and scripts/aws-smoke-test.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 source scripts/aws-common.sh
 
-anthropic_parameter=/groundline/anthropic-api-key
-
-# ask PROMPT [DEFAULT]: read one line into $answer, or DEFAULT if it's empty.
-ask() {
-  local suffix=""
-  [ -n "${2:-}" ] && suffix=" [$2]"
-  read -rp "$1$suffix: " answer
-  answer="${answer:-${2:-}}"
-}
-
-# confirm QUESTION: true if the answer is yes or empty.
-confirm() {
-  local reply
-  read -rp "$1 [Y/n]: " reply
-  case "$reply" in "" | [Yy] | [Yy][Ee][Ss]) return 0 ;; *) return 1 ;; esac
+# dotenv_value NAME: NAME's value in .env, without quotes, or nothing. It reads
+# the file as text, so nothing in it runs.
+dotenv_value() {
+  [ -f .env ] || return 0
+  sed -n "s/^[[:space:]]*\(export[[:space:]][[:space:]]*\)\{0,1\}$1[[:space:]]*=[[:space:]]*//p" .env \
+    | tail -n 1 | sed -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/"
 }
 
 step "Step 1 of 3: setup"
+echo "Where to deploy and what to run. It skips what's already set up."
 
 # Homebrew's name for each tool this needs.
 missing="" formulas=""
@@ -43,9 +38,10 @@ if [ -n "$missing" ]; then
   missing="$(printf %s "$missing" | join_names)"
   command -v brew >/dev/null \
     || fail "this needs $missing: install them, then run this again (see docs/deploying-to-aws.md, \"Setting up by hand\")"
-  echo "This needs $missing, which Homebrew can install with:"
-  echo "  brew install$formulas"
-  confirm "Install them now?" || fail "install $missing, then run this again"
+  echo
+  echo "This needs $missing, which Homebrew can install:"
+  bullet "brew install$formulas"
+  confirm "Install $missing with Homebrew now?" || fail "install $missing, then run this again"
   # shellcheck disable=SC2086  # one formula a word
   brew install $formulas
 fi
@@ -55,43 +51,50 @@ if [ "$major" -lt 1 ] || { [ "$major" = 1 ] && [ "$minor" -lt 17 ]; }; then
   fail "Terraform $terraform_version is too old: this needs 1.17 or later (brew upgrade hashicorp/tap/terraform)"
 fi
 
-# Asks for the Region before checking the sign-in: without a Region, every AWS
-# call fails, so the check would send a signed-in user to aws login, which asks
-# for the Region itself and exits on a wrong one.
-region="${AWS_REGION:-$(aws configure get region || true)}"
-if [ -z "$region" ]; then
-  echo "Your AWS project works only in its own Region. Find it in AWS Settings, under"
-  echo "View all projects > Overview > Additional Info > Region. Enter its code, such as"
-  echo "us-east-2, not its name, such as US East (Ohio)."
-  while :; do
-    ask "Region code"
-    [[ "$answer" =~ ^[a-z]{2}(-[a-z]+)+-[0-9]+$ ]] && break
-    echo "That isn't a Region code. Codes look like us-east-2 or eu-west-1: lowercase, with hyphens."
-  done
-  region="$answer"
-  aws configure set region "$region"
-fi
+# --- The AWS project: the one you're signed in to, or one you choose ---
 
-if ! aws sts get-caller-identity --region "$region" >/dev/null 2>&1; then
-  echo "Signing in to AWS: finish in the browser window that opens."
-  aws login
+export AWS_PROFILE="${AWS_PROFILE:-$wizard_profile}"
+if signed_in; then
+  use_project
+  echo
+  echo "Your test deployment will run in the AWS project you're signed in to:"
+  bullet "$(project_label), in $region"
+  confirm "Deploy to $(project_label)?" || choose_project
+elif previous="$(previous_account)" && [ -n "$previous" ]; then
+  echo
+  echo "Your sign-in to project $previous has expired. To sign in again, your"
+  echo "browser opens and you choose that project's session."
+  if confirm "Sign in again to project $previous?"; then
+    aws_login
+  else
+    choose_project
+  fi
+else
+  choose_project
 fi
+use_project
+project="$(project_label)"
+answer_ok "deploying to $project in $region"
+
+# --- Your deployment's name and email address ---
 
 if [ ! -f infra/terraform.tfvars ]; then
-  echo "Your deployment needs a name that no one else in the AWS project uses, such as"
-  echo "your first name, and an email address for the \$5-a-month budget alert."
+  echo
+  echo "Your deployment needs a name and an email address."
+  bullet "The name has to be unique in the projects you deploy to, such as your first name."
+  bullet "The \$5-a-month budget alert goes to the email address."
   suggested="$(id -un | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9-' | cut -c1-20)"
   [[ "$suggested" =~ ^[a-z] ]] || suggested=""
   while :; do
-    ask "Deployment name" "$suggested"
+    ask "Name for your deployment" "$suggested"
     [[ "$answer" =~ ^[a-z][a-z0-9-]{0,19}$ ]] && break
-    echo "Use 1 to 20 lowercase letters, digits and hyphens, starting with a letter."
+    echo "  Use 1 to 20 lowercase letters, digits and hyphens, starting with a letter."
   done
   name="$answer"
   while :; do
-    ask "Email address" "$(git config user.email || true)"
+    ask "Email address for budget alerts" "$(git config user.email || true)"
     [[ "$answer" =~ ^[^@[:space:]\"\\]+@[^@[:space:]\"\\]+\.[^@[:space:]\"\\]+$ ]] && break
-    echo "That doesn't look like an email address."
+    echo "  That doesn't look like an email address."
   done
   email="$answer"
   awk -v name="$name" -v email="$email" '
@@ -99,59 +102,160 @@ if [ ! -f infra/terraform.tfvars ]; then
     /^budget_alert_email[[:space:]]*=/ { print "budget_alert_email = \"" email "\""; next }
     { print }
   ' infra/terraform.tfvars.example >infra/terraform.tfvars
-  ok "wrote infra/terraform.tfvars"
+  answer_ok "wrote infra/terraform.tfvars"
 fi
+name="$(deployment_name)"
+[ -n "$name" ] || fail "infra/terraform.tfvars has no deployment_name: add one, such as deployment_name = \"alice\""
 
-# Checks only that the parameter exists: its value never leaves AWS.
-if ! errors="$(aws ssm get-parameter --region "$region" --name "$anthropic_parameter" 2>&1 >/dev/null)"; then
-  case "$errors" in
-    *ParameterNotFound*)
-      echo "No one in this AWS project has stored an Anthropic API key yet. Without one, the"
-      echo "server starts and make aws-smoke passes, but every model call fails with 503."
-      # -s keeps the Anthropic API key off the screen and out of your shell history.
-      read -rsp "Paste an Anthropic API key to store it, or press Enter to skip: " key
-      echo
-      if [ -n "$key" ]; then
-        # Sends the key through stdin, since other processes can read a command's
-        # arguments. printf is a shell builtin, so it doesn't start one.
-        printf '%s' "$key" | aws ssm put-parameter --region "$region" --name "$anthropic_parameter" \
-          --type SecureString --value file:///dev/stdin >/dev/null
-        ok "stored the Anthropic API key as $anthropic_parameter"
-      fi
-      unset key
-      ;;
-    *) fail "couldn't check $anthropic_parameter: $errors" ;;
-  esac
-fi
+# --- A server of yours that's already running ---
 
-# The server clones the commit from GitHub, so it has to be pushed. REF names
-# its own commit, which scripts/aws-deploy checks.
-if [ -z "${REF:-}" ]; then
-  [ -z "$(git status --porcelain --untracked-files=no)" ] \
-    || warn "you have uncommitted changes: the server runs your last commit, without them."
-  git fetch --quiet origin
-  if [ -z "$(git for-each-ref --contains HEAD refs/remotes/origin)" ]; then
-    branch="$(git branch --show-current)"
-    [ -n "$branch" ] || fail "HEAD isn't on a branch or on GitHub: check out a pushed branch, or set REF"
-    echo "The server clones your commit from GitHub, but $(git rev-parse --short HEAD) isn't pushed yet."
-    confirm "Push $branch to GitHub now?" || fail "push $branch, then run this again"
-    git push --set-upstream origin "$branch"
+# The Terraform state names your server, if you have one in this project. Its
+# git_ref output says which commit it runs; servers deployed before that output
+# existed don't have it, so they can't be kept from here.
+keep=""
+instance="$(terraform -chdir=infra output -raw instance_id 2>/dev/null || true)"
+if [ -n "$instance" ] \
+  && instance_state="$(aws ec2 describe-instances --region "$region" --instance-ids "$instance" \
+    --query 'Reservations[0].Instances[0].State.Name' --output text 2>/dev/null)" \
+  && [[ "$instance_state" =~ ^(pending|running)$ ]]; then
+  running_ref="$(terraform -chdir=infra output -raw git_ref 2>/dev/null || true)"
+  running_repository="$(terraform -chdir=infra output -raw repository_url 2>/dev/null || true)"
+  echo
+  echo "Your test deployment $name is already running in $project."
+  [ -z "$running_ref" ] || bullet "It runs ${running_ref:0:7}, from $running_repository."
+  bullet "It costs money until make aws-destroy, or until it terminates itself."
+  bullet "Deploying other code replaces it, and deletes its data."
+  if [ -n "$running_ref" ] && confirm "Keep your running server and check it?"; then
+    keep=yes
+    # The commit has to be here for make aws-deploy to check it.
+    git cat-file -e "$running_ref^{commit}" 2>/dev/null \
+      || git fetch --quiet "$running_repository" "$running_ref"
+    REF="$running_ref" REF_NAME="" REPOSITORY_URL="$running_repository"
+    export REPOSITORY_URL
+    answer_ok "keeping $instance, running ${running_ref:0:7}"
   fi
 fi
 
-name="$(sed -n 's/^[[:space:]]*deployment_name[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' infra/terraform.tfvars)"
-ok "set up: Region $region, deployment ${name:-(see infra/terraform.tfvars)}"
+if [ -z "$keep" ]; then
+  # --- Your Anthropic API key, stored for this deployment only ---
+
+  anthropic_parameter="$(anthropic_parameter "$name")"
+  # Checks only that the parameter exists: its value never leaves AWS.
+  stored="" replace=yes
+  if errors="$(aws ssm get-parameter --region "$region" --name "$anthropic_parameter" 2>&1 >/dev/null)"; then
+    stored=yes
+    echo
+    echo "Your server will use the Anthropic API key you gave on an earlier run."
+    bullet "It's stored in AWS, encrypted, in $project's Parameter Store as"
+    echo "    $anthropic_parameter, not in this repository."
+    bullet "make aws-destroy deletes it."
+    confirm "Keep the Anthropic API key you gave on an earlier run?" && replace=""
+  else
+    case "$errors" in
+      *ParameterNotFound*) ;;
+      *) fail "couldn't check $anthropic_parameter: $errors" ;;
+    esac
+  fi
+  if [ -n "$replace" ]; then
+    others="$(running_deployments 2>/dev/null | grep -vx "$name" | join_names)" || others=""
+    echo
+    echo "Your server needs an Anthropic API key to call Claude."
+    bullet "Everyone with access to $project can read it until make aws-destroy."
+    bullet "To keep it private, deploy to a project only you own."
+    bullet "In a shared project, use a key from an Anthropic Console workspace with a"
+    echo "    low spend limit, so anyone who copies it can't spend more than that."
+    [ -z "$others" ] || bullet "Test deployments running in this project now: $others."
+    key=""
+    for variable in AWS_ANTHROPIC_API_KEY ANTHROPIC_API_KEY; do
+      candidate="$(dotenv_value "$variable")"
+      [ -n "$candidate" ] || continue
+      if confirm "Use $variable from .env (ending ${candidate: -4}) as the server's Anthropic API key?"; then
+        key="$candidate"
+        break
+      fi
+    done
+    unset candidate
+    if [ -z "$key" ]; then
+      echo
+      # -s keeps the Anthropic API key off the screen and out of your shell history.
+      read -rsp "  Paste an Anthropic API key for the server, or press Enter to skip: " key || key=""
+      echo
+    fi
+    if [ -n "$key" ]; then
+      # Sends the key through stdin, since other processes can read a command's
+      # arguments. printf is a shell builtin, so it doesn't start one.
+      printf '%s' "$key" | aws ssm put-parameter --region "$region" --name "$anthropic_parameter" \
+        --type SecureString --value file:///dev/stdin ${stored:+--overwrite} >/dev/null
+      answer_ok "stored your Anthropic API key; make aws-destroy deletes it"
+      # The server reads the key only when it starts.
+      if [ -n "$stored" ] && running_deployments 2>/dev/null | grep -qx "$name"; then
+        answer_warn "your running server still uses the old key. It reads the key when it starts, so it uses the new one once it's replaced: deploy a different commit, or run make aws-destroy, then make aws-up."
+      fi
+    elif [ -n "$stored" ]; then
+      answer_ok "kept the Anthropic API key you gave on an earlier run"
+    else
+      answer_warn "no Anthropic API key: the server starts and make aws-smoke passes, but every model call fails with 503."
+    fi
+    unset key
+  fi
+
+  # --- The code the server runs ---
+
+  # On main there's nothing to choose.
+  branch="$(git branch --show-current)"
+  answer=1
+  if [ -n "$branch" ] && [ "$branch" != main ]; then
+    echo
+    echo "The server clones the code it runs from GitHub."
+    echo "  1) main, from groundline-dev/groundline"
+    echo "  2) your branch $branch ($(git rev-parse --short HEAD))"
+    choose "Which code should the server run? (1 main, 2 your branch)" 2 1
+  fi
+  if [ "$answer" = 1 ]; then
+    git fetch --quiet "$main_repository" main
+    REF="$(git rev-parse FETCH_HEAD)"
+    REF_NAME=main
+    REPOSITORY_URL="$main_repository"
+    export REPOSITORY_URL
+  else
+    if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+      echo
+      echo "You have uncommitted changes. The server gets its code from GitHub, so it"
+      echo "runs your last commit, $(git rev-parse --short HEAD), without them."
+      bullet "Changes in scripts/ and infra/ still apply: they run on your Mac, not the server."
+      bullet "To run your other changes on the server, commit them and run make aws-up"
+      echo "    again. It then offers to push them to GitHub."
+      confirm "Deploy $(git rev-parse --short HEAD) without your uncommitted changes?" \
+        || fail "commit your changes, then run make aws-up again"
+    fi
+    # The server clones the branch from whichever GitHub remote has it, such as
+    # your fork, so nobody needs to push to groundline-dev/groundline.
+    git fetch --quiet --all --prune
+    if ! remote_with HEAD >/dev/null; then
+      remote="$(git config "branch.$branch.remote" || echo origin)"
+      echo
+      echo "The server gets its code from GitHub, but your last commit,"
+      echo "$(git rev-parse --short HEAD), isn't pushed yet."
+      bullet "Pushing sends $branch to $remote: $(git remote get-url "$remote")"
+      bullet "If $branch has an open pull request, its new commits show up there."
+      confirm "Push $branch to $remote, so the server can clone it?" \
+        || fail "push $branch to a public GitHub repository, such as your fork, then run this again"
+      git push --set-upstream "$remote" "$branch"
+    fi
+    REF="$(git rev-parse HEAD)"
+    REF_NAME="$branch"
+    unset REPOSITORY_URL
+  fi
+fi
+export REF REF_NAME
+answer_ok "step 1 done: deployment $name in $project, running ${REF:0:7}${REF_NAME:+ ($REF_NAME)}"
 
 step "Step 2 of 3: deploy"
 scripts/aws-deploy
 
 step "Step 3 of 3: check the server"
+echo "A new server takes about 5 to 10 minutes to start. Then a few requests check"
+echo "that it works, without calling Claude."
 scripts/aws-smoke-test
 
-app_url="$(terraform -chdir=infra output -raw app_url)"
-step "What next"
-cat <<EOF
-  make aws-key          creates an API key, for trying requests at $app_url/docs
-  make aws-smoke-live   sends one real commission check, which costs under a cent
-  make aws-destroy      deletes the server and its data when you're done
-EOF
+what_next

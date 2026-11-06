@@ -6,17 +6,18 @@
 # Usage: scripts/aws-deploy            (make aws-deploy)
 #        REF=<branch|tag|commit> scripts/aws-deploy
 #
-# The server runs REF (default HEAD), which must be pushed to GitHub. The Region
-# is AWS_REGION, or the one `aws configure get region` gives. Rerunning it with
-# the same commit after your IP changes updates only the security group; another
-# commit replaces the server, and its data with it. Before changing anything, it
-# says in plain words what will change and asks.
+# The server runs REF (default HEAD). It clones REF from REPOSITORY_URL if
+# that's set, or else from whichever GitHub remote has it, such as your fork.
+# The server clones without signing in, so that repository has to be public.
+# The AWS project is the one make aws-up or make aws-project last chose, and
+# the Region is that project's, or AWS_REGION. Rerunning it with the same commit
+# after your IP changes updates only the security group; another commit
+# replaces the server, and its data with it. Before changing anything, it says
+# in plain words what will change and asks.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 source scripts/aws-common.sh
-
-anthropic_parameter=/groundline/anthropic-api-key
 
 for tool in terraform aws git curl jq; do
   command -v "$tool" >/dev/null || fail "$tool isn't installed (see docs/deploying-to-aws.md)"
@@ -26,35 +27,43 @@ done
 grep --quiet '^[[:space:]]*deployment_name[[:space:]]*=' infra/terraform.tfvars \
   || fail "infra/terraform.tfvars has no deployment_name: add one, such as deployment_name = \"alice\" (see infra/terraform.tfvars.example)"
 
-# Reads the Region first: without one, the sign-in check fails even when signed in.
-region="${AWS_REGION:-$(aws configure get region || true)}"
-[ -n "$region" ] || fail "no AWS Region: run aws configure set region <your project's Region code, such as us-east-2>"
-aws sts get-caller-identity --region "$region" --output text --query Account >/dev/null \
-  || fail "the AWS CLI isn't signed in: run aws login"
+use_project
+anthropic_parameter="$(anthropic_parameter "$(deployment_name)")"
 
 ref="${REF:-HEAD}"
 commit="$(git rev-parse --verify --quiet "$ref^{commit}")" || fail "$ref isn't a commit"
-git fetch --quiet --prune origin
-[ -n "$(git for-each-ref --contains "$commit" refs/remotes/origin)" ] \
-  || fail "$ref ($commit) isn't on GitHub yet: push it first, since the server clones it from there"
-# What to call the commit: REF as given, or the branch checked out.
-ref_name="${REF:-$(git branch --show-current)}"
+if [ -n "${REPOSITORY_URL:-}" ]; then
+  repository_url="$REPOSITORY_URL"
+else
+  git fetch --quiet --all --prune
+  repository_url="$(remote_with "$commit")" \
+    || fail "$ref ($commit) isn't on GitHub yet: push it to your fork or a branch first, since the server clones it from there"
+fi
+GIT_TERMINAL_PROMPT=0 git ls-remote --quiet "$repository_url" HEAD >/dev/null 2>&1 \
+  || fail "the server can't clone $repository_url: it clones without signing in, so the repository has to be public on GitHub"
+# What to call the commit: REF_NAME from make aws-up, REF as given, or the branch checked out.
+ref_name="${REF_NAME:-${REF:-$(git branch --show-current)}}"
 
 ip="$(curl --fail --silent --show-error --max-time 10 https://checkip.amazonaws.com | tr -d '[:space:]')" || ip=""
 [[ "$ip" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || fail "couldn't find this computer's public IPv4 address (got '$ip')"
 
-# Checks only that the parameter exists: its value never leaves AWS.
+echo "Deploying ${commit:0:7}${ref_name:+ ($ref_name)} from $repository_url"
+echo "to $(project_label) in $region, reachable only from $ip."
+
+# Checks only that the parameter exists: its value never leaves AWS. make aws-up
+# has already warned about a missing key, so only a direct run warns here.
 if ! errors="$(aws ssm get-parameter --region "$region" --name "$anthropic_parameter" 2>&1 >/dev/null)"; then
   case "$errors" in
     *ParameterNotFound*)
-      warn "$anthropic_parameter doesn't exist, so the server will have no Anthropic API key."
-      echo "         make aws-smoke works without it; make aws-smoke-live doesn't." >&2
+      if top_level; then
+        echo
+        warn "the server will have no Anthropic API key: $anthropic_parameter doesn't exist."
+        bullet "make aws-smoke works without it; make aws-smoke-live doesn't."
+      fi
       ;;
     *) fail "couldn't check $anthropic_parameter: $errors" ;;
   esac
 fi
-
-echo "Deploying ${commit:0:7}${ref_name:+ ($ref_name)} to $region, reachable only from $ip"
 # Its output only matters when it fails.
 init_log="$(terraform -chdir=infra init -input=false 2>&1)" || {
   echo "$init_log" >&2
@@ -63,40 +72,40 @@ init_log="$(terraform -chdir=infra init -input=false 2>&1)" || {
 # Tells a new server from an updated one below, since only a new one gets a new deadline.
 previous_instance="$(terraform -chdir=infra output -raw instance_id 2>/dev/null || true)"
 
-plan_and_apply "Nothing to change: the server already runs ${commit:0:7} and accepts requests from $ip." \
-  -var "region=$region" -var "tester_cidr=$ip/32" -var "git_ref=$commit"
+plan_and_apply "nothing to change: the server already runs ${commit:0:7} and accepts requests from $ip." \
+  -var "region=$region" -var "tester_cidr=$ip/32" -var "git_ref=$commit" \
+  -var "repository_url=$repository_url"
 
-echo
 instance="$(terraform -chdir=infra output -raw instance_id)"
 hours="$(terraform -chdir=infra output -raw auto_terminate_hours)"
-if [ "$instance" != "$previous_instance" ]; then
-  echo "The server is starting; it takes about 5 to 10 minutes. Check it with: make aws-smoke"
-else
-  echo "The server ($instance) is up to date. Check it with: make aws-smoke"
-fi
-
-if [ "$hours" = 0 ]; then
-  echo "It has no time limit, so it costs about \$17 a month until you run make aws-destroy."
-  exit 0
-fi
-# A new server's clock starts when it first boots, about a minute from now. An
-# existing one keeps its deadline, which only the server knows.
-if [ "$instance" != "$previous_instance" ]; then
-  when="about $(describe_deadline $(($(date +%s) + hours * 3600 + 60)))"
-else
-  when="$(on_server "cat $deadline_file" 2>/dev/null | tr -d '[:space:]' || true)"
-  if [[ "$when" =~ ^[0-9]+$ ]]; then
-    when="$(describe_deadline "$when")"
+if [ -n "$plan_changed" ]; then
+  echo
+  if [ "$instance" != "$previous_instance" ]; then
+    ok "created your server. It takes about 5 to 10 minutes to start."
   else
-    when="the time make aws-status shows"
+    ok "updated your server ($instance). It keeps its data."
   fi
 fi
-cat <<EOF
 
-It terminates itself, with its data, at $when.
-  make aws-status   shows how long it has left
-  make aws-extend   moves it to $hours hours from now (make aws-extend HOURS=n for fewer)
-When you're done, or once it has terminated itself, run make aws-destroy: terminating
-removes only the server and its data, not its security group, IAM role, instance
-profile or budget.
-EOF
+# The deadline, as the server's deadline file would hold it. A new server's
+# clock starts when it first boots, about a minute from now. An existing one
+# keeps its deadline, which only the server knows.
+if [ "$hours" = 0 ]; then
+  deadline=none
+elif [ "$instance" != "$previous_instance" ]; then
+  deadline=$(($(date +%s) + hours * 3600 + 60))
+else
+  deadline="$(on_server "cat $deadline_file" 2>/dev/null | tr -d '[:space:]' || true)"
+  [[ "$deadline" =~ ^[0-9]+$ ]] || deadline=""
+fi
+# Run directly, What next says when it terminates itself. Run by make aws-up,
+# which shows What next only at the end, it's said here.
+if top_level; then
+  what_next "$deadline"
+elif [ "$deadline" = none ]; then
+  echo
+  echo "It has no time limit, so it costs about \$17 a month until you run make aws-destroy."
+elif [ -n "$deadline" ]; then
+  echo
+  echo "It terminates itself, with its data, at $(describe_deadline "$deadline")."
+fi

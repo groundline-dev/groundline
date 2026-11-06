@@ -12,10 +12,10 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/aws-common.sh
 
+use_project
 # With nothing deployed, terraform output exits 0 and prints nothing.
 instance="$(terraform -chdir=infra output -raw instance_id 2>/dev/null || true)"
-region="$(terraform -chdir=infra output -raw region 2>/dev/null || true)"
-[ -n "$instance" ] && [ -n "$region" ] || fail "nothing is deployed from this folder: run make aws-deploy"
+[ -n "$instance" ] || fail "you have nothing deployed to $(project_label): run make aws-up"
 app_url="$(terraform -chdir=infra output -raw app_url)"
 
 keys() {
@@ -27,13 +27,13 @@ case "${1:-}" in
     require_running
     created="$(keys "create --name demo")" || fail "groundline keys create failed on the server: $created"
     id="$(sed -n 's/^ID: //p' <<<"$created")"
-    echo "$created"
-    cat <<EOF
-
-To try a request, open $app_url/docs, choose Authorize and paste the API key.
-Anyone who can read this AWS project's Run Command history can see it. It goes
-when the server does; to revoke it sooner, run make aws-key REVOKE=$id
-EOF
+    ok "created an API key on the server"
+    while IFS= read -r line; do echo "  $line"; done <<<"$created"
+    echo
+    echo "To try a request, open $app_url/docs, choose Authorize and paste the API key."
+    bullet "Anyone who can read this AWS project's Run Command history can see it."
+    bullet "It's revoked when the server goes. To revoke it sooner, run"
+    echo "    make aws-key REVOKE=$id"
     ;;
   --revoke)
     id="${2:-}"
@@ -41,10 +41,12 @@ EOF
     [[ "$id" =~ ^[0-9a-f]{8}(-[0-9a-f]{4}){3}-[0-9a-f]{12}$ ]] \
       || fail "REVOKE should be an API key's ID, a UUID such as 0b6c8a5e-1f2d-4c3b-9a8e-7d6f5e4c3b2a, not '$id'"
     require_running
-    keys "revoke $id" || fail "groundline keys revoke failed on the server"
+    keys "revoke $id" >/dev/null || fail "groundline keys revoke failed on the server"
+    ok "revoked API key $id"
     ;;
   *)
     echo "usage: $0 [--revoke <ID>]" >&2
     exit 2
     ;;
 esac
+what_next

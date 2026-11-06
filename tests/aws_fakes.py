@@ -12,13 +12,16 @@ They answer only the calls the scripts make, the way the real tools answer:
   runs, or a destroy plan is applied, then fails as it does with no state.
 - `terraform plan -destroy -out=FILE` writes a plan deleting each resource the
   outputs name, which `terraform show -json FILE` prints and `terraform apply
-  FILE` carries out.
+  FILE` carries out. `terraform show -no-color FILE` prints SHORT_PLAN_SAMPLE.
 - `aws ssm send-command` records the command. `aws ssm wait command-executed`
   and `aws ssm get-command-invocation` report it with the status and output of
   the first entry in `ssm_replies` whose `when` text it contains.
 - `aws ssm get-parameter` finds the Anthropic parameter or fails with
   ParameterNotFound. With --with-decryption it fails the test run: no script
-  may read the key.
+  may read the key. `aws ssm delete-parameter` deletes it, or fails with
+  ParameterNotFound.
+- `aws configure get region` prints `region`, and `aws account
+  get-account-information` gives `account_name` as the project's name.
 - `aws ec2 describe-instances`, `describe-security-groups`, `aws iam get-role`,
   `get-instance-profile` and `aws budgets describe-budget` find what `existing`
   lists, or fail with that service's not-found error.
@@ -48,6 +51,20 @@ BOOLEAN_FLAGS = {
 }
 
 
+# What `terraform show -no-color PLAN` prints: a resource header, settings
+# unchanged by a replacement, one changed setting that forces it, and totals.
+SHORT_PLAN_SAMPLE = """Terraform will perform the following actions:
+
+  # aws_instance.server must be replaced
+-/+ resource "aws_instance" "server" {
+      ~ id                 = "i-0123456789abcdef0" -> (known after apply)
+        instance_type      = "t4g.small"
+      ~ user_data          = "abc" -> "def" # forces replacement
+    }
+
+Plan: 1 to add, 0 to change, 1 to destroy."""
+
+
 def new_world(**fields: Any) -> dict[str, Any]:
     """A world in which every resource is gone, the parameter exists and each
     SSM command succeeds with no output. Pass fields to change any of that."""
@@ -58,7 +75,9 @@ def new_world(**fields: Any) -> dict[str, Any]:
         "commands": [],
         "ssm_replies": [],
         "parameter_exists": True,
+        "region": "eu-north-1",
         "account": "123456789012",
+        "account_name": "Test project",
         "existing": {},
         "error": None,
     }
@@ -110,6 +129,9 @@ def _terraform(world: dict[str, Any], args: list[str]) -> int:
         return _destroy_plan(world, args)
     if args[:2] == ["show", "-json"] and len(args) == 3:
         sys.stdout.write(Path(args[2]).read_text())
+        return 0
+    if args[:2] == ["show", "-no-color"] and len(args) == 3:
+        print(SHORT_PLAN_SAMPLE)
         return 0
     if args[:1] == ["show"] and len(args) == 2:
         print("(the full Terraform plan)")
@@ -167,6 +189,12 @@ def _aws(world: dict[str, Any], args: list[str]) -> int:
     if len(positional) < 2:
         return _unsupported(args)
     service, operation = positional[0], positional[1]
+    # Reads the AWS CLI's own settings, so it works without signing in.
+    if positional == ["configure", "get", "region"]:
+        if not world["region"]:
+            return 1
+        print(world["region"])
+        return 0
     try:
         if world["error"]:
             raise AWSError(world["error"], operation, "the request failed")
@@ -218,6 +246,8 @@ def _reply(
     match (service, operation):
         case ("sts", "get-caller-identity"):
             return {"Account": world["account"], "Arn": "arn:aws:iam::x:user/me"}
+        case ("account", "get-account-information"):
+            return {"AccountId": world["account"], "AccountName": world["account_name"]}
         case ("ssm", "send-command"):
             command_id = f"cmd-{len(world['commands']) + 1}"
             script = str(options.get("--parameters") or "")
@@ -244,6 +274,11 @@ def _reply(
             if not world["parameter_exists"]:
                 raise AWSError("ParameterNotFound", "GetParameter", "")
             return {"Parameter": {"Name": name, "Type": "SecureString"}}
+        case ("ssm", "delete-parameter"):
+            if not world["parameter_exists"]:
+                raise AWSError("ParameterNotFound", "DeleteParameter", "")
+            world["parameter_exists"] = False
+            return {}
         case ("ec2", "describe-instances"):
             instance_id = options.get("--instance-ids")
             state = existing.get(str(instance_id))

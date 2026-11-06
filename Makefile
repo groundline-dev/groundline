@@ -1,5 +1,5 @@
 .PHONY: setup dev db test-fast test-db test-live check fix docker-build docker-run docker-smoke \
-	infra-check aws-up aws-deploy aws-smoke aws-smoke-live aws-key aws-status aws-extend aws-destroy
+	infra-check aws-up aws-project aws-deploy aws-smoke aws-smoke-live aws-key aws-status aws-reset-deadline aws-destroy
 
 setup:
 	uv sync
@@ -64,6 +64,10 @@ infra-check:
 aws-up:
 	scripts/aws-up
 
+# Chooses the AWS project the other aws-* targets act on, in the browser.
+aws-project:
+	scripts/aws-project
+
 aws-deploy:
 	scripts/aws-deploy
 
@@ -84,8 +88,8 @@ aws-status:
 	scripts/aws-status
 
 # Moves the deadline to auto_terminate_hours from now, or to HOURS=n hours.
-aws-extend:
-	scripts/aws-extend $(HOURS)
+aws-reset-deadline:
+	scripts/aws-reset-deadline $(HOURS)
 
 aws-destroy:
 	scripts/aws-destroy

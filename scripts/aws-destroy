@@ -5,37 +5,66 @@
 #
 # Usage: scripts/aws-destroy   (make aws-destroy)
 #
-# Before deleting anything, it says in plain words what will go and asks. It
-# leaves the Anthropic API key's parameter, which was created outside
-# Terraform, and prints the command to delete it.
+# It acts on the project make aws-up or make aws-project last chose; to reach a
+# deployment in another project, run make aws-project first.
+#
+# Before deleting anything, it says in plain words what will go and asks. Then
+# it deletes the deployment's Anthropic API key parameter, which make aws-up
+# created outside Terraform.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/aws-common.sh
 
-anthropic_parameter=/groundline/anthropic-api-key
+use_project
 
 # Read before destroying: the outputs are gone afterwards. A deployment that
 # failed partway may lack some, so a missing one is checked below, not here.
 output() { terraform -chdir=infra output -raw "$1" 2>/dev/null || true; }
 instance="$(output instance_id)"
-region="$(output region)"
 group="$(output security_group_id)"
 role="$(output iam_role_name)"
 profile="$(output instance_profile_name)"
 budget="$(output budget_name)"
-region="${region:-${AWS_REGION:-$(aws configure get region || true)}}"
-[ -n "$region" ] || fail "no AWS Region: run aws configure set region <your project's Region code, such as us-east-2>"
-account="$(aws sts get-caller-identity --region "$region" --query Account --output text)" \
-  || fail "the AWS CLI isn't signed in: run aws login"
+anthropic_parameter="$(output anthropic_parameter_name)"
+name="$(deployment_name)"
+anthropic_parameter="${anthropic_parameter:-${name:+$(anthropic_parameter "$name")}}"
+
+echo "Deleting your test deployment in $(project_label)."
 
 # Destroying doesn't use these values, but Terraform asks for every required
 # variable without a default.
-plan_and_apply "Nothing to delete: Terraform's state in infra/ lists no resources." -destroy \
+plan_and_apply "nothing to delete: Terraform's state for this project lists no resources." -destroy \
   -var "region=$region" -var "tester_cidr=127.0.0.1/32" -var "git_ref=unused"
 
-echo
-echo "Checking that everything is gone"
 leftover=0
+
+# The server is gone, so nothing needs the Anthropic API key any more.
+doing "Deleting your Anthropic API key"
+if [ -z "$anthropic_parameter" ]; then
+  check_warn "couldn't tell which Anthropic API key parameter is yours: infra/terraform.tfvars has no deployment_name"
+elif errors="$(aws ssm delete-parameter --region "$region" --name "$anthropic_parameter" 2>&1 >/dev/null)"; then
+  check_ok "deleted it from Parameter Store ($anthropic_parameter)"
+  echo
+  echo "If anyone else can access this AWS project, they could have copied the key while"
+  echo "your server ran. Revoke it in the Anthropic Console if that matters to you."
+else
+  case "$errors" in
+    *ParameterNotFound*) check_ok "no Anthropic API key was stored for this deployment" ;;
+    *)
+      check_error "couldn't delete $anthropic_parameter: $errors"
+      leftover=1
+      ;;
+  esac
+fi
+
+# With no resources in the state and none named, there's nothing to check.
+if [ -z "$plan_changed" ] && [ -z "$instance$group$role$profile$budget" ]; then
+  other_deployments
+  echo
+  exit 0
+fi
+
+doing "Checking that everything is gone"
 
 # gone WHAT ID COMMAND...: passes only when COMMAND fails with a not-found error.
 # An empty ID means Terraform had no output naming it, so it can't be checked.
@@ -43,19 +72,19 @@ gone() {
   local what="$1" id="$2" errors
   shift 2
   if [ -z "$id" ]; then
-    error "couldn't check the $what: Terraform had no output naming it"
+    check_error "couldn't check the $what: Terraform had no output naming it"
     leftover=1
     return
   fi
   if errors="$("$@" 2>&1 >/dev/null)"; then
-    error "$what $id still exists"
+    check_error "$what $id still exists"
     leftover=1
     return
   fi
   case "$errors" in
-    *NotFound* | *NoSuchEntity*) ok "$what $id is gone" ;;
+    *NotFound* | *NoSuchEntity*) check_ok "$what $id is gone" ;;
     *)
-      error "couldn't check $what $id: $errors"
+      check_error "couldn't check $what $id: $errors"
       leftover=1
       ;;
   esac
@@ -67,15 +96,15 @@ if [ -z "$instance" ]; then
 elif instance_state="$(aws ec2 describe-instances --region "$region" --instance-ids "$instance" \
   --query 'Reservations[0].Instances[0].State.Name' --output text 2>&1)"; then
   if [ "$instance_state" = terminated ]; then
-    ok "instance $instance is terminated"
+    check_ok "instance $instance is terminated"
   else
-    error "instance $instance is $instance_state, not terminated"
+    check_error "instance $instance is $instance_state, not terminated"
     leftover=1
   fi
 else
   case "$instance_state" in
-    *NotFound*) ok "instance $instance is gone" ;;
-    *) error "couldn't check instance $instance: $instance_state"; leftover=1 ;;
+    *NotFound*) check_ok "instance $instance is gone" ;;
+    *) check_error "couldn't check instance $instance: $instance_state"; leftover=1 ;;
   esac
 fi
 gone "security group" "$group" aws ec2 describe-security-groups --region "$region" --group-ids "$group"
@@ -83,10 +112,12 @@ gone "IAM role" "$role" aws iam get-role --role-name "$role"
 gone "instance profile" "$profile" aws iam get-instance-profile --instance-profile-name "$profile"
 gone budget "$budget" aws budgets describe-budget --account-id "$account" --budget-name "$budget"
 
-[ "$leftover" = 0 ] \
-  || fail "something may be left over; see above, and check the AWS console for resources tagged app=groundline"
+[ "$leftover" = 0 ] || {
+  echo
+  fail "something may be left over; see above, and check the AWS console for resources tagged app=groundline"
+}
 
 echo
-echo "The Anthropic API key's parameter is still in Parameter Store. Every deployment in"
-echo "this AWS project reads it, so delete it only if no one else here still deploys:"
-echo "  aws ssm delete-parameter --name $anthropic_parameter --region $region"
+ok "your test deployment is deleted. To deploy again, run make aws-up."
+other_deployments
+echo

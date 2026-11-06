@@ -17,7 +17,6 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/aws-common.sh
 
-anthropic_parameter=/groundline/anthropic-api-key
 wait_minutes=15
 
 live=false
@@ -27,16 +26,16 @@ case "${1:-}" in
   *) echo "usage: $0 [--live]" >&2; exit 2 ;;
 esac
 
+use_project
 # With nothing deployed, terraform output exits 0 and prints nothing, so an empty
 # value counts as missing too.
 output() {
   local value
   value="$(terraform -chdir=infra output -raw "$1")" && [ -n "$value" ] \
-    || fail "no $1 in the Terraform state: run make aws-deploy first"
+    || fail "no $1 in the Terraform state for $(project_label): run make aws-up first"
   printf '%s' "$value"
 }
 instance="$(output instance_id)"
-region="$(output region)"
 app_url="$(output app_url)"
 
 # A server that terminated itself fails here, with the aws-destroy reminder,
@@ -44,6 +43,7 @@ app_url="$(output app_url)"
 require_running
 
 if $live; then
+  anthropic_parameter="$(output anthropic_parameter_name)"
   # Checks only that the parameter exists: its value never leaves AWS.
   if ! errors="$(aws ssm get-parameter --region "$region" --name "$anthropic_parameter" 2>&1 >/dev/null)"; then
     case "$errors" in
@@ -54,37 +54,66 @@ if $live; then
   fi
 fi
 
-# In a terminal, one line shows the time so far, rewritten every 10 seconds or so.
-# Elsewhere, such as in a log, a line a minute says it's still waiting.
-started=$SECONDS
-deadline=$((SECONDS + wait_minutes * 60))
-last_minute=-1
-until [ "$(curl --silent --max-time 10 --output /dev/null --write-out '%{http_code}' "$app_url/health" || true)" = 200 ]; do
-  elapsed=$((SECONDS - started))
-  if [ -t 1 ]; then
-    printf '\rWaiting for the server to start... %d:%02d' $((elapsed / 60)) $((elapsed % 60))
-  elif [ $((elapsed / 60)) != "$last_minute" ]; then
-    last_minute=$((elapsed / 60))
-    echo "Waiting for the server to start... $last_minute min"
-  fi
-  if [ "$SECONDS" -ge "$deadline" ]; then
-    [ -t 1 ] && echo
-    require_running
-    echo "--- the server's startup log ---" >&2
-    on_server "tail -n 80 /var/log/groundline-bootstrap.log; cd /opt/groundline && docker compose ps --all && docker compose logs --tail 40" >&2 || true
-    fail "the server didn't start within $wait_minutes minutes: $app_url/health never answered 200"
-  fi
-  sleep 10
-done
-# Ends the rewritten line, if there was one.
-[ -t 1 ] && [ "$SECONDS" -gt "$started" ] && echo
+# health: the status GET /health returns, or 000 if the server doesn't answer.
+health() {
+  curl --silent --max-time 10 --output /dev/null --write-out '%{http_code}' "$app_url/health" || true
+}
+
+# Until the server answers, it's asked again every 10 seconds, in the
+# background, so the time so far can be shown every second even while a request
+# waits up to 10 seconds for an answer. In a terminal, one line shows the time,
+# rewritten each second. Elsewhere, such as in a log, a line a minute says it's
+# still waiting.
+if [ "$(health)" = 200 ]; then
+  echo
+  ok "the server has already started"
+else
+  echo
+  started=$SECONDS
+  deadline=$((SECONDS + wait_minutes * 60))
+  next_check=$((SECONDS + 10))
+  last_minute=-1
+  checking=""
+  health_file="$(mktemp)"
+  while :; do
+    if [ -z "$checking" ] && [ "$SECONDS" -ge "$next_check" ]; then
+      health >"$health_file" &
+      checking=$!
+      next_check=$((SECONDS + 10))
+    fi
+    if [ -n "$checking" ] && ! kill -0 "$checking" 2>/dev/null; then
+      wait "$checking" || true
+      checking=""
+      [ "$(cat "$health_file")" = 200 ] && break
+    fi
+    elapsed=$((SECONDS - started))
+    if [ -t 1 ]; then
+      printf '\rWaiting for the server to start... %d:%02d' $((elapsed / 60)) $((elapsed % 60))
+    elif [ $((elapsed / 60)) != "$last_minute" ]; then
+      last_minute=$((elapsed / 60))
+      echo "Waiting for the server to start... $last_minute min"
+    fi
+    if [ "$SECONDS" -ge "$deadline" ]; then
+      [ -t 1 ] && echo
+      rm -f "$health_file"
+      require_running
+      echo "--- the server's startup log ---" >&2
+      on_server "tail -n 80 /var/log/groundline-bootstrap.log; cd /opt/groundline && docker compose ps --all && docker compose logs --tail 40" >&2 || true
+      fail "the server didn't start within $wait_minutes minutes: $app_url/health never answered 200"
+    fi
+    sleep 1
+  done
+  rm -f "$health_file"
+  # Ends the rewritten line.
+  [ -t 1 ] && echo
+fi
 
 if $live; then
-  echo "Checking the server. The last check calls Claude, which costs under a cent:"
+  doing "Checking the server, with one call to Claude that costs under a cent"
 else
-  echo "Checking the server, without calling Claude:"
+  doing "Checking the server, without calling Claude"
 fi
-ok "the server answers (GET /health returned 200)"
+check_ok "the server answers (GET /health returned 200)"
 
 keys_create_output="$(on_server "cd /opt/groundline && docker compose exec -T app groundline keys create --name aws-smoke-test")" \
   || fail "groundline keys create failed on the server: $keys_create_output"
@@ -94,13 +123,13 @@ api_key="$(sed -n 's/^API key: \(gl_[A-Za-z0-9_-]*\)$/\1/p' <<<"$keys_create_out
 
 revoke() {
   if on_server "cd /opt/groundline && docker compose exec -T app groundline keys revoke $api_key_id" >/dev/null; then
-    ok "revoked the test API key"
+    check_ok "revoked the test API key"
   else
-    warn "couldn't revoke the test API key; revoke it with make aws-key REVOKE=$api_key_id"
+    check_warn "couldn't revoke the test API key; revoke it with make aws-key REVOKE=$api_key_id"
   fi
 }
 trap revoke EXIT
-ok "created a test API key on the server"
+check_ok "created a test API key on the server"
 
 # expect STATUS SHOWS FAILURE METHOD PATH [curl arguments...]: send the request,
 # and say what passing SHOWS or, on any other status, what FAILURE means.
@@ -111,7 +140,7 @@ expect() {
   got="$(curl --silent --max-time 120 --output /dev/null --write-out '%{http_code}' \
     --request "$method" "$@" "$app_url$path" || true)"
   [ "$got" = "$want" ] || fail "$failure ($method $path returned ${got:-nothing}, expected $want)"
-  ok "$shows"
+  check_ok "$shows"
 }
 
 # Both send an empty body. The server checks the API key before the body, so the
@@ -120,7 +149,7 @@ expect 401 "an unknown API key is turned away (401)" \
   "the server didn't turn away an unknown API key" \
   POST /v1/omissions --json '{}' --header "Authorization: Bearer gl_unknown"
 expect 422 "the test API key is accepted: the empty request got past the key check and was
-    rejected only for its missing fields (422), so the app, Postgres and API keys work" \
+      rejected only for its missing fields (422), so the app, Postgres and API keys work" \
   "the server didn't accept the API key it just created" \
   POST /v1/omissions --json '{}' --header "Authorization: Bearer $api_key"
 
@@ -143,5 +172,5 @@ fi
 trap - EXIT
 revoke
 echo
-echo "All checks passed. The server is still running and costing money; make aws-status"
-echo "shows when it terminates itself. When you're done, run make aws-destroy."
+ok "all checks passed"
+what_next
