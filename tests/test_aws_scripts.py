@@ -5,7 +5,9 @@ on a real server: the test API key is revoked even when a check fails, the
 live smoke test stops before doing anything when the Anthropic parameter is
 missing, the teardown deletes the deployment's Anthropic parameter and fails
 when something survived or AWS can't say, and a server that terminated itself
-gets the reminder to run make aws-destroy.
+gets the reminder to run make aws-destroy. They also check the layout rules
+in scripts/aws-common.sh that a test can see: every run ends with a blank line,
+and each command that leaves the server running ends with "What next".
 A local HTTP server plays the app.
 
 The stand-ins (tests/aws_fakes.py) answer the way the real tools do, but only
@@ -129,18 +131,22 @@ def run(
         "AWS_PROFILE": "test",
     }
     env.pop("AWS_REGION", None)
+    # Unset, so the script counts as the one you ran and prints what_next.
+    env.pop("GROUNDLINE_AWS_SCRIPT", None)
     finished = subprocess.run(
         [str(script), *args],
         cwd=ROOT,
         env=env,
         input=answer,
-        capture_output=True,
+        # One stream, so the output is in the order a terminal shows it.
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
         text=True,
         timeout=120,
     )
     return Run(
         finished.returncode,
-        finished.stdout + finished.stderr,
+        finished.stdout,
         json.loads(world_path.read_text()),
     )
 
@@ -447,3 +453,81 @@ def test_the_server_clones_a_remote_over_https(remote: str):
     )
 
     assert finished.stdout.strip() == "https://github.com/alice/groundline.git"
+
+
+WHAT_NEXT_END = "to remove what it leaves behind.\n\n"
+"""How the What next block ends (what_next in scripts/aws-common.sh)."""
+
+
+def assert_ends_with_what_next(output: str) -> None:
+    assert "\nWhat next\n" in output, output
+    assert output.endswith(WHAT_NEXT_END), output[-300:]
+
+
+@pytest.mark.parametrize("script", [STATUS, RESET_DEADLINE])
+def test_commands_that_leave_the_server_running_end_with_what_next(
+    script: Path, tmp_path: Path
+):
+    in_two_hours = str(int(time.time()) + 2 * 3600)
+
+    result = run(script, tmp_path, deadline_world("running", in_two_hours))
+
+    assert result.returncode == 0, result.output
+    assert_ends_with_what_next(result.output)
+
+
+def test_a_passing_smoke_test_ends_with_what_next(app: FakeApp, tmp_path: Path):
+    result = run(SMOKE_TEST, tmp_path, smoke_world(app))
+
+    assert result.returncode == 0, result.output
+    assert_ends_with_what_next(result.output)
+
+
+@pytest.mark.parametrize(
+    ("script", "world", "args", "answer"),
+    [
+        pytest.param(
+            STATUS, deadline_world("terminated", "0"), (), "", id="status-fails"
+        ),
+        pytest.param(
+            RESET_DEADLINE,
+            deadline_world("running", "0"),
+            ("9",),
+            "",
+            id="reset-deadline-refuses",
+        ),
+        pytest.param(
+            DESTROY,
+            aws_fakes.new_world(
+                outputs=DESTROY_OUTPUTS, existing={INSTANCE: "terminated"}
+            ),
+            (),
+            "1\n",
+            id="destroy-succeeds",
+        ),
+        pytest.param(
+            DESTROY,
+            aws_fakes.new_world(outputs=DESTROY_OUTPUTS),
+            (),
+            "3\n",
+            id="destroy-cancelled",
+        ),
+        pytest.param(
+            DESTROY,
+            aws_fakes.new_world(outputs=DESTROY_OUTPUTS),
+            (),
+            "",
+            id="destroy-gets-no-answer",
+        ),
+    ],
+)
+def test_every_run_ends_with_a_blank_line(
+    script: Path,
+    world: dict[str, Any],
+    args: tuple[str, ...],
+    answer: str,
+    tmp_path: Path,
+):
+    result = run(script, tmp_path, world, *args, answer=answer)
+
+    assert result.output.endswith("\n\n"), result.output[-300:]

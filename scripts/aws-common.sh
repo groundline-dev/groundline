@@ -68,6 +68,16 @@ step() { printf '\n%s\n' "${bold}$*${reset}"; }
 # - A question, indented (ask, confirm).
 # - A status: indented under the question it answers (answer_ok, answer_warn),
 #   or at the left margin when it stands alone (ok, warn).
+# The helpers can't enforce these rules, so follow them by hand:
+# - Each question makes sense without the explanation above it, and says what
+#   its answer leads to.
+# - A question whose answer can delete data has no default (choose with no
+#   DEFAULT), so a number has to be typed.
+# - Each command that leaves the server running ends with what_next.
+# - Every command, errors included, ends with a blank line before the shell
+#   prompt (fail and what_next print it).
+# - Each value is looked up once and reused, so a later lookup that fails
+#   can't change it partway through a run.
 bullet() { echo "  · $*"; }
 
 # doing TEXT: say what the script is doing now, such as "Checking the server".
