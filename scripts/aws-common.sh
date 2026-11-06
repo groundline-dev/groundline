@@ -295,6 +295,7 @@ require_running() {
     shutting-down | terminated)
       error "the server ($instance) has terminated, probably because its time limit passed."
       gone_reminder
+      echo >&2
       exit 1
       ;;
     *) fail "the server ($instance) is $state, not running: run make aws-deploy to replace it" ;;
