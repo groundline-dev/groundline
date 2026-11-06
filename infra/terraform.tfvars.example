@@ -1,0 +1,16 @@
+# Copy to terraform.tfvars (git-ignored) and fill in your name and email address.
+# scripts/aws-deploy fills in region, tester_cidr and git_ref.
+
+# Names your server's resources, so everyone sharing the AWS project can have
+# one: 1 to 20 lowercase letters, digits and hyphens.
+deployment_name = "alice"
+
+budget_alert_email = "you@example.com"
+
+# Optional: hours after its first boot until the server terminates itself,
+# deleting its data. It's also the most make aws-reset-deadline can give it
+# from the time you run it. 0 keeps it running.
+# auto_terminate_hours = 8
+
+# Optional: a bigger Graviton (arm64) server.
+# instance_type = "t4g.medium"

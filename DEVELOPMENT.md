@@ -78,6 +78,25 @@ The smoke test uses `compose.smoke.yaml` to add a mock Anthropic HTTP service, d
 
 If you run the image with your own `docker run`, publish the port on `127.0.0.1`, as in `-p 127.0.0.1:8001:8000`. A plain `-p 8000:8000` lets anyone on your network reach the API, even past firewalls such as ufw on Linux.
 
+## Deploying to AWS
+
+Test deployments are for internal testing by groundline's developers only. A test deployment runs the Compose stack, at a commit you choose, on an EC2 server in your AWS project. Only your computer's IP can reach it, so it's for test data only, and it deletes itself, with its data, after 8 hours.
+
+**1. Once, before your first deployment:** get everything [Before you start](docs/deploying-to-aws.md#before-you-start) lists. The wizard can't do these for you:
+
+- an AWS project, either your own or the Groundline project
+- an Anthropic API key
+- to deploy your own branch, a public GitHub repository that has it, such as your fork
+
+**2. Each time you test:**
+
+```sh
+make aws-up        # choose the project and the code, deploy, and check the server
+make aws-destroy   # when you're done
+```
+
+[docs/deploying-to-aws.md](docs/deploying-to-aws.md) explains what `make aws-up` asks, the other `make aws-*` commands, costs and troubleshooting. To change the Terraform or the scripts, see [infra/README.md](infra/README.md).
+
 ## Database
 
 To change a table, edit [src/groundline/db/tables.py](src/groundline/db/tables.py), then add a migration to match (a test fails until they agree). Don't store sources, summaries or results in the database.
@@ -113,11 +132,13 @@ A major Postgres upgrade, such as 18 to 19, uses the same commands: back up, che
 
 ## Tests
 
-There are three test suites. Each needs something different, so run each one when your change calls for it:
+There are three test suites. They differ in what they use for Postgres and Claude, so run each one when your change calls for it:
 
-- **`make test-fast`** runs the tests that need nothing running and cost nothing. Run them before every push; `make check` runs them too.
-- **`make test-db`** starts Postgres, then runs the tests that need it. Run them when you change the tables, migrations, API keys or authentication. Each run creates its own throwaway database and drops it afterwards.
-- **`make test-live`** calls the real Anthropic API, for about $0.09 a run. Run it when you change what groundline sends to the model: a prompt, the rubric, a preset, model settings or the Anthropic client.
+- **`make test-fast`** runs every test except the two groups below, with fakes in place of Postgres and Claude: a fake Claude returns recorded replies, and API keys are kept in memory. It covers the pipeline steps, the API's endpoints and errors, the CLI, the schemas, the replayed preset runs, and the checks of `compose.yaml`, the Terraform files and the AWS scripts. It needs nothing running and costs nothing. Run it before every push; `make check` runs it too.
+- **`make test-db`** starts Postgres, then runs the tests that need a real one: storing API keys and checking them on requests, the migrations and the schema, `/ready`, and `groundline keys`. Run it when you change the tables, migrations, API keys or authentication. Each run creates its own throwaway database and drops it afterwards.
+- **`make test-live`** runs the tests that call the real Anthropic API, for about $0.09 a run. Run it when you change what groundline sends to the model: a prompt, the rubric, a preset, model settings or the Anthropic client.
+
+None of them starts the Docker stack, runs `terraform test` or touches AWS: `make docker-smoke`, `make infra-check` and `make aws-smoke` do that.
 
 CI runs the fast and database tests on every PR, but never the live tests.
 
@@ -139,7 +160,7 @@ Anthropic SDK DEBUG logging includes raw prompts. Privacy assertions capture gro
 
 ## Lint, format and type checks
 
-`make check` runs everything CI runs, without changing files: ruff, pyright in strict mode, the large-file check and the tests. `make fix` applies ruff's fixes and formatting. Pyright errors need fixing by hand.
+`make check` runs ruff, pyright in strict mode, the large-file check and the tests, without changing files. CI runs it too, along with the database tests (`make test-db`), the Docker stack check (`make docker-smoke`) and the Terraform checks (`make infra-check`). `make infra-check` needs Terraform, but no AWS credentials: its tests plan against a mock AWS provider. Run it when you change `infra/`. `make fix` applies ruff's fixes and formatting. Pyright errors need fixing by hand.
 
 The `pre-commit` hook runs the same checks on staged files. If ruff fails, run `make fix` and stage the result.
 
@@ -183,7 +204,9 @@ src/groundline/
   auth.py                  the Bearer authentication dependency
   cli.py, keys_cli.py      the groundline command and its keys subgroup
   api/, app.py             the API's endpoints and the FastAPI app
-scripts/                   db-setup, and the stack check behind make docker-smoke
+infra/                     Terraform for AWS test deployments, the startup script, and their tests
+scripts/                   db-setup, the stack check behind make docker-smoke, and the AWS
+                           scripts behind make aws-deploy, aws-smoke, aws-smoke-live and aws-destroy
 tests/                     the tests
 ```
 
