@@ -1,6 +1,6 @@
 # infra
 
-This folder holds the Terraform for groundline's AWS test deployments: one EC2 instance per developer that runs the Compose stack at a chosen commit. It's for whoever maintains the deployment. To deploy a server, follow "Deploying to AWS" in [DEVELOPMENT.md](../DEVELOPMENT.md) instead.
+This folder holds the Terraform for groundline's AWS test deployments: one EC2 instance per developer that runs the Compose stack at a chosen commit. It's for whoever maintains the deployment. To deploy a server, follow [docs/deploying-to-aws.md](../docs/deploying-to-aws.md) instead.
 
 - [main.tf](main.tf): the server, its security group and its IAM role
 - [budget.tf](budget.tf): the monthly budget alert
@@ -16,12 +16,17 @@ A test deployment holds only test data ([ADR 0006](../docs/adr/0006-no-real-pati
 - **The security group admits one `/32` on port 8001:** the app speaks plain HTTP until ALL-90 adds HTTPS, so only the developer's own IP can reach it. The variable's validation rejects wider ranges, and there's no inbound rule for SSH.
 - **SSM Run Command instead of SSH:** the scripts reach the server through SSM, so there's no key pair to manage and no open port 22.
 - **The IAM role's policy is written out instead of attaching `AmazonSSMManagedInstanceCore`:** that managed policy also grants `ssm:GetParameter` and `ssm:GetParameters` on every parameter in the project. Our copy keeps the SSM agent's actions and allows reading only `/groundline/anthropic-api-key`.
+- **The Anthropic API key stays in Parameter Store:** only the server reads it, when it starts. Terraform and the scripts only check that `/groundline/anthropic-api-key` exists, so the Anthropic API key never lands in Terraform state or on a developer's screen.
 - **IMDSv2 with a hop limit of 1:** every metadata request needs a session token, and the reply that carries the token doesn't get past Docker's bridge network, so the containers can't get the role's credentials. The SSM agent and the startup script run on the server itself and still can. Nothing in the containers uses AWS.
 - **Standard CPU credits:** T4g instances default to unlimited credits, which bill CPU use above the baseline at about $0.04 per vCPU-hour with no ceiling. Standard credits slow the server down instead, so it costs what the budget expects.
 - **An encrypted 20 GB gp3 disk that's deleted on termination:** the data goes with the server, and the provider's `default_tags` don't reach the root disk, so it's tagged separately.
 - **The 8-hour limit:** the startup script writes a deadline and installs a systemd timer that shuts the server down once it passes. `instance_initiated_shutdown_behavior = "terminate"` makes that shutdown delete the server. The deadline is written before anything else, so a server whose startup fails still goes away. With `auto_terminate_hours = 0` there's no timer, and a shutdown only stops the server, so it keeps its data.
 - **A $5 budget for the whole project, without credits:** filtering by the `app` tag needs an account-level billing setting, so the budget covers everything in the project. Credits are left out because on the Free plan they bring the cost to $0, and the alert would never fire.
 - **Names and tags from `deployment_name`:** IAM role and budget names are unique per account, so this is what lets several developers share one AWS project.
+
+## Costs
+
+The server costs about $0.024 an hour in us-east-1, about $17 a month: $0.0168 for the `t4g.small` instance, $0.005 for its public IP and $0.002 for its 20 GB disk. Prices differ a little between Regions. A server that runs to its 8-hour limit costs about $0.19. The security group, IAM role, instance profile and budget are free. The budget alert emails everyone who has deployed when the project's costs pass $2.50 and $5 in a month. `scripts/aws-common.sh` quotes the hourly price in the summary it shows before `make aws-deploy` changes anything, so update it there too.
 
 ## What needs updating
 
@@ -47,3 +52,46 @@ Terraform state stays in this folder (`terraform.tfstate`, which git ignores). T
 The mock provider doesn't apply `default_tags` and can't list every resource of a kind, so [tests/test_infra.py](../tests/test_infra.py), which `make check` runs, reads the files instead. Among other things, it checks that every resource is tagged, that no Region or backend is written in, that the role gets no managed policy, that the security group has one inbound rule, and that only the startup script reads the Anthropic API key.
 
 None of these tests reach AWS. `make aws-smoke` checks a real server.
+
+### Testing `make aws-up`
+
+After changing the wizard or the scripts it runs, test it as a new developer would, from the repository root. You run it with your own settings moved aside, so it asks every question, then delete what it created. The server costs about $0.024 an hour while it runs.
+
+1. Move your settings file aside, so the wizard asks for your deployment name and email address. Git ignores the copy, since it holds your email address:
+
+   ```sh
+   mv infra/terraform.tfvars infra/terraform.tfvars.bak
+   ```
+
+2. To test the Region prompt too, clear your Region. If you stop before the wizard asks for it, set it back with `aws configure set region <your Region code>`.
+
+   ```sh
+   aws configure set region ""
+   ```
+
+3. Run the wizard:
+
+   ```sh
+   make aws-up
+   ```
+
+4. Answer its questions:
+   - **Region code:** first type a Region's name, such as `US East (Ohio)`, which it should reject, then your Region's code.
+   - **Deployment name and email address:** enter the same ones as before, so your resources keep their names.
+   - **Anthropic API key:** it asks only if no one in the AWS project has stored one.
+   - **Terraform plan summary:** check that it says what you expect, then type `yes`.
+5. Wait for the smoke test, about 5 to 10 minutes. Read each step's output as a newcomer would: anything unclear, any long wait with no sign of progress, or any surprising question is worth fixing.
+6. Compare the new settings file with your old one, then delete the old one. `diff` prints only the lines that differ, so `deployment_name` and `budget_alert_email` appear only if they changed or moved; the comments may differ too.
+
+   ```sh
+   diff infra/terraform.tfvars.bak infra/terraform.tfvars
+   rm infra/terraform.tfvars.bak
+   ```
+
+7. Delete the server, and type `yes` when it asks:
+
+   ```sh
+   make aws-destroy
+   ```
+
+[tests/test_aws_scripts.py](../tests/test_aws_scripts.py) runs the smoke test, status, extend and destroy scripts against stand-in `aws` and `terraform` commands, but not the wizard, `aws-deploy` or `aws-key`, and only this run shows what a person sees.
