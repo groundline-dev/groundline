@@ -78,10 +78,18 @@ If you run the image with your own `docker run`, publish the port on `127.0.0.1`
 
 ## Deploying to AWS
 
-A test deployment runs the Compose stack, at a commit you choose, on an EC2 server in your AWS project. Only your computer's IP can reach it, so it's for test data only, and it deletes itself, with its data, after 8 hours.
+Test deployments are for internal testing by groundline's developers only. A test deployment runs the Compose stack, at a commit you choose, on an EC2 server in your AWS project. Only your computer's IP can reach it, so it's for test data only, and it deletes itself, with its data, after 8 hours.
+
+**1. Once, before your first deployment:** get everything [Before you start](docs/deploying-to-aws.md#before-you-start) lists. The wizard can't do these for you:
+
+- an AWS project, either your own or the Groundline project
+- an Anthropic API key
+- to deploy your own branch, a public GitHub repository that has it, such as your fork
+
+**2. Each time you test:**
 
 ```sh
-make aws-up        # set up what's missing, deploy, and check the server
+make aws-up        # choose the project and the code, deploy, and check the server
 make aws-destroy   # when you're done
 ```
 

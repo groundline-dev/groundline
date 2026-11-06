@@ -250,6 +250,17 @@ JSON parsing happens before authentication: broken JSON returns 422 and invalid 
 
 Every error answers with JSON: `{"detail": ...}`. Error responses and the server log never contain text from the source or summary. The log records each finished check's outcome, number of omissions or commissions, and cost, and each failure.
 
+## Deploying to AWS
+
+A test deployment runs groundline's API and Postgres, at a commit you choose, on an EC2 server in your AWS project. Only your computer's IP can reach it, so it's for internal testing with test data only, and it deletes itself, with its data, after 8 hours. You need an AWS project, an Anthropic API key, Terraform, the AWS CLI, `jq`, Git and `make`, but not Docker, since the server builds the image itself.
+
+```sh
+make aws-up        # choose the project and the code, deploy, and check the server
+make aws-destroy   # when you're done
+```
+
+[Deploying to AWS](docs/deploying-to-aws.md) explains each step, the settings, the costs and how to check the server.
+
 ## Pipelines, presets and profiles
 
 - **A pipeline spec** says how to check: which steps run, which implementation does each (for example `check.llm_batch`), whether each step is on, and each step's settings, such as model, effort and thresholds. Specs are YAML or JSON. Every spec is validated before any model call, and the validation reports every problem at once.

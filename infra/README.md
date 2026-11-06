@@ -1,6 +1,6 @@
 # infra
 
-This folder holds the Terraform for groundline's AWS test deployments: one EC2 instance per developer that runs the Compose stack at a chosen commit. It's for whoever maintains the deployment. To deploy a server, follow [docs/deploying-to-aws.md](../docs/deploying-to-aws.md) instead.
+This folder holds the Terraform for groundline's AWS test deployments, which are for internal testing by groundline's developers only: one EC2 instance per developer that runs the Compose stack at a chosen commit. It's for whoever maintains the deployment. To deploy a server, follow [docs/deploying-to-aws.md](../docs/deploying-to-aws.md) instead.
 
 - [main.tf](main.tf): the server, its security group and its IAM role
 - [budget.tf](budget.tf): the monthly budget alert
@@ -15,14 +15,16 @@ A test deployment holds only test data ([ADR 0006](../docs/adr/0006-no-real-pati
 - **The default VPC:** every new AWS project has one, so a developer doesn't need to create or pay for a network. If someone deleted theirs, `aws ec2 create-default-vpc` brings it back.
 - **The security group admits one `/32` on port 8001:** the app speaks plain HTTP until ALL-90 adds HTTPS, so only the developer's own IP can reach it. The variable's validation rejects wider ranges, and there's no inbound rule for SSH.
 - **SSM Run Command instead of SSH:** the scripts reach the server through SSM, so there's no key pair to manage and no open port 22.
-- **The IAM role's policy is written out instead of attaching `AmazonSSMManagedInstanceCore`:** that managed policy also grants `ssm:GetParameter` and `ssm:GetParameters` on every parameter in the project. Our copy keeps the SSM agent's actions and allows reading only `/groundline/anthropic-api-key`.
-- **The Anthropic API key stays in Parameter Store:** only the server reads it, when it starts. Terraform and the scripts only check that `/groundline/anthropic-api-key` exists, so the Anthropic API key never lands in Terraform state or on a developer's screen.
+- **The IAM role's policy is written out instead of attaching `AmazonSSMManagedInstanceCore`:** that managed policy also grants `ssm:GetParameter` and `ssm:GetParameters` on every parameter in the project. Our copy keeps the SSM agent's actions and allows reading only the deployment's own Anthropic API key, `/groundline/<deployment_name>/anthropic-api-key`.
+- **Each deployment has its own Anthropic API key, kept in Parameter Store:** only the server reads it, when it starts. `make aws-up` stores it with the AWS CLI and `make aws-destroy` deletes it, and Terraform and the other scripts only check that it exists, so the Anthropic API key never lands in Terraform state or on a developer's screen. Everyone with access to the AWS project can still read it, which is why the docs recommend a project of your own, or in a shared project, a key from an Anthropic Console workspace with a low spend limit.
 - **IMDSv2 with a hop limit of 1:** every metadata request needs a session token, and the reply that carries the token doesn't get past Docker's bridge network, so the containers can't get the role's credentials. The SSM agent and the startup script run on the server itself and still can. Nothing in the containers uses AWS.
 - **Standard CPU credits:** T4g instances default to unlimited credits, which bill CPU use above the baseline at about $0.04 per vCPU-hour with no ceiling. Standard credits slow the server down instead, so it costs what the budget expects.
 - **An encrypted 20 GB gp3 disk that's deleted on termination:** the data goes with the server, and the provider's `default_tags` don't reach the root disk, so it's tagged separately.
 - **The 8-hour limit:** the startup script writes a deadline and installs a systemd timer that shuts the server down once it passes. `instance_initiated_shutdown_behavior = "terminate"` makes that shutdown delete the server. The deadline is written before anything else, so a server whose startup fails still goes away. With `auto_terminate_hours = 0` there's no timer, and a shutdown only stops the server, so it keeps its data.
 - **A $5 budget for the whole project, without credits:** filtering by the `app` tag needs an account-level billing setting, so the budget covers everything in the project. Credits are left out because on the Free plan they bring the cost to $0, and the alert would never fire.
 - **Names and tags from `deployment_name`:** IAM role and budget names are unique per account, so this is what lets several developers share one AWS project.
+- **Their own AWS CLI profile, and a Terraform workspace for each AWS project:** the scripts sign in as `groundline-deploy`, which `make aws-up` and `make aws-project` sign in to the project chosen in the browser, and set `TF_WORKSPACE` to the account ID, so each project's state is separate and a developer can have a server in each at once. No account ID is written into the repository.
+- **The server clones the code without signing in:** `main` comes from groundline-dev/groundline, and a branch from whichever GitHub remote has it, such as a fork. `scripts/aws-deploy` passes that remote's HTTPS address as `repository_url`, and checks that it can be cloned without signing in.
 
 ## Costs
 
@@ -63,35 +65,33 @@ After changing the wizard or the scripts it runs, test it as a new developer wou
    mv infra/terraform.tfvars infra/terraform.tfvars.bak
    ```
 
-2. To test the Region prompt too, clear your Region. If you stop before the wizard asks for it, set it back with `aws configure set region <your Region code>`.
-
-   ```sh
-   aws configure set region ""
-   ```
-
-3. Run the wizard:
+2. Run the wizard:
 
    ```sh
    make aws-up
    ```
 
-4. Answer its questions:
-   - **Region code:** first type a Region's name, such as `US East (Ohio)`, which it should reject, then your Region's code.
+3. Answer its questions:
+   - **AWS project:** check that it shows the project's name and account ID, then answer `n` to choose a project.
+   - **Signing in to the project:** check that the wizard waits for Enter before it asks for the Region.
+   - **Region code:** first type something that isn't a Region code, such as `Ohio`, which it should reject, then paste your Region's code.
+   - **Browser:** check that the wizard waits for Enter before opening it, and that it prints only the sign-in link. Choose the session of the project you signed in to.
    - **Deployment name and email address:** enter the same ones as before, so your resources keep their names.
-   - **Anthropic API key:** it asks only if no one in the AWS project has stored one.
-   - **Terraform plan summary:** check that it says what you expect, then type `yes`.
-5. Wait for the smoke test, about 5 to 10 minutes. Read each step's output as a newcomer would: anything unclear, any long wait with no sign of progress, or any surprising question is worth fixing.
-6. Compare the new settings file with your old one, then delete the old one. `diff` prints only the lines that differ, so `deployment_name` and `budget_alert_email` appear only if they changed or moved; the comments may differ too.
+   - **Anthropic API key:** check that the warning names the project and that it offers the key from `.env`, showing only its last 4 characters.
+   - **Code:** choose your branch, to test finding the remote that has it.
+   - **Terraform plan summary:** check that it says what you expect, then choose 1 to go ahead.
+4. Wait for the smoke test, about 5 to 10 minutes. Read each step's output as a newcomer would: anything unclear, any long wait with no sign of progress, or any surprising question is worth fixing.
+5. Compare the new settings file with your old one, then delete the old one. `diff` prints only the lines that differ, so `deployment_name` and `budget_alert_email` appear only if they changed or moved; the comments may differ too.
 
    ```sh
    diff infra/terraform.tfvars.bak infra/terraform.tfvars
    rm infra/terraform.tfvars.bak
    ```
 
-7. Delete the server, and type `yes` when it asks:
+6. Delete the server, and choose 1 when it asks. Check that it deletes your Anthropic API key's parameter:
 
    ```sh
    make aws-destroy
    ```
 
-[tests/test_aws_scripts.py](../tests/test_aws_scripts.py) runs the smoke test, status, extend and destroy scripts against stand-in `aws` and `terraform` commands, but not the wizard, `aws-deploy` or `aws-key`, and only this run shows what a person sees.
+[tests/test_aws_scripts.py](../tests/test_aws_scripts.py) runs the smoke test, status, reset-deadline and destroy scripts against stand-in `aws` and `terraform` commands, but not the wizard, `aws-deploy` or `aws-key`, and only this run shows what a person sees.
