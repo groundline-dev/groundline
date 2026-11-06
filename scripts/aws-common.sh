@@ -200,7 +200,10 @@ project_label() {
 }
 
 # deployment_name: the deployment_name in infra/terraform.tfvars, or nothing.
+# A missing file returns nothing too: GNU sed exits 2 on it, which pipefail
+# would pass on and set -e would stop the script for, without a message.
 deployment_name() {
+  [ -f infra/terraform.tfvars ] || return 0
   sed -n 's/^[[:space:]]*deployment_name[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' \
     infra/terraform.tfvars 2>/dev/null | tail -n 1
 }

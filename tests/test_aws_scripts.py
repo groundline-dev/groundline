@@ -403,6 +403,28 @@ def test_destroy_deletes_nothing_when_enter_is_pressed(tmp_path: Path):
     assert deleted_parameters(result) == []
 
 
+def test_deployment_name_is_empty_without_terraform_tfvars(tmp_path: Path):
+    """With no infra/terraform.tfvars, such as before make aws-up writes it,
+    deployment_name returns nothing instead of stopping the script. It runs in
+    an empty folder, so the developer's own terraform.tfvars can't hide this."""
+    finished = subprocess.run(
+        [
+            "bash",
+            "-c",
+            'set -euo pipefail; source "$1"; '
+            'name="$(deployment_name)"; echo "name=$name"',
+            "_",
+            str(ROOT / "scripts" / "aws-common.sh"),
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+
+    assert finished.returncode == 0, finished.stderr
+    assert finished.stdout.strip() == "name="
+
+
 @pytest.mark.parametrize(
     "remote",
     [
