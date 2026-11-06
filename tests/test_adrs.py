@@ -27,40 +27,39 @@ LEADING_NUMBER = re.compile(r"\d+")
 def adr_problems(folder: Path) -> list[str]:
     """Every reused number and every badly named entry in `folder`, one line each."""
     by_number: defaultdict[str, list[str]] = defaultdict(list)
-    bad_names: list[str] = []
+    naming_problems: list[str] = []
     for entry in sorted(folder.iterdir()):
         if entry.name.startswith("."):
             continue
-        number = LEADING_NUMBER.match(entry.name)
-        if number:
-            by_number[number.group()].append(entry.name)
+        if match := LEADING_NUMBER.match(entry.name):
+            by_number[match.group()].append(entry.name)
         if not (entry.is_file() and ADR_NAME.fullmatch(entry.name)):
             kind = "folder" if entry.is_dir() else "file"
-            bad_names.append(
+            naming_problems.append(
                 f"{entry.name}: a {kind} not named NNNN-slug.md "
                 "(four digits, then lowercase words joined by hyphens)"
             )
-    reused = [
+    reuse_problems = [
         f"{number} is used by more than one ADR: {', '.join(names)}"
         for number, names in by_number.items()
         if len(names) > 1
     ]
-    return reused + bad_names
+    return reuse_problems + naming_problems
 
 
-def make_folder(tmp_path: Path, *names: str) -> Path:
+def write_adrs(tmp_path: Path, *names: str) -> Path:
     for name in names:
         (tmp_path / name).write_text("# A decision\n")
     return tmp_path
 
 
 def test_a_clean_folder_has_no_problems(tmp_path: Path):
-    folder = make_folder(tmp_path, "0001-first.md", "0002-uses-sha-256.md")
+    folder = write_adrs(tmp_path, "0001-first.md", "0002-uses-sha-256.md")
     assert adr_problems(folder) == []
 
 
 def test_two_files_with_one_number_are_named_together(tmp_path: Path):
-    folder = make_folder(
+    folder = write_adrs(
         tmp_path, "0011-keys.md", "0012-public-probes.md", "0012-postgres-login.md"
     )
     problems = adr_problems(folder)
@@ -70,7 +69,7 @@ def test_two_files_with_one_number_are_named_together(tmp_path: Path):
 
 
 def test_three_files_with_one_number_are_named_together(tmp_path: Path):
-    folder = make_folder(tmp_path, "0005-a.md", "0005-b.md", "0005-c.md")
+    folder = write_adrs(tmp_path, "0005-a.md", "0005-b.md", "0005-c.md")
     problems = adr_problems(folder)
     assert len(problems) == 1
     for name in ("0005-a.md", "0005-b.md", "0005-c.md"):
@@ -90,14 +89,14 @@ def test_three_files_with_one_number_are_named_together(tmp_path: Path):
     ],
 )
 def test_a_name_outside_the_format_is_named(tmp_path: Path, name: str):
-    folder = make_folder(tmp_path, "0001-first.md", name)
+    folder = write_adrs(tmp_path, "0001-first.md", name)
     problems = adr_problems(folder)
     assert len(problems) == 1
     assert name in problems[0]
 
 
 def test_a_subfolder_is_named(tmp_path: Path):
-    folder = make_folder(tmp_path, "0001-first.md")
+    folder = write_adrs(tmp_path, "0001-first.md")
     (folder / "drafts").mkdir()
     problems = adr_problems(folder)
     assert len(problems) == 1
@@ -105,12 +104,12 @@ def test_a_subfolder_is_named(tmp_path: Path):
 
 
 def test_hidden_files_are_ignored(tmp_path: Path):
-    folder = make_folder(tmp_path, "0001-first.md", ".DS_Store")
+    folder = write_adrs(tmp_path, "0001-first.md", ".DS_Store")
     assert adr_problems(folder) == []
 
 
 def test_a_badly_named_file_still_counts_toward_its_number(tmp_path: Path):
-    folder = make_folder(tmp_path, "0012-public-probes.md", "0012_postgres.md")
+    folder = write_adrs(tmp_path, "0012-public-probes.md", "0012_postgres.md")
     problems = adr_problems(folder)
     assert len(problems) == 2
     reuse = [p for p in problems if "0012-public-probes.md" in p]
@@ -119,7 +118,7 @@ def test_a_badly_named_file_still_counts_toward_its_number(tmp_path: Path):
 
 
 def test_every_problem_is_listed_at_once(tmp_path: Path):
-    folder = make_folder(
+    folder = write_adrs(
         tmp_path, "0001-a.md", "0001-b.md", "0002-c.md", "0002-d.md", "notes.md"
     )
     assert len(adr_problems(folder)) == 3
