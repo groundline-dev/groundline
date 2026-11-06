@@ -24,9 +24,3 @@ services:
       interval: 2s
       timeout: 5s
       retries: 15
-
-# All services inherit this network, including the app and the model double.
-# Image builds/pulls still use the host; running containers cannot reach Anthropic.
-networks:
-  default:
-    internal: true

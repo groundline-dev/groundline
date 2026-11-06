@@ -9,7 +9,6 @@ import json
 import logging
 import socket
 from collections.abc import Callable
-from pathlib import Path
 from typing import Any, Never
 
 import httpx2
@@ -17,10 +16,13 @@ import pytest
 from anthropic import DefaultAsyncHttpxClient
 from fastapi.testclient import TestClient
 
-from groundline.app import app
 from groundline.clients import AnthropicClient
 from tests.anthropic_helpers import api_error, message
-from tests.auth_helpers import BODY, ENDPOINTS, HEADERS, SECRET, Endpoint, FakeKeys
+from tests.api_integration_helpers import ANTHROPIC_KEY
+from tests.api_integration_helpers import http as http
+from tests.api_integration_helpers import isolated as isolated
+from tests.api_integration_helpers import keys as keys
+from tests.auth_helpers import BODY, ENDPOINTS, SECRET, Endpoint
 from tests.auth_helpers import endpoint as endpoint
 from tests.commissions_helpers import (
     DOSE,
@@ -42,7 +44,6 @@ from tests.omission_helpers import (
     not_flagged_script,
 )
 
-ANTHROPIC_KEY = "sk-ant-offline-contract-test"
 PRIVATE = "private-source-summary-sentinel"
 
 PARTIAL_INJURY = {
@@ -112,33 +113,6 @@ class Wire:
         )
 
 
-@pytest.fixture(autouse=True)
-def isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
-    monkeypatch.chdir(tmp_path)  # Never read the developer's .env.
-    monkeypatch.setenv("ANTHROPIC_API_KEY", ANTHROPIC_KEY)
-    monkeypatch.delenv("DATABASE_URL", raising=False)
-    for variable in (
-        "ANTHROPIC_CUSTOM_HEADERS",
-        "ANTHROPIC_BASE_URL",
-        "ANTHROPIC_AUTH_TOKEN",
-    ):
-        monkeypatch.delenv(variable, raising=False)
-    monkeypatch.setattr(app, "dependency_overrides", {})
-
-    def no_network(*args: object, **kwargs: object) -> Never:
-        raise AssertionError("API contract tests must not open network connections")
-
-    monkeypatch.setattr(socket.socket, "connect", no_network)
-    monkeypatch.setattr(socket.socket, "connect_ex", no_network)
-
-
-@pytest.fixture
-def keys(monkeypatch: pytest.MonkeyPatch) -> FakeKeys:
-    storage = FakeKeys()
-    monkeypatch.setattr(app.state, "api_keys", storage, raising=False)
-    return storage
-
-
 @pytest.fixture
 def wire(endpoint: Endpoint, monkeypatch: pytest.MonkeyPatch) -> Wire:
     wire = Wire(endpoint.not_flagged())
@@ -158,12 +132,6 @@ def wire(endpoint: Endpoint, monkeypatch: pytest.MonkeyPatch) -> Wire:
         importlib.import_module("groundline.evaluate"), "AnthropicClient", client
     )
     return wire
-
-
-@pytest.fixture
-def http(keys: FakeKeys) -> TestClient:
-    # Deliberately skip the PostgreSQL-owning lifespan; storage is injected above.
-    return TestClient(app, headers=HEADERS)
 
 
 def assert_success(
@@ -374,3 +342,10 @@ def test_unusable_reply_retries_once_without_exposing_sensitive_content(
     response = failure_response(http, endpoint, caplog, 502)
     assert len(wire.requests) == 2
     assert "unusable reply after 1 retry" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("method", ["connect", "connect_ex"])
+def test_intercepted_contracts_block_even_loopback_sockets(method: str):
+    with socket.socket() as sock:
+        with pytest.raises(AssertionError, match="blocked network connection"):
+            getattr(sock, method)(("127.0.0.1", 1))

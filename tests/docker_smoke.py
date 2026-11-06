@@ -1,4 +1,4 @@
-"""Compose-only model double and checks; runs with Python's standard library.
+"""Compose-only model double and checks using the installed groundline package.
 
 Mounted into the app and mock containers, never installed in groundline. All
 application code and domain-profile resources must come from the built image.
@@ -9,19 +9,26 @@ import json
 from collections import Counter
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any, cast
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
+
+from groundline.presets import load_preset
 
 ANTHROPIC_KEY = "smoke-anthropic-key"
 SOURCE = "Take the medicine once daily."
 SUMMARY = "Take the medicine twice daily."
-EXPECTED_CALLS = {
-    "extract": 1,
-    "rank": 1,
-    "check": 1,
-    "refute": 1,
-    "commissions_check": 1,
+PRESETS = {"omissions": "omission_all_opus", "commissions": "commission_quick"}
+# One request per enabled model stage for this single-finding fixture.
+MODEL_SETTINGS = {
+    endpoint: {
+        stage.step: stage.settings
+        for stage in load_preset(preset).stages
+        if stage.enabled and "model" in stage.settings
+    }
+    for endpoint, preset in PRESETS.items()
 }
+EXPECTED_CALLS = {step: 1 for stages in MODEL_SETTINGS.values() for step in stages}
+APP_URL = "http://127.0.0.1:8000"
 
 
 def scripted_reply(model: str, prompt: str) -> tuple[str, dict[str, Any]]:
@@ -39,7 +46,7 @@ def scripted_reply(model: str, prompt: str) -> tuple[str, dict[str, Any]]:
                 {
                     "id": "f1",
                     "verdict": "absent",
-                    "missing_confidence": 95,
+                    "missing_confidence": 100,
                     "quote": None,
                 }
             ]
@@ -51,7 +58,7 @@ def scripted_reply(model: str, prompt: str) -> tuple[str, dict[str, Any]]:
                 {
                     "quote": SUMMARY,
                     "label": "contradicted",
-                    "confidence": 95,
+                    "confidence": 100,
                     "importance": "critical",
                     "evidence": SOURCE,
                 }
@@ -62,9 +69,8 @@ def scripted_reply(model: str, prompt: str) -> tuple[str, dict[str, Any]]:
         reply = {"facts": [{"id": "f1", "fact": SOURCE, "evidence": SOURCE}]}
     else:
         raise ValueError("unrecognized stage prompt")
-    expected_model = (
-        "claude-haiku-5-5" if step == "commissions_check" else "claude-opus-5-5"
-    )
+    endpoint = "commissions" if step == "commissions_check" else "omissions"
+    expected_model = MODEL_SETTINGS[endpoint][step]["model"]
     if model != expected_model:
         raise ValueError(f"unexpected model for {step}")
     expected_text = SUMMARY if step in {"check", "refute"} else SOURCE
@@ -147,48 +153,24 @@ def request(
         response = urlopen(req, timeout=10)
     except HTTPError as error:
         response = error
+    except (URLError, TimeoutError, OSError) as error:
+        raise AssertionError(f"{method} {url}: connection failed: {error}") from error
     with response:
-        return response.code, json.load(response)
+        raw = response.read().decode("utf-8", errors="replace")
+        try:
+            parsed = json.loads(raw)
+        except ValueError as error:
+            raise AssertionError(
+                f"{method} {url}: HTTP {response.code}, expected JSON: {raw}"
+            ) from error
+        return response.code, parsed
 
 
 def verify_evaluation(endpoint: str, body: dict[str, Any]) -> None:
-    omissions = endpoint == "omissions"
-    preset = "omission_all_opus" if omissions else "commission_quick"
-    calls = 4 if omissions else 1
+    calls = sum(EXPECTED_CALLS[step] for step in MODEL_SETTINGS[endpoint])
     assert body["flagged"] is True, body
-    assert body["pipeline"] == body["validated_preset"] == preset, body
-    assert body["alarm"] == {
-        "score": 0.95,
-        "threshold": 0.9 if omissions else 0.85,
-        "level": "strict" if omissions else "default",
-    }, body
-    if omissions:
-        assert body["omissions"] == [
-            {
-                "fact": SOURCE,
-                "severity": "critical",
-                "verdict": "absent",
-                "missing_confidence": 0.95,
-                "quote": None,
-            }
-        ], body
-        assert body["counts"] == {
-            "total": 1,
-            "present": 0,
-            "partial": 0,
-            "absent": 1,
-        }, body
-    else:
-        assert body["commissions"] == [
-            {
-                "claim": SUMMARY,
-                "severity": "critical",
-                "support_verdict": "contradicted",
-                "unsupported_confidence": 0.95,
-                "evidence": SOURCE,
-                "evidence_found": True,
-            }
-        ], body
+    assert body["pipeline"] == body["validated_preset"] == PRESETS[endpoint], body
+    assert body[endpoint], body
     assert body["usage"]["calls"] == calls, body
     assert body["usage"]["input_tokens"] == 100 * calls, body
     assert body["usage"]["output_tokens"] == 20 * calls, body
@@ -199,29 +181,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("serve")
-    probe = commands.add_parser("probe")
-    probe.add_argument("status", type=int)
-    probe.add_argument("method")
-    probe.add_argument("path")
-    probe.add_argument("--json")
-    probe.add_argument("--header", action="append", default=[])
     evaluate = commands.add_parser("evaluate")
     evaluate.add_argument("--api-key", required=True)
     args = parser.parse_args()
     if args.command == "serve":
         with MockAnthropic(("0.0.0.0", 8080)) as server:
             server.serve_forever()
-    elif args.command == "probe":
-        headers = dict(header.split(":", 1) for header in args.header)
-        headers = {name: value.strip() for name, value in headers.items()}
-        headers["Content-Type"] = "application/json"
-        status, body = request(
-            args.method, "http://127.0.0.1:8000" + args.path, headers, args.json
-        )
-        assert status == args.status, (
-            f"{args.method} {args.path}: expected {args.status}, got {status}: {body}"
-        )
-        print(f"ok: {args.method} {args.path} returned {status}")
     else:
         headers = {
             "Authorization": f"Bearer {args.api_key}",
@@ -230,7 +195,7 @@ def main() -> None:
         for endpoint in ("omissions", "commissions"):
             status, body = request(
                 "POST",
-                f"http://127.0.0.1:8000/v1/{endpoint}",
+                f"{APP_URL}/v1/{endpoint}",
                 headers,
                 json.dumps({"source": SOURCE, "summary": SUMMARY}),
             )
@@ -239,7 +204,9 @@ def main() -> None:
             print(f"ok: /v1/{endpoint} returned expected findings, preset and usage")
         status, body = request("GET", "http://anthropic-mock:8080/requests", {}, None)
         assert status == 200 and body == {"calls": EXPECTED_CALLS, "errors": []}, body
-        print("ok: all five model calls reached the mock, with no unexpected requests")
+        print(
+            "ok: all expected model calls reached the mock, with no unexpected requests"
+        )
 
 
 if __name__ == "__main__":

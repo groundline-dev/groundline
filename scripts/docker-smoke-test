@@ -42,13 +42,29 @@ start() {
   output="$("${compose[@]}" up --detach --wait --wait-timeout 120 --quiet-pull 2>&1)" \
     || fail "docker compose up --wait failed:
 $output"
+  address="$("${compose[@]}" port app 8000)" || fail "could not find the app's published port"
+  [ -n "$address" ] || fail "the app has no published port"
 }
 
 # expect STATUS METHOD PATH [--json BODY] [--header HEADER]
 expect() {
-  # The internal network blocks outbound access. Probe from inside the app so
-  # this also works where Docker doesn't publish ports on internal networks.
-  "${compose[@]}" exec -T app python /smoke.py probe "$@" || fail "HTTP probe failed"
+  local expected="$1" method="$2" path="$3" body status
+  shift 3
+  body="$(mktemp)" || fail "could not create HTTP response file"
+  if ! status="$(curl --silent --show-error --noproxy '*' --max-time 10 \
+    --output "$body" --write-out '%{http_code}' --request "$method" \
+    "$@" "http://$address$path")"; then
+    rm -f "$body"
+    fail "$method $path: request through published port $address failed"
+  fi
+  if [ "$status" != "$expected" ]; then
+    local response
+    response="$(cat "$body")"
+    rm -f "$body"
+    fail "$method $path: expected $expected, got $status: $response"
+  fi
+  rm -f "$body"
+  echo "ok: $method $path returned $status through $address"
 }
 
 start
