@@ -29,11 +29,25 @@ output "instance_profile_name" {
   value = aws_iam_instance_profile.instance.name
 }
 
+output "anthropic_parameter_name" {
+  value = local.anthropic_parameter_name
+}
+
 output "budget_name" {
   value = aws_budgets_budget.monthly.name
 }
 
 output "auto_terminate_hours" {
-  description = "How many hours after its first boot the server terminates itself; 0 means never. scripts/aws-deploy prints it, and scripts/aws-extend caps an extension at it."
+  description = "How many hours after its first boot the server terminates itself; 0 means never. scripts/aws-deploy prints it, and scripts/aws-reset-deadline caps a new deadline at it."
   value       = var.auto_terminate_hours
+}
+
+output "git_ref" {
+  description = "The commit the server runs. scripts/aws-up reads it to offer keeping a running server."
+  value       = var.git_ref
+}
+
+output "repository_url" {
+  description = "The repository the server clones git_ref from."
+  value       = var.repository_url
 }

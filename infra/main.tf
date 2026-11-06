@@ -12,9 +12,12 @@ data "aws_ssm_parameter" "al2023_arm64" {
 }
 
 locals {
+  # Each deployment has its own Anthropic API key, which scripts/aws-up stores
+  # under this name and scripts/aws-destroy deletes.
+  anthropic_parameter_name = "/groundline/${var.deployment_name}/anthropic-api-key"
   anthropic_parameter_arn = join("", [
     "arn:${data.aws_partition.current.partition}:ssm:${var.region}:",
-    "${data.aws_caller_identity.current.account_id}:parameter${var.anthropic_parameter_name}",
+    "${data.aws_caller_identity.current.account_id}:parameter${local.anthropic_parameter_name}",
   ])
 }
 
@@ -133,7 +136,7 @@ resource "aws_instance" "app" {
     region                   = var.region
     repository_url           = var.repository_url
     git_ref                  = var.git_ref
-    anthropic_parameter_name = var.anthropic_parameter_name
+    anthropic_parameter_name = local.anthropic_parameter_name
     auto_terminate_seconds   = var.auto_terminate_hours * 3600
   })
   # The startup script runs only on first boot, so a change needs a new server.

@@ -208,7 +208,7 @@ run "the_startup_script_reads_the_anthropic_key_from_parameter_store" {
   command = plan
 
   assert {
-    condition     = strcontains(aws_instance.app.user_data, var.anthropic_parameter_name) && strcontains(aws_instance.app.user_data, "--with-decryption")
+    condition     = strcontains(aws_instance.app.user_data, "/groundline/${var.deployment_name}/anthropic-api-key") && strcontains(aws_instance.app.user_data, "--with-decryption")
     error_message = "The startup script should read the Anthropic parameter with --with-decryption."
   }
   assert {
@@ -243,7 +243,13 @@ run "the_outputs_give_the_scripts_what_they_read" {
       && output.iam_role_name == aws_iam_role.instance.name
       && output.instance_profile_name == aws_iam_instance_profile.instance.name
       && output.budget_name == aws_budgets_budget.monthly.name
+      && output.anthropic_parameter_name == "/groundline/${var.deployment_name}/anthropic-api-key"
     )
-    error_message = "The outputs should name the security group, IAM role, instance profile and budget."
+    error_message = "The outputs should name the security group, IAM role, instance profile, budget and Anthropic parameter."
+  }
+  assert {
+    # scripts/aws-up reads these to offer keeping a running server.
+    condition     = output.git_ref == var.git_ref && output.repository_url == var.repository_url
+    error_message = "git_ref and repository_url should say which commit the server runs, and where it's cloned from."
   }
 }

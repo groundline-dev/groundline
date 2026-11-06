@@ -19,7 +19,7 @@ variable "deployment_name" {
 }
 
 variable "auto_terminate_hours" {
-  description = "How many hours after its first boot the server terminates itself, deleting its data, and the most make aws-extend can give it from the time it runs. 0 keeps it running."
+  description = "How many hours after its first boot the server terminates itself, deleting its data, and the most make aws-reset-deadline can give it from the time it runs. 0 keeps it running."
   type        = number
   default     = 8
 
@@ -68,15 +68,4 @@ variable "repository_url" {
   description = "The git repository the server clones."
   type        = string
   default     = "https://github.com/groundline-dev/groundline.git"
-}
-
-variable "anthropic_parameter_name" {
-  description = "The SecureString parameter in Parameter Store that holds the Anthropic API key. The scripts expect the default."
-  type        = string
-  default     = "/groundline/anthropic-api-key"
-
-  validation {
-    condition     = startswith(var.anthropic_parameter_name, "/")
-    error_message = "anthropic_parameter_name should start with /, such as /groundline/anthropic-api-key."
-  }
 }

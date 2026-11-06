@@ -49,9 +49,9 @@ run "the_instance_role_can_read_only_the_anthropic_parameter" {
       for s in jsondecode(aws_iam_role_policy.instance.policy).Statement :
       s.Effect == "Allow"
       && contains(flatten([s.Action]), "ssm:GetParameter")
-      && flatten([s.Resource]) == ["arn:aws:ssm:eu-north-1:123456789012:parameter/groundline/anthropic-api-key"]
+      && flatten([s.Resource]) == ["arn:aws:ssm:eu-north-1:123456789012:parameter/groundline/alice/anthropic-api-key"]
     ])
-    error_message = "The role should be allowed ssm:GetParameter on the Anthropic parameter's ARN."
+    error_message = "The role should be allowed ssm:GetParameter on its deployment's Anthropic parameter, /groundline/alice/anthropic-api-key."
   }
   assert {
     # Any action that can read parameters applies only to that one ARN.
@@ -60,7 +60,7 @@ run "the_instance_role_can_read_only_the_anthropic_parameter" {
       alltrue([
         for a in flatten([s.Action]) :
         !can(regex("^ssm:GetParameter", a))
-        || flatten([s.Resource]) == ["arn:aws:ssm:eu-north-1:123456789012:parameter/groundline/anthropic-api-key"]
+        || flatten([s.Resource]) == ["arn:aws:ssm:eu-north-1:123456789012:parameter/groundline/alice/anthropic-api-key"]
       ])
     ])
     error_message = "No statement should let the role read any other parameter."
