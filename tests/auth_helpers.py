@@ -6,8 +6,10 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from types import ModuleType
 from typing import Annotated
+from unittest.mock import AsyncMock
 from uuid import UUID
 
+import pytest
 from fastapi import Depends, FastAPI
 
 from groundline.api import commissions, errors, omissions
@@ -46,6 +48,18 @@ ENDPOINTS = [
         1,
     ),
 ]
+
+
+@pytest.fixture(params=ENDPOINTS, ids=lambda e: e.path)
+def endpoint(request: pytest.FixtureRequest) -> Endpoint:
+    return request.param
+
+
+@pytest.fixture
+def evaluation(endpoint: Endpoint, monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
+    spy = AsyncMock(wraps=endpoint.module.evaluate)
+    monkeypatch.setattr(endpoint.module, "evaluate", spy)
+    return spy
 
 
 class FakeKeys(APIKeys):

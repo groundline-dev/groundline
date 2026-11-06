@@ -14,10 +14,13 @@ from groundline.api import common, errors
 from groundline.api.errors import safe_traceback
 from groundline.app import app
 from groundline.clients.anthropic import AnthropicClient
+from tests.anthropic_helpers import api_error
 from tests.auth_helpers import SECRET as API_KEY
-from tests.auth_helpers import FakeKeys
+from tests.auth_helpers import Endpoint, FakeKeys
+from tests.auth_helpers import endpoint as endpoint
 
 SECRET = "sk-ant-not-a-real-key"
+PRIVATE = "private-error-content"
 http = TestClient(
     app,
     raise_server_exceptions=False,
@@ -111,8 +114,7 @@ def test_a_rejected_anthropic_key_is_a_503_without_the_servers_env_path(
     env_file = tmp_path / ".env"
 
     def reject(request: httpx2.Request) -> httpx2.Response:
-        error = {"type": kind, "message": "invalid x-api-key"}
-        return httpx2.Response(status, json={"type": "error", "error": error})
+        return httpx2.Response(status, json=api_error(kind, "invalid x-api-key"))
 
     def real_client() -> AnthropicClient:
         return AnthropicClient(
@@ -133,22 +135,28 @@ def test_a_rejected_anthropic_key_is_a_503_without_the_servers_env_path(
 
 
 def test_an_error_outside_a_route_is_a_structured_500(
+    endpoint: Endpoint,
     caplog: pytest.LogCaptureFixture,
 ):
     def broken() -> None:
-        raise RuntimeError(SECRET)
+        raise RuntimeError(PRIVATE)
 
     app.dependency_overrides[common.model_client] = broken
 
-    with caplog.at_level(logging.INFO):
-        response = http.post("/v1/omissions", json={"source": "a", "summary": "b"})
+    with (
+        caplog.at_level(logging.INFO),
+        caplog.at_level(logging.DEBUG, logger="groundline"),
+    ):
+        response = http.post(
+            endpoint.path, json={"source": PRIVATE + SECRET, "summary": PRIVATE}
+        )
 
     assert response.status_code == 500
     assert response.json() == {"detail": "unexpected error; see the server log"}
-    assert "unexpected RuntimeError handling POST /v1/omissions" in caplog.text
+    assert f"unexpected RuntimeError handling POST {endpoint.path}" in caplog.text
     assert "in broken" in caplog.text
-    assert SECRET not in response.text
-    assert SECRET not in caplog.text
+    for secret in (SECRET, API_KEY, PRIVATE):
+        assert secret not in response.text + caplog.text
 
 
 def test_a_safe_traceback_has_each_type_and_frame_but_no_message():

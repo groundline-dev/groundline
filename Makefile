@@ -1,4 +1,4 @@
-.PHONY: setup dev db test-fast test-db test-live check fix docker-build docker-run docker-smoke
+.PHONY: setup dev db test-fast test-api test-db test-live check fix docker-build docker-run docker-smoke
 
 setup:
 	uv sync
@@ -14,6 +14,10 @@ db:
 # The tests that need nothing running and cost nothing (make check runs them too).
 test-fast:
 	uv run pytest
+
+# Offline API scenarios; optional pytest flags include --junitxml=PATH.
+test-api:
+	uv run pytest -v tests/test_health.py $(wildcard tests/test_api_*.py) $(PYTEST_ARGS)
 
 # The database tests, against the Postgres from compose.yaml (started first).
 test-db: db

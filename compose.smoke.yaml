@@ -1,0 +1,26 @@
+# Used only by scripts/docker-smoke-test, after compose.yaml.
+services:
+  app:
+    environment:
+      ANTHROPIC_API_KEY: smoke-anthropic-key
+      ANTHROPIC_BASE_URL: http://anthropic-mock:8080
+    volumes:
+      - ./tests/docker_smoke.py:/smoke.py:ro
+    depends_on:
+      anthropic-mock:
+        condition: service_healthy
+
+  anthropic-mock:
+    image: groundline:dev
+    command: ["python", "/smoke.py", "serve"]
+    volumes:
+      - ./tests/docker_smoke.py:/smoke.py:ro
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health', timeout=4)
+      interval: 2s
+      timeout: 5s
+      retries: 15
