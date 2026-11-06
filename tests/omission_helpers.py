@@ -26,6 +26,7 @@ SUMMARY = (
     "HPI: She was skiing and hyperextended her right index finger.\n"
     "PLAN: Motrin 600 mg every 6 hours for a week."
 )
+CLEAR_SUMMARY = SUMMARY + "\nPain is worse with movement."
 
 
 def step_of(prompt: str) -> str:
@@ -143,3 +144,15 @@ def flagged_script() -> Script:
         check=json.dumps(check),
         refute=refute_reply(("f3", "no", None), ("f1", "no", None), ("f2", "no", None)),
     )
+
+
+def clear_script() -> Script:
+    """Every fact is present in CLEAR_SUMMARY, so refute needs no model call."""
+    checked = json.loads(check_reply())
+    for row in checked["facts"]:
+        row.update(verdict="present", missing_confidence=0)
+        if row["id"] == "f2":
+            row["quote"] = "Pain is worse with movement."
+    script = not_flagged_script()
+    script.replies["check"] = [json.dumps(checked)]
+    return script

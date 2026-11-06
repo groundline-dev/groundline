@@ -13,16 +13,13 @@ from groundline.api import common
 from groundline.app import app
 from groundline.cli import app as cli
 from groundline.db import api_keys
-from tests.auth_helpers import BODY, ENDPOINTS, Endpoint
+from tests.auth_helpers import BODY, Endpoint
+from tests.auth_helpers import endpoint as endpoint
+from tests.auth_helpers import evaluation as evaluation
 from tests.fakes import FakeClient
 
 pytestmark = pytest.mark.db
 runner = CliRunner()
-
-
-@pytest.fixture(params=ENDPOINTS, ids=lambda e: e.path)
-def endpoint(request: pytest.FixtureRequest) -> Endpoint:
-    return request.param
 
 
 @pytest.fixture
@@ -37,13 +34,6 @@ def model(
     client = FakeClient(endpoint.not_flagged())
     monkeypatch.setitem(app.dependency_overrides, common.model_client, lambda: client)
     return client
-
-
-@pytest.fixture
-def evaluation(endpoint: Endpoint, monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
-    spy = AsyncMock(wraps=endpoint.module.evaluate)
-    monkeypatch.setattr(endpoint.module, "evaluate", spy)
-    return spy
 
 
 def test_cli_revocation_stops_the_next_check(

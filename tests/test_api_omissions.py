@@ -85,13 +85,15 @@ def test_a_flagged_summary_still_answers_200():
     }
 
 
-def test_the_moderate_threshold_is_still_the_validated_preset():
-    use_client(not_flagged_script())
+@pytest.mark.parametrize("level,threshold", [("strict", 0.9), ("moderate", 0.425)])
+def test_each_named_threshold_keeps_the_validated_preset(level: str, threshold: float):
+    use_client(flagged_script())
 
-    body = http.post("/v1/omissions", json=check(threshold="moderate")).json()
+    response = http.post("/v1/omissions", json=check(threshold=level))
+    assert response.status_code == 200
+    body = response.json()
 
-    assert body["alarm"]["level"] == "moderate"
-    assert body["alarm"]["threshold"] == 0.425
+    assert body["alarm"] == {"score": 0.95, "level": level, "threshold": threshold}
     assert body["validated_preset"] == DEFAULT_PRESET
 
 

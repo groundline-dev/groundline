@@ -74,6 +74,8 @@ If you changed the Dockerfile, `compose.yaml`, `.dockerignore`, the dependencies
 make docker-smoke
 ```
 
+The smoke test uses `compose.smoke.yaml` to add a mock Anthropic HTTP service, dummy credentials and an explicit Anthropic base URL pointing to the mock. It keeps the normal app image and startup, checks health/readiness and API-key persistence, then calls both evaluators and checks their findings, preset identity and model-call counts. Presets, prompts and the rubric load from the built image; only the smoke-test support script is mounted. It needs no real Anthropic API key or paid model calls, and CI runs the same script. Health/readiness and authentication probes run on the host through the published Docker port; evaluator checks run inside the app container against the same mock service.
+
 If you run the image with your own `docker run`, publish the port on `127.0.0.1`, as in `-p 127.0.0.1:8001:8000`. A plain `-p 8000:8000` lets anyone on your network reach the API, even past firewalls such as ufw on Linux.
 
 ## Deploying to AWS
@@ -141,6 +143,20 @@ None of them starts the Docker stack, runs `terraform test` or touches AWS: `mak
 CI runs the fast and database tests on every PR, but never the live tests.
 
 If you change a prompt, the rubric or a step's logic, expect `tests/test_parity.py` and `tests/test_parity_commissions.py` to fail. They replay recorded runs of the measured presets, so a failure means `omission_all_opus` or `commission_quick` no longer matches its measured results.
+
+### API behavior suite
+
+`make test-api` runs the focused API tests with a named pass/fail result for each endpoint and scenario. It checks authentication, validation, evaluator responses, settings/SDK integration, documentation and safe errors. No running server, database, real API key or network access is needed.
+
+Optionally save a JUnit XML report:
+
+```sh
+make test-api PYTEST_ARGS="--junitxml=.pytest_cache/api-results.xml"
+```
+
+`make test-fast` and CI also run these tests. The offline suite uses fake API-key storage; actual PostgreSQL persistence, expiry and revocation are covered by `make test-db`, which CI runs separately.
+
+Anthropic SDK DEBUG logging includes raw prompts. Privacy assertions capture groundline logs at DEBUG and dependencies at normal verbosity; do not enable third-party debug logging when handling sensitive content.
 
 ## Lint, format and type checks
 

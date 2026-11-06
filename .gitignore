@@ -15,7 +15,8 @@ wheels/
 
 # Secrets
 .env
-.env.old
+.env.*
+!.env.example
 
 # Terraform: local state, providers, and each contributor's settings
 infra/.terraform/
@@ -26,3 +27,6 @@ infra/terraform.tfvars*
 
 # Database backups, which hold API-key hashes
 *.dump
+
+# Bloat
+.DS_Store

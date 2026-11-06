@@ -1,5 +1,6 @@
 """Authenticate the production check routes without PostgreSQL or model calls."""
 
+import logging
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock
 
@@ -7,18 +8,16 @@ import pytest
 from fastapi.testclient import TestClient
 
 from groundline.api import common
+from groundline.api.common import MAX_CHARS
 from groundline.api_keys import APIKeyStorageError
 from groundline.app import app
-from tests.auth_helpers import BODY, ENDPOINTS, HEADERS, SECRET, Endpoint, FakeKeys
+from tests.auth_helpers import BODY, HEADERS, SECRET, Endpoint, FakeKeys
+from tests.auth_helpers import endpoint as endpoint
+from tests.auth_helpers import evaluation as evaluation
 from tests.fakes import FakeClient
-from tests.omission_helpers import SOURCE
 
 http = TestClient(app)
-
-
-@pytest.fixture(params=ENDPOINTS, ids=lambda e: e.path)
-def endpoint(request: pytest.FixtureRequest) -> Endpoint:
-    return request.param
+PRIVATE = "private-validation-content"
 
 
 @pytest.fixture(autouse=True)
@@ -39,13 +38,6 @@ def model(endpoint: Endpoint, monkeypatch: pytest.MonkeyPatch) -> Mock:
 
     monkeypatch.setitem(app.dependency_overrides, common.model_client, provide)
     return dependency
-
-
-@pytest.fixture
-def evaluation(endpoint: Endpoint, monkeypatch: pytest.MonkeyPatch) -> AsyncMock:
-    spy = AsyncMock(wraps=endpoint.module.evaluate)
-    monkeypatch.setattr(endpoint.module, "evaluate", spy)
-    return spy
 
 
 @pytest.mark.parametrize(
@@ -131,26 +123,78 @@ def test_unavailable_authentication_cannot_start_work(
         app.state.api_keys = None
     else:
         keys.failure = failure
-    response = http.post(endpoint.path, json=BODY, headers=HEADERS)
+    with (
+        caplog.at_level(logging.INFO),
+        caplog.at_level(logging.DEBUG, logger="groundline"),
+    ):
+        response = http.post(
+            endpoint.path,
+            json={
+                "source": BODY["source"] + PRIVATE,
+                "summary": BODY["summary"] + PRIVATE,
+            },
+            headers=HEADERS,
+        )
     assert response.status_code == 503
     assert response.json() == {"detail": "Authentication is unavailable"}
     model.assert_not_called()
     evaluation.assert_not_called()
-    assert SECRET not in response.text + caplog.text
+    for secret in (SECRET, PRIVATE):
+        assert secret not in response.text + caplog.text
 
 
-@pytest.mark.parametrize("authenticated", [False, True])
-def test_authentication_precedes_field_validation(
-    endpoint: Endpoint, authenticated: bool, model: Mock, evaluation: AsyncMock
+@pytest.mark.parametrize(
+    "authenticated", [True, False], ids=["active-key", "missing-key"]
+)
+@pytest.mark.parametrize("field", ["source", "summary"])
+@pytest.mark.parametrize("invalid", ["missing", "empty", "blank", "type", "too-long"])
+def test_invalid_fields_follow_authentication_and_never_call_model(
+    endpoint: Endpoint,
+    authenticated: bool,
+    field: str,
+    invalid: str,
+    model: Mock,
+    evaluation: AsyncMock,
 ):
+    body: dict[str, object] = dict(BODY)
+    values: dict[str, object] = {
+        "empty": "",
+        "blank": " \n ",
+        "type": {"text": PRIVATE},
+        "too-long": PRIVATE + "x" * MAX_CHARS,
+    }
+    if invalid == "missing":
+        del body[field]
+    else:
+        body[field] = values[invalid]
     response = http.post(
         endpoint.path,
-        json={"source": SOURCE},
+        json=body,
         headers=HEADERS if authenticated else {},
     )
     assert response.status_code == (422 if authenticated else 401)
+    if authenticated:
+        assert response.json()["detail"][0]["loc"] == ["body", field]
+    else:
+        model.assert_not_called()
+    assert PRIVATE not in response.text
     evaluation.assert_not_called()
     assert len(model.return_value.requests) == 0
+
+
+@pytest.mark.parametrize(
+    "authenticated", [True, False], ids=["active-key", "missing-key"]
+)
+def test_a_json_array_is_authenticated_before_validation(
+    endpoint: Endpoint, authenticated: bool, model: Mock, evaluation: AsyncMock
+):
+    response = http.post(
+        endpoint.path, json=[], headers=HEADERS if authenticated else {}
+    )
+    assert response.status_code == (422 if authenticated else 401)
+    assert "detail" in response.json()
+    evaluation.assert_not_called()
+    assert model.return_value.requests == []
 
 
 @pytest.mark.parametrize("authenticated", [False, True])
