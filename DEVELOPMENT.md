@@ -125,56 +125,17 @@ If you change a prompt, the rubric or a step's logic, expect `tests/test_parity.
 
 ### API behavior suite
 
-Run the focused offline API suite with a separate pass/fail result for each
-endpoint and scenario:
+`make test-api` runs the focused API tests with a named pass/fail result for each endpoint and scenario. It checks authentication, validation, evaluator responses, settings/SDK integration, documentation and safe errors. No running server, database, real API key or network access is needed.
 
-```sh
-make test-api
-```
-
-No PostgreSQL, running API server, real API key, or paid model call is needed.
-The new `tests/test_api_contract.py` scenarios use real routes, validation,
-authentication logic, settings, evaluators, and the Anthropic SDK. They inject
-fake API-key storage and `ANTHROPIC_API_KEY`, then intercept Anthropic HTTP
-requests with a local scripted transport that checks the outgoing credential.
-Socket connections are blocked in that module, and settings are isolated from
-the developer's `.env`. Existing API tests provide more detailed assertions
-using scripted model clients.
-
-Coverage checklist (these test functions expand into named endpoint/scenario cases):
-
-| Promise | Evidence in the focused suite |
-| --- | --- |
-| `/health` and `/ready` are public; `/health` remains available without authentication storage | `test_health.py`; contract `test_health_is_public_when_authentication_is_unavailable` |
-| Both evaluators return meaningful flagged, unflagged, and below-threshold results | Contract `test_success_has_expected_values_and_uses_environment_key`; `test_api_omissions.py` and `test_api_commissions.py` assert individual findings and response fields |
-| The injected Anthropic API key reaches outgoing model requests | Contract success cases check the SDK's outgoing Bearer header and known token usage |
-| Missing, malformed, unknown, revoked, and expired API keys cannot start evaluation | Contract `test_rejected_authorization_never_starts_evaluation`; `test_api_auth.py` checks headers and storage lookups |
-| A previously accepted API key is rejected on the next request after simulated revocation | Contract `test_revoking_an_accepted_api_key_stops_the_next_request` |
-| Missing, empty, blank, wrong-type, and oversized source or summary fields are rejected without model calls | Contract `test_invalid_fields_follow_authentication_and_never_call_model` |
-| Invalid fields require authentication first; malformed JSON and non-UTF-8 bodies fail during parsing | Contract invalid-field and malformed-body cases, with and without credentials |
-| Unexpected fields and invalid threshold options are rejected; omissions accepts its named levels | Contract `test_invalid_options_are_rejected` and `test_omissions_accepts_each_named_threshold` |
-| Authentication/configuration failures return 503, upstream failures return 502, unexpected errors return 500 | Contract `test_failures_have_expected_status_and_do_not_expose_sensitive_content`; existing evaluator tests cover unreadable settings |
-| Error responses and application logs exclude credentials and sensitive input | Contract failure cases check application DEBUG logs with dependencies at INFO; existing validation tests check safe error locations |
-| Routes remain protected, and documentation examples match their schemas | `test_api_auth.py` and `test_api_docs.py` |
-
-Anthropic SDK DEBUG logging includes raw prompts. The logging assertions cover
-application logs at all levels and dependencies at normal verbosity; do not
-enable third-party debug logging when handling sensitive content.
-
-Optionally save a JUnit XML report for a CI/test-results viewer while keeping
-verbose terminal output:
+Optionally save a JUnit XML report:
 
 ```sh
 make test-api PYTEST_ARGS="--junitxml=.pytest_cache/api-results.xml"
 ```
 
-The report contains named cases, pass/fail totals, and failure details. Its
-location is already ignored by git. Pytest exits nonzero for failures, including
-when a report is requested. `make test-fast` and CI also collect the contract tests.
-The focused suite excludes `db` and `live` tests under the default pytest
-configuration. Fake storage demonstrates how routes respond to revocation;
-actual PostgreSQL persistence and revocation require `make test-db`.
-CI runs those database tests as well.
+`make test-fast` and CI also run these tests. The offline suite uses fake API-key storage; actual PostgreSQL persistence, expiry and revocation are covered by `make test-db`, which CI runs separately.
+
+Anthropic SDK DEBUG logging includes raw prompts. Privacy assertions capture groundline logs at DEBUG and dependencies at normal verbosity; do not enable third-party debug logging when handling sensitive content.
 
 ## Lint, format and type checks
 
