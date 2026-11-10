@@ -9,8 +9,7 @@ from groundline.core import (
     StageContext,
     as_object,
     evidence_in,
-    get_list,
-    parse_json_object,
+    reply_list,
 )
 from groundline.evaluators.omissions.models import ExtractOutput, Fact
 
@@ -34,11 +33,8 @@ class ExtractLLM(PromptImplementation):
 def parse_facts(reply: str, source: str) -> ExtractOutput:
     """Facts from a reply. Ids are reassigned f1..fN in reply order, and each
     evidence quote is checked against the source."""
-    items = get_list(parse_json_object(reply), "facts")
-    if items is None:
-        raise ParseError('expected a "facts" list')
     facts: list[Fact] = []
-    for i, raw in enumerate(items, 1):
+    for i, raw in enumerate(reply_list(reply, "facts"), 1):
         item = as_object(raw)
         if item is None:
             raise ParseError(f"facts[{i - 1}] is not an object")

@@ -110,7 +110,7 @@ class CommissionsResponse(ApiModel):
     commission_score: float
     """From 0 to 1. Higher is better. A score below 0.5 means the summary is
     flagged, and a summary passes at 0.5 or above; the flag is exactly the
-    alarm's. The score is the alarm score turned round and rescaled around the
+    alarm's. The score is the alarm score turned around and rescaled around the
     alarm's threshold. A flag means a statement wasn't found in the source, for
     a reviewer to check; the score doesn't say how good the summary is overall.
     A summary with no claims the source fails to support scores 1."""

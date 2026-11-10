@@ -106,7 +106,7 @@ class OmissionsResponse(ApiModel):
     omission_score: float
     """From 0 to 1. Higher is better. A score below 0.5 means the summary is
     flagged, and a summary passes at 0.5 or above; the flag is exactly the
-    alarm's. The score is the alarm score turned round and rescaled around the
+    alarm's. The score is the alarm score turned around and rescaled around the
     alarm's threshold. It shows whether a critical omission was found, not how
     good the summary is overall. A source with no facts scores 1: nothing
     critical was found, and `counts.total` is 0."""

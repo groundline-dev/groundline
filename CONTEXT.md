@@ -89,7 +89,7 @@ The outcome for a summary whose alarm score reaches the chosen threshold level.
 _Avoid_: failed, rejected, unsafe
 
 **Omission score**:
-A summary's alarm score from the omission check, turned round and rescaled to run from 0 to 1, so that higher is better and a score below 0.5 means the summary is flagged.
+A summary's alarm score from the omission check, turned around and rescaled to run from 0 to 1, so that higher is better and a score below 0.5 means the summary is flagged.
 _Avoid_: alarm score, completeness, note score
 
 **Commission score**:

@@ -1,4 +1,4 @@
-"""The rescaled score: the alarm score turned round and rescaled so that higher is
+"""The rescaled score: the alarm score turned around and rescaled so that higher is
 better. A summary is flagged below 0.5; 0.5 and up is not flagged. Worked examples
 come from the omission-pipeline handoff (D46, deepeval_scores_groundline.md)."""
 
