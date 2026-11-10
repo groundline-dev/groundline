@@ -110,8 +110,9 @@ To store it by hand, `read -rs` keeps the Anthropic API key off the screen and o
 
 ```sh
 read -rs ANTHROPIC_KEY   # paste the key and press Enter
-printf '%s' "$ANTHROPIC_KEY" | aws ssm put-parameter --name /groundline/alice/anthropic-api-key \
-  --type SecureString --value file:///dev/stdin   # your deployment_name in place of alice
+printf '%s' "$ANTHROPIC_KEY" | aws ssm put-parameter --profile groundline-deploy --region us-east-2 \
+  --name /groundline/alice/anthropic-api-key --type SecureString --value file:///dev/stdin
+# your profile, the project's Region and your deployment_name in place of groundline-deploy, us-east-2 and alice
 unset ANTHROPIC_KEY
 ```
 
