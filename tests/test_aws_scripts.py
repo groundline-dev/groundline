@@ -367,8 +367,12 @@ def test_destroy_fails_when_the_key_cannot_be_deleted_and_nothing_else_is_left(
     tmp_path: Path,
 ):
     """With no resources in Terraform's state, a key that couldn't be deleted
-    still fails the run."""
-    world = aws_fakes.new_world(delete_parameter_error="AccessDeniedException")
+    still fails the run. Terraform names the key's parameter in an output, so the
+    test doesn't depend on a deployment_name in the developer's tfvars file."""
+    world = aws_fakes.new_world(
+        outputs={"anthropic_parameter_name": PARAMETER},
+        delete_parameter_error="AccessDeniedException",
+    )
 
     result = run(DESTROY, tmp_path, world, answer="1\n")
 
