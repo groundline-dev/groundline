@@ -32,9 +32,10 @@ anthropic_parameter="${anthropic_parameter:-${name:+$(anthropic_parameter "$name
 echo "Deleting your test deployment in $(project_label)."
 
 # Destroying doesn't use these values, but Terraform asks for every required
-# variable without a default.
+# variable without a default, and infra/terraform.tfvars may be missing.
 plan_and_apply "nothing to delete: Terraform's state for this project lists no resources." -destroy \
-  -var "region=$region" -var "tester_cidr=127.0.0.1/32" -var "git_ref=unused"
+  -var "region=$region" -var "tester_cidr=127.0.0.1/32" -var "git_ref=unused" \
+  -var "deployment_name=unused" -var "budget_alert_email=unused@example.com"
 
 leftover=0
 
@@ -59,6 +60,10 @@ fi
 
 # With no resources in the state and none named, there's nothing to check.
 if [ -z "$plan_changed" ] && [ -z "$instance$group$role$profile$budget" ]; then
+  [ "$leftover" = 0 ] || {
+    echo
+    fail "your Anthropic API key may still be stored; see above, and check Parameter Store in the AWS console"
+  }
   other_deployments
   echo
   exit 0

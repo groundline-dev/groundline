@@ -349,6 +349,33 @@ def test_destroy_passes_when_no_anthropic_key_was_stored(tmp_path: Path):
     assert "no Anthropic API key was stored" in result.output
 
 
+def test_destroy_needs_no_terraform_tfvars_settings(tmp_path: Path):
+    """The fake Terraform, like the real one, fails when a required variable has
+    no value, and the script can't count on infra/terraform.tfvars being there."""
+    world = aws_fakes.new_world(
+        outputs=DESTROY_OUTPUTS, existing={INSTANCE: "terminated"}
+    )
+
+    result = run(DESTROY, tmp_path, world, answer="1\n")
+
+    assert result.returncode == 0, result.output
+    assert "No value for required variable" not in result.output
+
+
+def test_destroy_fails_when_the_key_cannot_be_deleted_and_nothing_else_is_left(
+    tmp_path: Path,
+):
+    """With no resources in Terraform's state, a key that couldn't be deleted
+    still fails the run."""
+    world = aws_fakes.new_world(delete_parameter_error="AccessDeniedException")
+
+    result = run(DESTROY, tmp_path, world, answer="1\n")
+
+    assert result.returncode != 0, result.output
+    assert "AccessDeniedException" in result.output
+    assert "may still be stored" in result.output
+
+
 def test_destroy_fails_when_the_instance_is_still_running(tmp_path: Path):
     world = aws_fakes.new_world(outputs=DESTROY_OUTPUTS, existing={INSTANCE: "running"})
 

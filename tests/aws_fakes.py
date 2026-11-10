@@ -19,7 +19,7 @@ They answer only the calls the scripts make, the way the real tools answer:
 - `aws ssm get-parameter` finds the Anthropic parameter or fails with
   ParameterNotFound. With --with-decryption it fails the test run: no script
   may read the key. `aws ssm delete-parameter` deletes it, or fails with
-  ParameterNotFound.
+  ParameterNotFound, or with `delete_parameter_error` when that is set.
 - `aws configure get region` prints `region`, and `aws account
   get-account-information` gives `account_name` as the project's name.
 - `aws ec2 describe-instances`, `describe-security-groups`, `aws iam get-role`,
@@ -80,6 +80,7 @@ def new_world(**fields: Any) -> dict[str, Any]:
         "account_name": "Test project",
         "existing": {},
         "error": None,
+        "delete_parameter_error": None,
     }
     world.update(fields)
     return world
@@ -126,6 +127,19 @@ def _terraform(world: dict[str, Any], args: list[str]) -> int:
         world["destroyed"] = True
         return 0
     if args[:1] == ["plan"] and "-destroy" in args:
+        # Like real Terraform, fail when a required variable has no value. Real
+        # Terraform reads infra/terraform.tfvars, which the tests treat as missing.
+        given = {
+            args[i + 1].split("=")[0]
+            for i, arg in enumerate(args[:-1])
+            if arg == "-var"
+        }
+        for name in ("deployment_name", "budget_alert_email"):
+            if name not in given:
+                print(
+                    f'Error: No value for required variable "{name}"', file=sys.stderr
+                )
+                return 1
         return _destroy_plan(world, args)
     if args[:2] == ["show", "-json"] and len(args) == 3:
         sys.stdout.write(Path(args[2]).read_text())
@@ -275,6 +289,10 @@ def _reply(
                 raise AWSError("ParameterNotFound", "GetParameter", "")
             return {"Parameter": {"Name": name, "Type": "SecureString"}}
         case ("ssm", "delete-parameter"):
+            if world["delete_parameter_error"]:
+                raise AWSError(
+                    world["delete_parameter_error"], "DeleteParameter", "denied"
+                )
             if not world["parameter_exists"]:
                 raise AWSError("ParameterNotFound", "DeleteParameter", "")
             world["parameter_exists"] = False
