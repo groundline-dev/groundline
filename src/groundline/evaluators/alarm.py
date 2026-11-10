@@ -22,12 +22,15 @@ its threshold, so a summary on the threshold has to land below 0.5."""
 
 def rescaled_score(alarm_score: float, threshold: float) -> float:
     """The alarm score turned around and rescaled from 0 to 1, so that higher is
-    better and a summary is flagged exactly when its score is below 0.5."""
+    better and a summary is flagged exactly when its score is below 0.5. Rounded
+    to four decimals, which can't move a score across 0.5."""
     if alarm_score < threshold:
-        return 0.5 + 0.5 * (threshold - alarm_score) / threshold
-    if alarm_score >= 1:  # also keeps a threshold of 1 from dividing by zero
-        return 0.0
-    return min(0.5 * (1 - alarm_score) / (1 - threshold), FLAGGED_SCORE_CAP)
+        score = 0.5 + 0.5 * (threshold - alarm_score) / threshold
+    elif alarm_score >= 1:  # also keeps a threshold of 1 from dividing by zero
+        score = 0.0
+    else:
+        score = min(0.5 * (1 - alarm_score) / (1 - threshold), FLAGGED_SCORE_CAP)
+    return round(score, 4)
 
 
 class ThresholdAlarm(Implementation):

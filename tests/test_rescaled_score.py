@@ -10,8 +10,7 @@ import pytest
 
 from groundline import builtin_presets, load_preset
 from groundline.core import StageContext
-from groundline.evaluators import alarm as alarm_module
-from groundline.evaluators.alarm import ThresholdAlarm
+from groundline.evaluators.alarm import ThresholdAlarm, rescaled_score
 from groundline.evaluators.models import AlarmOutput
 from tests import commissions_helpers as commissions
 from tests import omission_helpers as omissions
@@ -69,28 +68,23 @@ def outcome(alarm: float, threshold: float) -> AlarmOutput:
 def test_the_formula_on_worked_examples(
     alarm: float, threshold: float, expected: float
 ):
-    assert alarm_module.rescaled_score(alarm, threshold) == pytest.approx(
-        expected, abs=1e-4
-    )
+    assert rescaled_score(alarm, threshold) == pytest.approx(expected, abs=1e-4)
 
 
 @pytest.mark.parametrize("threshold", [0.90, 0.85])
-def test_the_score_just_below_the_threshold_is_just_above_one_half(threshold: float):
-    score = alarm_module.rescaled_score(math.nextafter(threshold, 0.0), threshold)
-
-    assert score > 0.5
-    assert score == pytest.approx(0.5)
+def test_the_score_just_below_the_threshold_still_passes(threshold: float):
+    assert rescaled_score(math.nextafter(threshold, 0.0), threshold) == 0.5
 
 
 @pytest.mark.parametrize("threshold", [0.90, 0.85])
 def test_the_score_just_above_the_threshold_is_capped_below_one_half(threshold: float):
-    score = alarm_module.rescaled_score(math.nextafter(threshold, 1.0), threshold)
+    score = rescaled_score(math.nextafter(threshold, 1.0), threshold)
 
     assert score == 0.4999
 
 
 def test_a_threshold_of_one_never_divides_by_zero():
-    assert alarm_module.rescaled_score(1.0, 1.0) == 0.0
+    assert rescaled_score(1.0, 1.0) == 0.0
 
 
 # --- the score and the flag ---------------------------------------------------------

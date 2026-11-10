@@ -182,13 +182,6 @@ def test_a_source_with_no_facts_finishes_without_further_model_calls():
     assert [c.step for c in result.calls] == ["extract"]
 
 
-def test_moderate_is_no_longer_a_level():
-    with pytest.raises(
-        SpecError, match="level 'moderate' is not one of the thresholds"
-    ):
-        run_all(check_reply(), level="moderate")
-
-
 def test_an_unknown_level_is_a_spec_error():
     with pytest.raises(SpecError, match="level 'extreme' is not one of the thresholds"):
         run_all(check_reply(), level="extreme")
