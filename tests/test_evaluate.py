@@ -97,11 +97,12 @@ def test_the_unchanged_preset_is_recognized_as_validated():
     assert result.warnings == []
 
 
-def test_choosing_the_moderate_level_is_still_the_validated_preset():
-    result = run(with_settings(PRESET, "alarm", level="moderate"))
+def test_the_preset_offers_only_the_strict_level():
+    alarm = next(stage for stage in PRESET.stages if stage.step == "alarm")
 
-    assert result.validated_preset == "omission_all_opus"
-    assert result.run.output("alarm", AlarmOutput).threshold == 0.425
+    assert alarm.settings["thresholds"] == {"strict": 0.90}
+    with pytest.raises(SpecError, match="level 'moderate' is not one of"):
+        run(with_settings(PRESET, "alarm", level="moderate"))
 
 
 def test_changing_a_setting_is_not_the_validated_preset_and_warns_about_thresholds():

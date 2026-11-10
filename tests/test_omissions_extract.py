@@ -93,7 +93,7 @@ def test_malformed_json_is_retried_once():
     "bad",
     [
         "not json",
-        json.dumps({"facts": []}),
+        json.dumps({"facts": "none"}),
         json.dumps({"items": [{"fact": "a", "evidence": "b"}]}),
         json.dumps({"facts": [{"fact": "a"}]}),
         json.dumps({"facts": [{"fact": "", "evidence": "i was skiing"}]}),

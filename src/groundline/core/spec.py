@@ -105,7 +105,7 @@ def load_spec(path: str | Path) -> PipelineSpec:
 
 def with_settings(spec: PipelineSpec, step: str, **settings: Any) -> PipelineSpec:
     """A copy of `spec` with some of one stage's settings changed, e.g.
-    `with_settings(spec, "alarm", level="moderate")`."""
+    `with_settings(spec, "check", effort="high")`."""
     if not any(s.step == step for s in spec.stages):
         raise ValueError(f"pipeline '{spec.name}' has no '{step}' stage")
     stages = [

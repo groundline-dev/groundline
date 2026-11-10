@@ -3,8 +3,7 @@
 #
 # This is the configuration omission-pipeline measured, so its results only hold
 # while every setting here, and the clinical profile's prompts and rubric, stay
-# unchanged. Choosing the moderate alarm level instead of strict is fine: both
-# thresholds were fixed in advance on 60 calibration notes.
+# unchanged. The strict threshold was fixed in advance on 60 calibration notes.
 #
 # Measured on 50 held-out OmissionBench notes, thresholds fixed beforehand:
 #   strict (0.90): 16/50 omissions caught, 1/50 clean notes flagged, ~$0.28 per note.
@@ -45,5 +44,5 @@ stages:
   - step: alarm
     implementation: alarm.critical_max
     settings:
-      thresholds: {strict: 0.90, moderate: 0.425}
+      thresholds: {strict: 0.90}
       level: strict

@@ -281,8 +281,7 @@
             "type": "number"
           },
           "default": {
-            "strict": 0.9,
-            "moderate": 0.425
+            "strict": 0.9
           },
           "description": "Named alarm scores at or above which the summary is flagged. Only\nmeaningful for the pipeline they were calibrated on.",
           "title": "Thresholds",

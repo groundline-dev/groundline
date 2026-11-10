@@ -76,6 +76,7 @@ Example report:
 Omission check   transcript.txt · note.txt
 Pipeline         omission_all_opus · clinical profile (validated preset)
 Result           FLAGGED (alarm 0.97 ≥ 0.90, strict)
+Omission score   0.15 (higher is better; below 0.5 is flagged)
 
 Not fully recorded (rank order):
   severity    verdict  p_missing  fact
@@ -100,7 +101,6 @@ Cost             $0.29 · 4 calls · 31,620 input / 8,140 output tokens · 48.3 
 
 | Option | What it does |
 |---|---|
-| `--threshold strict\|moderate` | Which alarm level to flag at. `strict` (0.90, the default) flags fewer clean summaries; `moderate` (0.425) catches more omissions but flags more clean summaries. Both were fixed in advance, so either keeps the run on the validated preset. |
 | `--pipeline SPEC.yaml` | Run a custom pipeline spec instead of the preset. |
 | `--profile DIR` | Use a domain profile folder instead of the pipeline's built-in profile. |
 | `--cache` | Cache each step's output so identical re-runs are free. Off by default; see below. |
@@ -118,6 +118,7 @@ Example report:
 Commission check  transcript.txt · note.txt
 Pipeline          commission_quick · clinical profile (validated preset)
 Result            FLAGGED (alarm 0.95 ≥ 0.85, default)
+Commission score  0.1667 (higher is better; below 0.5 is flagged)
 
 Not supported by the source (severity order):
   severity    verdict       confidence  claim
@@ -128,7 +129,7 @@ Not supported by the source (severity order):
 Cost              $0.0020 · 1 calls · 14,820 input / 1,040 output tokens · 4.1 s
 ```
 
-The [exit codes](#exit-codes) and [options](#options) are the same as for omissions. `--threshold` names an alarm level in the pipeline, and the preset's only level is `default` (0.85). If the model's quote of the source passage isn't found word for word in the source, the report still shows it, marked `(not found word for word in the source)`. If a pipeline switches refute on, the report adds a `Cleared by refute` line.
+The [exit codes](#exit-codes) and [options](#options) are the same as for omissions. If the model's quote of the source passage isn't found word for word in the source, the report still shows it, marked `(not found word for word in the source)`. If a pipeline switches refute on, the report adds a `Cleared by refute` line.
 
 ## Using it from Python
 
@@ -140,7 +141,7 @@ from groundline.evaluators.omissions.models import ScoreOutput
 result = evaluate_sync(transcript_text, note_text)
 
 alarm = result.run.output("alarm", AlarmOutput)
-print(alarm.flagged, alarm.score)
+print(alarm.flagged, alarm.score, alarm.rescaled_score)
 for fact in result.run.output("score", ScoreOutput).missing_facts:
     print(fact.severity, fact.verdict, fact.fact)
 print(result.validated_preset)  # "omission_all_opus", or None if anything was changed
@@ -181,14 +182,15 @@ export GROUNDLINE_API_KEY='<API key printed by keys create>'
 curl -s http://127.0.0.1:8000/v1/omissions \
   -H "Authorization: Bearer $GROUNDLINE_API_KEY" \
   -H 'Content-Type: application/json' \
-  -d '{"source": "...transcript...", "summary": "...note...", "threshold": "strict"}'
+  -d '{"source": "...transcript...", "summary": "...note..."}'
 ```
 
-`threshold` is optional: `strict` (the default) or `moderate`, as for the CLI. `source` and `summary` must not be blank, and each can be up to 200,000 characters. A check takes about 30 to 60 seconds, so give your HTTP client a long timeout.
+`source` and `summary` must not be blank, and each can be up to 200,000 characters. A check takes about 30 to 60 seconds, so give your HTTP client a long timeout.
 
 ```json
 {
   "flagged": true,
+  "omission_score": 0.15,
   "alarm": {"score": 0.97, "threshold": 0.9, "level": "strict"},
   "omissions": [
     {"fact": "Allergic to penicillin. No other drug allergies.", "severity": "critical",
@@ -205,7 +207,7 @@ curl -s http://127.0.0.1:8000/v1/omissions \
 
 ### `POST /v1/commissions`
 
-Runs the validated quick commission preset on one summary. It takes the same API key, `source` and `summary` as `/v1/omissions`, but no `threshold`, since the preset has a single alarm level. It answers the same [statuses](#statuses-and-errors):
+Runs the validated quick commission preset on one summary. It takes the same API key, `source` and `summary` as `/v1/omissions`. It answers the same [statuses](#statuses-and-errors):
 
 ```sh
 curl -s http://127.0.0.1:8000/v1/commissions \
@@ -217,6 +219,7 @@ curl -s http://127.0.0.1:8000/v1/commissions \
 ```json
 {
   "flagged": true,
+  "commission_score": 0.1667,
   "alarm": {"score": 0.95, "threshold": 0.85, "level": "default"},
   "commissions": [
     {"claim": "Motrin 800 mg every 6 hours for a week", "severity": "critical",
@@ -231,9 +234,15 @@ curl -s http://127.0.0.1:8000/v1/commissions \
 
 `commissions` lists the claims in the summary that the source doesn't support, most important first. `support_verdict` is `contradicted` (the source says otherwise) or `unsupported` (the source doesn't mention it). For a contradicted claim, `evidence` is the passage of the source the model quoted; it is `null` for an unsupported one. `evidence_found` says whether that passage appears in the source word for word, ignoring case, punctuation and spacing. `true` means verified. `false` only means it couldn't be matched, which a reworded quote or markup in the source, such as a scribe's `<UNSURE>` tags, can cause, so check it by eye rather than assuming it was invented.
 
+### Scores
+
+`omission_score` and `commission_score` run from 0 to 1, and higher is better. A summary is flagged exactly when its score is below 0.5, and passes at 0.5 or above, so tools such as DeepEval can use their default cut of 0.5. The alarm still decides the flag: the score is the alarm score turned round and rescaled around the alarm's threshold. The CLI report shows the same score, and `--json` and Python results have it as the alarm's `rescaled_score`.
+
+A score shows whether a critical problem was found, not how good the summary is overall, and it belongs to the preset that produced it. A commission flag means a statement wasn't found in the source, for a reviewer to check. When nothing critical is found the score is 1. That includes a source with no facts, where `counts.total` is 0 and only the extract call is charged.
+
 ### Statuses and errors
 
-Every finished check answers **200, flagged or not** ([ADR 0008](docs/adr/0008-the-api-returns-200-for-a-flagged-summary.md)). Other statuses mean the check couldn't finish. They apply to both endpoints except where marked omissions-only:
+Every finished check answers **200, flagged or not** ([ADR 0008](docs/adr/0008-the-api-returns-200-for-a-flagged-summary.md)). Other statuses mean the check couldn't finish. They apply to both endpoints:
 
 | Status | Meaning |
 |---|---|
@@ -241,7 +250,7 @@ Every finished check answers **200, flagged or not** ([ADR 0008](docs/adr/0008-t
 | 401 | The groundline API key is missing, malformed, unknown, revoked, or expired. Includes `WWW-Authenticate: Bearer`. |
 | 404 | No such route. `detail` names the method and path, and points to `/docs`. |
 | 405 | The route doesn't take that method, such as `GET /v1/omissions`. |
-| 422 | The request is unusable: broken JSON, not a JSON object, a blank or too-long text, an unexpected field, or (omissions only) an unknown `threshold`. |
+| 422 | The request is unusable: broken JSON, not a JSON object, a blank or too-long text, or an unexpected field. |
 | 500 | An unexpected error, a bug in groundline. Details are in the server log. |
 | 502 | The model or Anthropic's API failed: an unusable reply, a refusal or an outage. `detail` names the step and what the check had spent; for an Anthropic API error it gives only the status and error type. Retrying later may work. |
 | 503 | `ANTHROPIC_API_KEY` is missing or rejected, or settings cannot be read. It's also 503 when authentication is unavailable (missing/unusable `DATABASE_URL` or unavailable storage), with `{"detail": "Authentication is unavailable"}`. Model setup errors provide setup guidance, without the path of the server's `.env`. |

@@ -65,6 +65,13 @@ def result_line(alarm: AlarmOutput) -> str:
     )
 
 
+def rescaled_score_text(alarm: AlarmOutput) -> str:
+    """The rescaled score and how to read it. Up to four decimals with no trailing
+    zeros: fewer decimals could round a flagged 0.4999 up to 0.5."""
+    score = f"{alarm.rescaled_score:.4f}".rstrip("0").rstrip(".")
+    return f"{score} (higher is better; below 0.5 is flagged)"
+
+
 def cost_line(result: EvaluationResult, seconds: float) -> str:
     """What the run cost: dollars, calls, tokens and time."""
     return usage_text(result.run.usage, seconds)

@@ -42,6 +42,8 @@ class RankLLM(PromptImplementation):
 
     async def run(self, ctx: StageContext) -> RankOutput:
         facts = ctx.output("extract", ExtractOutput).facts
+        if not facts:
+            return RankOutput(facts=[])
         prompt = ctx.fill(
             ctx.text(self.prompt),
             facts=facts_block(facts),

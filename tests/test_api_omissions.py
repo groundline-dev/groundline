@@ -8,7 +8,6 @@ import httpx2
 import pytest
 from fastapi.testclient import TestClient
 
-from groundline import load_preset
 from groundline.api import common
 
 # The route's module, imported as `api` because the tests patch the names it looks up
@@ -63,6 +62,7 @@ def test_a_summary_that_is_not_flagged():
     body = response.json()
     assert body["flagged"] is False
     assert body["alarm"] == {"score": 0.0, "threshold": 0.9, "level": "strict"}
+    assert body["omission_score"] == 1.0
     assert body["pipeline"] == body["validated_preset"] == DEFAULT_PRESET
     assert body["counts"] == {"total": 3, "present": 1, "partial": 1, "absent": 1}
     assert body["usage"]["calls"] == 4
@@ -76,6 +76,7 @@ def test_a_flagged_summary_still_answers_200():
     assert response.status_code == 200
     body = response.json()
     assert body["flagged"] is True
+    assert body["omission_score"] == pytest.approx(0.25)
     assert body["omissions"][0] == {
         "fact": "Motrin 600 mg every 6 hours for a week.",
         "severity": "critical",
@@ -85,35 +86,41 @@ def test_a_flagged_summary_still_answers_200():
     }
 
 
-@pytest.mark.parametrize("level,threshold", [("strict", 0.9), ("moderate", 0.425)])
-def test_each_named_threshold_keeps_the_validated_preset(level: str, threshold: float):
-    use_client(flagged_script())
+def test_a_source_with_no_facts_answers_200_with_a_score_of_one():
+    use_client(Script(extract='{"facts": []}'))
 
-    response = http.post("/v1/omissions", json=check(threshold=level))
+    response = http.post("/v1/omissions", json=check())
+
     assert response.status_code == 200
     body = response.json()
-
-    assert body["alarm"] == {"score": 0.95, "level": level, "threshold": threshold}
-    assert body["validated_preset"] == DEFAULT_PRESET
-
-
-def test_the_threshold_levels_are_the_presets():
-    alarm = next(s for s in load_preset(DEFAULT_PRESET).stages if s.step == "alarm")
-
-    assert set(api.ThresholdLevel.__args__) == set(alarm.settings["thresholds"])
+    assert body["flagged"] is False
+    assert body["alarm"] == {"score": 0.0, "threshold": 0.9, "level": "strict"}
+    assert body["omission_score"] == 1.0
+    assert body["omissions"] == []
+    assert body["counts"] == {"total": 0, "present": 0, "partial": 0, "absent": 0}
+    assert body["usage"]["calls"] == 1
 
 
 @pytest.mark.parametrize(
     "body",
     [
-        check(threshold="extreme"),
+        check(threshold="strict"),
+        check(threshold="moderate"),
         check(source=""),
         check(summary="  \n "),
         check(source="x" * (common.MAX_CHARS + 1)),
         check(pipeline="custom.yaml"),
         {"source": SOURCE},
     ],
-    ids=["unknown threshold", "empty", "blank", "too long", "extra field", "missing"],
+    ids=[
+        "threshold strict",
+        "threshold moderate",
+        "empty",
+        "blank",
+        "too long",
+        "extra field",
+        "missing",
+    ],
 )
 def test_unusable_input_is_a_422_before_any_call(body: dict[str, object]):
     client = use_client(lambda prompt: "unused")
@@ -129,11 +136,10 @@ def test_unusable_input_is_a_422_before_any_call(body: dict[str, object]):
     [
         (check(source=SECRET + "x" * common.MAX_CHARS), ["body", "source"]),
         (check(source={"text": SECRET}), ["body", "source"]),
-        (check(threshold=SECRET), ["body", "threshold"]),
         (check(notes=SECRET), ["body"]),
         (check(**{SECRET: "x"}), ["body"]),
     ],
-    ids=["too long", "not text", "unknown threshold", "extra value", "extra name"],
+    ids=["too long", "not text", "extra value", "extra name"],
 )
 def test_a_422_never_repeats_the_input(body: dict[str, object], loc: list[str]):
     use_client(not_flagged_script())

@@ -35,8 +35,8 @@ def parse_facts(reply: str, source: str) -> ExtractOutput:
     """Facts from a reply. Ids are reassigned f1..fN in reply order, and each
     evidence quote is checked against the source."""
     items = get_list(parse_json_object(reply), "facts")
-    if not items:
-        raise ParseError('expected a non-empty "facts" list')
+    if items is None:
+        raise ParseError('expected a "facts" list')
     facts: list[Fact] = []
     for i, raw in enumerate(items, 1):
         item = as_object(raw)

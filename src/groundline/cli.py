@@ -30,7 +30,6 @@ from groundline.core import (
     load_profile,
     load_spec,
     summarize_usage,
-    with_settings,
 )
 from groundline.evaluate import (
     DEFAULT_COMMISSIONS_PRESET,
@@ -92,14 +91,6 @@ SummaryArg = Annotated[
     typer.Argument(
         exists=True, dir_okay=False, help="The summary to check, e.g. a clinical note."
     ),
-]
-OmissionsThresholdOpt = Annotated[
-    str | None,
-    typer.Option(help="Alarm level from the pipeline, e.g. strict or moderate."),
-]
-CommissionsThresholdOpt = Annotated[
-    str | None,
-    typer.Option(help="Alarm level from the pipeline, e.g. default."),
 ]
 OmissionsPipelineOpt = Annotated[
     Path | None,
@@ -169,7 +160,6 @@ COMMISSIONS = Check(
 def omissions(
     source: SourceArg,
     summary: SummaryArg,
-    threshold: OmissionsThresholdOpt = None,
     pipeline: OmissionsPipelineOpt = None,
     profile: ProfileOpt = None,
     cache: CacheOpt = False,
@@ -177,9 +167,7 @@ def omissions(
 ) -> None:
     """Find the facts a summary leaves out, and whether to flag it."""
     _finish(
-        lambda: _check(
-            OMISSIONS, source, summary, threshold, pipeline, profile, cache, json_path
-        )
+        lambda: _check(OMISSIONS, source, summary, pipeline, profile, cache, json_path)
     )
 
 
@@ -187,7 +175,6 @@ def omissions(
 def commissions(
     source: SourceArg,
     summary: SummaryArg,
-    threshold: CommissionsThresholdOpt = None,
     pipeline: CommissionsPipelineOpt = None,
     profile: ProfileOpt = None,
     cache: CacheOpt = False,
@@ -197,7 +184,7 @@ def commissions(
     to flag it."""
     _finish(
         lambda: _check(
-            COMMISSIONS, source, summary, threshold, pipeline, profile, cache, json_path
+            COMMISSIONS, source, summary, pipeline, profile, cache, json_path
         )
     )
 
@@ -231,7 +218,6 @@ def _check(
     check: Check,
     source: Path,
     summary: Path,
-    threshold: str | None,
     pipeline: Path | None,
     profile: Path | None,
     cache: bool,
@@ -240,8 +226,6 @@ def _check(
     """Run the check, print the report, and return the exit code."""
     spec = load_spec(pipeline) if pipeline else load_preset(check.preset)
     require_steps(spec, check.required_steps, report=check.report_name)
-    if threshold:
-        spec = with_settings(spec, ALARM_STEP, level=threshold)
     domain = load_profile(profile) if profile else None
 
     stage_cache = None

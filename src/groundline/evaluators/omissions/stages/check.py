@@ -46,6 +46,8 @@ class CheckLLMBatch(PromptImplementation):
 
     async def run(self, ctx: StageContext) -> CheckOutput:
         facts = ctx.output("rank", RankOutput).facts
+        if not facts:
+            return CheckOutput(verdicts=[])
         block = "\n".join(f"{f.id}: {f.fact}" for f in facts)
         prompt = ctx.fill(ctx.text(self.prompt), facts=block)
         return await self.ask(

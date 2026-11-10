@@ -65,6 +65,7 @@ def test_a_flagged_summary_answers_200_with_its_commissions_most_important_first
     body = response.json()
     assert body["flagged"] is True
     assert body["alarm"] == {"score": 0.95, "threshold": 0.85, "level": "default"}
+    assert body["commission_score"] == pytest.approx(0.1667, abs=1e-4)
     assert body["pipeline"] == body["validated_preset"] == DEFAULT_COMMISSIONS_PRESET
     assert body["usage"]["calls"] == 1
     assert body["commissions"] == [
@@ -94,6 +95,7 @@ def test_the_response_has_only_the_documented_fields():
 
     assert set(body) == {
         "flagged",
+        "commission_score",
         "alarm",
         "commissions",
         "pipeline",
@@ -119,6 +121,7 @@ def test_a_summary_with_nothing_unsupported_is_not_flagged():
     body = response.json()
     assert body["flagged"] is False
     assert body["alarm"] == {"score": 0.0, "threshold": 0.85, "level": "default"}
+    assert body["commission_score"] == 1.0
     assert body["commissions"] == []
 
 
