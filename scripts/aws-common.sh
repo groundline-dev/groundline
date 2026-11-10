@@ -127,8 +127,15 @@ use_project() {
   export AWS_PROFILE="${AWS_PROFILE:-$wizard_profile}"
   region="${AWS_REGION:-$(aws configure get region 2>/dev/null || true)}"
   [ -n "$region" ] || fail "no AWS project chosen yet: run make aws-up or make aws-project"
-  account="$(aws sts get-caller-identity --region "$region" --query Account --output text)" \
-    || fail "the AWS CLI isn't signed in: run make aws-project to choose a project"
+  # The AWS CLI's own error for an expired sign-in says to run aws login, which
+  # signs in a different profile, so only its other errors are shown.
+  if ! account="$(aws sts get-caller-identity --region "$region" --query Account \
+    --output text 2>&1)"; then
+    case "$account" in
+      *[Ee]xpired*) fail "your AWS sign-in has expired. Run make aws-project to sign in again." ;;
+      *) fail "couldn't check your AWS sign-in: $account" ;;
+    esac
+  fi
   export TF_WORKSPACE="$account"
   # Looked up once here, so the name doesn't change partway through a run if a
   # later lookup fails. The profile may not be allowed to read it.

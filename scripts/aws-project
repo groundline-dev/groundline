@@ -8,18 +8,28 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/aws-common.sh
 
+# The commands to choose from once a project is chosen. Each leaves the script's
+# output ending with a blank line, as the layout rules require.
+choose_next() {
+  step "What next"
+  bullet "make aws-deploy deploys a test server."
+  bullet "make aws-status shows any server already running here."
+  bullet "make aws-destroy deletes a deployment you left in this project."
+  echo
+}
+
 export AWS_PROFILE="${AWS_PROFILE:-$wizard_profile}"
 if signed_in; then
   use_project
-  echo "The make aws-* commands now act on the AWS project you're signed in to:"
+  echo "You're signed in to this AWS project:"
   bullet "$(project_label), in $region"
-  if ! confirm "Switch the make aws-* commands to another AWS project?"; then
+  if confirm "Keep using this project?"; then
     answer_ok "the make aws-* commands still act on $(project_label) in $region"
-    echo
+    choose_next
     exit 0
   fi
 fi
 choose_project
 use_project
 answer_ok "the make aws-* commands now act on $(project_label) in $region"
-echo
+choose_next

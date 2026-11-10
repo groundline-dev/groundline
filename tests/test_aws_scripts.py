@@ -33,6 +33,7 @@ from tests import aws_fakes
 ROOT = Path(__file__).resolve().parents[1]
 SMOKE_TEST = ROOT / "scripts" / "aws-smoke-test"
 DESTROY = ROOT / "scripts" / "aws-destroy"
+PROJECT = ROOT / "scripts" / "aws-project"
 STATUS = ROOT / "scripts" / "aws-status"
 RESET_DEADLINE = ROOT / "scripts" / "aws-reset-deadline"
 
@@ -385,14 +386,15 @@ def test_destroy_fails_when_the_instance_is_still_running(tmp_path: Path):
     assert INSTANCE in result.output
 
 
-def test_destroy_fails_when_aws_cannot_say_what_is_left(tmp_path: Path):
-    """An expired sign-in isn't the same as "not found": the check can't pass."""
+def test_an_expired_sign_in_says_to_run_make_aws_project(tmp_path: Path):
+    """Not the AWS CLI's own advice to run aws login, which signs in another profile."""
     world = aws_fakes.new_world(outputs=DESTROY_OUTPUTS, error="ExpiredToken")
 
     result = run(DESTROY, tmp_path, world, answer="1\n")
 
     assert result.returncode != 0, result.output
-    assert "ExpiredToken" in result.output
+    assert "Run make aws-project to sign in again" in result.output
+    assert "aws login" not in result.output
 
 
 def test_destroy_deletes_nothing_when_cancelled(tmp_path: Path):
@@ -489,6 +491,18 @@ WHAT_NEXT_END = "to remove what it leaves behind.\n\n"
 def assert_ends_with_what_next(output: str) -> None:
     assert "\nWhat next\n" in output, output
     assert output.endswith(WHAT_NEXT_END), output[-300:]
+
+
+def test_aws_project_ends_with_the_commands_to_choose_from(tmp_path: Path):
+    world = aws_fakes.new_world()
+
+    result = run(PROJECT, tmp_path, world, answer="\n")
+
+    assert result.returncode == 0, result.output
+    assert "\nWhat next\n" in result.output
+    for command in ("make aws-deploy", "make aws-status", "make aws-destroy"):
+        assert command in result.output
+    assert result.output.endswith("\n\n")
 
 
 @pytest.mark.parametrize("script", [STATUS, RESET_DEADLINE])
