@@ -1,4 +1,4 @@
-# Opt-in HTTPS for EC2. The host sets GROUNDLINE_PUBLIC_IP before startup.
+# Opt-in HTTPS for EC2. The host renders its public IP before startup.
 # COMPOSE_FILE=compose.yaml:compose.https.yaml keeps later Compose commands on
 # the same stack. Requires Compose 2.24.4+ for !reset (AWS installs a pinned version).
 services:

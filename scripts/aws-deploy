@@ -33,6 +33,12 @@ anthropic_parameter="$(anthropic_parameter "$(deployment_name)")"
 
 ref="${REF:-HEAD}"
 commit="$(git rev-parse --verify --quiet "$ref^{commit}")" || fail "$ref isn't a commit"
+if [ "$access_mode" = https ]; then
+  for file in compose.https.yaml infra/https/Caddyfile infra/https/refresh-address; do
+    git cat-file -e "$commit:$file" 2>/dev/null \
+      || fail "$ref doesn't include HTTPS support ($file). Deploy a commit with HTTPS support, or explicitly choose tester_http."
+  done
+fi
 if [ -n "${REPOSITORY_URL:-}" ]; then
   repository_url="$REPOSITORY_URL"
 else
