@@ -75,7 +75,8 @@ def main() -> None:
     try:
         network = json.loads(docker("network", "inspect", name))[0]
         subnet = ipaddress.ip_network(network["IPAM"]["Config"][0]["Subnet"])
-        address = str(subnet.network_address + 10)
+        proxy_address = str(subnet.network_address + 10)
+        address = str(subnet.network_address + 11)
         with tempfile.TemporaryDirectory(prefix="groundline-https-") as directory:
             work = Path(directory)
             command(
@@ -114,8 +115,25 @@ def main() -> None:
                 }
             }
             (work / "pebble.json").write_text(json.dumps(pebble_config))
-            backend = """import time
+            backend = """import time, socket, select, threading
+from socketserver import BaseRequestHandler, ThreadingTCPServer
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+# Forward TLS unchanged to a different address: model EC2/Docker NAT. Caddy
+# cannot select the certificate from its local socket address without SNI.
+class Forward(BaseRequestHandler):
+    def handle(self):
+        with socket.create_connection(('caddy', 443), timeout=150) as upstream:
+            peers = (self.request, upstream)
+            while True:
+                readable, _, _ = select.select(peers, [], [], 150)
+                if not readable: return
+                for source in readable:
+                    data = source.recv(65536)
+                    if not data: return
+                    target = upstream if source is self.request else self.request
+                    target.sendall(data)
+forwarder = ThreadingTCPServer(('0.0.0.0', 443), Forward)
+threading.Thread(target=forwarder.serve_forever, daemon=True).start()
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         if self.path == '/slow': time.sleep(125)
@@ -149,7 +167,13 @@ ThreadingHTTPServer(('0.0.0.0', 8000), Handler).serve_forever()
                 )
                 return container
 
-            app = start("app", PYTHON, "python", "/fixture/backend.py")
+            app = start(
+                "app",
+                PYTHON,
+                "python",
+                "/fixture/backend.py",
+                options=("--ip", address),
+            )
             ca = start(
                 "pebble",
                 PEBBLE,
@@ -199,7 +223,7 @@ ThreadingHTTPServer(('0.0.0.0', 8000), Handler).serve_forever()
                 "run",
                 "--config",
                 "/fixture/caddy.json",
-                options=("--ip", address, "-v", f"{volume}:/data"),
+                options=("--ip", proxy_address, "-v", f"{volume}:/data"),
             )
 
             def client(source: str) -> str:
@@ -263,7 +287,7 @@ assert response.read() == b'ok'
 """)
             print("PASS: response after 125 seconds of silence", flush=True)
             # A failed renewal must not expose HTTP or mint a locally trusted fallback.
-            docker("stop", ca)
+            docker("network", "disconnect", name, ca)
             time.sleep(95)
             try:
                 client(connect)
@@ -275,10 +299,10 @@ assert response.read() == b'ok'
 for port in (80, 8000, 8001, 5432, 5433, 2019):
     with socket.socket() as connection:
         connection.settimeout(2)
-        assert connection.connect_ex(('{address}', port)) != 0, port
+        assert connection.connect_ex(('{proxy_address}', port)) != 0, port
 """)
-            docker("start", ca)
-            wait_for(lambda: client(connect), "recovery after CA outage", seconds=180)
+            docker("network", "connect", "--alias", "pebble", name, ca)
+            wait_for(lambda: client(connect), "recovery after CA outage", seconds=300)
             print(
                 "PASS: expiry fails closed; renewal recovers after CA outage",
                 flush=True,

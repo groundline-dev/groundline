@@ -1,4 +1,4 @@
-.PHONY: setup dev db test-fast test-api test-db test-live check fix docker-build docker-run docker-smoke \
+.PHONY: setup dev db test-fast test-api test-db test-live check fix docker-build docker-run docker-smoke https-smoke \
 	infra-check aws-up aws-project aws-deploy aws-smoke aws-smoke-live aws-key aws-status aws-reset-deadline aws-destroy
 
 setup:
@@ -52,6 +52,10 @@ docker-run:
 # Build the image, then start the Compose stack and smoke-test it.
 docker-smoke: docker-build
 	scripts/docker-smoke-test
+
+# Real local ACME issuance/renewal/recovery; no AWS or public CA calls.
+https-smoke:
+	scripts/https-smoke-test
 
 # Formatting, validation and tests of the Terraform in infra/, against a mock AWS
 # provider: no AWS credentials, nothing created. Needs Terraform; CI runs it.

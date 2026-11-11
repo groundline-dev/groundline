@@ -37,6 +37,10 @@ esac
         "curl": '#!/bin/sh\necho called >>"$CURL_CALLS"\necho 198.51.100.20\n',
     }.items():
         tool = checkout / "bin" / name
+        if name == "git" and world.get("missing_https"):
+            source = source.replace(
+                "case", 'if [ "$1" = cat-file ]; then exit 1; fi\ncase', 1
+            )
         tool.write_text(source)
         tool.chmod(0o755)
     env = dict(
@@ -138,3 +142,33 @@ def test_keeping_legacy_server_ignores_new_public_mode(checkout: Path):
     assert "preserves tester_http" in result.stderr
     assert not (checkout / "aws-deploy-called").exists()
     assert (checkout / "aws-smoke-test-called").exists()
+
+
+def test_old_revision_cannot_be_deployed_in_https_mode(checkout: Path):
+    settings(checkout, "https")
+    result, world = invoke(
+        checkout, "aws-deploy", aws_fakes.new_world(missing_https=True)
+    )
+    assert result.returncode != 0
+    assert "doesn't include HTTPS support" in result.stderr
+    assert not any("plan" in call for call in world["calls"])
+
+
+def test_cancelling_deployment_does_not_apply(checkout: Path):
+    settings(checkout, "https")
+    world = aws_fakes.new_world(
+        plan={
+            "variables": {},
+            "resource_changes": [
+                {
+                    "mode": "managed",
+                    "type": "aws_instance",
+                    "change": {"actions": ["create"], "after": {}},
+                }
+            ],
+        }
+    )
+    result, world = invoke(checkout, "aws-deploy", world, "3\n")
+    assert result.returncode != 0
+    assert "cancelled: nothing changed" in result.stderr
+    assert not any("apply" in call for call in world["calls"])

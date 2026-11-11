@@ -576,3 +576,28 @@ def test_every_run_ends_with_a_blank_line(
     result = run(script, tmp_path, world, *args, answer=answer)
 
     assert result.output.endswith("\n\n"), result.output[-300:]
+
+
+@pytest.mark.parametrize(
+    "mode,url",
+    [
+        ("https", "http://1.1.1.1:8001"),
+        ("https", "https://example.com"),
+        ("tester_http", "https://1.1.1.1"),
+        ("public_http", "http://1.1.1.1:8001"),
+    ],
+)
+def test_smoke_rejects_mode_url_mismatch_before_requests(
+    tmp_path: Path, mode: str, url: str
+):
+    world = aws_fakes.new_world(
+        outputs={
+            "instance_id": INSTANCE,
+            "app_url": url,
+            "access_mode": mode,
+            "public_ip": "1.1.1.1",
+        }
+    )
+    result = run(SMOKE_TEST, tmp_path, world)
+    assert result.returncode != 0, result.output
+    assert not result.sent_commands()
