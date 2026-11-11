@@ -1,8 +1,10 @@
 # Deploying to AWS
 
-Test deployments are for groundline's developers to test groundline internally, not for customers or other real callers. A test deployment runs groundline's Compose stack, at a commit you choose, on an EC2 server in your AWS project. Only your computer's public IP can reach it, over plain HTTP, so use only test data with it. Serving real callers needs HTTPS first (ALL-90).
+A disposable deployment runs groundline's Compose stack, at a commit you choose, on one EC2 server in your AWS project. New configurations offer public HTTPS at `https://<public-IPv4>`, with automatic publicly trusted certificates and no domain or DNS setup. Backend callers use groundline API keys. Health probes and API documentation remain public.
 
-Each test deployment is disposable. Its data survives container restarts and reboots until `make aws-destroy`, a deployment of another commit, or the time limit deletes the server and the data with it.
+The optional `tester_http` mode is a test deployment: only your computer's public IP can reach it on port 8001. Existing settings files without an access mode retain this behavior.
+
+Both modes are disposable and for synthetic test data only ([ADR 0006](../docs/adr/0006-no-real-patient-data-before-production.md)). HTTPS does not make this a production or lasting deployment. Data and API keys survive container restarts and reboots, but `make aws-destroy`, instance replacement, or the default eight-hour expiry deletes them.
 
 You can deploy to an AWS project of your own or to one you share with teammates, such as the Groundline project. Several developers can share one project, each with their own test deployment, named and tagged after the `deployment_name` in their `infra/terraform.tfvars`.
 
@@ -20,7 +22,7 @@ You need:
   - an AWS Budgets budget
 
   AWS manages team members' permissions in AWS Settings, so if a command fails with Access Denied on one of these, ask the project's owner.
-- **Terraform 1.17 or later, the AWS CLI v2, `jq`, Git and `make`, on macOS or Linux.** You don't need Docker on your computer: the server installs Docker and Compose and builds the image itself. On macOS with Homebrew, `make aws-up` offers to install Terraform, the AWS CLI and `jq`; otherwise, install them yourself ([step 1](#1-install-the-tools)).
+- **Terraform 1.17 or later, the AWS CLI v2, `jq`, `uv`, Git and `make`, on macOS or Linux.** You don't need Docker on your computer: the server installs Docker and Compose and builds the image itself. On macOS with Homebrew, `make aws-up` offers to install Terraform, the AWS CLI, `jq` and `uv`; otherwise, install them yourself ([step 1](#1-install-the-tools)).
 - **An Anthropic API key**, so the server can call Claude. Everyone who has access to the project can read it while your server runs, so for a shared project, use a separate key from an Anthropic Console workspace with a low monthly spend limit ([step 4](#4-store-your-anthropic-api-key)).
 - **To deploy your own branch, a public GitHub repository that has it**, such as your fork. The server clones the code without signing in. To deploy `main`, you don't need to push anything.
 
@@ -36,12 +38,12 @@ On every run, `make aws-up` asks two questions:
 - **Which AWS project to deploy to.** It shows the project you're signed in to, such as `Groundline (123456789012), in us-east-2`. Answer `y` to deploy there, or `n` to choose another. Choosing another, or signing in for the first time, asks you to sign in to the project in the AWS Management Console, then for its Region, and opens your browser, where you choose the project's session. When your sign-in has expired, it names the project's account ID and asks whether to sign in again to that project, which only opens your browser.
 - **Which code the server runs:** `main` from groundline-dev/groundline, or your current branch.
 
-If your server is already running in that project, it says which commit it runs and asks whether to keep it. Keeping it skips the other questions, then checks the server.
+If your server is already running in that project, it says which commit it runs and asks whether to keep it. Keeping it preserves its actual access settings and skips deployment, then checks the server. To apply changed settings, decline the keep option; Terraform describes replacements and data loss before asking to proceed.
 
 Otherwise, it asks only about what isn't set up yet:
 
-1. It offers to install Terraform, the AWS CLI and `jq` with Homebrew, if any is missing ([step 1](#1-install-the-tools)).
-2. It asks for your deployment name and email address ([step 3](#3-name-your-deployment)).
+1. It offers to install Terraform, the AWS CLI, `jq` and `uv` with Homebrew, if any is missing ([step 1](#1-install-the-tools)).
+2. It asks for your deployment name, email address and access mode (HTTPS recommended) ([step 3](#3-name-your-deployment)).
 3. It stores your Anthropic API key for this deployment ([step 4](#4-store-your-anthropic-api-key)).
 4. For your branch, it offers to push it if no GitHub remote has it yet, and warns you about uncommitted changes, because the server runs your last commit without them.
 
@@ -67,10 +69,10 @@ make aws-destroy          # delete it, then check that everything is gone
 
 ### 1. Install the tools
 
-Install Terraform 1.17 or later, the AWS CLI v2 and `jq`. With Homebrew:
+Install Terraform 1.17 or later, the AWS CLI v2, `jq` and `uv`. With Homebrew:
 
 ```sh
-brew install hashicorp/tap/terraform awscli jq
+brew install hashicorp/tap/terraform awscli jq uv
 ```
 
 Otherwise, follow [Terraform's install guide](https://developer.hashicorp.com/terraform/install) and [the AWS CLI's](https://docs.aws.amazon.com/cli/latest/userguide/getting-started-install.html), and install `jq` with your package manager. You also need Git and `make`, which macOS installs with its command line tools (`xcode-select --install`). You don't need Docker: the server installs Docker and Compose and builds the image.
@@ -131,6 +133,7 @@ If you deploy to a shared project, use a separate Anthropic API key, created in 
 | Region | The Region saved in the profile | `make aws-up` or `make aws-project` ask for it; `AWS_REGION` overrides it |
 | `deployment_name` | None; required | `infra/terraform.tfvars`, which `make aws-up` fills in |
 | `budget_alert_email` | None; required | `infra/terraform.tfvars`, which `make aws-up` fills in |
+| `access_mode` | New wizard/example: `https`; absent from existing file: `tester_http` | One literal `access_mode = "https"` or `"tester_http"` in `infra/terraform.tfvars` |
 | `auto_terminate_hours` | `8`; `0` turns the time limit off | `infra/terraform.tfvars` |
 | `instance_type` | `t4g.small` | `infra/terraform.tfvars` |
 | `REF` | The commit you have checked out | `REF=<branch, tag or commit> make aws-deploy`; `make aws-up` asks instead |
@@ -138,7 +141,7 @@ If you deploy to a shared project, use a separate Anthropic API key, created in 
 | `AWS_ANTHROPIC_API_KEY` | `ANTHROPIC_API_KEY` from `.env`, or a key you paste | `.env` ([step 4](#4-store-your-anthropic-api-key)) |
 | `FULL_PLAN` | Off, so only a short plan is shown | `FULL_PLAN=1 make aws-deploy` |
 
-`infra/terraform.tfvars.example` lists the `terraform.tfvars` settings, and `.env.example` lists `AWS_ANTHROPIC_API_KEY` next to the local settings. `make aws-deploy` fills in the rest of Terraform's variables: the Region, your public IP and the commit.
+`infra/terraform.tfvars.example` lists the `terraform.tfvars` settings, and `.env.example` lists `AWS_ANTHROPIC_API_KEY` next to the local settings. `make aws-deploy` fills in the rest of Terraform's variables: the Region, the selected mode, the tester IP only for HTTP, and the commit. The scripts pass the saved mode explicitly, so environment or auto-tfvars overrides cannot silently make an old deployment public.
 
 ### Server size
 
@@ -173,9 +176,21 @@ Each server shuts itself down 8 hours after it first starts, and AWS then termin
 
 Terminating removes only the server and its data. Its security group, IAM role, instance profile and budget stay, and a later deployment with the same `deployment_name` fails until they're gone. `make aws-status` and `make aws-smoke` tell you when the server has terminated: run `make aws-destroy` to remove what's left, or `make aws-deploy` for a new server.
 
+## HTTPS and certificate lifecycle
+
+Caddy terminates TLS on the existing EC2 instance and talks HTTP to Groundline over the same host's private Docker network. Only TCP 443 is open for application requests. The HTTPS Compose override removes the app and PostgreSQL host-port publications. Port 80, SSH, the Caddy admin API, and direct app/database ports remain closed from the internet.
+
+Caddy uses an explicit Let's Encrypt ACME issuer and the `shortlived` certificate profile. IP certificates last about six days; Caddy obtains, renews and loads replacements automatically. Validation uses TLS-ALPN-01 on 443, so that port must be reachable by the CA. HTTP validation, redirects, and internal-CA fallback are disabled. No Certbot job or manual certificate installation is needed. Clients must use normal certificate verification; do not bypass errors with `-k` or install a private root.
+
+Certificate/account state lives in a separate Docker volume and survives container restarts. The EC2 host reads its public IP through IMDSv2 and renders Caddy's configuration before Docker starts on each boot. If discovery fails, Docker startup fails rather than serving an old address. Caddy's default TLS server name handles clients that omit SNI for IP addresses. No application secrets or Docker socket are mounted into Caddy.
+
+An EC2 stop/start or replacement can change the IP. Host startup updates the certificate target, but callers must update their base URL. To refresh stale Terraform outputs after a stop/start, rerun `make aws-deploy` with the same deployed commit and settings, review the plan and then run `make aws-status`. An Elastic IP can later supply the same address input; this issue does not allocate one, retain disks or add ALL-107's lasting lifecycle. Custom domains are deferred.
+
+First issuance and failed renewals depend on CA availability, network access and rate limits. Leave the Caddy volumes intact when retrying: deleting them can create unnecessary new accounts/orders. Certificate failures never expose an HTTP fallback. Monitor `docker compose logs caddy` through SSM; a running container alone does not prove trusted HTTPS readiness. This issue adds no external expiry alerting (ALL-111).
+
 ## Checking the server
 
-`make aws-smoke` waits up to 15 minutes for `/health` to answer 200, showing the time so far. It then checks that API keys work, without calling Claude. It creates an API key on the server with `groundline keys create`, through SSM Run Command, and sends `POST /v1/omissions` with an empty body twice:
+`make aws-smoke` waits up to 15 minutes for `/health` to answer 200, showing the time so far. In HTTPS mode it also validates the public certificate chain and exact IP identity without SNI, and probes ports 80, 8000, 8001, 5432, 5433 and 2019 to ensure they are closed or filtered. It then checks that API keys work, without calling Claude. It creates an API key on the server with `groundline keys create`, through SSM Run Command, and sends `POST /v1/omissions` with an empty body twice:
 
 - With an unknown API key, it expects 401, which shows the server turns away keys it doesn't know.
 - With the new API key, it expects 422. The server checks the API key before the body, so 422, for the empty body's missing fields, shows the API key was accepted. Looking the key up needs Postgres and the migrations, so this also shows they work. The body is rejected before any Claude call, so no Anthropic credit is spent.
@@ -217,15 +232,15 @@ SSM keeps each command's output, so anyone who can read your project's Run Comma
 
 ## Calling it from your app
 
-To try your summary app against a test deployment, point the app at the server instead of a local groundline:
+To try your summary app against a disposable deployment, point its backend at the server instead of a local groundline:
 
-- **Base URL:** the server's address, such as `http://203.0.113.10:8001`. `make aws-up` prints it under What next, and `make aws-status` shows it too. The app calls `POST <base URL>/v1/omissions` and `POST <base URL>/v1/commissions`, with the same requests and responses as a local server ([README](../README.md#post-v1omissions)). A check takes 30 to 60 seconds, so give the app's HTTP client a long timeout.
+- **Base URL:** the server's address, such as `https://203.0.113.10` (or `http://203.0.113.10:8001` in tester mode). `make aws-up` prints it under What next, and `make aws-status` shows it too. The app calls `POST <base URL>/v1/omissions` and `POST <base URL>/v1/commissions`, with the same requests and responses as a local server ([README](../README.md#post-v1omissions)). A check may take longer than two minutes; choose an appropriate client timeout. Caddy adds no response timeout or automatic request retries.
 - **API key:** one from `make aws-key`, sent as `Authorization: Bearer <API key>`. It's a groundline API key, separate from the Anthropic API key the server uses.
 - **Settings, not code:** a new server gets a new address, and its API keys go with the old one. Have the app read both from settings, such as `GROUNDLINE_URL` and `GROUNDLINE_API_KEY`, so switching servers doesn't need a code change.
 
-Only your computer can reach the server: its firewall accepts requests only from the public IP address you deployed from. So run the app on the same computer, for example in local development; a hosted copy of the app or a teammate's computer can't reach it. Call groundline from the app's backend, since groundline doesn't send CORS headers, so JavaScript in a browser page on another origin can't call it directly.
+HTTPS mode accepts backend calls from other machines. Keep the API key on that backend. Groundline does not send CORS headers; cross-origin browser calls are outside this issue.
 
-The server uses plain HTTP, without TLS, and a test deployment is for internal testing only. Send it test data, never real patient notes.
+In `tester_http` mode, only the public IP you deployed from can reach the server; run your app's backend on that computer. This legacy mode sends plaintext and is for internal testing only. Both modes still prohibit real patient notes.
 
 ## Costs
 
@@ -234,9 +249,12 @@ The server costs about $0.024 an hour, so one that runs to its 8-hour limit cost
 ## Troubleshooting
 
 - **`make aws-smoke` times out:** it prints the end of the server's startup log (`/var/log/groundline-bootstrap.log`) and the containers' status and logs. A failed startup also leaves `/var/lib/groundline/bootstrap-failed`.
-- **Requests time out from a new network:** your IP changed. Rerun `make aws-deploy` with the same commit: only the security group changes.
+- **Tester-only HTTP requests time out from a new network:** your IP changed. Rerun `make aws-deploy` with the same commit: only the security group changes.
 - **`make aws-deploy` fails because a role or budget already exists:** someone else in the AWS project uses the same `deployment_name`. Pick another one in `infra/terraform.tfvars`.
 - **AWS calls that worked start failing with Access Denied:** your project may have reached its spend limit, which pauses it. Check in AWS Settings, under Billing.
+
+- **HTTPS certificate errors:** check that the URL uses the current public IPv4, TCP 443 is open, outbound ACME access works, and the host clock is correct. Smoke-test failure output preserves curl's TLS error and Caddy's logs. Do not disable verification or open the app port to work around issuance failure.
+- **Docker fails after a reboot:** inspect `journalctl -u docker` through SSM and the `groundline-https` ExecStartPre step. No public IP or failed IMDSv2 discovery blocks Docker deliberately. Fix address discovery, then restart Docker; keep the Caddy data volume.
 
 ## Tearing down
 

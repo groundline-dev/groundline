@@ -124,6 +124,10 @@ _Avoid_: approved pipeline, certified pipeline
 A running copy of groundline, with its own database and API keys, that serves callers. An organization may run more than one, such as staging and production.
 _Avoid_: install, instance, environment, stack (instance and stack name the cloud resources a deployment runs on)
 
+**Disposable deployment**:
+A deployment intended for temporary use, whose data and API keys are discarded when it is replaced or removed. It may serve callers beyond its creator; a test deployment is the restricted internal kind.
+_Avoid_: lasting deployment, staging (a staging deployment lasts)
+
 **Test deployment**:
-A deployment a developer creates to try one commit, for internal testing only and never for customers, reachable only from their own computer. Its server and data are deleted when the developer is done, or at a deadline they can extend.
+A disposable deployment a developer creates to try one commit, for internal testing only and never for customers, reachable only from their own computer. Its server and data are deleted when the developer is done, or at a deadline they can extend.
 _Avoid_: test server, dev server, staging (a staging deployment serves callers and lasts)
