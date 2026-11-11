@@ -4,6 +4,10 @@
 services:
   app:
     ports: !reset []
+    environment:
+      # Only the private Docker network reaches this app. Caddy overwrites
+      # client-supplied forwarded headers; trust its scheme for HTTPS redirects.
+      FORWARDED_ALLOW_IPS: "*"
   postgres:
     ports: !reset []
   caddy:

@@ -6,6 +6,7 @@ Used by aws-smoke-test; has no app dependencies and never sends an API key.
 import argparse
 import errno
 import hashlib
+import http.client
 import ipaddress
 import os
 import socket
@@ -50,6 +51,27 @@ def check(address: str) -> None:
             if error.errno not in (errno.ETIMEDOUT, errno.ECONNREFUSED):
                 raise
     print("Direct HTTP, app, PostgreSQL and Caddy admin ports are closed or filtered")
+    check_redirect(address, context)
+
+
+def check_redirect(address: str, context: ssl.SSLContext) -> None:
+    # Do not follow redirects: a lost forwarded scheme must fail rather than
+    # silently sending the next request in plaintext. Caddy must also replace
+    # a caller's spoofed X-Forwarded-Proto before the app trusts it.
+    connection = http.client.HTTPSConnection(address, timeout=10, context=context)
+    try:
+        connection.request("GET", "/docs/", headers={"X-Forwarded-Proto": "http"})
+        response = connection.getresponse()
+        if (
+            response.status != 307
+            or response.getheader("Location") != f"https://{address}/docs"
+        ):
+            raise RuntimeError("The proxy must keep application redirects on HTTPS")
+    finally:
+        connection.close()
+    print(
+        "Application redirects preserve HTTPS, including with spoofed forwarded headers"
+    )
 
 
 def main() -> None:

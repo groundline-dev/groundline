@@ -178,7 +178,7 @@ Terminating removes only the server and its data. Its security group, IAM role, 
 
 ## HTTPS and certificate lifecycle
 
-Caddy terminates TLS on the existing EC2 instance and talks HTTP to Groundline over the same host's private Docker network. Only TCP 443 is open for application requests. The HTTPS Compose override removes the app and PostgreSQL host-port publications. Port 80, SSH, the Caddy admin API, and direct app/database ports remain closed from the internet.
+Caddy terminates TLS on the existing EC2 instance and talks HTTP to Groundline over the same host's private Docker network. Only TCP 443 is open for application requests. The HTTPS Compose override removes the app and PostgreSQL host-port publications. The private app trusts Caddy's forwarded scheme so application redirects stay on HTTPS; Caddy replaces caller-supplied forwarded headers. Port 80, SSH, the Caddy admin API, and direct app/database ports remain closed from the internet.
 
 Caddy uses an explicit Let's Encrypt ACME issuer and the `shortlived` certificate profile. IP certificates last about six days; Caddy obtains, renews and loads replacements automatically. Validation uses TLS-ALPN-01 on 443, so that port must be reachable by the CA. HTTP validation, redirects, and internal-CA fallback are disabled. No Certbot job or manual certificate installation is needed. Clients must use normal certificate verification; do not bypass errors with `-k` or install a private root.
 
@@ -190,7 +190,7 @@ First issuance and failed renewals depend on CA availability, network access and
 
 ## Checking the server
 
-`make aws-smoke` waits up to 15 minutes for `/health` to answer 200, showing the time so far. In HTTPS mode it also validates the public certificate chain and exact IP identity without SNI, and probes ports 80, 8000, 8001, 5432, 5433 and 2019 to ensure they are closed or filtered. It then checks that API keys work, without calling Claude. It creates an API key on the server with `groundline keys create`, through SSM Run Command, and sends `POST /v1/omissions` with an empty body twice:
+`make aws-smoke` waits up to 15 minutes for `/health` to answer 200, showing the time so far. In HTTPS mode it also validates the public certificate chain and exact IP identity without SNI, and probes ports 80, 8000, 8001, 5432, 5433 and 2019 to ensure they are closed or filtered. It verifies that an application redirect remains on HTTPS even if a caller spoofs the forwarded scheme. It then checks that API keys work, without calling Claude. It creates an API key on the server with `groundline keys create`, through SSM Run Command, and sends `POST /v1/omissions` with an empty body twice:
 
 - With an unknown API key, it expects 401, which shows the server turns away keys it doesn't know.
 - With the new API key, it expects 422. The server checks the API key before the body, so 422, for the empty body's missing fields, shows the API key was accepted. Looking the key up needs Postgres and the migrations, so this also shows they work. The body is rejected before any Claude call, so no Anthropic credit is spent.
