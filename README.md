@@ -168,7 +168,7 @@ for c in refute.commissions:
 
 ## Using the API
 
-Set up [PostgreSQL](DEVELOPMENT.md#getting-started) and configure `ANTHROPIC_API_KEY` first; `make dev` reads `DATABASE_URL` from `.env`. Start the API with `make dev`; it serves at http://127.0.0.1:8000, with interactive docs at `/docs` (also at `/api`) and a read-only reference at `/redoc`. The docs list each endpoint with example requests and responses, and explain how the API is versioned. To run the API and Postgres together in Docker instead, see [Running the whole stack in Docker](DEVELOPMENT.md#running-the-whole-stack-in-docker). Both check endpoints require a groundline API key, and every check spends your Anthropic credit. `/health` and `/ready` are public. `/health` answers 200 while the app is running, and `/ready` answers 503 while the database is unavailable.
+Set up [PostgreSQL](DEVELOPMENT.md#getting-started) and configure `ANTHROPIC_API_KEY` first; `make dev` reads `DATABASE_URL` from `.env`. Start the API with `make dev`; it serves at http://127.0.0.1:8000, with interactive docs at `/docs` (also at `/api`) and a read-only reference at `/redoc`. The docs list each endpoint with example requests and responses, and explain how the API is versioned. To run the API and Postgres together in Docker instead, see [Running the whole stack in Docker](DEVELOPMENT.md#running-the-whole-stack-in-docker); to run them as a test deployment in your AWS project, see [Deploying to AWS](docs/deploying-to-aws.md). Both check endpoints require a groundline API key, and every check spends your Anthropic credit. `/health` and `/ready` are public. `/health` answers 200 while the app is running, and `/ready` answers 503 while the database is unavailable.
 
 ### `POST /v1/omissions`
 
@@ -249,6 +249,17 @@ Every finished check answers **200, flagged or not** ([ADR 0008](docs/adr/0008-t
 JSON parsing happens before authentication: broken JSON returns 422 and invalid UTF-8 bodies return 400 even without credentials. For readable JSON, authentication precedes field validation. Requests rejected by authentication never start the pipeline or make model calls.
 
 Every error answers with JSON: `{"detail": ...}`. Error responses and the server log never contain text from the source or summary. The log records each finished check's outcome, number of omissions or commissions, and cost, and each failure.
+
+## Deploying to AWS
+
+A test deployment runs groundline's API and Postgres, at a commit you choose, on an EC2 server in your AWS project. Only your computer's IP can reach it, so it's for internal testing with test data only, and it deletes itself, with its data, after 8 hours. You need an AWS project, an Anthropic API key, Terraform, the AWS CLI, `jq`, Git and `make`, but not Docker, since the server builds the image itself.
+
+```sh
+make aws-up        # choose the project and the code, deploy, and check the server
+make aws-destroy   # when you're done
+```
+
+[Deploying to AWS](docs/deploying-to-aws.md) explains each step, the settings, the costs and how to check the server.
 
 ## Pipelines, presets and profiles
 
