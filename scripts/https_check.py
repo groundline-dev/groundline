@@ -33,6 +33,7 @@ def check(address: str) -> dict[str, Any]:
     for variable in ("SSL_CERT_FILE", "SSL_CERT_DIR"):
         os.environ.pop(variable, None)
     context = ssl.create_default_context()
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
     # Python omits SNI for an IP literal while still checking the IP SAN.
     with socket.create_connection((address, 443), timeout=10) as connection:
         with context.wrap_socket(connection, server_hostname=address) as tls:

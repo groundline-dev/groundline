@@ -59,15 +59,23 @@ def test_probe_distinguishes_open_ports_network_errors_and_filtering(
         b"certificate",
     ]
     context = MagicMock()
-    context.wrap_socket.return_value.__enter__.return_value = tls
+    context.minimum_version = None
+
+    def wrap_socket(*args: object, **kwargs: object):
+        assert context.minimum_version == ssl.TLSVersion.TLSv1_2
+        return tls
+
+    tls.__enter__.return_value = tls
+    context.wrap_socket.side_effect = wrap_socket
     responses = [connection] + ([failure] * 6 if failure else [connection])
     with (
         patch("scripts.https_check.ssl.create_default_context", return_value=context),
         patch("scripts.https_check.socket.create_connection", side_effect=responses),
-        patch("scripts.https_check.check_redirect"),
+        patch("scripts.https_check.check_redirect") as redirect,
     ):
         if isinstance(failure, TimeoutError):
             check("1.1.1.1")
+            redirect.assert_called_once_with("1.1.1.1", context)
         else:
             with pytest.raises((RuntimeError, OSError)):
                 check("1.1.1.1")
