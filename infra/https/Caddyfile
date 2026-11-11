@@ -1,0 +1,21 @@
+{
+	auto_https disable_redirects
+	# IP clients omit SNI; EC2 translates the public IP to a private address.
+	default_sni {$GROUNDLINE_PUBLIC_IP}
+	servers {
+		protocols h1 h2
+	}
+}
+
+https://{$GROUNDLINE_PUBLIC_IP} {
+	tls {
+		# An IP site without this explicit issuer uses Caddy's internal CA.
+		issuer acme https://acme-v02.api.letsencrypt.org/directory {
+			profile shortlived
+			disable_http_challenge
+		}
+	}
+	# No access log: sources, summaries and Authorization must stay out of logs.
+	# No retry policy or response-header timeout: evaluations can take minutes.
+	reverse_proxy app:8000
+}
