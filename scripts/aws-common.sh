@@ -225,6 +225,33 @@ deployment_name() {
     infra/terraform.tfvars 2>/dev/null | tail -n 1
 }
 
+# Only a literal setting in the saved configuration opts in to public HTTPS.
+# Passing it explicitly to Terraform also prevents TF_VAR/auto.tfvars from
+# silently overriding a legacy configuration's tester-only access.
+configured_access_mode() {
+  local setting
+  setting="$(sed -n '/^[[:space:]]*access_mode[[:space:]]*=/p' infra/terraform.tfvars)"
+  if [ -z "$setting" ]; then
+    echo tester_http
+  elif [[ "$setting" =~ ^[[:space:]]*access_mode[[:space:]]*=[[:space:]]*\"(https|tester_http)\"[[:space:]]*(#.*)?$ ]]; then
+    echo "${BASH_REMATCH[1]}"
+  else
+    fail 'set access_mode = "https" or "tester_http" once in infra/terraform.tfvars'
+  fi
+}
+
+# Missing output means a pre-HTTPS deployment. Never infer the running mode
+# from new local settings: keeping a server must preserve its actual exposure.
+deployed_access_mode() {
+  local mode
+  mode="$(terraform -chdir=infra output -raw access_mode 2>/dev/null || true)"
+  case "$mode" in
+    "" | tester_http) echo tester_http ;;
+    https) echo https ;;
+    *) fail "unknown deployed access mode: $mode" ;;
+  esac
+}
+
 # anthropic_parameter NAME: the Parameter Store name for deployment NAME's
 # Anthropic API key, as infra/main.tf builds it.
 anthropic_parameter() { echo "/groundline/$1/anthropic-api-key"; }
@@ -357,7 +384,12 @@ what_next() {
   echo "To try your server, at $app_url:"
   bullet "make aws-key creates an API key, for trying requests at $app_url/docs."
   bullet "make aws-smoke-live sends one real commission check, which costs under a cent."
-  bullet "To call it from your app on this computer, use $app_url as the base URL"
+  if [[ "$app_url" == https://* ]]; then
+    bullet "Public HTTPS: callers with an API key can use this endpoint. Health and docs are public."
+  else
+    bullet "Tester-only HTTP: only the configured computer's public IP can reach this endpoint."
+  fi
+  bullet "To call it from your app's backend, use $app_url as the base URL"
   echo "    and an API key from make aws-key. See docs/deploying-to-aws.md, \"Calling it from your app\"."
   echo
   echo "Your server is still running and costing money."
@@ -423,7 +455,7 @@ describe_plan() {
     limit="    It terminates itself, with its data, $hours hours after it starts.
     You can also delete it manually with make aws-destroy."
   fi
-  while IFS='|' read -r type actions id old_cidr new_cidr; do
+  while IFS='|' read -r type actions id old_cidr new_cidr old_port new_port; do
     case "$type:$actions" in
       aws_instance:create)
         if [ -n "${previous_instance:-}" ]; then
@@ -443,7 +475,7 @@ describe_plan() {
       aws_instance:update) echo "  · update your server ($id) in place. It keeps its data." ;;
       aws_instance:delete) echo "  · delete your server ($id) and its data." ;;
       aws_vpc_security_group_ingress_rule:update | aws_vpc_security_group_ingress_rule:delete+create)
-        echo "  · let requests from ${new_cidr%/32} reach the server, in place of ${old_cidr%/32}."
+        echo "  · let requests from ${new_cidr%/32} reach the server on TCP $new_port, in place of ${old_cidr%/32} on TCP $old_port."
         ;;
       *:create) created+="$(friendly_name "$type")"$'\n' ;;
       *:update) updated+="$(friendly_name "$type")"$'\n' ;;
@@ -452,7 +484,7 @@ describe_plan() {
     esac
   done < <(jq -r '.resource_changes[]
     | select(.mode == "managed" and .change.actions != ["no-op"])
-    | [.type, (.change.actions | join("+")), (.change.before.id // ""), (.change.before.cidr_ipv4 // ""), (.change.after.cidr_ipv4 // "")]
+    | [.type, (.change.actions | join("+")), (.change.before.id // ""), (.change.before.cidr_ipv4 // ""), (.change.after.cidr_ipv4 // ""), (.change.before.from_port // ""), (.change.after.from_port // "")]
     | join("|")' <<<"$1")
   # Everything here except the server is free; update this if that changes.
   [ -z "$created" ] || echo "  · create its $(printf %s "$created" | join_names), which are free."

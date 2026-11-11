@@ -116,6 +116,14 @@ def main(argv: list[str]) -> int:
 
 def _terraform(world: dict[str, Any], args: list[str]) -> int:
     args = [arg for arg in args if not arg.startswith("-chdir=")]
+    if args == ["version", "-json"]:
+        print(json.dumps({"terraform_version": "1.17.1"}))
+        return 0
+    if args[:1] == ["plan"] and "-destroy" not in args:
+        out = next(a.removeprefix("-out=") for a in args if a.startswith("-out="))
+        plan = world.get("plan", {"variables": {}, "resource_changes": []})
+        Path(out).write_text(json.dumps(plan))
+        return 2 if plan["resource_changes"] else 0
     if args[:2] == ["output", "-raw"] and len(args) == 3:
         outputs: dict[str, str] = world["outputs"]
         if world["destroyed"] or args[2] not in outputs:
