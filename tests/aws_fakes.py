@@ -116,6 +116,9 @@ def main(argv: list[str]) -> int:
 
 def _terraform(world: dict[str, Any], args: list[str]) -> int:
     args = [arg for arg in args if not arg.startswith("-chdir=")]
+    if args == ["output", "-json"]:
+        print(json.dumps({k: {"value": v} for k, v in world["outputs"].items()}))
+        return 0
     if args == ["version", "-json"]:
         print(json.dumps({"terraform_version": "1.17.1"}))
         return 0
@@ -274,6 +277,8 @@ def _reply(
             command_id = f"cmd-{len(world['commands']) + 1}"
             script = str(options.get("--parameters") or "")
             world["commands"].append({"id": command_id, "script": script})
+            if "lifecycle" in world:
+                _lifecycle_command(world, command_id, script)
             return {"Command": {"CommandId": command_id, "Status": "Pending"}}
         case ("ssm", "get-command-invocation"):
             status, output = _invocation(world, options.get("--command-id"))
@@ -310,8 +315,17 @@ def _reply(
             state = existing.get(str(instance_id))
             if state is None:
                 raise AWSError("InvalidInstanceID.NotFound", "DescribeInstances")
-            instance = {"InstanceId": instance_id, "State": {"Name": state}}
+            instance = {
+                "InstanceId": instance_id,
+                "State": {"Name": state},
+                "PublicIpAddress": world.get("public_ip", "1.1.1.1"),
+            }
             return {"Reservations": [{"Instances": [instance]}]}
+        case ("ec2", "reboot-instances"):
+            if "lifecycle" not in world:
+                return None
+            world["lifecycle"]["reboots"] += 1
+            return {}
         case ("ec2", "describe-security-groups"):
             group_id = options.get("--group-ids")
             if str(group_id) not in existing:
@@ -341,11 +355,50 @@ def _invocation(world: dict[str, Any], command_id: str | None) -> tuple[str, str
     command = next((c for c in commands if c["id"] == command_id), None)
     if command is None:
         raise AWSError("InvocationDoesNotExist", "GetCommandInvocation", "")
+    if "reply" in command:
+        return command.get("status", "Success"), command["reply"]
     replies: list[dict[str, str]] = world["ssm_replies"]
     for reply in replies:
         if reply["when"] in command["script"]:
             return reply.get("status", "Success"), reply.get("stdout", "")
     return "Success", ""
+
+
+def _lifecycle_command(world: dict[str, Any], command_id: str, script: str) -> None:
+    """SSM metadata and restart responses for the real lifecycle shell script."""
+    lifecycle = world["lifecycle"]
+    command = world["commands"][-1]
+    assert command["id"] == command_id
+    shell = json.loads(script)["commands"][0]
+    if "docker compose restart caddy" in shell:
+        lifecycle["restarts"] += 1
+        if lifecycle.get("restart_error"):
+            command.update(status="Failed", reply="")
+        if lifecycle.get("change_target"):
+            world["public_ip"] = "2.2.2.2"
+    if "cat /proc/sys/kernel/random/boot_id" not in shell:
+        return
+    if lifecycle.get("ssm_error"):
+        command.update(status="Failed", reply="")
+        return
+    restarted = lifecycle["restarts"] > 0
+    rebooted = lifecycle["reboots"] > 0
+    boot = "a" * 8 + "-1111-2222-3333-" + "b" * 12
+    if rebooted and not lifecycle.get("unchanged_boot"):
+        boot = "c" * 8 + "-1111-2222-3333-" + "d" * 12
+    deadline = lifecycle.get("deadline", 10000)
+    if restarted and lifecycle.get("changed_deadline"):
+        deadline += 1
+    volume = "groundline_caddy-data|2026-11-11T00:00:00Z"
+    if restarted and lifecycle.get("replaced_volume"):
+        volume = "groundline_caddy-data|2026-11-11T01:00:00Z"
+    status = 1 if rebooted and lifecycle.get("failed_refresh") else 0
+    startup = (
+        "{ path=/opt/groundline/infra/https/refresh-address ; "
+        "start_time=[Wed 2026-11-11 01:00:00 UTC] ; "
+        f"code=exited ; status={status} }}"
+    )
+    command["reply"] = f"{boot}\n{deadline}\n1000\n{volume}\n1.1.1.1\n{startup}\n"
 
 
 def _ssm_wait(

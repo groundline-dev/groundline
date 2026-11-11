@@ -1,5 +1,5 @@
 .PHONY: setup dev db test-fast test-api test-db test-live check fix docker-build docker-run docker-smoke https-smoke \
-	infra-check aws-up aws-project aws-deploy aws-smoke aws-smoke-live aws-key aws-status aws-reset-deadline aws-destroy
+	aws-https-smoke infra-check aws-up aws-project aws-deploy aws-smoke aws-smoke-live aws-key aws-status aws-reset-deadline aws-destroy
 
 setup:
 	uv sync
@@ -82,6 +82,10 @@ aws-deploy:
 # Checks the server from here without calling Claude.
 aws-smoke:
 	scripts/aws-smoke-test
+
+# Existing HTTPS deployment; RESTART=caddy or host opts into confirmed interruptions.
+aws-https-smoke:
+	scripts/aws-https-smoke-test $(if $(RESTART),--restart "$(RESTART)")
 
 # Also sends one real commission check, which costs under a cent.
 aws-smoke-live:

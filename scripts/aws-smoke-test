@@ -17,7 +17,11 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/aws-common.sh
 
-wait_minutes=15
+# Internal callers can bound recovery checks without changing ordinary smoke defaults.
+wait_seconds="${GROUNDLINE_SMOKE_WAIT_SECONDS:-900}"
+request_timeout="${GROUNDLINE_SMOKE_REQUEST_TIMEOUT:-300}"
+[[ "$wait_seconds" =~ ^[1-9][0-9]*$ ]] && [[ "$request_timeout" =~ ^[1-9][0-9]*$ ]] \
+  || fail "smoke timeouts must be positive whole seconds"
 
 live=false
 case "${1:-}" in
@@ -85,7 +89,7 @@ if [ "$(health)" = 200 ]; then
 else
   echo
   started=$SECONDS
-  deadline=$((SECONDS + wait_minutes * 60))
+  deadline=$((SECONDS + wait_seconds))
   next_check=$((SECONDS + 10))
   last_minute=-1
   checking=""
@@ -115,7 +119,7 @@ else
       cat "$tls_errors" >&2
       echo "--- the server's startup log ---" >&2
       on_server "tail -n 80 /var/log/groundline-bootstrap.log; cd /opt/groundline && docker compose ps --all && docker compose logs --tail 40" >&2 || true
-      fail "the server didn't start within $wait_minutes minutes: $app_url/health never answered 200"
+      fail "the server didn't start within $wait_seconds seconds: $app_url/health never answered 200"
     fi
     sleep 1
   done
@@ -146,9 +150,10 @@ revoke() {
     check_ok "revoked the test API key"
   else
     check_warn "couldn't revoke the test API key; revoke it with make aws-key REVOKE=$api_key_id"
+    return 1
   fi
 }
-trap 'revoke; rm -f "$tls_errors"' EXIT
+trap 'status=$?; revoke || status=1; rm -f "$tls_errors"; exit "$status"' EXIT
 check_ok "created a test API key on the server"
 
 # expect STATUS SHOWS FAILURE METHOD PATH [curl arguments...]: send the request,
@@ -157,7 +162,7 @@ expect() {
   local want="$1" shows="$2" failure="$3" method="$4" path="$5"
   shift 5
   local got
-  got="$(curl --disable --proto "=$curl_protocol" --silent --show-error --max-time 300 --output /dev/null --write-out '%{http_code}' \
+  got="$(curl --disable --proto "=$curl_protocol" --silent --show-error --max-time "$request_timeout" --output /dev/null --write-out '%{http_code}' \
     --request "$method" "$@" "$app_url$path" || true)"
   [ "$got" = "$want" ] || fail "$failure ($method $path returned ${got:-nothing}, expected $want)"
   check_ok "$shows"
@@ -189,8 +194,8 @@ fi
 # Every check passed. Revoke the API key now instead of on exit, so the
 # reminder is the last thing printed. A failed check exits before this line,
 # and the exit trap revokes the key then.
-trap - EXIT
 revoke
+trap - EXIT
 rm -f "$tls_errors"
 echo
 ok "all checks passed"

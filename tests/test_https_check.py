@@ -54,7 +54,10 @@ def test_probe_distinguishes_open_ports_network_errors_and_filtering(
 ):
     connection = MagicMock()
     tls = MagicMock()
-    tls.getpeercert.side_effect = [{"notAfter": "tomorrow"}, b"certificate"]
+    tls.getpeercert.side_effect = [
+        {"notAfter": "tomorrow", "notBefore": "today", "issuer": "test"},
+        b"certificate",
+    ]
     context = MagicMock()
     context.wrap_socket.return_value.__enter__.return_value = tls
     responses = [connection] + ([failure] * 6 if failure else [connection])
@@ -97,3 +100,28 @@ def test_redirects_cannot_downgrade_or_change_host(
             "GET", "/docs/", headers={"X-Forwarded-Proto": "http"}
         )
         connection.close.assert_called_once()
+
+
+def test_json_mode_keeps_progress_out_of_json(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+):
+    import json
+
+    from scripts import https_check
+
+    def fake_check(address: str) -> dict[str, object]:
+        print("verified TLS")
+        return {
+            "public_ip": address,
+            "sha256": "fingerprint",
+            "checks": {"public_trust": True},
+        }
+
+    monkeypatch.setattr(https_check, "check", fake_check)
+    monkeypatch.setattr(
+        "sys.argv", ["https_check", "https://1.1.1.1", "1.1.1.1", "--json"]
+    )
+    https_check.main()
+    captured = capsys.readouterr()
+    assert json.loads(captured.out)["sha256"] == "fingerprint"
+    assert captured.err == "verified TLS\n"

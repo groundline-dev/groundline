@@ -4,13 +4,17 @@ Used by aws-smoke-test; has no app dependencies and never sends an API key.
 """
 
 import argparse
+import contextlib
 import errno
 import hashlib
 import http.client
 import ipaddress
+import json
 import os
 import socket
 import ssl
+import sys
+from typing import Any
 from urllib.parse import urlsplit
 
 
@@ -24,7 +28,7 @@ def endpoint(url: str, public_ip: str) -> str:
     return str(address)
 
 
-def check(address: str) -> None:
+def check(address: str) -> dict[str, Any]:
     # Don't implicitly trust a development CA through environment overrides.
     for variable in ("SSL_CERT_FILE", "SSL_CERT_DIR"):
         os.environ.pop(variable, None)
@@ -35,6 +39,13 @@ def check(address: str) -> None:
             certificate = tls.getpeercert()
             der = tls.getpeercert(binary_form=True)
             assert certificate and der
+            evidence = {
+                "public_ip": address,
+                "sha256": hashlib.sha256(der).hexdigest(),
+                "issuer": certificate["issuer"],
+                "not_before": certificate["notBefore"],
+                "not_after": certificate["notAfter"],
+            }
             print(
                 f"Trusted IP certificate without SNI; expires {certificate['notAfter']}"
             )
@@ -52,6 +63,14 @@ def check(address: str) -> None:
                 raise
     print("Direct HTTP, app, PostgreSQL and Caddy admin ports are closed or filtered")
     check_redirect(address, context)
+    evidence["checks"] = {
+        "public_trust": True,
+        "ip_identity": True,
+        "no_sni": True,
+        "port_isolation": True,
+        "https_redirect": True,
+    }
+    return evidence
 
 
 def check_redirect(address: str, context: ssl.SSLContext) -> None:
@@ -79,11 +98,21 @@ def main() -> None:
     parser.add_argument("url")
     parser.add_argument("public_ip")
     parser.add_argument("--validate-only", action="store_true")
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="JSON evidence on stdout; progress on stderr",
+    )
     args = parser.parse_args()
     try:
         address = endpoint(args.url, args.public_ip)
         if not args.validate_only:
-            check(address)
+            if args.json:
+                with contextlib.redirect_stdout(sys.stderr):
+                    evidence = check(address)
+                print(json.dumps(evidence))
+            else:
+                check(address)
     except (ValueError, OSError, RuntimeError) as error:
         parser.exit(1, f"HTTPS check failed: {error}\n")
 

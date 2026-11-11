@@ -601,3 +601,13 @@ def test_smoke_rejects_mode_url_mismatch_before_requests(
     result = run(SMOKE_TEST, tmp_path, world)
     assert result.returncode != 0, result.output
     assert not result.sent_commands()
+
+
+def test_failed_key_cleanup_makes_the_smoke_test_fail(app: FakeApp, tmp_path: Path):
+    world = smoke_world(app)
+    world["ssm_replies"][1]["status"] = "Failed"
+    result = run(SMOKE_TEST, tmp_path, world)
+    assert result.returncode != 0
+    assert "couldn't revoke" in result.output
+    assert "all checks passed" not in result.output
+    assert KEY not in result.output
