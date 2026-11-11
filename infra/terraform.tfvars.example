@@ -7,6 +7,11 @@ deployment_name = "alice"
 
 budget_alert_email = "you@example.com"
 
+# Public HTTPS on the server's IP; no domain needed. Only port 443 is exposed.
+# Use "tester_http" for HTTP restricted to this computer. Existing files without
+# this setting retain tester_http. Changing mode may replace/delete the server.
+access_mode = "https"
+
 # Optional: hours after its first boot until the server terminates itself,
 # deleting its data. It's also the most make aws-reset-deadline can give it
 # from the time you run it. 0 keeps it running.

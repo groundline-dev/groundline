@@ -31,7 +31,7 @@ echo "Where to deploy and what to run. It skips what's already set up."
 
 # Homebrew's name for each tool this needs.
 missing="" formulas=""
-for tool in terraform:hashicorp/tap/terraform aws:awscli jq:jq git:git curl:curl; do
+for tool in terraform:hashicorp/tap/terraform aws:awscli jq:jq git:git curl:curl uv:uv; do
   command -v "${tool%%:*}" >/dev/null || { missing+="${tool%%:*}"$'\n' formulas+=" ${tool#*:}"; }
 done
 if [ -n "$missing" ]; then
@@ -97,14 +97,22 @@ if [ ! -f infra/terraform.tfvars ]; then
     echo "  That doesn't look like an email address."
   done
   email="$answer"
-  awk -v name="$name" -v email="$email" '
+  echo
+  echo "  1) Public HTTPS on port 443, with automatic certificates (recommended)"
+  echo "  2) Tester-only HTTP on port 8001, restricted to this computer's public IP"
+  choose "How should callers reach the server? (1 HTTPS, 2 tester-only HTTP)" 2 1
+  access_mode=https
+  [ "$answer" = 1 ] || access_mode=tester_http
+  awk -v name="$name" -v email="$email" -v mode="$access_mode" '
     /^deployment_name[[:space:]]*=/ { print "deployment_name = \"" name "\""; next }
     /^budget_alert_email[[:space:]]*=/ { print "budget_alert_email = \"" email "\""; next }
+    /^access_mode[[:space:]]*=/ { print "access_mode = \"" mode "\""; next }
     { print }
   ' infra/terraform.tfvars.example >infra/terraform.tfvars
   answer_ok "wrote infra/terraform.tfvars"
 fi
 name="$(deployment_name)"
+access_mode="$(configured_access_mode)"
 [ -n "$name" ] || fail "infra/terraform.tfvars has no deployment_name: add one, such as deployment_name = \"alice\""
 
 # --- A server of yours that's already running ---
@@ -127,12 +135,16 @@ if [ -n "$instance" ] \
   bullet "Deploying other code replaces it, and deletes its data."
   if [ -n "$running_ref" ] && confirm "Keep your running server and check it?"; then
     keep=yes
+    running_mode="$(deployed_access_mode)"
     # The commit has to be here for make aws-deploy to check it.
     git cat-file -e "$running_ref^{commit}" 2>/dev/null \
       || git fetch --quiet "$running_repository" "$running_ref"
     REF="$running_ref" REF_NAME="" REPOSITORY_URL="$running_repository"
     export REPOSITORY_URL
-    answer_ok "keeping $instance, running ${running_ref:0:7}"
+    answer_ok "keeping $instance, running ${running_ref:0:7} in $running_mode mode"
+    if [ "$access_mode" != "$running_mode" ]; then
+      answer_warn "saved mode $access_mode differs; keeping this server preserves $running_mode. To apply settings, choose a new deployment next time."
+    fi
   fi
 fi
 
@@ -251,7 +263,11 @@ export REF REF_NAME
 answer_ok "step 1 done: deployment $name in $project, running ${REF:0:7}${REF_NAME:+ ($REF_NAME)}"
 
 step "Step 2 of 3: deploy"
-scripts/aws-deploy
+if [ -n "$keep" ]; then
+  ok "kept the running server and its access settings"
+else
+  scripts/aws-deploy
+fi
 
 step "Step 3 of 3: check the server"
 echo "A new server takes about 5 to 10 minutes to start. Then a few requests check"
