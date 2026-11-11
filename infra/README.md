@@ -1,19 +1,22 @@
 # infra
 
-This folder holds the Terraform for groundline's AWS test deployments, which are for internal testing by groundline's developers only: one EC2 instance per developer that runs the Compose stack at a chosen commit. It's for whoever maintains the deployment. To deploy a server, follow [docs/deploying-to-aws.md](../docs/deploying-to-aws.md) instead.
+This folder holds Terraform for disposable groundline deployments on one EC2 instance. It supports public IP HTTPS and the existing tester-only HTTP mode. To deploy a server, follow [docs/deploying-to-aws.md](../docs/deploying-to-aws.md).
 
 - [main.tf](main.tf): the server, its security group and its IAM role
 - [budget.tf](budget.tf): the monthly budget alert
 - [bootstrap.sh.tftpl](bootstrap.sh.tftpl): the startup script the server runs on its first boot
 - [variables.tf](variables.tf), [outputs.tf](outputs.tf) and [versions.tf](versions.tf): the inputs, the values `scripts/aws-*` read, and the pinned versions
+- [https/](https/): Caddy configuration and host IMDSv2 address renderer
 - [tests/](tests/): the Terraform tests
 
 ## Why each setting is what it is
 
-A test deployment holds only test data ([ADR 0006](../docs/adr/0006-no-real-patient-data-before-production.md)) and is meant to be thrown away. Most settings below keep it cheap, reachable only by its developer, and unable to leak the Anthropic API key.
+A test deployment holds only test data ([ADR 0006](../docs/adr/0006-no-real-patient-data-before-production.md)) and is meant to be thrown away. Both access modes preserve the disposable lifecycle and existing secret boundaries.
 
 - **The default VPC:** every new AWS project has one, so a developer doesn't need to create or pay for a network. If someone deleted theirs, `aws ec2 create-default-vpc` brings it back.
-- **The security group admits one `/32` on port 8001:** the app speaks plain HTTP until ALL-90 adds HTTPS, so only the developer's own IP can reach it. The variable's validation rejects wider ranges, and there's no inbound rule for SSH.
+- **One explicit access mode:** `tester_http` retains TCP 8001 from one `/32`; `https` exposes only TCP 443 to IPv4 callers. Terraform defaults to the former for old configurations, while new wizard configurations recommend and save HTTPS. The ingress resource retains its address. The security group's historical description is kept to avoid replacing it on an unchanged HTTP upgrade; the ingress rule description identifies the actual mode.
+- **Native public IP TLS:** `compose.https.yaml` removes app and database port publications with `!reset` (Compose 2.24.4+). Caddy 2.11.9 is pinned by multi-platform image digest. The explicit Let's Encrypt issuer, `shortlived` profile, disabled HTTP challenge/redirects, and `default_sni` are required: a bare IP with Caddy defaults can otherwise use its internal CA. h1/h2 use TCP 443; no UDP or IPv6 ingress is added.
+- **Host address reconciliation:** bootstrap saves `COMPOSE_FILE` in the root-only `.env`, so SSM key/diagnostic commands use the same override. `docker.service.d/groundline-https.conf` invokes `https/refresh-address` before Docker starts. That helper uses host IMDSv2, validates IPv4, and atomically renders a directory-mounted Caddyfile. Failure blocks Docker startup. ACME account/certificates stay in their own named volume; the proxy gets no app secrets. EIP provisioning, retained disks and custom domains remain out of scope.
 - **SSM Run Command instead of SSH:** the scripts reach the server through SSM, so there's no key pair to manage and no open port 22.
 - **The IAM role's policy is written out instead of attaching `AmazonSSMManagedInstanceCore`:** that managed policy also grants `ssm:GetParameter` and `ssm:GetParameters` on every parameter in the project. Our copy keeps the SSM agent's actions and allows reading only the deployment's own Anthropic API key, `/groundline/<deployment_name>/anthropic-api-key`.
 - **Each deployment has its own Anthropic API key, kept in Parameter Store:** only the server reads it, when it starts. `make aws-up` stores it with the AWS CLI and `make aws-destroy` deletes it, and Terraform and the other scripts only check that it exists, so the Anthropic API key never lands in Terraform state or on a developer's screen. Everyone with access to the AWS project can still read it, which is why the docs recommend a project of your own, or in a shared project, a key from an Anthropic Console workspace with a low spend limit.
@@ -32,6 +35,7 @@ The server costs about $0.024 an hour in us-east-1, about $17 a month: $0.0168 f
 
 ## What needs updating
 
+- **Caddy:** review updates to its digest in `compose.https.yaml` and run `make https-smoke` before accepting them. Test fixture Pebble/Python digests live in `tests/https_smoke.py`; update them deliberately with the same lifecycle test.
 - **Compose and buildx:** `bootstrap.sh.tftpl` downloads both at pinned versions and checks each file's sha256, since Amazon Linux doesn't package them. To update one, change its URL and its sha256 in the `install_plugin` call, taking the new one from the release's checksums file.
 - **Terraform and the AWS provider:** `versions.tf` pins both with `~>`. Raise the pin, run `terraform -chdir=infra init -upgrade`, then `make infra-check`, and commit the updated `.terraform.lock.hcl`.
 - **The SSM agent's actions:** our policy copies `AmazonSSMManagedInstanceCore` by hand. If AWS adds actions to that policy and Run Command stops working, compare the two.
@@ -53,7 +57,9 @@ Terraform state stays in this folder (`terraform.tfstate`, which git ignores). T
 
 The mock provider doesn't apply `default_tags` and can't list every resource of a kind, so [tests/test_infra.py](../tests/test_infra.py), which `make check` runs, reads the files instead. Among other things, it checks that every resource is tagged, that no Region or backend is written in, that the role gets no managed policy, that the security group has one inbound rule, and that only the startup script reads the Anthropic API key.
 
-None of these tests reach AWS. `make aws-smoke` checks a real server.
+`make https-smoke` runs real Caddy and Pebble in isolated Docker containers: TLS-ALPN IP issuance, NAT/no-SNI selection, trust/identity rejection, retained certificates on restart, automatic renewal with a changed served fingerprint, a response after 125 seconds of silence, and CA-outage expiry/recovery. Only the fixture trusts its test root; it never contacts a public CA. It removes its containers/network/volume on completion. CI runs it separately. This proves the lifecycle, not public trust: `make aws-smoke` must still pass against a fresh EC2 endpoint with ordinary trust stores.
+
+`tests/test_https_bootstrap.py` executes the renderer against fake IMDS responses. `tests/test_aws_access_modes.py` exercises first setup, remembered and missing modes, invalid settings, cancellation and keeping an existing server. These tests reach no AWS services.
 
 ### Testing `make aws-up`
 
@@ -94,4 +100,4 @@ After changing the wizard or the scripts it runs, test it as a new developer wou
    make aws-destroy
    ```
 
-[tests/test_aws_scripts.py](../tests/test_aws_scripts.py) runs the smoke test, status, reset-deadline and destroy scripts against stand-in `aws` and `terraform` commands, but not the wizard, `aws-deploy` or `aws-key`, and only this run shows what a person sees.
+[tests/test_aws_scripts.py](../tests/test_aws_scripts.py) runs the smoke test, status, reset-deadline and destroy scripts against stand-in `aws` and `terraform` commands, with additional wizard and deploy coverage in `tests/test_aws_access_modes.py`; `aws-key` still needs a live check, and only this run shows what a person sees.

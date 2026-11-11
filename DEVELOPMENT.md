@@ -80,7 +80,7 @@ If you run the image with your own `docker run`, publish the port on `127.0.0.1`
 
 ## Deploying to AWS
 
-Test deployments are for internal testing by groundline's developers only. A test deployment runs the Compose stack, at a commit you choose, on an EC2 server in your AWS project. Only your computer's IP can reach it, so it's for test data only, and it deletes itself, with its data, after 8 hours.
+A disposable deployment runs the Compose stack on one EC2 server in your AWS project. New configurations recommend public HTTPS on the server's IPv4, with automatic publicly trusted certificates and no domain required. Existing configurations retain tester-only HTTP unless explicitly changed. Both modes use synthetic test data only and delete the server and its data after eight hours by default. The tools are Terraform, the AWS CLI, `jq`, `uv`, Git and `make`; Docker is installed on the server.
 
 **1. Once, before your first deployment:** get everything [Before you start](docs/deploying-to-aws.md#before-you-start) lists. The wizard can't do these for you:
 
@@ -160,7 +160,7 @@ Anthropic SDK DEBUG logging includes raw prompts. Privacy assertions capture gro
 
 ## Lint, format and type checks
 
-`make check` runs ruff, pyright in strict mode, the large-file check and the tests, without changing files. CI runs it too, along with the database tests (`make test-db`), the Docker stack check (`make docker-smoke`) and the Terraform checks (`make infra-check`). `make infra-check` needs Terraform, but no AWS credentials: its tests plan against a mock AWS provider. Run it when you change `infra/`. `make fix` applies ruff's fixes and formatting. Pyright errors need fixing by hand.
+`make check` runs ruff, pyright in strict mode, the large-file check and the tests, without changing files. CI runs it too, along with the database tests (`make test-db`), the Docker stack check (`make docker-smoke`) and the Terraform checks (`make infra-check`) and local certificate lifecycle checks (`make https-smoke`). `make infra-check` needs Terraform, but no AWS credentials: its tests plan against a mock AWS provider. Run it when you change `infra/`. `make fix` applies ruff's fixes and formatting. Pyright errors need fixing by hand.
 
 The `pre-commit` hook runs the same checks on staged files. If ruff fails, run `make fix` and stage the result.
 
