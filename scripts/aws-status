@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# Show whether your AWS test deployment is running, and when it terminates
+# itself. If it already has, remind you to run make aws-destroy. Also say which
+# other AWS projects still hold a deployment of yours.
+#
+# Usage: scripts/aws-status   (make aws-status)
+#
+# It acts on the project make aws-up or make aws-project last chose; to reach a
+# deployment in another project, run make aws-project first.
+#
+# It reads the deadline from the server through SSM Run Command, so it shows a
+# deadline make aws-reset-deadline moved.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+source scripts/aws-common.sh
+
+use_project
+# With nothing deployed, terraform output exits 0 and prints nothing.
+instance="$(terraform -chdir=infra output -raw instance_id 2>/dev/null || true)"
+if [ -z "$instance" ]; then
+  other_deployments
+  fail "you have nothing deployed to $(project_label): run make aws-up"
+fi
+# Runs on exit, so it also follows a failure, such as a terminated server.
+trap other_deployments EXIT
+
+require_running
+echo "The server ($instance) is running in $(project_label) at $(terraform -chdir=infra output -raw app_url)"
+
+deadline="$(on_server "cat $deadline_file 2>/dev/null || echo none" | tr -d '[:space:]')" \
+  || fail "couldn't read the deadline from the server; if it started in the last few minutes, try again shortly"
+[ "$deadline" = none ] || [[ "$deadline" =~ ^[0-9]+$ ]] \
+  || fail "the server's deadline file holds '$deadline', not a time"
+# Says where your other deployments are before What next, so What next comes last.
+trap - EXIT
+other_deployments
+# What next says when it terminates itself, and how to give it more time.
+what_next "$deadline"
