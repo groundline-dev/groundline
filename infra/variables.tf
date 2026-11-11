@@ -37,6 +37,7 @@ variable "budget_alert_email" {
 variable "tester_cidr" {
   description = "The one IPv4 address allowed to reach the app, as a /32, such as 203.0.113.7/32."
   type        = string
+  default     = "127.0.0.1/32"
 
   validation {
     condition = (
@@ -44,6 +45,17 @@ variable "tester_cidr" {
       && can(cidrhost(var.tester_cidr, 0))
     )
     error_message = "tester_cidr should be a single IPv4 address with /32, such as 203.0.113.7/32."
+  }
+}
+
+variable "access_mode" {
+  description = "tester_http restricts TCP 8001 to tester_cidr; https exposes only Caddy on TCP 443, with a public IP certificate."
+  type        = string
+  default     = "tester_http"
+
+  validation {
+    condition     = contains(["tester_http", "https"], var.access_mode)
+    error_message = "access_mode must be tester_http or https."
   }
 }
 

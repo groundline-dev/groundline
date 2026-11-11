@@ -253,3 +253,32 @@ run "the_outputs_give_the_scripts_what_they_read" {
     error_message = "git_ref and repository_url should say which commit the server runs, and where it's cloned from."
   }
 }
+
+run "https_discovers_the_ip_before_docker_and_keeps_disposable_storage" {
+  variables {
+    access_mode = "https"
+  }
+  override_resource {
+    target = aws_instance.app
+    values = { id = "i-0123456789abcdef0", public_ip = "203.0.113.10" }
+  }
+  assert {
+    condition = (
+      output.app_url == "https://203.0.113.10"
+      && output.access_mode == "https"
+      && output.public_ip == "203.0.113.10"
+    )
+    error_message = "HTTPS outputs must identify the IP endpoint and mode."
+  }
+  assert {
+    condition = (
+      strcontains(aws_instance.app.user_data, "COMPOSE_FILE=compose.yaml:compose.https.yaml")
+      && strcontains(aws_instance.app.user_data, "ExecStartPre=/opt/groundline/infra/https/refresh-address")
+      && !strcontains(aws_instance.app.user_data, "APP_BIND_ADDRESS=0.0.0.0")
+      && aws_instance.app.metadata_options[0].http_put_response_hop_limit == 1
+      && aws_instance.app.root_block_device[0].delete_on_termination
+      && aws_instance.app.instance_initiated_shutdown_behavior == "terminate"
+    )
+    error_message = "HTTPS must refresh its address before Docker starts, isolate app ports and preserve IMDS/disk/expiry behavior."
+  }
+}

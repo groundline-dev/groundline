@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+# Runs on the EC2 host, before Docker starts. Containers cannot access IMDS.
+set -euo pipefail
+cd "$(dirname "$0")"
+metadata=http://169.254.169.254/latest
+token="$(curl --disable --fail --silent --show-error --noproxy '*' --max-time 10 \
+  --retry 3 --request PUT --header 'X-aws-ec2-metadata-token-ttl-seconds: 60' \
+  "$metadata/api/token")"
+address="$(curl --disable --fail --silent --show-error --noproxy '*' --max-time 10 \
+  --retry 3 --header "X-aws-ec2-metadata-token: $token" \
+  "$metadata/meta-data/public-ipv4")"
+if ! [[ "$address" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+  echo 'groundline HTTPS: IMDS returned no usable public IPv4 address' >&2
+  exit 1
+fi
+IFS=. read -r -a octets <<<"$address"
+for octet in "${octets[@]}"; do
+  if ((10#$octet > 255)); then
+    echo 'groundline HTTPS: invalid IPv4 address from IMDS' >&2
+    exit 1
+  fi
+done
+mkdir -p runtime
+temporary="$(mktemp runtime/Caddyfile.XXXXXX)"
+trap 'rm -f "$temporary"' EXIT
+# Only the public address is written here; no application credentials.
+sed 's/{$GROUNDLINE_PUBLIC_IP}/'"$address"'/g' Caddyfile >"$temporary"
+chmod 644 "$temporary"
+mv "$temporary" runtime/Caddyfile
+echo "groundline HTTPS: configured $address"
