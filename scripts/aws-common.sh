@@ -349,6 +349,11 @@ require_running() {
 # on_server COMMAND: run COMMAND on the server as root with SSM Run Command and
 # print its output. If it fails, also print its error output, and fail.
 on_server() {
+  # Restart checks need short, bounded probes while SSM may be offline.
+  if [ -n "${2:-}" ]; then
+    on_server_bounded "$1" "$2"
+    return
+  fi
   local escaped="${1//\\/\\\\}"
   escaped="${escaped//\"/\\\"}"
   local id
@@ -366,6 +371,42 @@ on_server() {
       --instance-id "$instance" --query StandardErrorContent --output text >&2 || true
   fi
   return "$wait_status"
+}
+
+# on_server_bounded COMMAND SECONDS: no unbounded AWS waiter during recovery.
+# Each AWS request is bounded too; delivery and remote execution have limits.
+on_server_bounded() {
+  local command="$1" seconds="$2" id response status remaining
+  local until=$((SECONDS + seconds))
+  local parameters
+  parameters="$(jq -cn --arg command "$command" --arg timeout "$seconds" \
+    '{commands:[$command],executionTimeout:[$timeout]}')"
+  id="$(aws ssm send-command --region "$region" --instance-ids "$instance" \
+    --cli-connect-timeout 3 --cli-read-timeout 5 --timeout-seconds 30 \
+    --document-name AWS-RunShellScript --parameters "$parameters" \
+    --query Command.CommandId --output text)" || return 1
+  while [ "$SECONDS" -lt "$until" ]; do
+    remaining=$((until - SECONDS))
+    [ "$remaining" -le 5 ] || remaining=5
+    if response="$(aws ssm get-command-invocation --region "$region" --command-id "$id" \
+      --instance-id "$instance" --cli-connect-timeout 3 --cli-read-timeout "$remaining" \
+      --output json 2>&1)"; then
+      status="$(jq -r .Status <<<"$response")" || return 1
+      case "$status" in
+        Success) jq -r '.StandardOutputContent' <<<"$response"; return ;;
+        Pending | InProgress | Delayed) ;;
+        *) jq -r '.Status, .StandardErrorContent' <<<"$response" >&2; return 1 ;;
+      esac
+    else
+      case "$response" in
+        *InvocationDoesNotExist*) ;;
+        *) echo "$response" >&2; return 1 ;;
+      esac
+    fi
+    sleep 2
+  done
+  echo "SSM command $id did not complete within $seconds seconds" >&2
+  return 1
 }
 
 # what_next [DEADLINE]: what you can do with your running server. Each command

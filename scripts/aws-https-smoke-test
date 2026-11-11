@@ -1,0 +1,201 @@
+#!/usr/bin/env bash
+# Verify an existing HTTPS deployment; optionally interrupt it to test recovery.
+# Usage: scripts/aws-https-smoke-test [--restart caddy|host]
+set -euo pipefail
+cd "$(dirname "$0")/.."
+source scripts/aws-common.sh
+
+restart=none
+case "${1:-}" in
+  "") [ "$#" = 0 ] || fail "unexpected arguments" ;;
+  --restart)
+    [ "$#" = 2 ] || fail "usage: $0 [--restart caddy|host]"
+    case "$2" in caddy | host) restart="$2" ;; *) fail "restart must be caddy or host" ;; esac
+    ;;
+  *) fail "usage: $0 [--restart caddy|host]" ;;
+esac
+for tool in aws terraform jq uv; do
+  command -v "$tool" >/dev/null || fail "$tool isn't installed"
+done
+# Bound SDK retries as well as the per-call and recovery timeouts.
+export AWS_MAX_ATTEMPTS=1
+use_project
+output() {
+  local value
+  value="$(terraform -chdir=infra output -raw "$1")" && [ -n "$value" ] \
+    || fail "missing Terraform output $1: run make aws-up first"
+  printf '%s' "$value"
+}
+instance="$(output instance_id)"
+app_url="$(output app_url)"
+public_ip="$(output public_ip)"
+[ "$(output access_mode)" = https ] || fail "this command requires an HTTPS deployment"
+[ "$(output region)" = "$region" ] || fail "the saved deployment Region differs from the selected AWS Region"
+uv run --quiet python scripts/https_check.py "$app_url" "$public_ip" --validate-only
+
+check_target() {
+  local actual saved
+  saved="$(terraform -chdir=infra output -json)" || return 1
+  jq -e --arg instance "$instance" --arg ip "$public_ip" --arg url "$app_url" --arg region "$region" \
+    '.instance_id.value == $instance and .public_ip.value == $ip and .app_url.value == $url and
+     .region.value == $region and .access_mode.value == "https"' <<<"$saved" >/dev/null || {
+    echo "Terraform target changed during the check" >&2
+    return 1
+  }
+  actual="$(aws ec2 describe-instances --region "$region" --instance-ids "$instance" \
+    --cli-connect-timeout 3 --cli-read-timeout 5 \
+    --query 'Reservations[0].Instances[0]' --output json)" || return 1
+  jq -e --arg instance "$instance" --arg ip "$public_ip" \
+    '.InstanceId == $instance and .State.Name == "running" and .PublicIpAddress == $ip' \
+    <<<"$actual" >/dev/null || {
+      echo "AWS instance/state/IP differs from saved running deployment; refresh and review Terraform state first" >&2
+      return 1
+    }
+}
+
+# Fixed host commands return only metadata: never inspect the whole container
+# environment, certificate keys, ACME account keys or application credentials.
+snapshot_command=$(cat <<'SCRIPT'
+set -eu
+cd /opt/groundline
+cat /proc/sys/kernel/random/boot_id
+if [ -f /var/lib/groundline/terminate-at ]; then cat /var/lib/groundline/terminate-at; else echo none; fi
+date +%s
+container=$(docker compose ps -q caddy)
+test -n "$container"
+volume=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}}{{.Name}}{{end}}{{end}}' "$container")
+test -n "$volume"
+docker volume inspect --format '{{.Name}}|{{.CreatedAt}}' "$volume"
+awk '/^[[:space:]]*default_sni / {print $2}' infra/https/runtime/Caddyfile
+systemctl show docker --property=ExecStartPre --value
+SCRIPT
+)
+snapshot() {
+  local raw
+  raw="$(on_server "$snapshot_command" 30)" || return 1
+  jq -Ren --arg raw "$raw" '
+    ($raw | split("\n")) as $v |
+    if ($v|length) < 6 then error("incomplete host snapshot") else
+      {boot_id:$v[0], deadline:$v[1], now:($v[2]|tonumber),
+       volume:$v[3], public_ip:$v[4], startup:($v[5:]|join("\n"))}
+    end' | jq -ce --arg ip "$public_ip" '
+      select((.boot_id|test("^[0-9a-f-]{36}$")) and
+        (.deadline == "none" or (.deadline|test("^[0-9]+$"))) and
+        (.volume|test("^[a-zA-Z0-9_.-]+\\|.+")) and .public_ip == $ip)'
+}
+check_time() {
+  local state="$1" required="$2"
+  deadline="$(jq -r .deadline <<<"$state")"
+  if [ "$deadline" != none ] && \
+    [ $((deadline - $(jq -r .now <<<"$state"))) -lt "$required" ]; then
+    fail "too little time before expiry: need $required seconds; use make aws-reset-deadline explicitly if appropriate"
+  fi
+}
+
+check_target || fail "couldn't verify the selected AWS target"
+work="$(mktemp -d)"
+deadline=""
+cleanup() {
+  local status=$?
+  trap - EXIT
+  rm -rf "$work"
+  if [ "$status" != 0 ]; then
+    error "HTTPS checks failed; no further restart will be attempted. Instance: $instance"
+    check_target >&2 || true
+    # Diagnostics deliberately avoid broad logs or secret-bearing configuration.
+    on_server 'systemctl is-active docker; cd /opt/groundline && docker compose ps' 15 >&2 || true
+  fi
+  what_next "$deadline" || true
+  exit "$status"
+}
+trap cleanup EXIT
+before="$(snapshot)" || fail "couldn't read SSM/Caddy startup metadata"
+check_time "$before" 0
+minimum=900
+[ "$restart" != host ] || minimum=1500
+[ "$restart" = none ] || check_time "$before" "$minimum"
+echo "Checking HTTPS in $(project_label), $region: $instance at $app_url"
+
+smoke() {
+  check_target || fail "deployment identity changed before smoke checks"
+  GROUNDLINE_SMOKE_WAIT_SECONDS=60 GROUNDLINE_SMOKE_REQUEST_TIMEOUT=30 scripts/aws-smoke-test
+}
+certificate() {
+  uv run --quiet python scripts/https_check.py "$app_url" "$public_ip" --json
+}
+smoke
+if [ "$restart" = none ]; then
+  ok "HTTPS checks passed; no services were restarted"
+  exit 0
+fi
+certificate >"$work/certificate.json"
+
+echo
+if [ "$restart" = host ]; then
+  echo "This will interrupt callers: restart Caddy, check recovery, then reboot $instance and check again."
+else
+  echo "This will interrupt callers: restart Caddy on $instance and check recovery."
+fi
+choose "Run these restart checks? (1 run them, 2 cancel)" 2
+[ "$answer" = 1 ] || fail "cancelled: no restart requested"
+
+recover() {
+  local kind="$1" baseline="$2" limit="$3" after remaining
+  local until=$((SECONDS + limit))
+  while [ "$SECONDS" -lt "$until" ]; do
+    check_target || fail "AWS target changed during recovery"
+    if after="$(snapshot 2>"$work/recovery-error")"; then
+      [ "$(jq -r .deadline <<<"$after")" = "$(jq -r .deadline <<<"$baseline")" ] \
+        || fail "the server's expiry deadline changed"
+      [ "$(jq -r .volume <<<"$after")" = "$(jq -r .volume <<<"$baseline")" ] \
+        || fail "Caddy certificate storage was replaced"
+      if [ "$kind" = host ]; then
+        if [ "$(jq -r .boot_id <<<"$after")" = "$(jq -r .boot_id <<<"$baseline")" ]; then
+          sleep 5
+          continue
+        fi
+        jq -e '.startup | test("path=/opt/groundline/infra/https/refresh-address ;[^}]*start_time=\\[[^]]+\\][^}]*code=exited ; status=0")' \
+          <<<"$after" >/dev/null || fail "host address discovery did not complete successfully before Docker startup"
+      elif [ "$(jq -r .boot_id <<<"$after")" != "$(jq -r .boot_id <<<"$baseline")" ]; then
+        fail "the host unexpectedly rebooted during the Caddy-only check"
+      fi
+      if certificate >"$work/after.json" 2>"$work/recovery-error"; then
+        if [ "$(jq -r .sha256 "$work/after.json")" = "$(jq -r .sha256 "$work/certificate.json")" ]; then
+          check_ok "$kind recovery retained the same trusted certificate and storage"
+        else
+          check_ok "$kind recovery retained storage and serves a valid replacement certificate"
+          echo "    The fingerprint changed; this check does not establish why or prove renewal."
+        fi
+        mv "$work/after.json" "$work/certificate.json"
+        smoke
+        return
+      fi
+    fi
+    remaining=$((until - SECONDS))
+    [ "$remaining" -gt 0 ] || break
+    echo "Waiting for $kind recovery ($remaining seconds remaining)..."
+    sleep 5
+  done
+  cat "$work/recovery-error" >&2 || true
+  fail "$kind did not recover within $limit seconds"
+}
+
+# Recheck after the baseline test and the human confirmation; neither may
+# authorize a different instance/IP or extend a nearly expired deployment.
+check_target || fail "AWS target changed before restart"
+before="$(snapshot)" || fail "couldn't refresh host metadata before restart"
+check_time "$before" "$minimum"
+doing "Restarting Caddy"
+on_server 'cd /opt/groundline && docker compose restart caddy' 60 \
+  || fail "Caddy restart failed; inspect the server before retrying"
+recover caddy "$before" 300
+if [ "$restart" = host ]; then
+  check_target || fail "AWS target changed before reboot"
+  before="$(snapshot)" || fail "couldn't refresh host metadata before reboot"
+  check_time "$before" 1500
+  doing "Rebooting $instance"
+  aws ec2 reboot-instances --region "$region" --instance-ids "$instance" \
+    --cli-connect-timeout 3 --cli-read-timeout 5
+  recover host "$before" 600
+fi
+ok "all requested HTTPS recovery checks passed; certificate renewal was not forced"

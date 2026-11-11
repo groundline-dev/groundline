@@ -201,6 +201,24 @@ It revokes that API key at the end, even when a check fails.
 
 Both smoke tests check only that the server is set up correctly and, for `make aws-smoke-live`, that it can reach Claude. A passing run doesn't show that a commit is ready to release.
 
+## Testing HTTPS restart recovery
+
+`make aws-https-smoke` checks an **existing HTTPS deployment** using the same public trust, IP identity, no-SNI, port isolation, redirect and API-key checks as `make aws-smoke`. It first verifies that the selected account/Region, Terraform instance/IP and AWS instance/IP agree, and that SSM and Caddy metadata are accessible. It does not create or replace a server.
+
+```sh
+make aws-https-smoke                 # no services restarted
+make aws-https-smoke RESTART=caddy   # also restart Caddy and verify recovery
+make aws-https-smoke RESTART=host    # Caddy check, then EC2 reboot and recovery
+```
+
+Restart modes interrupt callers and require typing an explicit choice after the baseline checks; Enter or unattended EOF does not approve them. Use them on a disposable deployment or during an appropriate interruption window. Caddy checks require at least 15 minutes before expiry; host checks require at least 25 minutes. The command rechecks remaining time and target identity immediately before each interruption. It never extends the deadline; `make aws-reset-deadline` remains an explicit separate action.
+
+The command records the certificate fingerprint and the named certificate volume's identity/creation time. It checks recovery for up to five minutes after restarting Caddy, or ten minutes after requesting an EC2 reboot. SSM probes and individual network calls have their own limits, so a final in-flight probe can finish just after that recovery window. The host check requires a changed boot ID, successful public-IP discovery before Docker startup, unchanged expiry and retained certificate storage. Full smoke checks run again after each recovery, with shorter readiness/request timeouts and no Claude calls. Temporary-key revocation failure makes the run fail.
+
+A matching fingerprint proves the same certificate was served after recovery. A different, valid certificate with retained storage is reported separately: this does not prove renewal or establish why the certificate changed. `make https-smoke` remains the automated accelerated renewal test, using a local ACME server. This AWS command never deletes certificates, forces production issuance, stops/starts EC2 to change its address, or tests days-long production renewal.
+
+On failure, the command stops before any further restart, reports the target, and attempts bounded Docker/service diagnostics. It leaves the deployment running, with its original expiry, and tells you how to inspect or remove it. It never destroys a deployment automatically. Live AWS execution stays outside CI; fake AWS/SSM regression tests run in `make check`.
+
 ## Checking the server by hand
 
 To send the requests yourself, get the server's address from Terraform. Terraform keeps each AWS project's state in a workspace named after its account ID, so select that workspace the way the scripts do:

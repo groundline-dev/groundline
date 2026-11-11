@@ -61,6 +61,10 @@ The mock provider doesn't apply `default_tags` and can't list every resource of 
 
 `tests/test_https_bootstrap.py` executes the renderer against fake IMDS responses. `tests/test_aws_access_modes.py` exercises first setup, remembered and missing modes, invalid settings, cancellation and keeping an existing server. These tests reach no AWS services.
 
+### Repeatable HTTPS lifecycle checks
+
+Use `make aws-https-smoke` on an existing HTTPS deployment. `RESTART=caddy` adds a confirmed proxy restart; `RESTART=host` additionally reboots EC2. The orchestration lives in `scripts/aws-https-smoke-test`, reuses `aws-smoke-test`, and obtains structured TLS evidence through `scripts/https_check.py --json`. Its bounded SSM path is in `scripts/aws-common.sh`. `tests/test_aws_https_smoke.py` covers target/preflight failures, cancellation, recovery, boot identity, certificate storage and expiry without reaching AWS. See the [operator guide](../docs/deploying-to-aws.md#testing-https-restart-recovery) for interruption and timeout behavior.
+
 ### Testing `make aws-up`
 
 After changing the wizard or the scripts it runs, test it as a new developer would, from the repository root. You run it with your own settings moved aside, so it asks every question, then delete what it created. The server costs about $0.024 an hour while it runs.
