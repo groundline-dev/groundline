@@ -68,6 +68,7 @@ def main() -> None:
     )
     for service in ("app", "postgres"):
         assert not config["services"][service].get("ports"), service
+    assert config["services"]["app"]["environment"]["FORWARDED_ALLOW_IPS"] == "*"
     caddy_image = config["services"]["caddy"]["image"]
     assert [p["published"] for p in config["services"]["caddy"]["ports"]] == ["443"]
     assert not config["services"]["caddy"].get("environment")

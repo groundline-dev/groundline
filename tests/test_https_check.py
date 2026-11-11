@@ -1,11 +1,12 @@
 """Check external probe failures cannot be mistaken for isolation."""
 
 import errno
+import ssl
 from unittest.mock import MagicMock, patch
 
 import pytest
 
-from scripts.https_check import check, endpoint
+from scripts.https_check import check, check_redirect, endpoint
 
 
 @pytest.mark.parametrize(
@@ -60,6 +61,7 @@ def test_probe_distinguishes_open_ports_network_errors_and_filtering(
     with (
         patch("scripts.https_check.ssl.create_default_context", return_value=context),
         patch("scripts.https_check.socket.create_connection", side_effect=responses),
+        patch("scripts.https_check.check_redirect"),
     ):
         if isinstance(failure, TimeoutError):
             check("1.1.1.1")
@@ -67,3 +69,31 @@ def test_probe_distinguishes_open_ports_network_errors_and_filtering(
             with pytest.raises((RuntimeError, OSError)):
                 check("1.1.1.1")
         assert context.wrap_socket.call_args.kwargs["server_hostname"] == "1.1.1.1"
+
+
+@pytest.mark.parametrize(
+    "status,location,valid",
+    [
+        (307, "https://1.1.1.1/docs", True),
+        (307, "http://1.1.1.1/docs", False),
+        (307, "https://other.example/docs", False),
+        (200, None, False),
+    ],
+)
+def test_redirects_cannot_downgrade_or_change_host(
+    status: int, location: str | None, valid: bool
+):
+    with patch("scripts.https_check.http.client.HTTPSConnection") as connect:
+        connection = connect.return_value
+        response = connection.getresponse.return_value
+        response.status = status
+        response.getheader.return_value = location
+        if valid:
+            check_redirect("1.1.1.1", ssl.create_default_context())
+        else:
+            with pytest.raises(RuntimeError, match="redirects on HTTPS"):
+                check_redirect("1.1.1.1", ssl.create_default_context())
+        connection.request.assert_called_once_with(
+            "GET", "/docs/", headers={"X-Forwarded-Proto": "http"}
+        )
+        connection.close.assert_called_once()
