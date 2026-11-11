@@ -125,3 +125,13 @@ _Avoid_: template, default pipeline
 **Validated preset**:
 A preset whose results have been measured. A run counts as using it only if nothing about the pipeline or profile was changed, apart from choosing a threshold level.
 _Avoid_: approved pipeline, certified pipeline
+
+## Running groundline
+
+**Deployment**:
+A running copy of groundline, with its own database and API keys, that serves callers. An organization may run more than one, such as staging and production.
+_Avoid_: install, instance, environment, stack (instance and stack name the cloud resources a deployment runs on)
+
+**Test deployment**:
+A deployment a developer creates to try one commit, for internal testing only and never for customers, reachable only from their own computer. Its server and data are deleted when the developer is done, or at a deadline they can extend.
+_Avoid_: test server, dev server, staging (a staging deployment serves callers and lasts)

@@ -18,6 +18,13 @@ wheels/
 .env.*
 !.env.example
 
+# Terraform: local state, providers, and each contributor's settings
+infra/.terraform/
+*.tfstate
+*.tfstate.*
+infra/terraform.tfvars*
+!infra/terraform.tfvars.example
+
 # Database backups, which hold API-key hashes
 *.dump
 

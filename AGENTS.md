@@ -20,8 +20,12 @@ The rules below apply only when discussing or changing the design. In other work
 
 ### Decisions (`docs/adr/`)
 - Offer to write an ADR only when the decision is (1) hard to reverse, (2) surprising without context, and (3) a real trade-off between alternatives. Otherwise skip it.
-- Files: `docs/adr/NNNN-slug.md`, next number after the highest existing. Create the folder when the first ADR is needed.
+- Files: `docs/adr/NNNN-slug.md`, next number after the highest existing. Create the folder when the first ADR is needed. `tests/test_adrs.py` fails if two ADRs share a number or a file breaks this format, so after merging `main`, renumber yours if it clashes.
 - Format: a title plus 1-3 sentences (context, decision, why). Add Status, Considered Options or Consequences only when they add value.
+
+## AWS test deployments
+
+A server started with `make aws-deploy` costs money until `make aws-destroy` deletes it or its time limit runs out. If you deployed one, don't finish your work until you've either run `make aws-destroy`, when the developer asked you to, or told the developer that the server is still running and when it terminates itself (`make aws-status` shows this).
 
 ## Skills
 
