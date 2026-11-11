@@ -52,3 +52,27 @@ run "a_subnet_is_rejected_as_tester_cidr" {
   }
   expect_failures = [var.tester_cidr]
 }
+
+run "https_opens_only_tcp_443_to_ipv4_callers" {
+  command = plan
+  variables {
+    access_mode = "https"
+  }
+  assert {
+    condition = (
+      aws_vpc_security_group_ingress_rule.app.ip_protocol == "tcp"
+      && aws_vpc_security_group_ingress_rule.app.from_port == 443
+      && aws_vpc_security_group_ingress_rule.app.to_port == 443
+      && aws_vpc_security_group_ingress_rule.app.cidr_ipv4 == "0.0.0.0/0"
+    )
+    error_message = "HTTPS must expose only TCP 443."
+  }
+}
+
+run "unknown_access_modes_are_rejected" {
+  command = plan
+  variables {
+    access_mode = "public_http"
+  }
+  expect_failures = [var.access_mode]
+}

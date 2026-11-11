@@ -21,7 +21,7 @@ locals {
   ])
 }
 
-# --- Network: only the tester's IP reaches the app's port (R6) ---
+# --- Network: one entry point, selected explicitly by access_mode ---
 
 resource "aws_security_group" "app" {
   name_prefix = "groundline-${var.deployment_name}-"
@@ -30,11 +30,11 @@ resource "aws_security_group" "app" {
 
 resource "aws_vpc_security_group_ingress_rule" "app" {
   security_group_id = aws_security_group.app.id
-  description       = "groundline app from the tester"
+  description       = var.access_mode == "https" ? "groundline public HTTPS" : "groundline app from the tester"
   ip_protocol       = "tcp"
-  from_port         = 8001
-  to_port           = 8001
-  cidr_ipv4         = var.tester_cidr
+  from_port         = var.access_mode == "https" ? 443 : 8001
+  to_port           = var.access_mode == "https" ? 443 : 8001
+  cidr_ipv4         = var.access_mode == "https" ? "0.0.0.0/0" : var.tester_cidr
 }
 
 # Terraform removes AWS's default outbound rule, so the server needs this one to
@@ -138,6 +138,7 @@ resource "aws_instance" "app" {
     git_ref                  = var.git_ref
     anthropic_parameter_name = local.anthropic_parameter_name
     auto_terminate_seconds   = var.auto_terminate_hours * 3600
+    access_mode              = var.access_mode
   })
   # The startup script runs only on first boot, so a change needs a new server.
   user_data_replace_on_change = true

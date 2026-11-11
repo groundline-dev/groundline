@@ -28,5 +28,8 @@ infra/terraform.tfvars*
 # Database backups, which hold API-key hashes
 *.dump
 
+# Host-generated HTTPS configuration
+infra/https/runtime/
+
 # Bloat
 .DS_Store

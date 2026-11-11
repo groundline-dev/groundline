@@ -70,7 +70,7 @@ def main() -> None:
         assert not config["services"][service].get("ports"), service
     caddy_image = config["services"]["caddy"]["image"]
     assert [p["published"] for p in config["services"]["caddy"]["ports"]] == ["443"]
-    assert set(config["services"]["caddy"]["environment"]) == {"GROUNDLINE_PUBLIC_IP"}
+    assert not config["services"]["caddy"].get("environment")
     docker("network", "create", name)
     try:
         network = json.loads(docker("network", "inspect", name))[0]

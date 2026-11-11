@@ -8,12 +8,12 @@ services:
     ports: !reset []
   caddy:
     image: caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee
-    environment:
-      GROUNDLINE_PUBLIC_IP: ${GROUNDLINE_PUBLIC_IP:?the host must discover its public IPv4 address first}
     ports:
       - "443:443"
     volumes:
-      - ./infra/https/Caddyfile:/etc/caddy/Caddyfile:ro
+      # Rendered by infra/https/refresh-address before Docker starts. Mount the
+      # directory so atomic file replacement is visible after a restart.
+      - ./infra/https/runtime:/etc/caddy:ro
       - caddy-data:/data
       - caddy-config:/config
     depends_on:

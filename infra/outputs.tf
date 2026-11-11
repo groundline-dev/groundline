@@ -11,8 +11,16 @@ output "region" {
 }
 
 output "app_url" {
-  description = "The app's address. Only tester_cidr can reach it."
-  value       = "http://${aws_instance.app.public_ip}:8001"
+  description = "The public HTTPS address, or tester-only HTTP address, selected by access_mode."
+  value       = var.access_mode == "https" ? "https://${aws_instance.app.public_ip}" : "http://${aws_instance.app.public_ip}:8001"
+}
+
+output "access_mode" {
+  value = var.access_mode
+}
+
+output "public_ip" {
+  value = aws_instance.app.public_ip
 }
 
 # scripts/aws-destroy reads these before destroying, then checks each is gone.
