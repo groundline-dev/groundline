@@ -225,30 +225,42 @@ deployment_name() {
     infra/terraform.tfvars 2>/dev/null | tail -n 1
 }
 
-# Only a literal setting in the saved configuration opts in to public HTTPS.
-# Passing it explicitly to Terraform also prevents TF_VAR/auto.tfvars from
-# silently overriding a legacy configuration's tester-only access.
+# Normalize only saved local inputs, never deployed state. Passing the result
+# explicitly to Terraform prevents environment/auto.tfvars from widening access.
 configured_access_mode() {
-  local setting
+  local setting temporary
   setting="$(sed -n '/^[[:space:]]*access_mode[[:space:]]*=/p' infra/terraform.tfvars)"
-  if [ -z "$setting" ]; then
-    echo tester_http
-  elif [[ "$setting" =~ ^[[:space:]]*access_mode[[:space:]]*=[[:space:]]*\"(https|tester_http)\"[[:space:]]*(#.*)?$ ]]; then
+  if [[ "$setting" =~ ^[[:space:]]*access_mode[[:space:]]*=[[:space:]]*\"(restricted|unrestricted)\"[[:space:]]*(#.*)?$ ]]; then
     echo "${BASH_REMATCH[1]}"
-  else
-    fail 'set access_mode = "https" or "tester_http" once in infra/terraform.tfvars'
+    return
   fi
+  temporary="$(mktemp infra/terraform.tfvars.XXXXXX)"
+  if ! awk '
+    /^[[:space:]]*access_mode[[:space:]]*=/ {
+      if (!written) print "access_mode = \"restricted\""
+      written=1; next
+    }
+    { print }
+    END { if (!written) print "access_mode = \"restricted\"" }
+  ' infra/terraform.tfvars >"$temporary" || ! mv "$temporary" infra/terraform.tfvars; then
+    rm -f "$temporary"
+    fail "could not save the IP-restricted HTTPS default in infra/terraform.tfvars"
+  fi
+  if [ -z "$setting" ]; then
+    warn 'No access_mode set. Saved the IP-restricted HTTPS default.'
+  else
+    warn 'Unrecognized access_mode. Saved the IP-restricted HTTPS default; HTTP deployments are no longer supported. Changes to a running server require approving and applying a deployment plan.'
+  fi
+  echo restricted
 }
 
-# Missing output means a pre-HTTPS deployment. Never infer the running mode
-# from new local settings: keeping a server must preserve its actual exposure.
+# Outputs describe the actual deployed access, independently of local defaults.
 deployed_access_mode() {
   local mode
-  mode="$(terraform -chdir=infra output -raw access_mode 2>/dev/null || true)"
+  mode="$(output access_mode)" || return 1
   case "$mode" in
-    "" | tester_http) echo tester_http ;;
-    https) echo https ;;
-    *) fail "unknown deployed access mode: $mode" ;;
+    restricted | unrestricted) echo "$mode" ;;
+    *) fail "unsupported deployed access mode: $mode; deploy a supported HTTPS revision" ;;
   esac
 }
 
@@ -417,7 +429,7 @@ on_server_bounded() {
 # time or "none", when the command has read it; reading it takes a call to the
 # server, so the other commands leave it out.
 what_next() {
-  local app_url deadline="${1:-}" hours
+  local app_url deadline="${1:-}" hours mode
   top_level || return 0
   app_url="$(terraform -chdir=infra output -raw app_url 2>/dev/null)" || return 0
   [ -n "$app_url" ] || return 0
@@ -425,11 +437,11 @@ what_next() {
   echo "To try your server, at $app_url:"
   bullet "make aws-key creates an API key, for trying requests at $app_url/docs."
   bullet "make aws-smoke-live sends one real commission check, which costs under a cent."
-  if [[ "$app_url" == https://* ]]; then
-    bullet "Public HTTPS: callers with an API key can use this endpoint. Health and docs are public."
-  else
-    bullet "Tester-only HTTP: only the configured computer's public IP can reach this endpoint."
-  fi
+  mode="$(terraform -chdir=infra output -raw access_mode 2>/dev/null || true)"
+  case "$mode" in
+    restricted) bullet "IP-restricted HTTPS: only the configured tester IP can access application routes, including health and docs." ;;
+    unrestricted) bullet "Unrestricted HTTPS: any caller IP can reach health/docs; protected endpoints require an API key." ;;
+  esac
   bullet "To call it from your app's backend, use $app_url as the base URL"
   echo "    and an API key from make aws-key. See docs/deploying-to-aws.md, \"Calling it from your app\"."
   echo
@@ -509,7 +521,7 @@ describe_plan() {
         ;;
       aws_instance:delete+create | aws_instance:create+delete)
         echo "  · replace your server ($id) with a new one running $short."
-        echo "    This deletes the old server and its data: Terraform shows \"Destroying...\""
+        echo "    This deletes the old server, database and API keys: Terraform shows \"Destroying...\""
         echo "    for a minute or two while it does. The new server costs about \$0.024 an hour."
         echo "$limit"
         ;;

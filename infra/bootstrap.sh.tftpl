@@ -94,11 +94,7 @@ umask 077
 {
   echo "POSTGRES_PASSWORD=$postgres_password"
   echo "GROUNDLINE_DB_PASSWORD=$groundline_db_password"
-%{ if access_mode == "https" ~}
   echo "COMPOSE_FILE=compose.yaml:compose.https.yaml"
-%{ else ~}
-  echo "APP_BIND_ADDRESS=0.0.0.0"
-%{ endif ~}
 } >.env
 chmod 600 .env
 
@@ -118,7 +114,7 @@ fi
 rm -f "$errors_file"
 unset anthropic_api_key
 
-%{ if access_mode == "https" ~}
+echo "groundline bootstrap: ${access_mode} HTTPS application access"
 # Refresh the public IP before Docker can restart any containers. A failed
 # discovery prevents startup; it never falls back to HTTP or an internal CA.
 # The directory mount lets Caddy see an atomically replaced configuration.
@@ -133,7 +129,6 @@ ExecStartPre=/opt/groundline/infra/https/refresh-address
 EOF
 systemctl daemon-reload
 infra/https/refresh-address
-%{ endif ~}
 # Builds the image, then starts Postgres, setup and the app.
 docker compose up -d --quiet-pull
 

@@ -1,8 +1,11 @@
 # Deploying to AWS
 
-A disposable deployment runs groundline's Compose stack, at a commit you choose, on one EC2 server in your AWS project. New configurations offer public HTTPS at `https://<public-IPv4>`, with automatic publicly trusted certificates and no domain or DNS setup. Backend callers use groundline API keys. Health probes and API documentation remain public.
+A disposable deployment runs groundline's Compose stack, at a commit you choose, on one EC2 server in your AWS project. Both access modes serve `https://<public-IPv4>`, with automatic publicly trusted certificates and no domain or DNS setup:
 
-The optional `tester_http` mode is a test deployment: only your computer's public IP can reach it on port 8001. Existing settings files without an access mode retain this behavior.
+- **`restricted` (default):** a test deployment whose application routes are accessible only from the public IPv4 address you deploy from, including health probes and API documentation.
+- **`unrestricted`:** a disposable deployment whose application routes accept callers from any IP. Health probes and API documentation need no API key.
+
+Protected API endpoints require groundline API keys in both modes. HTTP deployment is no longer supported. In restricted mode, Caddy rejects application requests from other source IPs with 403. TCP/TLS connections on 443 remain public so the certificate authority can validate and renew the certificate; the restriction applies to application requests, not TLS connectivity. Computers sharing the allowed public IP also share this network access.
 
 Both modes are disposable and for synthetic test data only ([ADR 0006](../docs/adr/0006-no-real-patient-data-before-production.md)). HTTPS does not make this a production or lasting deployment. Data and API keys survive container restarts and reboots, but `make aws-destroy`, instance replacement, or the default eight-hour expiry deletes them.
 
@@ -38,12 +41,12 @@ On every run, `make aws-up` asks two questions:
 - **Which AWS project to deploy to.** It shows the project you're signed in to, such as `groundline (123456789012), in us-east-2`. Answer `y` to deploy there, or `n` to choose another. Choosing another, or signing in for the first time, asks you to sign in to the project in the AWS Management Console, then for its Region, and opens your browser, where you choose the project's session. When your sign-in has expired, it names the project's account ID and asks whether to sign in again to that project, which only opens your browser.
 - **Which code the server runs:** `main` from groundline-dev/groundline, or your current branch.
 
-If your server is already running in that project, it says which commit it runs and asks whether to keep it. Keeping it preserves its actual access settings and skips deployment, then checks the server. To apply changed settings, decline the keep option; Terraform describes replacements and data loss before asking to proceed.
+If your server is already running in that project, it says which commit it runs and asks whether to keep it. The keep/check option is available only when the deployed access mode matches the saved mode. If they differ, it explains the difference and offers a deployment plan or cancellation. Terraform describes replacement and database/API-key loss before asking to proceed.
 
 Otherwise, it asks only about what isn't set up yet:
 
 1. It offers to install Terraform, the AWS CLI, `jq` and `uv` with Homebrew, if any is missing ([step 1](#1-install-the-tools)).
-2. It asks for your deployment name, email address and access mode (HTTPS recommended) ([step 3](#3-name-your-deployment)).
+2. It asks for your deployment name, email address and access mode (IP-restricted HTTPS by default) ([step 3](#3-name-your-deployment)).
 3. It stores your Anthropic API key for this deployment ([step 4](#4-store-your-anthropic-api-key)).
 4. For your branch, it offers to push it if no GitHub remote has it yet, and warns you about uncommitted changes, because the server runs your last commit without them.
 
@@ -133,7 +136,7 @@ If you deploy to a shared project, use a separate Anthropic API key, created in 
 | Region | The Region saved in the profile | `make aws-up` or `make aws-project` ask for it; `AWS_REGION` overrides it |
 | `deployment_name` | None; required | `infra/terraform.tfvars`, which `make aws-up` fills in |
 | `budget_alert_email` | None; required | `infra/terraform.tfvars`, which `make aws-up` fills in |
-| `access_mode` | New wizard/example: `https`; absent from existing file: `tester_http` | One literal `access_mode = "https"` or `"tester_http"` in `infra/terraform.tfvars` |
+| `access_mode` | `restricted` | One literal `access_mode = "restricted"` or `"unrestricted"` in `infra/terraform.tfvars` |
 | `auto_terminate_hours` | `8`; `0` turns the time limit off | `infra/terraform.tfvars` |
 | `instance_type` | `t4g.small` | `infra/terraform.tfvars` |
 | `REF` | The commit you have checked out | `REF=<branch, tag or commit> make aws-deploy`; `make aws-up` asks instead |
@@ -141,7 +144,7 @@ If you deploy to a shared project, use a separate Anthropic API key, created in 
 | `AWS_ANTHROPIC_API_KEY` | `ANTHROPIC_API_KEY` from `.env`, or a key you paste | `.env` ([step 4](#4-store-your-anthropic-api-key)) |
 | `FULL_PLAN` | Off, so only a short plan is shown | `FULL_PLAN=1 make aws-deploy` |
 
-`infra/terraform.tfvars.example` lists the `terraform.tfvars` settings, and `.env.example` lists `AWS_ANTHROPIC_API_KEY` next to the local settings. `make aws-deploy` fills in the rest of Terraform's variables: the Region, the selected mode, the tester IP only for HTTP, and the commit. The scripts pass the saved mode explicitly, so environment or auto-tfvars overrides cannot silently make an old deployment public.
+`infra/terraform.tfvars.example` lists the `terraform.tfvars` settings, and `.env.example` lists `AWS_ANTHROPIC_API_KEY` next to the local settings. `make aws-deploy` fills in the rest of Terraform's variables: the Region, the selected mode, the tester IP only for restricted mode, and the commit. The scripts save the restricted HTTPS default for missing or unrecognized mode settings, explaining any correction. They pass the supported mode explicitly, so environment or auto-tfvars overrides cannot silently broaden access. This corrects local settings; it does not change a running server until deployment changes are approved and applied. Calling Terraform directly requires valid input values.
 
 ### Server size
 
@@ -176,17 +179,17 @@ Each server shuts itself down 8 hours after it first starts, and AWS then termin
 
 Terminating removes only the server and its data. Its security group, IAM role, instance profile and budget stay, and a later deployment with the same `deployment_name` fails until they're gone. `make aws-status` and `make aws-smoke` tell you when the server has terminated: run `make aws-destroy` to remove what's left, or `make aws-deploy` for a new server.
 
-## Switching from HTTP to HTTPS
+## Selecting and switching HTTPS access
 
-1. Set `access_mode = "https"` exactly once in `infra/terraform.tfvars`.
-2. Run `make aws-up` and confirm the AWS project containing your HTTP server.
-3. Decline the option to keep the running server: keeping it preserves HTTP.
-4. Select a commit that includes HTTPS support.
-5. Review the replacement plan. **Replacing the server deletes its database and API keys.** Approve only when that loss is acceptable.
-6. Wait for deployment and smoke checks to pass, then use the printed HTTPS URL.
-7. Run `make aws-key` and update the calling application's URL and API key.
+1. Set `access_mode = "restricted"` or `"unrestricted"` in `infra/terraform.tfvars`. The wizard uses restricted HTTPS by default. Missing and outdated values are saved as `restricted`; choose unrestricted explicitly if callers use other public IPs.
+2. Run `make aws-up` and confirm the AWS project and a commit supporting both HTTPS access modes.
+3. If a running deployment has another access mode, the wizard offers a deployment plan or cancellation instead of keeping it unchanged.
+4. Review the plan. **Switching modes replaces the server and deletes its database and API keys.** Approve only when that loss is acceptable.
+5. Wait for deployment and smoke checks to pass, then use the printed HTTPS URL. If the server was replaced, run `make aws-key` and update the calling application's URL and API key.
 
 HTTPS ingress opens during Terraform apply, before the smoke checks run. Wait for those checks to pass before giving callers the endpoint and API keys; the checks do not gate network access.
+
+For a new tester IP, rerun `make aws-deploy` with the same deployed commit and mode. It updates the allowed-IP tag and reloads Caddy through SSM while preserving the server, database, API keys, certificate volumes and original expiry. It retries metadata reconciliation within a bounded window and reports failure if the approved access configuration cannot be loaded. Do not consider that deployment successful until a retry and smoke checks pass.
 
 ## HTTPS and certificate lifecycle
 
@@ -194,7 +197,7 @@ Caddy terminates TLS on the existing EC2 instance and talks HTTP to groundline o
 
 Caddy uses an explicit Let's Encrypt ACME issuer and the `shortlived` certificate profile. IP certificates last about six days; Caddy obtains, renews and loads replacements automatically. Validation uses TLS-ALPN-01 on 443, so that port must be reachable by the CA. HTTP validation, redirects, and internal-CA fallback are disabled. No Certbot job or manual certificate installation is needed. Clients must use normal certificate verification; do not bypass errors with `-k` or install a private root.
 
-Certificate/account state lives in a separate Docker volume and survives container restarts. The EC2 host reads its public IP through IMDSv2 and renders Caddy's configuration before Docker starts on each boot. If discovery fails, Docker startup fails rather than serving an old address. Caddy's default TLS server name handles clients that omit SNI for IP addresses. No application secrets or Docker socket are mounted into Caddy.
+Certificate/account state lives in a separate Docker volume and survives container restarts. The EC2 host reads its public IP through IMDSv2 and renders Caddy's configuration before Docker starts on each boot. The helper also reads the access-mode and allowed-CIDR tags through IMDSv2 and renders the source-IP filter. Missing or invalid metadata blocks Docker startup rather than broadening access. Caddy's default TLS server name handles clients that omit SNI for IP addresses. No application secrets or Docker socket are mounted into Caddy.
 
 An EC2 stop/start or replacement can change the IP. Host startup updates the certificate target, but callers must update their base URL. To refresh stale Terraform outputs after a stop/start, rerun `make aws-deploy` with the same deployed commit and settings, review the plan and then run `make aws-status`. An Elastic IP can later supply the same address input; disposable deployments do not allocate one or retain disks when replaced or removed. Custom domains are deferred.
 
@@ -202,7 +205,11 @@ First issuance and failed renewals depend on CA availability, network access and
 
 ## Checking the server
 
-`make aws-smoke` waits up to 15 minutes for `/health` to answer 200, showing the time so far. In HTTPS mode it also validates the public certificate chain and exact IP identity without SNI, and probes ports 80, 8000, 8001, 5432, 5433 and 2019 to ensure they are closed or filtered. It verifies that an application redirect remains on HTTPS even if a caller spoofs the forwarded scheme. It then checks that API keys work, without calling the model. It creates an API key on the server with `groundline keys create`, through SSM Run Command, and sends `POST /v1/omissions` with an empty body twice:
+`make aws-smoke` waits up to 15 minutes for `/health` to answer 200, showing the time so far. It validates the public certificate chain and exact IP identity without SNI, and probes ports 80, 8000, 8001, 5432, 5433 and 2019 to ensure they are closed or filtered.
+
+It verifies HTTPS redirects and the configured source-IP policy, including attempts to spoof forwarded headers. A probe from the private app container must receive 403 in restricted mode or 200 in unrestricted mode, using ordinary certificate verification. See the [infrastructure guide](../infra/README.md#repeatable-https-lifecycle-checks) for the probe details.
+
+It then checks API keys without calling the model. It creates an API key on the server with `groundline keys create`, through SSM Run Command, and sends `POST /v1/omissions` with an empty body twice:
 
 - With an unknown API key, it expects 401, which shows the server turns away keys it doesn't know.
 - With the new API key, it expects 422. The server checks the API key before the body, so 422, for the empty body's missing fields, shows the API key was accepted. Looking the key up needs Postgres and the migrations, so this also shows they work. The body is rejected before any Claude call, so no Anthropic credit is spent.
@@ -215,7 +222,7 @@ Both smoke tests check only that the server is set up correctly and, for `make a
 
 ## Testing HTTPS restart recovery
 
-`make aws-https-smoke` checks an **existing HTTPS deployment** using the same public trust, IP identity, no-SNI, port isolation, redirect and API-key checks as `make aws-smoke`. It first verifies that the selected account and Region, Terraform instance/IP and AWS instance/IP agree, and that SSM and Caddy metadata are accessible. It does not create or replace a server.
+`make aws-https-smoke` checks an **existing HTTPS deployment** using the same public trust, IP identity, no-SNI, port isolation, redirect and API-key checks as `make aws-smoke`. It first verifies that the selected account and Region, Terraform instance/IP and AWS instance/IP agree, and that SSM and Caddy metadata are accessible and the rendered access mode/allowed CIDR match the deployed settings. It does not create or replace a server.
 
 ```sh
 make aws-https-smoke                 # no services restarted
@@ -264,13 +271,13 @@ SSM keeps each command's output, so anyone who can read your project's Run Comma
 
 To try your summary app against a disposable deployment, point its backend at the server instead of a local groundline:
 
-- **Base URL:** the server's address, such as `https://203.0.113.10` (or `http://203.0.113.10:8001` in tester mode). `make aws-up` prints it under What next, and `make aws-status` shows it too. The app calls `POST <base URL>/v1/omissions` and `POST <base URL>/v1/commissions`, with the same requests and responses as a local server ([README](../README.md#post-v1omissions)). A check may take longer than two minutes; choose an appropriate client timeout. Caddy adds no response timeout or automatic request retries.
+- **Base URL:** the server's address, such as `https://203.0.113.10` . `make aws-up` prints it under What next, and `make aws-status` shows it too. The app calls `POST <base URL>/v1/omissions` and `POST <base URL>/v1/commissions`, with the same requests and responses as a local server ([README](../README.md#post-v1omissions)). A check may take longer than two minutes; choose an appropriate client timeout. Caddy adds no response timeout or automatic request retries.
 - **API key:** one from `make aws-key`, sent as `Authorization: Bearer <API key>`. It's a groundline API key, separate from the Anthropic API key the server uses.
 - **Settings, not code:** a new server gets a new address, and its API keys go with the old one. Have the app read both from settings, such as `GROUNDLINE_URL` and `GROUNDLINE_API_KEY`, so switching servers doesn't need a code change.
 
-HTTPS mode accepts backend calls from other machines. Keep the API key on that backend. groundline does not send CORS headers; cross-origin browser calls are not supported.
+Unrestricted mode accepts backend calls from other public IPs. Restricted mode requires the backend to use the configured tester public IP. Keep the API key on that backend. groundline does not send CORS headers; cross-origin browser calls are not supported.
 
-In `tester_http` mode, only the public IP you deployed from can reach the server; run your app's backend on that computer. This mode sends plaintext and is for internal testing only. Both modes still prohibit real patient notes.
+Both modes still prohibit real patient notes.
 
 ## Costs
 
@@ -279,12 +286,12 @@ The server costs about $0.024 an hour, so one that runs to its 8-hour limit cost
 ## Troubleshooting
 
 - **`make aws-smoke` times out:** it prints the end of the server's startup log (`/var/log/groundline-bootstrap.log`) and the containers' status and logs. A failed startup also leaves `/var/lib/groundline/bootstrap-failed`.
-- **Tester-only HTTP requests time out from a new network:** your IP changed. Rerun `make aws-deploy` with the same commit: only the security group changes.
+- **Restricted HTTPS returns 403 from a new network:** your public IP changed. Rerun `make aws-deploy` with the same deployed commit and mode, review the allowed-IP update, then run `make aws-smoke`. The server and data are preserved.
 - **`make aws-deploy` fails because a role or budget already exists:** someone else in the AWS project uses the same `deployment_name`. Pick another one in `infra/terraform.tfvars`.
 - **AWS calls that worked start failing with Access Denied:** your project may have reached its spend limit, which pauses it. Check in AWS Settings, under Billing.
 
 - **HTTPS certificate errors:** check that the URL uses the current public IPv4, TCP 443 is open, outbound ACME access works, and the host clock is correct. Smoke-test failure output preserves curl's TLS error and Caddy's logs. Do not disable verification or open the app port to work around issuance failure.
-- **Docker fails after a reboot:** inspect `journalctl -u docker` through SSM and the `groundline-https` ExecStartPre step. No public IP or failed IMDSv2 discovery blocks Docker deliberately. Fix address discovery, then restart Docker; keep the Caddy data volume.
+- **Docker fails after a reboot:** inspect `journalctl -u docker` through SSM and the `groundline-https` ExecStartPre step. Missing or invalid public-IP/access metadata blocks Docker deliberately. Fix address discovery, then restart Docker; keep the Caddy data volume.
 
 ## Tearing down
 

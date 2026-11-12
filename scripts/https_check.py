@@ -102,11 +102,58 @@ def check_redirect(address: str, context: ssl.SSLContext) -> None:
     )
 
 
+def access_policy(mode: str, allowed_cidr: str) -> str:
+    network = ipaddress.IPv4Network(allowed_cidr)
+    if (mode == "restricted" and network.prefixlen == 32) or (
+        mode == "unrestricted" and allowed_cidr == "0.0.0.0/0"
+    ):
+        return str(network.network_address)
+    raise ValueError("access mode and allowed CIDR must describe the same policy")
+
+
+def check_source_filter(address: str, mode: str, allowed_cidr: str) -> None:
+    """Run inside the app container: its real peer IP is outside the tester /32.
+
+    Connect to Caddy directly but verify its public IP certificate with ordinary
+    system trust. Spoof the allowed source in headers to test the live filter.
+    """
+    claimed_source = access_policy(mode, allowed_cidr)
+    proxy = str(ipaddress.IPv4Address(os.environ.get("FORWARDED_ALLOW_IPS", "")))
+    for variable in ("SSL_CERT_FILE", "SSL_CERT_DIR"):
+        os.environ.pop(variable, None)
+    context = ssl.create_default_context()
+    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    with socket.create_connection((proxy, 443), timeout=10) as connection:
+        with context.wrap_socket(connection, server_hostname=address) as tls:
+            tls.sendall(
+                (
+                    f"GET /health HTTP/1.1\r\nHost: {address}\r\n"
+                    f"X-Forwarded-For: {claimed_source}\r\n"
+                    f"X-Real-IP: {claimed_source}\r\n"
+                    f"Forwarded: for={claimed_source}\r\nConnection: close\r\n\r\n"
+                ).encode("ascii")
+            )
+            response = http.client.HTTPResponse(tls)
+            try:
+                response.begin()
+                expected = 403 if mode == "restricted" else 200
+                if response.status != expected:
+                    raise RuntimeError(
+                        f"Caddy source-IP filter returned {response.status}, "
+                        f"expected {expected} for {mode} access"
+                    )
+            finally:
+                response.close()
+    print(f"Live {mode} source-IP policy verified with spoofed forwarded headers")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("url")
     parser.add_argument("public_ip")
     parser.add_argument("--validate-only", action="store_true")
+    parser.add_argument("--source-filter", choices=("restricted", "unrestricted"))
+    parser.add_argument("--allowed-cidr", default="")
     parser.add_argument(
         "--json",
         action="store_true",
@@ -115,8 +162,12 @@ def main() -> None:
     args = parser.parse_args()
     try:
         address = endpoint(args.url, args.public_ip)
+        if args.source_filter:
+            access_policy(args.source_filter, args.allowed_cidr)
         if not args.validate_only:
-            if args.json:
+            if args.source_filter:
+                check_source_filter(address, args.source_filter, args.allowed_cidr)
+            elif args.json:
                 with contextlib.redirect_stdout(sys.stderr):
                     evidence = check(address)
                 print(json.dumps(evidence))

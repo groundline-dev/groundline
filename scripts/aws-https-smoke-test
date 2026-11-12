@@ -24,16 +24,17 @@ use_project
 instance="$(output instance_id)"
 app_url="$(output app_url)"
 public_ip="$(output public_ip)"
-[ "$(output access_mode)" = https ] || fail "this command requires an HTTPS deployment"
+access_mode="$(deployed_access_mode)"
+allowed_cidr="$(output allowed_cidr)"
 [ "$(output region)" = "$region" ] || fail "the saved deployment Region differs from the selected AWS Region"
 uv run --no-project --quiet python scripts/https_check.py "$app_url" "$public_ip" --validate-only
 
 check_target() {
   local actual saved
   saved="$(terraform -chdir=infra output -json)" || return 1
-  jq -e --arg instance "$instance" --arg ip "$public_ip" --arg url "$app_url" --arg region "$region" \
+  jq -e --arg instance "$instance" --arg ip "$public_ip" --arg url "$app_url" --arg region "$region" --arg mode "$access_mode" --arg cidr "$allowed_cidr" \
     '.instance_id.value == $instance and .public_ip.value == $ip and .app_url.value == $url and
-     .region.value == $region and .access_mode.value == "https"' <<<"$saved" >/dev/null || {
+     .region.value == $region and .access_mode.value == $mode and .allowed_cidr.value == $cidr' <<<"$saved" >/dev/null || {
     echo "Terraform target changed during the check" >&2
     return 1
   }
@@ -62,6 +63,8 @@ volume=$(docker inspect --format '{{range .Mounts}}{{if eq .Destination "/data"}
 test -n "$volume"
 docker volume inspect --format '{{.Name}}|{{.CreatedAt}}' "$volume"
 awk '/^[[:space:]]*default_sni / {print $2}' infra/https/runtime/Caddyfile
+awk '/^# groundline-access-mode:/ {print $3}' infra/https/runtime/Caddyfile
+awk '/^[[:space:]]*@denied not remote_ip / {print $4}' infra/https/runtime/Caddyfile
 systemctl show docker --property=ExecStartPre --value
 SCRIPT
 )
@@ -71,13 +74,13 @@ snapshot() {
   raw="$(on_server "$snapshot_command" 30)" || return 1
   jq -Ren --arg raw "$raw" '
     ($raw | split("\n")) as $v |
-    if ($v|length) < 6 then error("incomplete host snapshot") else
+    if ($v|length) < 8 then error("incomplete host snapshot") else
       {boot_id:$v[0], deadline:$v[1], now:($v[2]|tonumber),
-       volume:$v[3], public_ip:$v[4], startup:($v[5:]|join("\n"))}
-    end' | jq -ce --arg ip "$public_ip" '
+       volume:$v[3], public_ip:$v[4], mode:$v[5], allowed_cidr:$v[6], startup:($v[7:]|join("\n"))}
+    end' | jq -ce --arg ip "$public_ip" --arg mode "$access_mode" --arg cidr "$allowed_cidr" '
       select((.boot_id|test("^[0-9a-f-]{36}$")) and
         (.deadline == "none" or (.deadline|test("^[0-9]+$"))) and
-        (.volume|test("^[a-zA-Z0-9_.-]+\\|.+")) and .public_ip == $ip)'
+        (.volume|test("^[a-zA-Z0-9_.-]+\\|.+")) and .public_ip == $ip and .mode == $mode and .allowed_cidr == $cidr)'
 }
 check_time() {
   local state="$1" required="$2"

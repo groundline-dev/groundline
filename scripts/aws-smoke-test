@@ -37,16 +37,12 @@ use_project
 instance="$(output instance_id)"
 app_url="$(output app_url)"
 access_mode="$(deployed_access_mode)"
-curl_protocol=http
-if [ "$access_mode" = https ]; then
-  curl_protocol=https
-  public_ip="$(output public_ip)"
-  uv run --no-project --quiet python scripts/https_check.py "$app_url" "$public_ip" --validate-only \
-    || fail "invalid HTTPS endpoint in Terraform state"
-  unset CURL_CA_BUNDLE SSL_CERT_FILE SSL_CERT_DIR
-else
-  [[ "$app_url" == http://* ]] || fail "tester_http state must have an HTTP URL"
-fi
+allowed_cidr="$(output allowed_cidr)"
+curl_protocol=https
+public_ip="$(output public_ip)"
+uv run --no-project --quiet python scripts/https_check.py "$app_url" "$public_ip" --validate-only --source-filter "$access_mode" --allowed-cidr "$allowed_cidr" \
+  || fail "invalid HTTPS endpoint in Terraform state"
+unset CURL_CA_BUNDLE SSL_CERT_FILE SSL_CERT_DIR
 
 tls_errors="$(mktemp)"
 trap 'rm -f "$tls_errors"' EXIT
@@ -129,11 +125,12 @@ else
   doing "Checking the server, without calling the model"
 fi
 check_ok "the server answers (GET /health returned 200)"
-if [ "$access_mode" = https ]; then
-  https_output="$(uv run --no-project --quiet python scripts/https_check.py "$app_url" "$public_ip")" \
+https_output="$(uv run --no-project --quiet python scripts/https_check.py "$app_url" "$public_ip")" \
     || fail "HTTPS trust, IP identity, no-SNI or port-isolation check failed: $https_output"
-  check_results <<<"$https_output"
-fi
+check_results <<<"$https_output"
+access_output="$(on_server "cd /opt/groundline && docker compose exec -T app python - '$app_url' '$public_ip' --source-filter '$access_mode' --allowed-cidr '$allowed_cidr' < scripts/https_check.py")" \
+  || fail "live HTTPS source-IP policy check failed: $access_output"
+check_results <<<"$access_output"
 
 keys_create_output="$(on_server "cd /opt/groundline && docker compose exec -T app groundline keys create --name aws-smoke-test")" \
   || fail "groundline keys create failed on the server: $keys_create_output"

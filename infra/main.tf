@@ -25,16 +25,18 @@ locals {
 
 resource "aws_security_group" "app" {
   name_prefix = "groundline-${var.deployment_name}-"
-  description = "groundline test deployment: the app port from the tester IP only"
+  description = "groundline HTTPS deployment: public TLS with application access controlled by Caddy"
 }
 
 resource "aws_vpc_security_group_ingress_rule" "app" {
   security_group_id = aws_security_group.app.id
-  description       = var.access_mode == "https" ? "groundline public HTTPS" : "groundline app from the tester"
-  ip_protocol       = "tcp"
-  from_port         = var.access_mode == "https" ? 443 : 8001
-  to_port           = var.access_mode == "https" ? 443 : 8001
-  cidr_ipv4         = var.access_mode == "https" ? "0.0.0.0/0" : var.tester_cidr
+  # TLS-ALPN certificate validation needs public 443 even in restricted mode.
+  # Caddy restricts application requests by their actual source IP.
+  description = "HTTPS and TLS-ALPN validation; Caddy enforces application access"
+  ip_protocol = "tcp"
+  from_port   = 443
+  to_port     = 443
+  cidr_ipv4   = "0.0.0.0/0"
 }
 
 # Terraform removes AWS's default outbound rule, so the server needs this one to
@@ -150,6 +152,7 @@ resource "aws_instance" "app" {
     http_tokens                 = "required"
     http_endpoint               = "enabled"
     http_put_response_hop_limit = 1
+    instance_metadata_tags      = "enabled"
   }
 
   # T4g instances default to unlimited CPU credits, where CPU use above the
@@ -171,8 +174,12 @@ resource "aws_instance" "app" {
     }
   }
 
+  # Tags can be refreshed through IMDS without changing user_data/replacing
+  # the server when only the tester IP changes. These contain no secrets.
   tags = {
-    Name = "groundline-${var.deployment_name}"
+    Name                    = "groundline-${var.deployment_name}"
+    groundline-access-mode  = var.access_mode
+    groundline-allowed-cidr = var.access_mode == "restricted" ? var.tester_cidr : "0.0.0.0/0"
   }
 
   lifecycle {

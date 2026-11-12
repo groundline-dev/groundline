@@ -48,6 +48,7 @@ def main() -> None:
         POSTGRES_PASSWORD="test",
         GROUNDLINE_DB_PASSWORD="test",
         GROUNDLINE_PUBLIC_IP="203.0.113.10",
+        GROUNDLINE_ALLOWED_CIDR="203.0.113.11/32",
     )
     config = json.loads(
         subprocess.check_output(
@@ -83,6 +84,8 @@ def main() -> None:
         subnet = ipaddress.ip_network(network["IPAM"]["Config"][0]["Subnet"])
         proxy_address = str(subnet.network_address + 10)
         address = str(subnet.network_address + 11)
+        allowed_address = str(subnet.network_address + 12)
+        denied_address = str(subnet.network_address + 13)
         with tempfile.TemporaryDirectory(prefix="groundline-https-") as directory:
             work = Path(directory)
             command(
@@ -149,10 +152,18 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == '/client-ip':
             body = self.headers.get('X-Forwarded-For', '').encode()
         self.wfile.write(body)
+    def do_POST(self):
+        authorized = self.headers.get('Authorization') == 'Bearer fixture-key'
+        status = 422 if authorized else 401
+        self.send_response(status)
+        self.end_headers()
     def log_message(self, *args): pass
 ThreadingHTTPServer(('0.0.0.0', 8000), Handler).serve_forever()
 """
             (work / "backend.py").write_text(backend)
+            (work / "https_check.py").write_text(
+                (ROOT / "scripts/https_check.py").read_text()
+            )
 
             def start(
                 suffix: str, image: str, *args: str, options: tuple[str, ...] = ()
@@ -176,7 +187,7 @@ ThreadingHTTPServer(('0.0.0.0', 8000), Handler).serve_forever()
                 )
                 return container
 
-            app = start(
+            start(
                 "app",
                 PYTHON,
                 "python",
@@ -197,12 +208,30 @@ ThreadingHTTPServer(('0.0.0.0', 8000), Handler).serve_forever()
                     "PEBBLE_AUTHZREUSE=0",
                 ),
             )
+            allowed_client = start(
+                "allowed",
+                PYTHON,
+                "python",
+                "-c",
+                "import time; time.sleep(86400)",
+                options=("--ip", allowed_address),
+            )
+            denied_client = start(
+                "denied",
+                PYTHON,
+                "python",
+                "-c",
+                "import time; time.sleep(86400)",
+                options=("--ip", denied_address),
+            )
             adapted: dict[str, Any] = json.loads(
                 docker(
                     "run",
                     "--rm",
                     "-e",
                     f"GROUNDLINE_PUBLIC_IP={address}",
+                    "-e",
+                    f"GROUNDLINE_ALLOWED_CIDR={allowed_address}/32",
                     "-v",
                     f"{ROOT / 'infra/https/Caddyfile'}:/etc/caddy/Caddyfile:ro",
                     caddy_image,
@@ -235,8 +264,20 @@ ThreadingHTTPServer(('0.0.0.0', 8000), Handler).serve_forever()
                 options=("--ip", proxy_address, "-v", f"{volume}:/data"),
             )
 
-            def client(source: str) -> str:
-                return docker("exec", app, "python", "-c", source)
+            # Clients connect directly to Caddy while verifying the public IP,
+            # modelling DNAT without a TCP proxy that hides the client's peer IP.
+            # Pebble uses the separate forwarder; its peer is deliberately NOT
+            # allowed for application access, so challenge validation tests the
+            # TLS-versus-application boundary during issuance and renewal.
+            def client(source: str, container: str = allowed_client) -> str:
+                routing = f"""import socket
+original_connect = socket.create_connection
+def connect(target, *args, **kwargs):
+    if target[0] == '{address}': target = ('{proxy_address}', target[1])
+    return original_connect(target, *args, **kwargs)
+socket.create_connection = connect
+"""
+                return docker("exec", container, "python", "-c", routing + source)
 
             # Trust the issuing root from the test CA's authenticated management API.
             fetch_root = """import ssl, urllib.request
@@ -245,6 +286,7 @@ root = urllib.request.urlopen('https://pebble:15000/roots/0', context=ctx).read(
 open('/tmp/issuer.pem', 'wb').write(root)
 """
             wait_for(lambda: client(fetch_root), "test CA readiness")
+            client(fetch_root, denied_client)
             connect = f"""import ssl, socket, hashlib
 ctx = ssl.create_default_context(cafile='/tmp/issuer.pem')
 with socket.create_connection(('{address}', 443), timeout=150) as tcp:
@@ -280,9 +322,83 @@ request = urllib.request.Request('https://{address}/client-ip',
     headers={{'X-Forwarded-For': '192.0.2.55'}})
 assert urllib.request.urlopen(request, context=ctx).read() != b'192.0.2.55'
 """)
+
+            def denied(
+                container: str = denied_client, claimed_address: str = allowed_address
+            ) -> None:
+                client(
+                    f"""import ssl, urllib.request, urllib.error
+ctx = ssl.create_default_context(cafile='/tmp/issuer.pem')
+for path in ('/health', '/docs', '/openapi.json', '/v1/omissions'):
+    request = urllib.request.Request('https://{address}' + path,
+        data=b'{{}}' if path.startswith('/v1/') else None,
+        headers={{'Authorization': 'Bearer fixture-key',
+                  'X-Forwarded-For': '{claimed_address}',
+                  'X-Real-IP': '{claimed_address}',
+                  'Forwarded': 'for={claimed_address}'}})
+    try:
+        urllib.request.urlopen(request, context=ctx)
+    except urllib.error.HTTPError as error:
+        assert error.code == 403, error.code
+        assert error.read() == b'Forbidden'
+    else:
+        raise AssertionError('denied source accessed application route')
+""",
+                    container,
+                )
+
+            def authentication(container: str = allowed_client) -> None:
+                client(
+                    f"""import ssl, urllib.request, urllib.error
+ctx = ssl.create_default_context(cafile='/tmp/issuer.pem')
+for key, status in (('invalid', 401), ('fixture-key', 422)):
+    request = urllib.request.Request('https://{address}/v1/omissions', data=b'{{}}',
+        headers={{'Authorization': 'Bearer ' + key}})
+    try: urllib.request.urlopen(request, context=ctx)
+    except urllib.error.HTTPError as error: assert error.code == status, error.code
+    else: raise AssertionError('fixture authentication bypassed')
+""",
+                    container,
+                )
+
+            # Install the fixture root only in this disposable test client so
+            # the production probe uses its ordinary trust-store code path.
+            client(
+                """import ssl
+with open(ssl.get_default_verify_paths().cafile, 'ab') as trust:
+    trust.write(open('/tmp/issuer.pem', 'rb').read())
+""",
+                denied_client,
+            )
+
+            def source_probe(
+                mode: str, cidr: str, container: str = denied_client
+            ) -> None:
+                client(
+                    f"""import os, runpy
+os.environ['FORWARDED_ALLOW_IPS'] = '{proxy_address}'
+probe = runpy.run_path('/fixture/https_check.py')
+probe['check_source_filter']('{address}', '{mode}', '{cidr}')
+""",
+                    container,
+                )
+
+            denied()
+            authentication()
+            source_probe("restricted", f"{allowed_address}/32")
+            print(
+                "PASS: restricted health/docs/API routes deny a second source, "
+                "including valid keys and spoofed forwarded headers",
+                flush=True,
+            )
             docker("restart", proxy)
             assert wait_for(lambda: client(connect), "restart recovery") == first
-            print("PASS: certificate retained across container restart", flush=True)
+            denied()
+            print(
+                "PASS: certificate and IP restriction retained "
+                "across container restart",
+                flush=True,
+            )
 
             def renewed() -> str:
                 fingerprint = client(connect)
@@ -291,6 +407,7 @@ assert urllib.request.urlopen(request, context=ctx).read() != b'192.0.2.55'
                 return fingerprint
 
             wait_for(renewed, "automatic renewal and loading", seconds=180)
+            denied()
             print(
                 "PASS: Caddy renewed and served a new certificate automatically",
                 flush=True,
@@ -322,6 +439,51 @@ for port in (80, 8000, 8001, 5432, 5433, 2019):
                 "PASS: expiry fails closed; renewal recovers after CA outage",
                 flush=True,
             )
+            denied()
+            # A tester-IP change reloads the filter without restarting Caddy
+            # or replacing its certificate/database storage.
+            updated = json.dumps(adapted).replace(
+                f"{allowed_address}/32", f"{denied_address}/32"
+            )
+            (work / "updated.json").write_text(updated)
+            docker(
+                "exec", proxy, "caddy", "reload", "--config", "/fixture/updated.json"
+            )
+            denied(allowed_client, denied_address)
+            authentication(denied_client)
+            print(
+                "PASS: tester-IP-only reload revokes the old source "
+                "and admits the new source",
+                flush=True,
+            )
+            unrestricted = json.dumps(adapted).replace(
+                f"{allowed_address}/32", "0.0.0.0/0"
+            )
+            assert unrestricted != json.dumps(adapted)
+            (work / "unrestricted.json").write_text(unrestricted)
+            docker(
+                "exec",
+                proxy,
+                "caddy",
+                "reload",
+                "--config",
+                "/fixture/unrestricted.json",
+            )
+            client(
+                f"""import ssl, urllib.request
+ctx = ssl.create_default_context(cafile='/tmp/issuer.pem')
+assert urllib.request.urlopen('https://{address}/health', context=ctx).read() == b'ok'
+""",
+                denied_client,
+            )
+            authentication(denied_client)
+            source_probe("unrestricted", "0.0.0.0/0")
+            print(
+                "PASS: unrestricted mode admits a second source "
+                "while retaining API-key checks",
+                flush=True,
+            )
+
     except BaseException:
         for container in containers:
             print(command("docker", "logs", "--tail", "40", container, check=False))

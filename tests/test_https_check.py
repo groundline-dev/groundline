@@ -199,3 +199,56 @@ def test_shell_formats_python_output_without_hiding_failures():
     )
     assert failure.returncode != 0
     assert "ok:" not in failure.stdout
+
+
+@pytest.mark.parametrize(
+    "mode,cidr",
+    [
+        ("restricted", "0.0.0.0/0"),
+        ("restricted", "203.0.113.0/24"),
+        ("unrestricted", "203.0.113.7/32"),
+        ("unknown", "0.0.0.0/0"),
+    ],
+)
+def test_access_policy_rejects_inconsistent_modes(mode: str, cidr: str):
+    from scripts.https_check import access_policy
+
+    with pytest.raises(ValueError):
+        access_policy(mode, cidr)
+
+
+@pytest.mark.parametrize(
+    "mode,cidr,status,valid",
+    [
+        ("restricted", "203.0.113.7/32", 403, True),
+        ("restricted", "203.0.113.7/32", 200, False),
+        ("unrestricted", "0.0.0.0/0", 200, True),
+        ("unrestricted", "0.0.0.0/0", 403, False),
+    ],
+)
+def test_live_source_policy_checks_the_response_and_public_identity(
+    mode: str, cidr: str, status: int, valid: bool
+):
+    from scripts.https_check import check_source_filter
+
+    tls = MagicMock()
+    tls.__enter__.return_value = tls
+    context = MagicMock()
+    context.wrap_socket.return_value = tls
+    with (
+        patch.dict("os.environ", {"FORWARDED_ALLOW_IPS": "172.30.254.2"}),
+        patch("scripts.https_check.ssl.create_default_context", return_value=context),
+        patch("scripts.https_check.socket.create_connection") as connect,
+        patch("scripts.https_check.http.client.HTTPResponse") as response,
+    ):
+        response.return_value.status = status
+        if valid:
+            check_source_filter("1.1.1.1", mode, cidr)
+        else:
+            with pytest.raises(RuntimeError, match="source-IP filter"):
+                check_source_filter("1.1.1.1", mode, cidr)
+        connect.assert_called_once_with(("172.30.254.2", 443), timeout=10)
+        assert context.wrap_socket.call_args.kwargs["server_hostname"] == "1.1.1.1"
+        assert context.minimum_version == ssl.TLSVersion.TLSv1_2
+        assert b"X-Forwarded-For:" in tls.sendall.call_args.args[0]
+        response.return_value.close.assert_called_once()
