@@ -41,7 +41,7 @@ variable "tester_cidr" {
 
   validation {
     condition = (
-      var.tester_cidr == null ? var.access_mode == "https" :
+      var.tester_cidr == null ? var.access_mode == "unrestricted" :
       can(regex("^(\\d{1,3}\\.){3}\\d{1,3}/32$", var.tester_cidr))
       && can(cidrhost(var.tester_cidr, 0))
     )
@@ -50,13 +50,13 @@ variable "tester_cidr" {
 }
 
 variable "access_mode" {
-  description = "tester_http restricts TCP 8001 to tester_cidr; https exposes only Caddy on TCP 443, with a public IP certificate."
+  description = "Application access over HTTPS: restricted allows tester_cidr only; unrestricted allows any caller IP. TCP 443 stays public for certificate validation in both modes."
   type        = string
-  default     = "tester_http"
+  default     = "restricted"
 
   validation {
-    condition     = contains(["tester_http", "https"], var.access_mode)
-    error_message = "access_mode must be tester_http or https."
+    condition     = contains(["restricted", "unrestricted"], var.access_mode)
+    error_message = "access_mode must be restricted or unrestricted; both use HTTPS."
   }
 }
 

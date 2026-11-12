@@ -17,7 +17,9 @@ scripts' AWS calls are right.
 
 import json
 import os
+import shutil
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Iterator
@@ -131,6 +133,26 @@ def run(
         # Set, so the scripts don't read the profile make aws-up saved here.
         "AWS_PROFILE": "test",
     }
+    if "smoke_app_url" in world:
+        # Stand in for the public TLS boundary in these shell/auth-cleanup
+        # tests only. The separate real Caddy/ACME harness verifies TLS and IP
+        # access; production curl commands must still require HTTPS.
+        real_curl = shutil.which("curl")
+        assert real_curl
+        (tmp_path / "bin/uv").write_text("#!/bin/sh\nexit 0\n")
+        (tmp_path / "bin/uv").chmod(0o755)
+        curl_source = f"""#!{sys.executable}
+import subprocess, sys
+args = sys.argv[1:]
+assert '--insecure' not in args and '-k' not in args
+assert args[args.index('--proto') + 1] == '=https'
+local_url = {world["smoke_app_url"]!r}
+args = ['=http' if arg == '=https' else
+        arg.replace('https://1.1.1.1', local_url) for arg in args]
+raise SystemExit(subprocess.run([{real_curl!r}, *args]).returncode)
+"""
+        (tmp_path / "bin/curl").write_text(curl_source)
+        (tmp_path / "bin/curl").chmod(0o755)
     env.pop("AWS_REGION", None)
     # Unset, so the script counts as the one you ran and prints what_next.
     env.pop("GROUNDLINE_AWS_SCRIPT", None)
@@ -158,9 +180,13 @@ def smoke_world(app: FakeApp, **fields: Any) -> dict[str, Any]:
         outputs={
             "instance_id": INSTANCE,
             "region": "eu-north-1",
-            "app_url": app.url,
+            "app_url": "https://1.1.1.1",
+            "public_ip": "1.1.1.1",
+            "access_mode": "restricted",
+            "allowed_cidr": "203.0.113.7/32",
             "anthropic_parameter_name": PARAMETER,
         },
+        smoke_app_url=app.url,
         ssm_replies=[
             {"when": "keys create", "stdout": KEYS_CREATE_OUTPUT},
             {"when": "keys revoke", "stdout": f"Revoked: {KEY_ID} (aws-smoke-test)\n"},
@@ -248,7 +274,8 @@ def deadline_world(state: str, deadline: str, **fields: Any) -> dict[str, Any]:
         outputs={
             "instance_id": INSTANCE,
             "region": "eu-north-1",
-            "app_url": "http://203.0.113.7:8000",
+            "app_url": "https://203.0.113.7",
+            "access_mode": "restricted",
             "auto_terminate_hours": "8",
         },
         existing={INSTANCE: state},
@@ -581,8 +608,8 @@ def test_every_run_ends_with_a_blank_line(
 @pytest.mark.parametrize(
     "mode,url",
     [
-        ("https", "http://1.1.1.1:8001"),
-        ("https", "https://example.com"),
+        ("restricted", "http://1.1.1.1:8001"),
+        ("unrestricted", "https://example.com"),
         ("tester_http", "https://1.1.1.1"),
         ("public_http", "http://1.1.1.1:8001"),
     ],

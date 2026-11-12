@@ -11,7 +11,7 @@
 # The server clones without signing in, so that repository has to be public.
 # The AWS project is the one make aws-up or make aws-project last chose, and
 # the Region is that project's, or AWS_REGION. Rerunning it with the same commit
-# after your IP changes updates only the security group; another commit
+# after your IP changes updates only the allowed source IP; another commit
 # replaces the server, and its data with it. Before changing anything, it says
 # in plain words what will change and asks.
 set -euo pipefail
@@ -33,12 +33,13 @@ anthropic_parameter="$(anthropic_parameter "$(deployment_name)")"
 
 ref="${REF:-HEAD}"
 commit="$(git rev-parse --verify --quiet "$ref^{commit}")" || fail "$ref isn't a commit"
-if [ "$access_mode" = https ]; then
-  for file in compose.https.yaml infra/https/Caddyfile infra/https/refresh-address; do
-    git cat-file -e "$commit:$file" 2>/dev/null \
-      || fail "$ref doesn't include HTTPS support ($file). Deploy a commit with HTTPS support, or explicitly choose tester_http."
-  done
-fi
+for file in compose.https.yaml infra/https/Caddyfile infra/https/refresh-address; do
+  git cat-file -e "$commit:$file" 2>/dev/null \
+    || fail "$ref doesn't include HTTPS support ($file). Deploy a commit with HTTPS support."
+done
+# Reject earlier HTTPS implementations that lack source-IP access enforcement.
+git show "$commit:infra/https/refresh-address" | grep groundline-allowed-cidr >/dev/null \
+  || fail "$ref doesn't include HTTPS access-mode support. Deploy a revision with restricted/unrestricted modes."
 if [ -n "${REPOSITORY_URL:-}" ]; then
   repository_url="$REPOSITORY_URL"
 else
@@ -52,13 +53,15 @@ GIT_TERMINAL_PROMPT=0 git ls-remote --quiet "$repository_url" HEAD >/dev/null 2>
 ref_name="${REF_NAME:-${REF:-$(git branch --show-current)}}"
 
 tester_args=()
-if [ "$access_mode" = tester_http ]; then
+allowed_cidr=0.0.0.0/0
+if [ "$access_mode" = restricted ]; then
   ip="$(curl --disable --fail --silent --show-error --max-time 10 https://checkip.amazonaws.com | tr -d '[:space:]')" || ip=""
   [[ "$ip" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || fail "couldn't find this computer's public IPv4 address (got '$ip')"
-  tester_args=(-var "tester_cidr=$ip/32")
-  exposure="reachable only from $ip over HTTP"
+  allowed_cidr="$ip/32"
+  tester_args=(-var "tester_cidr=$allowed_cidr")
+  exposure="application accessible only from $ip over HTTPS; TLS 443 stays public for certificate validation"
 else
-  exposure="publicly reachable over HTTPS on port 443; API requests require keys"
+  exposure="application accessible from any caller IP over HTTPS; protected API endpoints require API keys"
 fi
 
 echo "Deploying ${commit:0:7}${ref_name:+ ($ref_name)} from $repository_url"
@@ -86,13 +89,24 @@ init_log="$(terraform -chdir=infra init -input=false 2>&1)" || {
 # Tells a new server from an updated one below, since only a new one gets a new deadline.
 previous_instance="$(terraform -chdir=infra output -raw instance_id 2>/dev/null || true)"
 
-plan_and_apply "nothing to change: the server already runs ${commit:0:7}, $exposure." \
+plan_and_apply "Terraform configuration is unchanged for ${commit:0:7}; checking live HTTPS access next." \
   -var "region=$region" ${tester_args[@]+"${tester_args[@]}"} -var "git_ref=$commit" \
   -var "access_mode=$access_mode" \
   -var "repository_url=$repository_url"
 
 instance="$(terraform -chdir=infra output -raw instance_id)"
 hours="$(terraform -chdir=infra output -raw auto_terminate_hours)"
+# A tester-IP-only tag update preserves the instance. Reconcile its live Caddy
+# config through SSM, even after retrying a previously interrupted deployment.
+if [ "$instance" = "$previous_instance" ]; then
+  doing "Refreshing HTTPS application access on the existing server"
+  on_server "set -eu; cd /opt/groundline; attempts=0
+until infra/https/refresh-address '$access_mode' '$allowed_cidr'; do
+  attempts=\$((attempts + 1)); [ \"\$attempts\" -lt 12 ] || exit 1; sleep 5
+done
+docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile" 300 \
+    || fail "couldn't apply HTTPS access on the server; do not report deployment success; retry make aws-deploy"
+fi
 if [ -n "$plan_changed" ]; then
   echo
   if [ "$instance" != "$previous_instance" ]; then

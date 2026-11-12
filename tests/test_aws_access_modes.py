@@ -31,6 +31,7 @@ def invoke(checkout: Path, script: str, world: dict[str, Any], answer: str = "")
 case "$*" in
   'config user.email') echo alerts@example.com ;;
   'branch --show-current') echo main ;;
+  show*) echo groundline-allowed-cidr ;;
   *rev-parse*) echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ;;
 esac
 """,
@@ -72,8 +73,19 @@ def settings(checkout: Path, mode: str | None):
     (checkout / "infra/terraform.tfvars").write_text(text)
 
 
-@pytest.mark.parametrize("mode", [None, "tester_http", "https"])
-def test_deploy_selects_exact_mode_and_only_http_discovers_tester(
+@pytest.mark.parametrize(
+    "mode",
+    [
+        None,
+        "tester_http",
+        "https",
+        "public_http",
+        "unrestricted_typo",
+        "restricted",
+        "unrestricted",
+    ],
+)
+def test_deploy_defaults_saves_and_discovers_only_the_restricted_tester(
     checkout: Path, mode: str | None
 ):
     settings(checkout, mode)
@@ -82,20 +94,26 @@ def test_deploy_selects_exact_mode_and_only_http_discovers_tester(
     )
     result, world = invoke(checkout, "aws-deploy", world)
     assert result.returncode == 0, result.stdout + result.stderr
+    effective = "unrestricted" if mode == "unrestricted" else "restricted"
     plans = [call for call in world["calls"] if "plan" in call]
     assert len(plans) == 1
-    assert f"access_mode={mode or 'tester_http'}" in plans[0]
-    assert (checkout / "curl-calls").exists() == (mode != "https")
-    assert ("publicly reachable over HTTPS" in result.stdout) == (mode == "https")
-
-
-def test_invalid_mode_cannot_apply_or_discover_ip(checkout: Path):
-    settings(checkout, "public_http")
-    result, world = invoke(checkout, "aws-deploy", aws_fakes.new_world())
-    assert result.returncode != 0
-    assert "access_mode" in result.stderr
-    assert not any("plan" in call for call in world["calls"])
-    assert not (checkout / "curl-calls").exists()
+    assert f"access_mode={effective}" in plans[0]
+    assert (checkout / "curl-calls").exists() == (effective == "restricted")
+    assert (
+        f'access_mode = "{effective}"'
+        in (checkout / "infra/terraform.tfvars").read_text()
+    )
+    assert (
+        "Unrecognized access_mode. Saved the IP-restricted HTTPS default; "
+        "HTTP deployments are no longer supported. Changes to a running server "
+        "require approving and applying a deployment plan." in result.stderr
+    ) == (mode not in (None, "restricted", "unrestricted"))
+    result, _ = invoke(checkout, "aws-deploy", world)
+    assert result.returncode == 0, result.stderr
+    assert "Saved the IP-restricted" not in result.stderr
+    command = world["commands"][0]["script"]
+    assert "caddy reload" in command
+    assert f"refresh-address '{effective}'" in command
 
 
 def stub_children(checkout: Path):
@@ -104,7 +122,7 @@ def stub_children(checkout: Path):
         path.write_text(f'#!/bin/sh\ntouch "{checkout}/{script}-called"\n')
 
 
-@pytest.mark.parametrize("choice,mode", [("", "https"), ("2", "tester_http")])
+@pytest.mark.parametrize("choice,mode", [("", "restricted"), ("2", "unrestricted")])
 def test_new_wizard_asks_once_and_saves_choice(checkout: Path, choice: str, mode: str):
     stub_children(checkout)
     answers = f"\nalice\nalerts@example.com\n{choice}\n\n"
@@ -126,26 +144,39 @@ def test_first_setup_eof_does_not_save_partial_configuration(checkout: Path):
     assert not (checkout / "infra/terraform.tfvars").exists()
 
 
-def test_keeping_legacy_server_ignores_new_public_mode(checkout: Path):
-    settings(checkout, "https")
+@pytest.mark.parametrize(
+    "running_mode,answer,success",
+    [("restricted", "\n\n", True), ("unrestricted", "\n2\n", False)],
+)
+def test_keep_requires_matching_mode(
+    checkout: Path, running_mode: str, answer: str, success: bool
+):
+    settings(checkout, "restricted")
     stub_children(checkout)
     world = aws_fakes.new_world(
         outputs={
             "instance_id": "i-test",
             "git_ref": "a" * 40,
             "repository_url": "https://example.com/repo.git",
+            "access_mode": running_mode,
         },
         existing={"i-test": "running"},
     )
-    result, _ = invoke(checkout, "aws-up", world, "\n\n")
-    assert result.returncode == 0, result.stdout + result.stderr
-    assert "preserves tester_http" in result.stderr
+    result, _ = invoke(checkout, "aws-up", world, answer)
+    assert (result.returncode == 0) == success, result.stdout + result.stderr
     assert not (checkout / "aws-deploy-called").exists()
-    assert (checkout / "aws-smoke-test-called").exists()
+    assert (checkout / "aws-smoke-test-called").exists() == success
+    if not success:
+        assert (
+            "running access is unrestricted HTTPS; saved access is restricted HTTPS"
+            in result.stderr
+        )
+        assert "database and API keys" in result.stdout
+        assert "Keep your running server" not in result.stdout
 
 
 def test_old_revision_cannot_be_deployed_in_https_mode(checkout: Path):
-    settings(checkout, "https")
+    settings(checkout, "restricted")
     result, world = invoke(
         checkout, "aws-deploy", aws_fakes.new_world(missing_https=True)
     )
@@ -155,7 +186,7 @@ def test_old_revision_cannot_be_deployed_in_https_mode(checkout: Path):
 
 
 def test_cancelling_deployment_does_not_apply(checkout: Path):
-    settings(checkout, "https")
+    settings(checkout, "restricted")
     world = aws_fakes.new_world(
         plan={
             "variables": {},
@@ -172,3 +203,18 @@ def test_cancelling_deployment_does_not_apply(checkout: Path):
     assert result.returncode != 0
     assert "cancelled: nothing changed" in result.stderr
     assert not any("apply" in call for call in world["calls"])
+
+
+def test_failed_access_reload_is_not_success(checkout: Path):
+    settings(checkout, "restricted")
+    world = aws_fakes.new_world(
+        outputs={"instance_id": "i-test", "auto_terminate_hours": "0"},
+        ssm_replies=[{"when": "caddy reload", "status": "Failed"}],
+    )
+    result, _ = invoke(checkout, "aws-deploy", world)
+    assert result.returncode != 0
+    assert "couldn't apply HTTPS access" in result.stderr
+    assert (
+        "Terraform configuration is unchanged" in result.stdout
+    )  # Terraform alone was not sufficient
+    assert "What next" not in result.stdout

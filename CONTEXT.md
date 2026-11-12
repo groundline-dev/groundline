@@ -129,9 +129,9 @@ A deployment intended for temporary use, whose data and API keys are discarded w
 _Avoid_: staging (a staging deployment lasts)
 
 **Test deployment**:
-A disposable deployment a developer creates to try one commit, for internal testing only and never for customers, reachable only from their own computer. Its server and data are deleted when the developer is done, or at a deadline they can extend.
+A disposable deployment a developer creates to try one commit, for internal testing only and never for customers, whose application is accessible only from the developer's public IP address. Its server and data are deleted when the developer is done, or at a deadline they can extend.
 _Avoid_: test server, dev server, staging (a staging deployment serves callers and lasts)
 
 **Access mode**:
-Who can reach a deployment and whether their connection is encrypted. A disposable deployment can allow public encrypted access or restrict plaintext access to its tester.
+Who may access a deployment's application: callers from the tester's public IP address, or callers without an IP restriction. Both use encrypted connections, and protected API endpoints require API keys in either mode.
 _Avoid_: deployment mode, network mode

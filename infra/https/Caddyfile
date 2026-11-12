@@ -17,5 +17,9 @@ https://{$GROUNDLINE_PUBLIC_IP} {
 	}
 	# No access log: sources, summaries and Authorization must stay out of logs.
 	# No retry policy or response-header timeout: evaluations can take minutes.
+	# Match the socket peer, never caller-supplied forwarded headers. This runs
+	# after TLS, so ACME's TLS-ALPN challenge is unaffected by the restriction.
+	@denied not remote_ip {$GROUNDLINE_ALLOWED_CIDR}
+	respond @denied "Forbidden" 403
 	reverse_proxy app:8000
 }

@@ -12,7 +12,7 @@ mock_provider "aws" {
 }
 
 variables {
-  access_mode        = "tester_http"
+  access_mode        = "restricted"
   region             = "eu-north-1"
   deployment_name    = "alice"
   budget_alert_email = "alerts@example.com"
@@ -175,8 +175,8 @@ run "the_startup_script_installs_docker_and_starts_the_pinned_revision" {
     error_message = "The startup script should clone repository_url and check out git_ref."
   }
   assert {
-    condition     = strcontains(aws_instance.app.user_data, "APP_BIND_ADDRESS=0.0.0.0")
-    error_message = "The startup script should set APP_BIND_ADDRESS=0.0.0.0 so the app is reachable from outside."
+    condition     = !strcontains(aws_instance.app.user_data, "APP_BIND_ADDRESS=0.0.0.0")
+    error_message = "The startup script must never publish a direct HTTP app port."
   }
   assert {
     condition     = can(regex("docker compose[^\n]* up (-d|--detach)", aws_instance.app.user_data))
@@ -230,8 +230,8 @@ run "the_outputs_give_the_scripts_what_they_read" {
   }
 
   assert {
-    condition     = output.app_url == "http://203.0.113.10:8001"
-    error_message = "app_url should be http://<public IP>:8001, got ${output.app_url}."
+    condition     = output.app_url == "https://203.0.113.10"
+    error_message = "app_url should be https://<public IP>, got ${output.app_url}."
   }
   assert {
     condition     = output.instance_id == "i-0123456789abcdef0" && output.region == "eu-north-1"
@@ -257,7 +257,7 @@ run "the_outputs_give_the_scripts_what_they_read" {
 
 run "https_discovers_the_ip_before_docker_and_keeps_disposable_storage" {
   variables {
-    access_mode = "https"
+    access_mode = "unrestricted"
   }
   override_resource {
     target = aws_instance.app
@@ -266,7 +266,7 @@ run "https_discovers_the_ip_before_docker_and_keeps_disposable_storage" {
   assert {
     condition = (
       output.app_url == "https://203.0.113.10"
-      && output.access_mode == "https"
+      && output.access_mode == "unrestricted"
       && output.public_ip == "203.0.113.10"
     )
     error_message = "HTTPS outputs must identify the IP endpoint and mode."

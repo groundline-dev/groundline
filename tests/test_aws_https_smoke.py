@@ -24,7 +24,10 @@ def run(tmp_path: Path, restart: str = "", answer: str = "1\n", **changes: Any):
         outputs={
             "instance_id": INSTANCE,
             "region": "eu-north-1",
-            "access_mode": changes.get("mode", "https"),
+            "access_mode": changes.get("mode", "restricted"),
+            "allowed_cidr": "0.0.0.0/0"
+            if changes.get("mode") == "unrestricted"
+            else "203.0.113.7/32",
             "public_ip": "1.1.1.1",
             "app_url": "https://1.1.1.1",
             "auto_terminate_hours": "1",
@@ -83,8 +86,9 @@ print(json.dumps({'sha256':fingerprint,
     return result, json.loads(world_path.read_text())
 
 
-def test_default_never_restarts(tmp_path: Path):
-    result, world = run(tmp_path)
+@pytest.mark.parametrize("mode", ["restricted", "unrestricted"])
+def test_default_never_restarts(tmp_path: Path, mode: str):
+    result, world = run(tmp_path, mode=mode)
     assert result.returncode == 0, result.stdout + result.stderr
     assert world["lifecycle"]["restarts"] == world["lifecycle"]["reboots"] == 0
     assert world["lifecycle"]["smokes"] == 1
@@ -119,6 +123,7 @@ def test_requested_recovery_passes(
         {"ssm_error": True},
         {"deadline": 1100},
         {"smoke_error": True},
+        {"mode": "unknown"},
     ],
 )
 def test_failed_preflight_never_restarts(tmp_path: Path, change: dict[str, Any]):
@@ -135,6 +140,7 @@ def test_failed_preflight_never_restarts(tmp_path: Path, change: dict[str, Any])
         ({"replaced_volume": True}, "storage was replaced"),
         ({"change_target": True}, "AWS target changed"),
         ({"tls_error": True}, "did not recover"),
+        ({"changed_access": True}, "did not recover"),
         ({"after_smoke_error": True}, "HTTPS checks failed"),
     ],
 )

@@ -252,7 +252,7 @@ Every error answers with JSON: `{"detail": ...}`. Error responses and the server
 
 ## Deploying to AWS
 
-A disposable deployment runs the Compose stack on one EC2 server in your AWS project. New configurations recommend public HTTPS on the server's IPv4, with automatic publicly trusted certificates and no domain required. Existing configurations retain tester-only HTTP unless explicitly changed. Both modes use synthetic test data only and delete the server and its data after eight hours by default. The tools are Terraform, the AWS CLI, `jq`, `uv`, Git and `make`; Docker is installed on the server.
+A disposable deployment runs the Compose stack on one EC2 server in your AWS project. Both access modes use HTTPS on the server's IPv4, with automatic publicly trusted certificates and no domain required. The default restricts application access to your public IP; unrestricted mode allows callers from any IP. Protected API endpoints require API keys in both modes. Both modes use synthetic test data only and delete the server and its data after eight hours by default. The tools are Terraform, the AWS CLI, `jq`, `uv`, Git and `make`; Docker is installed on the server.
 
 ```sh
 make aws-up        # choose the project and the code, deploy, and check the server

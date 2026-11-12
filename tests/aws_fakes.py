@@ -398,7 +398,13 @@ def _lifecycle_command(world: dict[str, Any], command_id: str, script: str) -> N
         "start_time=[Wed 2026-11-11 01:00:00 UTC] ; "
         f"code=exited ; status={status} }}"
     )
-    command["reply"] = f"{boot}\n{deadline}\n1000\n{volume}\n1.1.1.1\n{startup}\n"
+    mode = world["outputs"]["access_mode"]
+    allowed = world["outputs"]["allowed_cidr"]
+    if restarted and lifecycle.get("changed_access"):
+        allowed = "0.0.0.0/0"
+    command["reply"] = (
+        f"{boot}\n{deadline}\n1000\n{volume}\n1.1.1.1\n{mode}\n{allowed}\n{startup}\n"
+    )
 
 
 def _ssm_wait(

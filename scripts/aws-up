@@ -98,11 +98,12 @@ if [ ! -f infra/terraform.tfvars ]; then
   done
   email="$answer"
   echo
-  echo "  1) Public HTTPS on port 443, with automatic certificates (recommended)"
-  echo "  2) Tester-only HTTP on port 8001, restricted to this computer's public IP"
-  choose "How should callers reach the server? (1 HTTPS, 2 tester-only HTTP)" 2 1
-  access_mode=https
-  [ "$answer" = 1 ] || access_mode=tester_http
+  echo "  1) IP-restricted HTTPS for testing from this computer (recommended)"
+  echo "  2) Unrestricted HTTPS for callers from any IP"
+  bullet "Both use automatic certificates; protected API endpoints require API keys."
+  choose "Who may access the HTTPS application? (1 IP-restricted, 2 unrestricted)" 2 1
+  access_mode=restricted
+  [ "$answer" = 1 ] || access_mode=unrestricted
   awk -v name="$name" -v email="$email" -v mode="$access_mode" '
     /^deployment_name[[:space:]]*=/ { print "deployment_name = \"" name "\""; next }
     /^budget_alert_email[[:space:]]*=/ { print "budget_alert_email = \"" email "\""; next }
@@ -133,14 +134,18 @@ if [ -n "$instance" ] \
   [ -z "$running_ref" ] || bullet "It runs ${running_ref:0:7}, from $running_repository."
   bullet "It costs money until make aws-destroy, or until it terminates itself."
   bullet "Deploying other code replaces it, and deletes its data."
-  if [ -n "$running_ref" ] && confirm "Keep your running server and check it?"; then
+  running_mode="$(deployed_access_mode)"
+  if [ "$access_mode" != "$running_mode" ]; then
+    answer_warn "running access is $running_mode HTTPS; saved access is $access_mode HTTPS. Keeping this server would not apply your settings."
+    bullet "Switching modes replaces the server, deleting its database and API keys."
+    echo "  1) Review a deployment plan"
+    echo "  2) Cancel and leave the running server unchanged"
+    choose "Review deployment changes? (1 review, 2 cancel)" 2
+    [ "$answer" = 1 ] || fail "cancelled: running server unchanged"
+  elif [ -n "$running_ref" ] && confirm "Keep your running server and check it?"; then
     keep=yes
-    running_mode="$(deployed_access_mode)"
     REF="$running_ref" REF_NAME=""
-    answer_ok "keeping $instance, running ${running_ref:0:7} in $running_mode mode"
-    if [ "$access_mode" != "$running_mode" ]; then
-      answer_warn "saved mode $access_mode differs; keeping this server preserves $running_mode. To apply settings, choose a new deployment next time."
-    fi
+    answer_ok "keeping $instance, running ${running_ref:0:7} in $running_mode HTTPS mode"
   fi
 fi
 

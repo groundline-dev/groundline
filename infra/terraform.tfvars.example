@@ -7,10 +7,12 @@ deployment_name = "alice"
 
 budget_alert_email = "you@example.com"
 
-# Public HTTPS on the server's IP; no domain needed. Only port 443 is exposed.
-# Use "tester_http" for HTTP restricted to this computer. Existing files without
-# this setting retain tester_http. Changing mode may replace/delete the server.
-access_mode = "https"
+# Both modes use HTTPS on the server's public IP; no domain needed.
+# restricted: only this computer's public IP may access application routes.
+# unrestricted: any caller IP may access them; protected routes need API keys.
+# TCP/TLS 443 stays public for certificate validation in both modes.
+# Switching modes replaces the server, deleting its database and API keys.
+access_mode = "restricted"
 
 # Optional: hours after its first boot until the server terminates itself,
 # deleting its data. It's also the most make aws-reset-deadline can give it

@@ -2,31 +2,51 @@
 # Runs on the EC2 host, before Docker starts. Containers cannot access IMDS.
 set -euo pipefail
 cd "$(dirname "$0")"
+[ "$#" = 0 ] || [ "$#" = 2 ] || { echo 'usage: refresh-address [expected-mode expected-cidr]' >&2; exit 2; }
 metadata=http://169.254.169.254/latest
 token="$(curl --disable --fail --silent --show-error --noproxy '*' --max-time 10 \
   --retry 3 --request PUT --header 'X-aws-ec2-metadata-token-ttl-seconds: 60' \
   "$metadata/api/token")"
-address="$(curl --disable --fail --silent --show-error --noproxy '*' --max-time 10 \
-  --retry 3 --header "X-aws-ec2-metadata-token: $token" \
-  "$metadata/meta-data/public-ipv4")"
-if ! [[ "$address" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
-  echo 'groundline HTTPS: IMDS returned no usable public IPv4 address' >&2
+read_metadata() {
+  curl --disable --fail --silent --show-error --noproxy '*' --max-time 10 \
+    --retry 3 --header "X-aws-ec2-metadata-token: $token" "$metadata/meta-data/$1"
+}
+address="$(read_metadata public-ipv4)"
+mode="$(read_metadata tags/instance/groundline-access-mode)"
+allowed="$(read_metadata tags/instance/groundline-allowed-cidr)"
+case "$mode:$allowed" in
+  unrestricted:0.0.0.0/0) ;;
+  restricted:*/32) ;;
+  *) echo 'groundline HTTPS: missing or invalid access metadata; refusing startup' >&2; exit 1 ;;
+esac
+if [ "$#" = 2 ] && { [ "$mode" != "$1" ] || [ "$allowed" != "$2" ]; }; then
+  echo 'groundline HTTPS: access metadata does not yet match the approved deployment' >&2
   exit 1
 fi
-IFS=. read -r -a octets <<<"$address"
-for octet in "${octets[@]}"; do
-  if ((10#$octet > 255)); then
-    echo 'groundline HTTPS: invalid IPv4 address from IMDS' >&2
+for value in "$address" "${allowed%/*}"; do
+  if ! [[ "$value" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
+    echo 'groundline HTTPS: IMDS returned an invalid IPv4 address' >&2
     exit 1
   fi
+  IFS=. read -r -a octets <<<"$value"
+  for octet in "${octets[@]}"; do
+    if ((10#$octet > 255)); then
+      echo 'groundline HTTPS: invalid IPv4 address from IMDS' >&2
+      exit 1
+    fi
+  done
 done
 mkdir -p runtime
 temporary="$(mktemp runtime/Caddyfile.XXXXXX)"
 trap 'rm -f "$temporary"' EXIT
 # Render a mounted file rather than a Compose env_file: existing containers
 # retain their creation-time environment across host and container restarts.
-# Only the public address is written here; no application credentials.
-sed 's/{$GROUNDLINE_PUBLIC_IP}/'"$address"'/g' Caddyfile >"$temporary"
+# Only public address/access metadata is written here; no credentials.
+{
+  echo "# groundline-access-mode: $mode"
+  sed -e 's/{$GROUNDLINE_PUBLIC_IP}/'"$address"'/g' \
+    -e 's|{$GROUNDLINE_ALLOWED_CIDR}|'"$allowed"'|g' Caddyfile
+} >"$temporary"
 chmod 644 "$temporary"
 mv "$temporary" runtime/Caddyfile
-echo "groundline HTTPS: configured $address"
+echo "groundline HTTPS: configured $address ($mode, application source $allowed)"

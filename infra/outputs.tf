@@ -11,12 +11,17 @@ output "region" {
 }
 
 output "app_url" {
-  description = "The public HTTPS address, or tester-only HTTP address, selected by access_mode."
-  value       = var.access_mode == "https" ? "https://${aws_instance.app.public_ip}" : "http://${aws_instance.app.public_ip}:8001"
+  description = "The HTTPS address; access_mode controls application access rather than transport."
+  value       = "https://${aws_instance.app.public_ip}"
 }
 
 output "access_mode" {
   value = var.access_mode
+}
+
+output "allowed_cidr" {
+  description = "The source IP range Caddy allows for application requests. TCP/TLS 443 stays public."
+  value       = var.access_mode == "restricted" ? var.tester_cidr : "0.0.0.0/0"
 }
 
 output "public_ip" {
