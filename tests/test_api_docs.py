@@ -56,23 +56,24 @@ def _resolve(ref: dict[str, Any]) -> dict[str, Any]:
 def test_each_check_has_a_valid_example_request_and_response(
     path: str, request_model: type[ApiModel], response_model: type[ApiModel]
 ):
-    # Read from the docs, not the models: FastAPI drops nulls from examples.
+    # The docs must show an example. FastAPI drops nulls from the docs' copy, which a
+    # model that requires a nullable field (a commission's `summary_evidence`) can't
+    # validate, so the validated copy is the model's own.
     operation = schema["paths"][path]["post"]
     request = operation["requestBody"]["content"]["application/json"]["schema"]
     response = operation["responses"]["200"]["content"]["application/json"]["schema"]
 
     for model, ref in [(request_model, request), (response_model, response)]:
-        examples = _resolve(ref)["examples"]
-        assert examples
-        for example in examples:
+        assert _resolve(ref)["examples"]
+        for example in model.model_json_schema()["examples"]:
             model.model_validate(example)
 
 
 @pytest.mark.parametrize(
     ("model", "field", "empty_case"),
     [
-        ("OmissionsResponse", "omission_score", "no facts"),
-        ("CommissionsResponse", "commission_score", "no claims"),
+        ("OmissionsResponse", "score", "no facts"),
+        ("CommissionsResponse", "score", "no claims"),
     ],
 )
 def test_each_score_is_defined_in_the_docs(model: str, field: str, empty_case: str):

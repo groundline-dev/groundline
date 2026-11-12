@@ -48,6 +48,10 @@ _Avoid_: gap, miss
 A statement in the summary that the source doesn't support, whether it contradicts the source or isn't in it at all. A fact recorded wrongly, such as a wrong dose, is a commission; the omission check may also report the correct fact as partial or absent.
 _Avoid_: hallucination, inaccuracy, accuracy error
 
+**Finding**:
+One omission or commission, as a check reports it. The term is broader than either on purpose, so a future pipeline that runs both checks together can return both kinds in one list.
+_Avoid_: issue, problem (issue also means a tracker issue)
+
 **Claim**:
 A single checkable statement the summary makes, with a quote from the summary as its evidence. Its counterpart on the source side is a fact.
 _Avoid_: fact (that is the source side), item, statement

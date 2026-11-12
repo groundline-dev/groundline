@@ -63,29 +63,19 @@ def test_a_flagged_summary_answers_200_with_its_commissions_most_important_first
 
     assert response.status_code == 200
     body = response.json()
+    assert body["evaluation_type"] == "commissions"
     assert body["flagged"] is True
-    assert body["alarm"] == {"score": 0.95, "threshold": 0.85, "level": "default"}
-    assert body["commission_score"] == pytest.approx(0.1667, abs=1e-4)
-    assert body["pipeline"] == body["validated_preset"] == DEFAULT_COMMISSIONS_PRESET
+    assert body["score"] == pytest.approx(0.1667, abs=1e-4)
     assert body["usage"]["calls"] == 1
-    assert body["commissions"] == [
-        {
-            "claim": DOSE,
-            "severity": "critical",
-            "support_verdict": "contradicted",
-            "unsupported_confidence": 0.95,
-            "evidence": DOSE_SOURCE,
-            "evidence_found": True,
-        },
-        {
-            "claim": EXAM,
-            "severity": "supporting",
-            "support_verdict": "unsupported",
-            "unsupported_confidence": 0.7,
-            "evidence": None,
-            "evidence_found": None,
-        },
+    assert body["metadata"] == {
+        "pipeline": DEFAULT_COMMISSIONS_PRESET,
+        "alarm": {"score": 0.95, "threshold": 0.85, "level": "default"},
+    }
+    assert [(f["statement"], f["verdict"]) for f in body["findings"]] == [
+        (DOSE, "contradicted"),
+        (EXAM, "unsupported"),
     ]
+    assert body["findings"][0]["source_evidence"] == DOSE_SOURCE
 
 
 def test_the_response_has_only_the_documented_fields():
@@ -94,21 +84,24 @@ def test_the_response_has_only_the_documented_fields():
     body = http.post("/v1/commissions", json=check()).json()
 
     assert set(body) == {
+        "evaluation_type",
         "flagged",
-        "commission_score",
-        "alarm",
-        "commissions",
-        "pipeline",
-        "validated_preset",
+        "score",
+        "findings",
         "usage",
+        "metadata",
     }
-    assert set(body["commissions"][0]) == {
-        "claim",
+    assert set(body["metadata"]) == {"pipeline", "alarm"}
+    assert set(body["findings"][0]) == {
+        "type",
         "severity",
-        "support_verdict",
-        "unsupported_confidence",
-        "evidence",
+        "verdict",
+        "confidence",
+        "statement",
+        "source_evidence",
+        "summary_evidence",
         "evidence_found",
+        "explanation",
     }
 
 
@@ -120,9 +113,13 @@ def test_a_summary_with_nothing_unsupported_is_not_flagged():
     assert response.status_code == 200
     body = response.json()
     assert body["flagged"] is False
-    assert body["alarm"] == {"score": 0.0, "threshold": 0.85, "level": "default"}
-    assert body["commission_score"] == 1.0
-    assert body["commissions"] == []
+    assert body["metadata"]["alarm"] == {
+        "score": 0.0,
+        "threshold": 0.85,
+        "level": "default",
+    }
+    assert body["score"] == 1.0
+    assert body["findings"] == []
 
 
 def test_a_commission_that_isnt_critical_is_listed_but_doesnt_flag():
@@ -131,7 +128,7 @@ def test_a_commission_that_isnt_critical_is_listed_but_doesnt_flag():
     body = http.post("/v1/commissions", json=check()).json()
 
     assert body["flagged"] is False
-    assert [c["claim"] for c in body["commissions"]] == [EXAM]
+    assert [f["statement"] for f in body["findings"]] == [EXAM]
 
 
 def test_a_quote_that_skips_the_scribes_tags_is_listed_but_not_found():
@@ -141,8 +138,8 @@ def test_a_quote_that_skips_the_scribes_tags_is_listed_but_not_found():
     response = http.post("/v1/commissions", json=check(source=tagged))
 
     assert response.status_code == 200
-    (found,) = response.json()["commissions"]
-    assert found["evidence"] == DOSE_SOURCE
+    (found,) = response.json()["findings"]
+    assert found["source_evidence"] == DOSE_SOURCE
     assert found["evidence_found"] is False
 
 
@@ -150,7 +147,7 @@ def test_a_quote_that_isnt_in_the_source_at_all_is_not_found():
     reworded = issue(DOSE, "contradicted", 95, "critical", "take ibuprofen daily")
     use_client(Script(commissions_check=issues_reply(reworded)))
 
-    (found,) = http.post("/v1/commissions", json=check()).json()["commissions"]
+    (found,) = http.post("/v1/commissions", json=check()).json()["findings"]
 
     assert found["evidence_found"] is False
 
@@ -170,7 +167,7 @@ def test_the_route_runs_the_quick_preset():
 
     body = http.post("/v1/commissions", json=check()).json()
 
-    assert body["pipeline"] == load_preset("commission_quick").name
+    assert body["metadata"]["pipeline"] == load_preset("commission_quick").name
 
 
 @pytest.mark.parametrize(
@@ -336,7 +333,7 @@ def _preset_fails(name: str) -> None:
     raise ValueError(SECRET)
 
 
-def _response_fails(**fields: object) -> None:
+def _response_fails(*args: object, **fields: object) -> None:
     raise ValueError(SECRET)
 
 
@@ -345,7 +342,7 @@ def _response_fails(**fields: object) -> None:
     [
         ("evaluate", _evaluate_fails, "KeyError"),
         ("load_preset", _preset_fails, "ValueError"),
-        ("Commission", _response_fails, "ValueError"),
+        ("commission_finding", _response_fails, "ValueError"),
     ],
     ids=["while checking", "loading the preset", "building the response"],
 )

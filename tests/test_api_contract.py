@@ -47,41 +47,59 @@ from tests.omission_helpers import (
 PRIVATE = "private-source-summary-sentinel"
 
 PARTIAL_INJURY = {
-    "fact": "Injured the finger skiing.",
+    "type": "omission",
     "severity": "supporting",
     "verdict": "partial",
-    "missing_confidence": 0.6,
-    "quote": "She was skiing and hyperextended her right index finger",
+    "confidence": 0.6,
+    "statement": "Injured the finger skiing.",
+    "source_evidence": "i was skiing over the weekend",
+    "summary_evidence": "She was skiing and hyperextended her right index finger",
+    "evidence_found": True,
+    "explanation": "The summary only partly records this fact.",
 }
 MISSING_MOVEMENT = {
-    "fact": "Pain is worse with movement.",
+    "type": "omission",
     "severity": "supporting",
     "verdict": "absent",
-    "missing_confidence": 0.95,
-    "quote": None,
+    "confidence": 0.95,
+    "statement": "Pain is worse with movement.",
+    "source_evidence": "it hurts more when i move it",
+    "summary_evidence": None,
+    "evidence_found": True,
+    "explanation": "The summary does not record this fact.",
 }
 MISSING_DOSE = {
-    "fact": "Motrin 600 mg every 6 hours for a week.",
+    "type": "omission",
     "severity": "critical",
     "verdict": "absent",
-    "missing_confidence": 0.95,
-    "quote": None,
+    "confidence": 0.95,
+    "statement": "Motrin 600 mg every 6 hours for a week.",
+    "source_evidence": "motrin 600 mg every 6 hours",
+    "summary_evidence": None,
+    "evidence_found": True,
+    "explanation": "The summary does not record this fact.",
 }
 DOSE_COMMISSION = {
-    "claim": DOSE,
+    "type": "commission",
     "severity": "critical",
-    "support_verdict": "contradicted",
-    "unsupported_confidence": 0.95,
-    "evidence": DOSE_SOURCE,
+    "verdict": "contradicted",
+    "confidence": 0.95,
+    "statement": DOSE,
+    "source_evidence": DOSE_SOURCE,
+    "summary_evidence": None,
     "evidence_found": True,
+    "explanation": "The source says something different.",
 }
 EXAM_COMMISSION = {
-    "claim": EXAM,
+    "type": "commission",
     "severity": "supporting",
-    "support_verdict": "unsupported",
-    "unsupported_confidence": 0.7,
-    "evidence": None,
+    "verdict": "unsupported",
+    "confidence": 0.7,
+    "statement": EXAM,
+    "source_evidence": None,
+    "summary_evidence": None,
     "evidence_found": None,
+    "explanation": "The source does not mention this claim.",
 }
 
 
@@ -201,13 +219,15 @@ def test_omission_success_uses_environment_key_and_returns_expected_values(
         response,
         wire,
         {
+            "evaluation_type": "omissions",
             "flagged": flagged,
-            "omission_score": 0.25 if flagged else 1.0,
-            "alarm": {"score": score, "threshold": 0.9, "level": "strict"},
-            "omissions": findings,
-            "counts": counts,
-            "pipeline": "omission_all_opus",
-            "validated_preset": "omission_all_opus",
+            "score": 0.25 if flagged else 1.0,
+            "findings": findings,
+            "metadata": {
+                "pipeline": "omission_all_opus",
+                "alarm": {"score": score, "threshold": 0.9, "level": "strict"},
+                "counts": counts,
+            },
         },
         calls,
     )
@@ -245,12 +265,14 @@ def test_commission_success_uses_environment_key_and_returns_expected_values(
         response,
         wire,
         {
+            "evaluation_type": "commissions",
             "flagged": flagged,
-            "commission_score": 0.1667 if flagged else 1.0,
-            "alarm": {"score": score, "threshold": 0.85, "level": "default"},
-            "commissions": findings,
-            "pipeline": "commission_quick",
-            "validated_preset": "commission_quick",
+            "score": 0.1667 if flagged else 1.0,
+            "findings": findings,
+            "metadata": {
+                "pipeline": "commission_quick",
+                "alarm": {"score": score, "threshold": 0.85, "level": "default"},
+            },
         },
         1,
     )

@@ -169,8 +169,9 @@ def request(
 def verify_evaluation(endpoint: str, body: dict[str, Any]) -> None:
     calls = sum(EXPECTED_CALLS[step] for step in MODEL_SETTINGS[endpoint])
     assert body["flagged"] is True, body
-    assert body["pipeline"] == body["validated_preset"] == PRESETS[endpoint], body
-    assert body[endpoint], body
+    assert body["evaluation_type"] == endpoint, body
+    assert body["metadata"]["pipeline"] == PRESETS[endpoint], body
+    assert body["findings"], body
     assert body["usage"]["calls"] == calls, body
     assert body["usage"]["input_tokens"] == 100 * calls, body
     assert body["usage"]["output_tokens"] == 20 * calls, body
