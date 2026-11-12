@@ -122,12 +122,14 @@ Create one with `groundline keys create`, then use **Authorize** below.
 
 ### Versions
 
-Both checks are under `/v1`. Within v1, a change only adds:
-new endpoints, or new fields in a response. A change that could break a
-caller, such as removing or renaming a field or changing a status code, gets a
-new prefix, `/v2`. groundline is still pre-1.0, so it doesn't yet promise how
-long an old version stays available after a new one ships. The version next to
-the title is groundline's release, not the API version.
+Both checks are under `/v1`. groundline isn't public yet, so v1 can still
+change in ways that break a caller, such as removing or renaming a field. Once
+the API is public, v1 will only add: new endpoints, or new fields in a
+response. A change that could break a caller, such as removing or renaming a
+field or changing a status code, will then get a new prefix, `/v2`. groundline
+is still pre-1.0, so it doesn't yet promise how long an old version stays
+available after a new one ships. The version next to the title is groundline's
+release, not the API version.
 
 See the [README](https://github.com/groundline-dev/groundline#using-the-api)
 for more, including what each status means.
