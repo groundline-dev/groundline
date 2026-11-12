@@ -202,6 +202,7 @@ def test_omission_success_uses_environment_key_and_returns_expected_values(
         wire,
         {
             "flagged": flagged,
+            "omission_score": 0.25 if flagged else 1.0,
             "alarm": {"score": score, "threshold": 0.9, "level": "strict"},
             "omissions": findings,
             "counts": counts,
@@ -245,6 +246,7 @@ def test_commission_success_uses_environment_key_and_returns_expected_values(
         wire,
         {
             "flagged": flagged,
+            "commission_score": 0.1667 if flagged else 1.0,
             "alarm": {"score": score, "threshold": 0.85, "level": "default"},
             "commissions": findings,
             "pipeline": "commission_quick",

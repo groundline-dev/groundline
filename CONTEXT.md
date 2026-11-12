@@ -78,15 +78,23 @@ _Avoid_: verify, re-check, appeal
 
 **Alarm score**:
 A summary's single measure of risk: the highest confidence among its critical problems. For the omission check that is the highest missing confidence among its critical omissions, with partial ones at half weight; for the commission check, the highest confidence among its critical commissions.
-_Avoid_: risk score, omission score
+_Avoid_: risk score
 
 **Threshold level**:
-A named alarm score at or above which a summary is flagged, such as strict or moderate. It belongs to the pipeline it was calibrated on.
+A named alarm score at or above which a summary is flagged, such as strict. It belongs to the pipeline it was calibrated on.
 _Avoid_: cut-off, threshold (when used as a bare number)
 
 **Flagged**:
 The outcome for a summary whose alarm score reaches the chosen threshold level.
 _Avoid_: failed, rejected, unsafe
+
+**Omission score**:
+A summary's alarm score from the omission check, turned around and rescaled to run from 0 to 1, so that higher is better and a score below 0.5 means the summary is flagged.
+_Avoid_: alarm score, completeness, note score
+
+**Commission score**:
+The same rescaled measure, calculated from the commission check's alarm score.
+_Avoid_: alarm score, hallucination score, accuracy score
 
 ## Pipelines
 

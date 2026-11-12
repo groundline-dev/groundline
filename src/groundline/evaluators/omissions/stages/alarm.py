@@ -5,8 +5,8 @@ flagged after refute, with partials at half weight; 0 if there are none. The
 summary is flagged when the score reaches the chosen threshold.
 
 Thresholds are only meaningful for the pipeline they were calibrated on, so they
-live in the pipeline spec as named levels. The all-Opus preset's levels were
-fixed in advance on calibration data: strict 0.90 and moderate 0.425.
+live in the pipeline spec as named levels. The all-Opus preset's one level,
+strict 0.90, was fixed in advance on calibration data.
 """
 
 from typing import ClassVar
@@ -27,7 +27,7 @@ class AlarmCriticalMax(ThresholdAlarm):
     name: ClassVar[str] = "alarm.critical_max"
     reads: ClassVar[tuple[str, ...]] = ("rank", "refute")
 
-    thresholds: dict[str, float] = {"strict": 0.90, "moderate": 0.425}
+    thresholds: dict[str, float] = {"strict": 0.90}
     """Named alarm scores at or above which the summary is flagged. Only
     meaningful for the pipeline they were calibrated on."""
     level: str = "strict"

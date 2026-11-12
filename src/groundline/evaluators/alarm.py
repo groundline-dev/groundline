@@ -14,6 +14,24 @@ from pydantic import model_validator
 from groundline.core import Implementation, StageContext
 from groundline.evaluators.models import ALARM_STEP, AlarmOutput
 
+FLAGGED_SCORE_CAP = 0.4999
+"""The highest rescaled score a flagged summary can have. Evaluation tools such as
+deepeval pass a score at or above their cut of 0.5, and the alarm flags at or above
+its threshold, so a summary on the threshold has to land below 0.5."""
+
+
+def rescaled_score(alarm_score: float, threshold: float) -> float:
+    """The alarm score turned around and rescaled from 0 to 1, so that higher is
+    better and a summary is flagged exactly when its score is below 0.5. Rounded
+    to four decimals, which can't move a score across 0.5."""
+    if alarm_score < threshold:
+        score = 0.5 + 0.5 * (threshold - alarm_score) / threshold
+    elif alarm_score >= 1:  # also keeps a threshold of 1 from dividing by zero
+        score = 0.0
+    else:
+        score = min(0.5 * (1 - alarm_score) / (1 - threshold), FLAGGED_SCORE_CAP)
+    return round(score, 4)
+
 
 class ThresholdAlarm(Implementation):
     """Subclasses set `name` and `reads`, declare `thresholds` and `level` with
@@ -48,4 +66,5 @@ class ThresholdAlarm(Implementation):
             level=self.level,
             threshold=threshold,
             flagged=score >= threshold,
+            rescaled_score=rescaled_score(score, threshold),
         )

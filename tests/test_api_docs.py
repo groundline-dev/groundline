@@ -68,6 +68,21 @@ def test_each_check_has_a_valid_example_request_and_response(
             model.model_validate(example)
 
 
+@pytest.mark.parametrize(
+    ("model", "field", "empty_case"),
+    [
+        ("OmissionsResponse", "omission_score", "no facts"),
+        ("CommissionsResponse", "commission_score", "no claims"),
+    ],
+)
+def test_each_score_is_defined_in_the_docs(model: str, field: str, empty_case: str):
+    text = schema["components"]["schemas"][model]["properties"][field]["description"]
+
+    for phrase in ("From 0 to 1", "Higher is better", "below 0.5", "alarm"):
+        assert phrase in text
+    assert empty_case in text
+
+
 @pytest.mark.parametrize("path", CHECKS)
 def test_each_check_has_a_valid_example_for_every_error(path: str):
     responses = schema["paths"][path]["post"]["responses"]

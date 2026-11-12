@@ -91,5 +91,6 @@ def test_flags_the_note_at_the_default_level(
     result, _ = replay
 
     alarm = result.run.output("alarm", AlarmOutput)
-    assert alarm.model_dump() == EXPECTED["alarm"]
+    # The recorded run predates the rescaled score, which has its own tests.
+    assert alarm.model_dump(exclude={"rescaled_score"}) == EXPECTED["alarm"]
     assert result.validated_preset == "commission_quick"

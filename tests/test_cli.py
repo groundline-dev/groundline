@@ -52,6 +52,7 @@ def test_reports_a_summary_that_is_not_flagged(
     assert "Omission check   transcript.txt · note.txt" in out
     assert "omission_all_opus · clinical profile (validated preset)" in out
     assert "NOT FLAGGED (alarm 0.00 < 0.90, strict)" in out
+    assert "Omission score   1 (higher is better; below 0.5 is flagged)" in out
     assert "supporting  partial  0.60       Injured the finger skiing." in out
     assert "supporting  absent   0.95       Pain is worse with movement." in out
     assert "3 facts: 1 present · 1 partial · 1 absent" in out
@@ -67,30 +68,35 @@ def test_a_flagged_summary_exits_with_1(
 
     assert result.exit_code == 1
     assert "FLAGGED (alarm 0.95 ≥ 0.90, strict)" in result.stdout
+    assert "Omission score   0.25 (" in result.stdout
     assert "critical    absent   0.95       Motrin 600 mg" in result.stdout
 
 
-def test_the_moderate_threshold_is_still_the_validated_preset(
+def test_a_score_on_the_threshold_is_not_rounded_up_to_one_half(
     files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ):
-    use_client(monkeypatch, not_flagged_script())
+    script = flagged_script()
+    checked = json.loads(script.replies["check"][0])
+    checked["facts"][0]["missing_confidence"] = 90  # exactly the strict threshold
+    script.replies["check"] = [json.dumps(checked)]
+    use_client(monkeypatch, script)
 
-    result = omissions(files, "--threshold", "moderate")
+    result = omissions(files)
 
-    assert "(alarm 0.00 < 0.425, moderate)" in result.stdout
-    assert "(validated preset)" in result.stdout
+    assert result.exit_code == 1
+    assert "Omission score   0.4999 (" in result.stdout
 
 
-def test_an_unknown_threshold_exits_with_2_before_any_call(
+def test_threshold_is_no_longer_an_option(
     files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ):
     client = FakeClient([])
     monkeypatch.setattr(cli, "make_client", lambda: client)
 
-    result = omissions(files, "--threshold", "extreme")
+    result = omissions(files, "--threshold", "strict")
 
     assert result.exit_code == 2
-    assert "level 'extreme' is not one of the thresholds" in result.stderr
+    assert "No such option" in result.stderr
     assert client.requests == []
 
 
@@ -141,6 +147,7 @@ def test_json_writes_the_full_result(
     assert data["flagged"] is True
     assert data["validated_preset"] == "omission_all_opus"
     assert data["outputs"]["alarm"]["score"] == 0.95
+    assert data["outputs"]["alarm"]["rescaled_score"] == pytest.approx(0.25)
     assert [c["step"] for c in data["calls"]] == ["extract", "rank", "check", "refute"]
     assert data["usage"]["calls"] == 4
 

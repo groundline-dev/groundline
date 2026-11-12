@@ -105,8 +105,8 @@ FAILURE_RESPONSES: dict[int | str, dict[str, Any]] = {
     422: _error(
         InvalidRequestBody,
         "The request is unusable: broken JSON, not a JSON object, a blank or "
-        "too-long text, an unexpected field, or (omissions only) an unknown "
-        "threshold. The response never repeats the rejected value.",
+        "too-long text, or an unexpected field. The response never repeats the "
+        "rejected value.",
         blank_and_extra=(
             "A blank source and an extra field",
             {

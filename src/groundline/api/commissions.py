@@ -80,6 +80,7 @@ class CommissionsResponse(ApiModel):
             "examples": [
                 {
                     "flagged": True,
+                    "commission_score": 0.1667,
                     "alarm": {"score": 0.95, "threshold": 0.85, "level": "default"},
                     "commissions": [
                         {
@@ -106,6 +107,13 @@ class CommissionsResponse(ApiModel):
 
     flagged: bool
     """Whether the alarm score reached the threshold."""
+    commission_score: float
+    """From 0 to 1. Higher is better. A score below 0.5 means the summary is
+    flagged, and a summary passes at 0.5 or above; the flag is exactly the
+    alarm's. The score is the alarm score turned around and rescaled around the
+    alarm's threshold. A flag means a statement wasn't found in the source, for
+    a reviewer to check; the score doesn't say how good the summary is overall.
+    A summary with no claims the source fails to support scores 1."""
     alarm: CommissionsAlarm
     commissions: list[Commission]
     """Claims in the summary that the source doesn't support, most important
@@ -156,6 +164,7 @@ def _response(result: EvaluationResult) -> CommissionsResponse:
     alarm = result.run.output(ALARM_STEP, AlarmOutput)
     return CommissionsResponse(
         flagged=alarm.flagged,
+        commission_score=alarm.rescaled_score,
         alarm=alarm_of(alarm, CommissionsAlarm),
         commissions=[
             Commission(

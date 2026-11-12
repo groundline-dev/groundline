@@ -40,3 +40,7 @@ class AlarmOutput(Frozen):
     level: str
     threshold: float
     flagged: bool
+    rescaled_score: float
+    """`score` turned around and rescaled from 0 to 1, for evaluation tools: higher
+    is better, and the summary is flagged exactly when this is below 0.5. It only
+    means something alongside the pipeline and level that produced it."""

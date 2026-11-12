@@ -6,6 +6,7 @@ from groundline.evaluators.report import (
     cost_line,
     number,
     pipeline_line,
+    rescaled_score_text,
     result_line,
     row,
 )
@@ -27,6 +28,7 @@ def render_report(
         _row("Omission check", f"{source} · {summary}"),
         _row("Pipeline", pipeline_line(result)),
         _row("Result", result_line(alarm)),
+        _row("Omission score", rescaled_score_text(alarm)),
     ]
     lines += [_row("Warning", warning) for warning in result.warnings]
 

@@ -9,7 +9,7 @@ left to `groundline.api.errors`, which never repeats one.
 
 import logging
 import time
-from typing import Annotated, Literal
+from typing import Annotated
 
 from fastapi import APIRouter, Depends
 from pydantic import ConfigDict
@@ -26,7 +26,7 @@ from groundline.api.common import (
     usage_of,
 )
 from groundline.auth import require_api_key
-from groundline.core import ModelClient, with_settings
+from groundline.core import ModelClient
 from groundline.evaluate import DEFAULT_PRESET, evaluate
 from groundline.evaluators.models import ALARM_STEP, AlarmOutput, Severity
 from groundline.evaluators.omissions.models import ScoreOutput, VerdictLabel
@@ -36,17 +36,11 @@ from groundline.result import EvaluationResult
 
 logger = logging.getLogger("groundline.api")
 
-ThresholdLevel = Literal["strict", "moderate"]
-"""The preset's threshold levels. A test keeps this in step with the preset."""
-
 router = APIRouter()
 
 
 class OmissionsRequest(CheckRequest):
-    threshold: ThresholdLevel = "strict"
-    """Which alarm level to flag at. strict (0.90) flags fewer clean summaries;
-    moderate (0.425) catches more omissions. Either keeps the run on the
-    validated preset."""
+    pass
 
 
 class OmissionsAlarm(Alarm):
@@ -82,6 +76,7 @@ class OmissionsResponse(ApiModel):
             "examples": [
                 {
                     "flagged": False,
+                    "omission_score": 0.7361,
                     "alarm": {"score": 0.475, "threshold": 0.9, "level": "strict"},
                     "omissions": [
                         {
@@ -108,6 +103,13 @@ class OmissionsResponse(ApiModel):
 
     flagged: bool
     """Whether the alarm score reached the threshold."""
+    omission_score: float
+    """From 0 to 1. Higher is better. A score below 0.5 means the summary is
+    flagged, and a summary passes at 0.5 or above; the flag is exactly the
+    alarm's. The score is the alarm score turned around and rescaled around the
+    alarm's threshold. It shows whether a critical omission was found, not how
+    good the summary is overall. A source with no facts scores 1: nothing
+    critical was found, and `counts.total` is 0."""
     alarm: OmissionsAlarm
     omissions: list[Omission]
     """Facts not fully recorded, most important first."""
@@ -134,9 +136,7 @@ async def omissions(
     Runs the validated all-Opus omission check, which takes about 30-60 seconds
     and costs about $0.28 for a typical clinical note, so use a long client
     timeout. Answers 200 for every finished check, flagged or not."""
-    spec = with_settings(
-        load_preset(DEFAULT_PRESET), ALARM_STEP, level=request.threshold
-    )
+    spec = load_preset(DEFAULT_PRESET)
     started = time.perf_counter()
     with check_failures():
         result = await evaluate(
@@ -157,6 +157,7 @@ def _response(result: EvaluationResult) -> OmissionsResponse:
     alarm = result.run.output(ALARM_STEP, AlarmOutput)
     return OmissionsResponse(
         flagged=alarm.flagged,
+        omission_score=alarm.rescaled_score,
         alarm=alarm_of(alarm, OmissionsAlarm),
         omissions=[
             Omission(

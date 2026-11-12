@@ -172,10 +172,14 @@ def test_pipeline_does_not_flag_when_critical_facts_are_present():
     assert (alarm.score, alarm.flagged) == (0.0, False)
 
 
-def test_moderate_level_uses_its_own_threshold():
-    _, alarm = run_all(check_reply(), level="moderate")
+def test_a_source_with_no_facts_finishes_without_further_model_calls():
+    result, _ = run(ALL_STAGES, Script(extract=json.dumps({"facts": []})))
 
-    assert (alarm.level, alarm.threshold) == ("moderate", 0.425)
+    score = result.output("score", ScoreOutput)
+    alarm = result.output("alarm", AlarmOutput)
+    assert (score.total, score.missing_facts) == (0, [])
+    assert (alarm.score, alarm.flagged, alarm.rescaled_score) == (0.0, False, 1.0)
+    assert [c.step for c in result.calls] == ["extract"]
 
 
 def test_an_unknown_level_is_a_spec_error():

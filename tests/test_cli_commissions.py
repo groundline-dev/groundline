@@ -58,6 +58,7 @@ def test_reports_a_flagged_summary_and_exits_with_1(
     assert "Commission check  transcript.txt · note.txt" in out
     assert "commission_quick · clinical profile (validated preset)" in out
     assert "FLAGGED (alarm 0.95 ≥ 0.85, default)" in out
+    assert "Commission score  0.1667 (higher is better; below 0.5 is flagged)" in out
     assert "severity    verdict       confidence  claim" in out
     assert f"critical    contradicted  0.95        {DOSE}" in out
     assert f'source: "{DOSE_SOURCE}"' in out
@@ -160,27 +161,16 @@ def test_the_cost_is_priced_for_haiku(
     assert "Cost              $0.0001 · 1 calls" in result.stdout
 
 
-def test_the_default_level_can_be_named_with_threshold(
-    files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
-):
-    use_client(monkeypatch, Script(commissions_check=ISSUES))
-
-    result = commissions(files, "--threshold", "default")
-
-    assert "(alarm 0.95 ≥ 0.85, default)" in result.stdout
-    assert "(validated preset)" in result.stdout
-
-
-def test_an_unknown_threshold_exits_with_2_before_any_call(
+def test_threshold_is_no_longer_an_option(
     files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ):
     client = FakeClient([])
     monkeypatch.setattr(cli, "make_client", lambda: client)
 
-    result = commissions(files, "--threshold", "extreme")
+    result = commissions(files, "--threshold", "default")
 
     assert result.exit_code == 2
-    assert "level 'extreme' is not one of the thresholds" in result.stderr
+    assert "No such option" in result.stderr
     assert client.requests == []
 
 
