@@ -19,22 +19,22 @@ If a file, symbol or test named here no longer exists, find what replaced it (gr
 | Own 422 body, never echoing input | `FAILURE_RESPONSES`, `api/errors.py` | `test_a_real_422_has_the_documented_shape` |
 | 401 with `WWW-Authenticate: Bearer` | `PROTECTED_RESPONSES` | `test_a_401_documents_its_bearer_challenge` |
 | 502/503 examples derived from the route's pipeline | `check_responses` | the 502/503 tests |
-| Null-free request and success examples | `CheckRequest`, response models | `test_each_check_has_a_valid_example_request_and_response` |
+| Request and success examples, with nulls left out of the docs' copy | `CheckRequest`, response models | `test_each_check_has_a_valid_example_request_and_response` (the docs must show an example, and the model's own example must validate) |
 
 ## House style (match the existing text)
 
 - Field descriptions are attribute docstrings: what the value means, plus range/unit, e.g. "From 0 to 1: how sure…".
 - Error descriptions say when the status happens, in one or two sentences, plus what the caller can do if useful.
-- Examples: go through `_error` with a picker label; use the invented consultation; no nulls (FastAPI drops them — never drop a required field to dodge this); never echo rejected input.
+- Examples: go through `_error` with a picker label; use the invented consultation; avoid nulls where the data allows, because FastAPI drops them from the docs' copy of an example. A field that is always null for one check (a commission's `summary_evidence`) therefore shows only in the schema, the README and the field's docstring; keep it required in the model and say so there. Never echo rejected input.
 - Derive stage names, models, and costs from presets; don't hard-code them.
-- Intro keeps three parts: purpose + "not for clinical use", Authentication, Versions (v1 changes only add).
+- Intro keeps three parts: purpose + "not for clinical use", Authentication, Versions (until the API is public, v1 may still break a caller; once it is public, v1 only adds).
 
 ## When X changes, update Y
 
 | Change | Update |
 |---|---|
 | New check route | `responses=check_responses(...)`, `tags`, request/response examples, add to `tests/auth_helpers.ENDPOINTS`, README "Using the API" |
-| New/renamed field | Docstring, success example, README if shown; renaming is a `/v2` change — flag it |
+| New/renamed field | Docstring, success example, README if shown; renaming or removing a field breaks callers: allowed in `/v1` until the API is public (as ALL-138 and ALL-140 did), a `/v2` change after — flag it either way |
 | New status code or error message | `_error` entry with example; real-response test if the shape is new |
 | Auth change | `DESCRIPTION` Authentication, 401/503 entries, README |
 | Default preset / threshold change | Threshold docstrings, success example arithmetic (derive from code) |
