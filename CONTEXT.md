@@ -50,7 +50,7 @@ _Avoid_: hallucination, inaccuracy, accuracy error
 
 **Finding**:
 One omission or commission, as a check reports it. The term is broader than either on purpose, so a future pipeline that runs both checks together can return both kinds in one list.
-_Avoid_: issue, problem (issue also means a tracker issue)
+_Avoid_: issue (an issue is also a tracker ticket)
 
 **Claim**:
 A single checkable statement the summary makes, with a quote from the summary as its evidence. Its counterpart on the source side is a fact.

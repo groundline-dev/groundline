@@ -56,12 +56,17 @@ class Counts(ApiModel):
     total: int
     """Facts found in the source."""
     present: int
+    """Facts the summary fully records."""
     partial: int
+    """Facts the summary only partly records."""
     absent: int
+    """Facts the summary leaves out."""
 
 
 class OmissionsMetadata(Metadata[OmissionsAlarm]):
     counts: Counts
+    """How many of the source's facts the summary records, fully, partly or not at
+    all."""
 
 
 class OmissionsResponse(CheckResponse[Literal["omissions"], OmissionsMetadata]):
@@ -143,23 +148,25 @@ async def omissions(
 
 
 def _response(result: EvaluationResult) -> OmissionsResponse:
-    score = result.run.output("score", ScoreOutput)
-    facts = {fact.id: fact for fact in result.run.output("rank", RankOutput).facts}
+    scored = result.run.output("score", ScoreOutput)
+    ranked_facts = {f.id: f for f in result.run.output("rank", RankOutput).facts}
     alarm = result.run.output(ALARM_STEP, AlarmOutput)
     return OmissionsResponse(
         evaluation_type="omissions",
         flagged=alarm.flagged,
         score=alarm.rescaled_score,
-        findings=[omission_finding(m, facts[m.id]) for m in score.missing_facts],
+        findings=[
+            omission_finding(m, ranked_facts[m.id]) for m in scored.missing_facts
+        ],
         usage=usage_of(result),
         metadata=OmissionsMetadata(
             pipeline=result.pipeline,
             alarm=alarm_of(alarm, OmissionsAlarm),
             counts=Counts(
-                total=score.total,
-                present=score.present,
-                partial=score.partial,
-                absent=score.absent,
+                total=scored.total,
+                present=scored.present,
+                partial=scored.partial,
+                absent=scored.absent,
             ),
         ),
     )

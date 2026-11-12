@@ -313,6 +313,8 @@ class Metadata[A: Alarm](ApiModel):
     """The pipeline that ran. It is a validated preset, whose measured results
     apply to this run."""
     alarm: A
+    """The alarm score, the threshold it was compared with, and the threshold
+    level. The summary is flagged when the alarm score reaches the threshold."""
 
 
 class CheckResponse[E: str, M: ApiModel](ApiModel):
@@ -331,6 +333,8 @@ class CheckResponse[E: str, M: ApiModel](ApiModel):
     usage: Usage
     """The model calls the check made, and what they cost."""
     metadata: M
+    """What ran and how the flag was decided: the pipeline and the alarm, plus any
+    entries specific to the check."""
 
 
 def model_client() -> ModelClient | None:
