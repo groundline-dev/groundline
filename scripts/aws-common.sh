@@ -608,3 +608,17 @@ plan_and_apply() {
   doing "Making the changes"
   terraform -chdir=infra apply -input=false "$plan"
 }
+
+# Read a required output; Terraform can succeed with an empty value.
+output() {
+  local value
+  value="$(terraform -chdir=infra output -raw "$1")" && [ -n "$value" ] \
+    || fail "no $1 in the Terraform state for $(project_label): run make aws-up first"
+  printf '%s' "$value"
+}
+
+# Format successful checker output without changing machine-readable Python output.
+check_results() {
+  local result
+  while IFS= read -r result; do check_ok "$result"; done
+}

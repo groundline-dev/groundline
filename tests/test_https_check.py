@@ -67,7 +67,7 @@ def test_probe_distinguishes_open_ports_network_errors_and_filtering(
 
     tls.__enter__.return_value = tls
     context.wrap_socket.side_effect = wrap_socket
-    responses = [connection] + ([failure] * 6 if failure else [connection])
+    responses = [connection] + ([failure] * 6 if failure else [connection] * 6)
     with (
         patch("scripts.https_check.ssl.create_default_context", return_value=context),
         patch("scripts.https_check.socket.create_connection", side_effect=responses),
@@ -133,3 +133,69 @@ def test_json_mode_keeps_progress_out_of_json(
     captured = capsys.readouterr()
     assert json.loads(captured.out)["sha256"] == "fingerprint"
     assert captured.err == "verified TLS\n"
+
+
+def test_isolation_probes_run_concurrently():
+    import threading
+    from concurrent.futures import ThreadPoolExecutor
+
+    from scripts.https_check import check_port
+
+    barrier = threading.Barrier(6, timeout=5)
+
+    def blocked(*args: object, **kwargs: object):
+        barrier.wait()
+        raise TimeoutError()
+
+    def probe(port: int) -> None:
+        check_port("1.1.1.1", port)
+
+    with patch("scripts.https_check.socket.create_connection", side_effect=blocked):
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            list(pool.map(probe, range(6)))
+
+
+def test_shell_formats_python_output_without_hiding_failures():
+    import subprocess
+    import sys
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parents[1]
+    # Exercise the actual CLI entrypoint and the same shell formatter as aws-smoke.
+    source = (
+        "from scripts import https_check as h; "
+        "h.check=lambda address: print('trusted certificate'); h.main()"
+    )
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            "set -euo pipefail; source scripts/aws-common.sh; "
+            'output="$("$1" -c "$2" https://1.1.1.1 1.1.1.1)"; '
+            'check_results <<<"$output"',
+            "test",
+            sys.executable,
+            source,
+        ],
+        cwd=root,
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert result.stdout == "  ok: trusted certificate\n"
+    failure = subprocess.run(
+        [
+            "bash",
+            "-c",
+            "set -euo pipefail; source scripts/aws-common.sh; "
+            'output="$("$1" -m scripts.https_check http://1.1.1.1 1.1.1.1)"; '
+            'check_results <<<"$output"',
+            "test",
+            sys.executable,
+        ],
+        cwd=root,
+        capture_output=True,
+        text=True,
+    )
+    assert failure.returncode != 0
+    assert "ok:" not in failure.stdout

@@ -80,7 +80,7 @@ If you run the image with your own `docker run`, publish the port on `127.0.0.1`
 
 ## Deploying to AWS
 
-A disposable deployment runs the Compose stack on one EC2 server in your AWS project. New configurations recommend public HTTPS on the server's IPv4, with automatic publicly trusted certificates and no domain required. Existing configurations retain tester-only HTTP unless explicitly changed. Both modes use synthetic test data only and delete the server and its data after eight hours by default. The tools are Terraform, the AWS CLI, `jq`, `uv`, Git and `make`; Docker is installed on the server.
+See the [deployment guide](docs/deploying-to-aws.md) for access modes, prerequisites and the disposable deployment lifecycle.
 
 **1. Once, before your first deployment:** get everything [Before you start](docs/deploying-to-aws.md#before-you-start) lists. The wizard can't do these for you:
 
@@ -160,7 +160,7 @@ Anthropic SDK DEBUG logging includes raw prompts. Privacy assertions capture gro
 
 ## Lint, format and type checks
 
-`make check` runs ruff, pyright in strict mode, the large-file check and the tests, without changing files. CI runs it too, along with the database tests (`make test-db`), the Docker stack check (`make docker-smoke`) and the Terraform checks (`make infra-check`) and local certificate lifecycle checks (`make https-smoke`). `make infra-check` needs Terraform, but no AWS credentials: its tests plan against a mock AWS provider. Run it when you change `infra/`. `make fix` applies ruff's fixes and formatting. Pyright errors need fixing by hand.
+`make check` runs ruff, pyright in strict mode, the large-file check and the tests, without changing files. CI runs it too, along with the database tests (`make test-db`), the Docker stack check (`make docker-smoke`), the Terraform checks (`make infra-check`) and the local certificate lifecycle checks (`make https-smoke`). `make infra-check` needs Terraform, but no AWS credentials: its tests plan against a mock AWS provider. Run it when you change `infra/`. `make fix` applies ruff's fixes and formatting. Pyright errors need fixing by hand.
 
 The `pre-commit` hook runs the same checks on staged files. If ruff fails, run `make fix` and stage the result.
 
@@ -224,3 +224,5 @@ When a new uv minor release comes out (e.g. 0.14):
 2. Update the [Dockerfile](Dockerfile)'s first `FROM` line to the new uv tag and digest. Get the digest with `docker buildx imagetools inspect ghcr.io/astral-sh/uv:<version>-python3.13-trixie-slim`.
 3. Upgrade your uv to a version in the new range: `uv self update 0.14.0` for the standalone installer, or `pip install 'uv>=0.14,<0.15'`. With Homebrew, `brew upgrade` may install a uv past the range; if so, `brew uninstall uv` and use the standalone installer.
 4. Run `make check` and `make docker-smoke`, then push, and tell the team to upgrade too.
+
+`tests/https_smoke.py` is an executable integration harness, invoked by `make https-smoke`, rather than a pytest suite. It lives beside the other Docker smoke harness and uses the runtime Python image pinned in `Dockerfile`.

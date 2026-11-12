@@ -33,12 +33,7 @@ esac
 use_project
 # With nothing deployed, terraform output exits 0 and prints nothing, so an empty
 # value counts as missing too.
-output() {
-  local value
-  value="$(terraform -chdir=infra output -raw "$1")" && [ -n "$value" ] \
-    || fail "no $1 in the Terraform state for $(project_label): run make aws-up first"
-  printf '%s' "$value"
-}
+
 instance="$(output instance_id)"
 app_url="$(output app_url)"
 access_mode="$(deployed_access_mode)"
@@ -46,7 +41,7 @@ curl_protocol=http
 if [ "$access_mode" = https ]; then
   curl_protocol=https
   public_ip="$(output public_ip)"
-  uv run --quiet python scripts/https_check.py "$app_url" "$public_ip" --validate-only \
+  uv run --no-project --quiet python scripts/https_check.py "$app_url" "$public_ip" --validate-only \
     || fail "invalid HTTPS endpoint in Terraform state"
   unset CURL_CA_BUNDLE SSL_CERT_FILE SSL_CERT_DIR
 else
@@ -131,12 +126,13 @@ fi
 if $live; then
   doing "Checking the server, with one call to Claude that costs under a cent"
 else
-  doing "Checking the server, without calling Claude"
+  doing "Checking the server, without calling the model"
 fi
 check_ok "the server answers (GET /health returned 200)"
 if [ "$access_mode" = https ]; then
-  uv run --quiet python scripts/https_check.py "$app_url" "$public_ip" \
-    || fail "HTTPS trust, IP identity, no-SNI or port-isolation check failed"
+  https_output="$(uv run --no-project --quiet python scripts/https_check.py "$app_url" "$public_ip")" \
+    || fail "HTTPS trust, IP identity, no-SNI or port-isolation check failed: $https_output"
+  check_results <<<"$https_output"
 fi
 
 keys_create_output="$(on_server "cd /opt/groundline && docker compose exec -T app groundline keys create --name aws-smoke-test")" \
@@ -180,7 +176,7 @@ expect 422 "the test API key is accepted: the empty request got past the key che
 
 if $live; then
   # The shortest test input: a short transcript and a note with one changed dose.
-  body="$(uv run --quiet python -c '
+  body="$(uv run --no-project --quiet python -c '
 import json
 from tests.commissions_helpers import SUMMARY
 from tests.omission_helpers import SOURCE
