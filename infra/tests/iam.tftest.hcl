@@ -12,6 +12,7 @@ mock_provider "aws" {
 }
 
 variables {
+  access_mode        = "tester_http"
   region             = "eu-north-1"
   deployment_name    = "alice"
   budget_alert_email = "alerts@example.com"

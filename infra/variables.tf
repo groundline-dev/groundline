@@ -37,10 +37,11 @@ variable "budget_alert_email" {
 variable "tester_cidr" {
   description = "The one IPv4 address allowed to reach the app, as a /32, such as 203.0.113.7/32."
   type        = string
-  default     = "127.0.0.1/32"
+  default     = null
 
   validation {
     condition = (
+      var.tester_cidr == null ? var.access_mode == "https" :
       can(regex("^(\\d{1,3}\\.){3}\\d{1,3}/32$", var.tester_cidr))
       && can(cidrhost(var.tester_cidr, 0))
     )

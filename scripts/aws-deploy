@@ -51,11 +51,11 @@ GIT_TERMINAL_PROMPT=0 git ls-remote --quiet "$repository_url" HEAD >/dev/null 2>
 # What to call the commit: REF_NAME from make aws-up, REF as given, or the branch checked out.
 ref_name="${REF_NAME:-${REF:-$(git branch --show-current)}}"
 
-tester_cidr=127.0.0.1/32
+tester_args=()
 if [ "$access_mode" = tester_http ]; then
   ip="$(curl --disable --fail --silent --show-error --max-time 10 https://checkip.amazonaws.com | tr -d '[:space:]')" || ip=""
   [[ "$ip" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || fail "couldn't find this computer's public IPv4 address (got '$ip')"
-  tester_cidr="$ip/32"
+  tester_args=(-var "tester_cidr=$ip/32")
   exposure="reachable only from $ip over HTTP"
 else
   exposure="publicly reachable over HTTPS on port 443; API requests require keys"
@@ -87,7 +87,7 @@ init_log="$(terraform -chdir=infra init -input=false 2>&1)" || {
 previous_instance="$(terraform -chdir=infra output -raw instance_id 2>/dev/null || true)"
 
 plan_and_apply "nothing to change: the server already runs ${commit:0:7}, $exposure." \
-  -var "region=$region" -var "tester_cidr=$tester_cidr" -var "git_ref=$commit" \
+  -var "region=$region" ${tester_args[@]+"${tester_args[@]}"} -var "git_ref=$commit" \
   -var "access_mode=$access_mode" \
   -var "repository_url=$repository_url"
 

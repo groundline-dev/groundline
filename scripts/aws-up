@@ -129,18 +129,14 @@ if [ -n "$instance" ] \
   running_ref="$(terraform -chdir=infra output -raw git_ref 2>/dev/null || true)"
   running_repository="$(terraform -chdir=infra output -raw repository_url 2>/dev/null || true)"
   echo
-  echo "Your test deployment $name is already running in $project."
+  echo "Your deployment $name is already running in $project."
   [ -z "$running_ref" ] || bullet "It runs ${running_ref:0:7}, from $running_repository."
   bullet "It costs money until make aws-destroy, or until it terminates itself."
   bullet "Deploying other code replaces it, and deletes its data."
   if [ -n "$running_ref" ] && confirm "Keep your running server and check it?"; then
     keep=yes
     running_mode="$(deployed_access_mode)"
-    # The commit has to be here for make aws-deploy to check it.
-    git cat-file -e "$running_ref^{commit}" 2>/dev/null \
-      || git fetch --quiet "$running_repository" "$running_ref"
-    REF="$running_ref" REF_NAME="" REPOSITORY_URL="$running_repository"
-    export REPOSITORY_URL
+    REF="$running_ref" REF_NAME=""
     answer_ok "keeping $instance, running ${running_ref:0:7} in $running_mode mode"
     if [ "$access_mode" != "$running_mode" ]; then
       answer_warn "saved mode $access_mode differs; keeping this server preserves $running_mode. To apply settings, choose a new deployment next time."
@@ -271,7 +267,7 @@ fi
 
 step "Step 3 of 3: check the server"
 echo "A new server takes about 5 to 10 minutes to start. Then a few requests check"
-echo "that it works, without calling Claude."
+echo "that it works, without calling the model."
 scripts/aws-smoke-test
 
 what_next

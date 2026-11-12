@@ -146,8 +146,12 @@ _Avoid_: install, instance, environment, stack (instance and stack name the clou
 
 **Disposable deployment**:
 A deployment intended for temporary use, whose data and API keys are discarded when it is replaced or removed. It may serve callers beyond its creator; a test deployment is the restricted internal kind.
-_Avoid_: lasting deployment, staging (a staging deployment lasts)
+_Avoid_: staging (a staging deployment lasts)
 
 **Test deployment**:
 A disposable deployment a developer creates to try one commit, for internal testing only and never for customers, reachable only from their own computer. Its server and data are deleted when the developer is done, or at a deadline they can extend.
 _Avoid_: test server, dev server, staging (a staging deployment serves callers and lasts)
+
+**Access mode**:
+Who can reach a deployment and whether their connection is encrypted. A disposable deployment can allow public encrypted access or restrict plaintext access to its tester.
+_Avoid_: deployment mode, network mode

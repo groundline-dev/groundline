@@ -2,4 +2,4 @@
 # Local-only Caddy/Pebble test; no AWS, Claude, or public certificate authority.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-uv run python -m tests.https_smoke
+uv run --no-project python -m tests.https_smoke

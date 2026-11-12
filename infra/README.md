@@ -11,7 +11,7 @@ This folder holds Terraform for disposable groundline deployments on one EC2 ins
 
 ## Why each setting is what it is
 
-A test deployment holds only test data ([ADR 0006](../docs/adr/0006-no-real-patient-data-before-production.md)) and is meant to be thrown away. Both access modes preserve the disposable lifecycle and existing secret boundaries.
+A disposable deployment holds only synthetic test data ([ADR 0006](../docs/adr/0006-no-real-patient-data-before-production.md)) and is meant to be thrown away. Both access modes preserve the disposable lifecycle and existing secret boundaries.
 
 - **The default VPC:** every new AWS project has one, so a developer doesn't need to create or pay for a network. If someone deleted theirs, `aws ec2 create-default-vpc` brings it back.
 - **One explicit access mode:** `tester_http` retains TCP 8001 from one `/32`; `https` exposes only TCP 443 to IPv4 callers. Terraform defaults to the former for old configurations, while new wizard configurations recommend and save HTTPS. The ingress resource retains its address. The security group's historical description is kept to avoid replacing it on an unchanged HTTP upgrade; the ingress rule description identifies the actual mode.
@@ -44,7 +44,7 @@ The server costs about $0.024 an hour in us-east-1, about $17 a month: $0.0168 f
 
 ## State
 
-Terraform state stays in this folder (`terraform.tfstate`, which git ignores). There's no backend and no locking, since each deployment has one owner and is disposable. As a result, only the clone that created a server can update or destroy it. If test deployments ever need a second owner, such as a shared staging server, we can move state to S3 with a backend block and `terraform init -migrate-state`. `tests/test_infra.py` fails on a backend block, so that test changes too.
+Terraform state stays in this folder (`terraform.tfstate`, which git ignores). There's no backend and no locking, since each deployment has one owner and is disposable. As a result, only the clone that created a server can update or destroy it. If deployments ever need a second owner, such as a shared staging server, we can move state to S3 with a backend block and `terraform init -migrate-state`. `tests/test_infra.py` fails on a backend block, so that test changes too.
 
 ## Tests
 
@@ -57,13 +57,16 @@ Terraform state stays in this folder (`terraform.tfstate`, which git ignores). T
 
 The mock provider doesn't apply `default_tags` and can't list every resource of a kind, so [tests/test_infra.py](../tests/test_infra.py), which `make check` runs, reads the files instead. Among other things, it checks that every resource is tagged, that no Region or backend is written in, that the role gets no managed policy, that the security group has one inbound rule, and that only the startup script reads the Anthropic API key.
 
-`make https-smoke` runs real Caddy and Pebble in isolated Docker containers: TLS-ALPN IP issuance, NAT/no-SNI selection, trust/identity rejection, retained certificates on restart, automatic renewal with a changed served fingerprint, a response after 125 seconds of silence, and CA-outage expiry/recovery. Only the fixture trusts its test root; it never contacts a public CA. It removes its containers/network/volume on completion. CI runs it separately. This proves the lifecycle, not public trust: `make aws-smoke` must still pass against a fresh EC2 endpoint with ordinary trust stores.
+`make https-smoke` runs real Caddy and Pebble in isolated Docker containers: TLS-ALPN IP issuance, NAT/no-SNI selection, trust/identity rejection, retained certificates on restart, automatic renewal with a changed served fingerprint, a response after 125 seconds of silence, and CA-outage expiry/recovery. Only the fixture trusts its test root; it never contacts a public CA. It removes its containers, network and volume on completion. CI runs it separately. This proves the lifecycle, not public trust: `make aws-smoke` must still pass against a fresh EC2 endpoint with ordinary trust stores.
 
 `tests/test_https_bootstrap.py` executes the renderer against fake IMDS responses. `tests/test_aws_access_modes.py` exercises first setup, remembered and missing modes, invalid settings, cancellation and keeping an existing server. These tests reach no AWS services.
 
 ### Repeatable HTTPS lifecycle checks
 
 Use `make aws-https-smoke` on an existing HTTPS deployment. `RESTART=caddy` adds a confirmed proxy restart; `RESTART=host` additionally reboots EC2. The orchestration lives in `scripts/aws-https-smoke-test`, reuses `aws-smoke-test`, and obtains structured TLS evidence through `scripts/https_check.py --json`. Its bounded SSM path is in `scripts/aws-common.sh`. `tests/test_aws_https_smoke.py` covers target/preflight failures, cancellation, recovery, boot identity, certificate storage and expiry without reaching AWS. See the [operator guide](../docs/deploying-to-aws.md#testing-https-restart-recovery) for interruption and timeout behavior.
+
+The command records the certificate fingerprint and the named certificate volume's identity/creation time. It checks recovery for up to five minutes after restarting Caddy, or ten minutes after requesting an EC2 reboot. SSM probes and individual network calls have their own limits, so a final in-flight probe can finish just after that recovery window. The host check requires a changed boot ID, successful public-IP discovery before Docker startup, unchanged expiry and retained certificate storage. Full smoke checks run again after each recovery, with shorter readiness/request timeouts and no Claude calls. Temporary-key revocation failure makes the run fail.
+
 
 ### Testing `make aws-up`
 
@@ -105,3 +108,7 @@ After changing the wizard or the scripts it runs, test it as a new developer wou
    ```
 
 [tests/test_aws_scripts.py](../tests/test_aws_scripts.py) runs the smoke test, status, reset-deadline and destroy scripts against stand-in `aws` and `terraform` commands, with additional wizard and deploy coverage in `tests/test_aws_access_modes.py`; `aws-key` still needs a live check, and only this run shows what a person sees.
+
+The public-IP endpoint decision is recorded in [ADR 0014](../docs/adr/0014-public-ip-https-endpoints.md). Restart recovery, boot-time IP discovery and local certificate lifecycle checks validate that HTTPS remains usable across routine restarts and certificate expiry; they do not add a lasting deployment lifecycle.
+
+HTTPS uses a dedicated Docker proxy subnet, `172.30.254.0/29`, with Caddy at `172.30.254.2`. The app trusts forwarded headers only from that address. If this subnet conflicts with host routing, change the subnet, Caddy address and trusted address together before deploying. Other app/database traffic remains on the default Compose network.

@@ -20,9 +20,11 @@ PEBBLE = (
     "ghcr.io/letsencrypt/pebble@sha256:"
     "0c81f05db371f436c97fb894bd6d2ab8fc9c8e2ce40f8bef8a8e15941bcd75ef"
 )
-PYTHON = (
-    "python:3.13-slim-trixie@sha256:"
-    "ae14d4ce8771606477a81446e7ef429edd6762305fc50c84507c1041fa8285d1"
+# Reuse the application's pinned runtime image so security updates cannot drift.
+PYTHON = next(
+    line.split()[1]
+    for line in (ROOT / "Dockerfile").read_text().splitlines()
+    if line.startswith("FROM python:")
 )
 
 
@@ -68,7 +70,10 @@ def main() -> None:
     )
     for service in ("app", "postgres"):
         assert not config["services"][service].get("ports"), service
-    assert config["services"]["app"]["environment"]["FORWARDED_ALLOW_IPS"] == "*"
+    assert (
+        config["services"]["app"]["environment"]["FORWARDED_ALLOW_IPS"]
+        == "172.30.254.2"
+    )
     caddy_image = config["services"]["caddy"]["image"]
     assert [p["published"] for p in config["services"]["caddy"]["ports"]] == ["443"]
     assert not config["services"]["caddy"].get("environment")
@@ -140,7 +145,10 @@ class Handler(BaseHTTPRequestHandler):
         if self.path == '/slow': time.sleep(125)
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b'ok')
+        body = b'ok'
+        if self.path == '/client-ip':
+            body = self.headers.get('X-Forwarded-For', '').encode()
+        self.wfile.write(body)
     def log_message(self, *args): pass
 ThreadingHTTPServer(('0.0.0.0', 8000), Handler).serve_forever()
 """
@@ -266,6 +274,12 @@ with socket.create_connection(('{address}', 443), timeout=150) as tcp:
                 "PASS: untrusted certificate and incorrect identity rejected",
                 flush=True,
             )
+            client(f"""import ssl, urllib.request
+ctx = ssl.create_default_context(cafile='/tmp/issuer.pem')
+request = urllib.request.Request('https://{address}/client-ip',
+    headers={{'X-Forwarded-For': '192.0.2.55'}})
+assert urllib.request.urlopen(request, context=ctx).read() != b'192.0.2.55'
+""")
             docker("restart", proxy)
             assert wait_for(lambda: client(connect), "restart recovery") == first
             print("PASS: certificate retained across container restart", flush=True)

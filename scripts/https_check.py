@@ -14,16 +14,15 @@ import os
 import socket
 import ssl
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
-from urllib.parse import urlsplit
 
 
 def endpoint(url: str, public_ip: str) -> str:
     address = ipaddress.IPv4Address(public_ip)
     if not address.is_global:
         raise ValueError("HTTPS requires the instance's public IPv4 address")
-    parsed = urlsplit(url)
-    if url != f"https://{address}" or parsed.hostname != str(address):
+    if url != f"https://{address}":
         raise ValueError("HTTPS URL must be https://<public_ip>, without redirects")
     return str(address)
 
@@ -50,18 +49,16 @@ def check(address: str) -> dict[str, Any]:
             print(
                 f"Trusted IP certificate without SNI; expires {certificate['notAfter']}"
             )
-            print(f"SHA256: {hashlib.sha256(der).hexdigest()}")
+            print(f"SHA256: {evidence['sha256']}")
     # A positive trusted handshake precedes these probes: an unreachable host
     # must not turn every negative connection test into a false pass.
-    for port in (80, 8000, 8001, 5432, 5433, 2019):
-        try:
-            with socket.create_connection((address, port), timeout=3):
-                raise RuntimeError(f"Direct TCP port {port} is reachable")
-        except (TimeoutError, ConnectionRefusedError):
-            continue
-        except OSError as error:
-            if error.errno not in (errno.ETIMEDOUT, errno.ECONNREFUSED):
-                raise
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        list(
+            pool.map(
+                lambda port: check_port(address, port),
+                (80, 8000, 8001, 5432, 5433, 2019),
+            )
+        )
     print("Direct HTTP, app, PostgreSQL and Caddy admin ports are closed or filtered")
     check_redirect(address, context)
     evidence["checks"] = {
@@ -72,6 +69,17 @@ def check(address: str) -> dict[str, Any]:
         "https_redirect": True,
     }
     return evidence
+
+
+def check_port(address: str, port: int) -> None:
+    try:
+        with socket.create_connection((address, port), timeout=3):
+            raise RuntimeError(f"Direct TCP port {port} is reachable")
+    except (TimeoutError, ConnectionRefusedError):
+        return
+    except OSError as error:
+        if error.errno not in (errno.ETIMEDOUT, errno.ECONNREFUSED):
+            raise
 
 
 def check_redirect(address: str, context: ssl.SSLContext) -> None:

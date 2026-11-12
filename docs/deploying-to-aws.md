@@ -6,7 +6,7 @@ The optional `tester_http` mode is a test deployment: only your computer's publi
 
 Both modes are disposable and for synthetic test data only ([ADR 0006](../docs/adr/0006-no-real-patient-data-before-production.md)). HTTPS does not make this a production or lasting deployment. Data and API keys survive container restarts and reboots, but `make aws-destroy`, instance replacement, or the default eight-hour expiry deletes them.
 
-You can deploy to an AWS project of your own or to one you share with teammates, such as the Groundline project. Several developers can share one project, each with their own test deployment, named and tagged after the `deployment_name` in their `infra/terraform.tfvars`.
+You can deploy to an AWS project of your own or to one you share with teammates, such as the groundline project. Several developers can share one project, each with their own disposable deployment, named and tagged after the `deployment_name` in their `infra/terraform.tfvars`.
 
 To change the Terraform or the scripts, see [infra/README.md](../infra/README.md).
 
@@ -14,7 +14,7 @@ To change the Terraform or the scripts, see [infra/README.md](../infra/README.md
 
 You need:
 
-- **An AWS project.** Use one of your own, or ask the Groundline project's owner to invite you to it in AWS Settings. To create a project of your own, open [AWS Settings](https://settings.aws.com), choose Project, then Create project. `make aws-up` can't create one. The first time, `make aws-up` asks you to sign in to the project at the AWS Management Console and copy its Region from there, then opens your browser so you can choose that project's session.
+- **An AWS project.** Use one of your own, or ask the groundline project's owner to invite you to it in AWS Settings. To create a project of your own, open [AWS Settings](https://settings.aws.com), choose Project, then Create project. `make aws-up` can't create one. The first time, `make aws-up` asks you to sign in to the project at the AWS Management Console and copy its Region from there, then opens your browser so you can choose that project's session.
 - **Access in that project to what a deployment creates and checks:**
   - EC2 instances and security groups, in the Region's default VPC
   - an IAM role, its policy and an instance profile, and `iam:PassRole` to give the role to the server
@@ -35,7 +35,7 @@ make aws-destroy   # when you're done
 
 On every run, `make aws-up` asks two questions:
 
-- **Which AWS project to deploy to.** It shows the project you're signed in to, such as `Groundline (123456789012), in us-east-2`. Answer `y` to deploy there, or `n` to choose another. Choosing another, or signing in for the first time, asks you to sign in to the project in the AWS Management Console, then for its Region, and opens your browser, where you choose the project's session. When your sign-in has expired, it names the project's account ID and asks whether to sign in again to that project, which only opens your browser.
+- **Which AWS project to deploy to.** It shows the project you're signed in to, such as `groundline (123456789012), in us-east-2`. Answer `y` to deploy there, or `n` to choose another. Choosing another, or signing in for the first time, asks you to sign in to the project in the AWS Management Console, then for its Region, and opens your browser, where you choose the project's session. When your sign-in has expired, it names the project's account ID and asks whether to sign in again to that project, which only opens your browser.
 - **Which code the server runs:** `main` from groundline-dev/groundline, or your current branch.
 
 If your server is already running in that project, it says which commit it runs and asks whether to keep it. Keeping it preserves its actual access settings and skips deployment, then checks the server. To apply changed settings, decline the keep option; Terraform describes replacements and data loss before asking to proceed.
@@ -55,7 +55,7 @@ It then runs `make aws-deploy` and `make aws-smoke`.
 make aws-up               # set up what's missing, then deploy and check
 make aws-project          # choose the AWS project the other commands act on
 make aws-deploy           # create the server, or update it; says what will change and asks first
-make aws-smoke            # check it from here, without calling Claude
+make aws-smoke            # check it from here, without calling the model
 make aws-smoke-live       # also send one real commission check
 make aws-key              # create an API key for trying requests (REVOKE=<ID> to revoke one)
 make aws-status           # show when it terminates itself
@@ -104,7 +104,7 @@ The deployment name has to be different from everyone else's in the AWS projects
 
 To make model calls, your server needs your Anthropic API key in Parameter Store, as `/groundline/<deployment_name>/anthropic-api-key`. Its IAM role can read only that parameter. Without it, the server still starts and `make aws-smoke` still passes, but every model call fails with 503. `make aws-destroy` deletes the parameter, so each new server needs it stored again.
 
-`make aws-up` stores it for you. It offers `AWS_ANTHROPIC_API_KEY` from your `.env` first, then `ANTHROPIC_API_KEY`, showing each key's last 4 characters before using it, and otherwise asks you to paste one. Set `AWS_ANTHROPIC_API_KEY` to keep a separate key for test deployments next to your everyday one.
+`make aws-up` stores it for you. It offers `AWS_ANTHROPIC_API_KEY` from your `.env` first, then `ANTHROPIC_API_KEY`, showing each key's last 4 characters before using it, and otherwise asks you to paste one. Set `AWS_ANTHROPIC_API_KEY` to keep a separate key for disposable deployments next to your everyday one.
 
 When a key is already stored, `make aws-up` asks whether to keep it. If you answer no, it asks for a new key and overwrites the stored one. The server reads the key only when it starts, so a running server keeps the old key until it's replaced: deploy a different commit, or run `make aws-destroy`, then `make aws-up`.
 
@@ -176,21 +176,33 @@ Each server shuts itself down 8 hours after it first starts, and AWS then termin
 
 Terminating removes only the server and its data. Its security group, IAM role, instance profile and budget stay, and a later deployment with the same `deployment_name` fails until they're gone. `make aws-status` and `make aws-smoke` tell you when the server has terminated: run `make aws-destroy` to remove what's left, or `make aws-deploy` for a new server.
 
+## Switching from HTTP to HTTPS
+
+1. Set `access_mode = "https"` exactly once in `infra/terraform.tfvars`.
+2. Run `make aws-up` and confirm the AWS project containing your HTTP server.
+3. Decline the option to keep the running server: keeping it preserves HTTP.
+4. Select a commit that includes HTTPS support.
+5. Review the replacement plan. **Replacing the server deletes its database and API keys.** Approve only when that loss is acceptable.
+6. Wait for deployment and smoke checks to pass, then use the printed HTTPS URL.
+7. Run `make aws-key` and update the calling application's URL and API key.
+
+HTTPS ingress opens during Terraform apply, before the smoke checks run. Wait for those checks to pass before giving callers the endpoint and API keys; the checks do not gate network access.
+
 ## HTTPS and certificate lifecycle
 
-Caddy terminates TLS on the existing EC2 instance and talks HTTP to Groundline over the same host's private Docker network. Only TCP 443 is open for application requests. The HTTPS Compose override removes the app and PostgreSQL host-port publications. The private app trusts Caddy's forwarded scheme so application redirects stay on HTTPS; Caddy replaces caller-supplied forwarded headers. Port 80, SSH, the Caddy admin API, and direct app/database ports remain closed from the internet.
+Caddy terminates TLS on the existing EC2 instance and talks HTTP to groundline over the same host's private Docker network. Only TCP 443 is open for application requests. The HTTPS Compose override removes the app and PostgreSQL host-port publications. The private app trusts Caddy's forwarded scheme so application redirects stay on HTTPS; Caddy replaces caller-supplied forwarded headers. Port 80, SSH, the Caddy admin API, and direct app/database ports remain closed from the internet.
 
 Caddy uses an explicit Let's Encrypt ACME issuer and the `shortlived` certificate profile. IP certificates last about six days; Caddy obtains, renews and loads replacements automatically. Validation uses TLS-ALPN-01 on 443, so that port must be reachable by the CA. HTTP validation, redirects, and internal-CA fallback are disabled. No Certbot job or manual certificate installation is needed. Clients must use normal certificate verification; do not bypass errors with `-k` or install a private root.
 
 Certificate/account state lives in a separate Docker volume and survives container restarts. The EC2 host reads its public IP through IMDSv2 and renders Caddy's configuration before Docker starts on each boot. If discovery fails, Docker startup fails rather than serving an old address. Caddy's default TLS server name handles clients that omit SNI for IP addresses. No application secrets or Docker socket are mounted into Caddy.
 
-An EC2 stop/start or replacement can change the IP. Host startup updates the certificate target, but callers must update their base URL. To refresh stale Terraform outputs after a stop/start, rerun `make aws-deploy` with the same deployed commit and settings, review the plan and then run `make aws-status`. An Elastic IP can later supply the same address input; this issue does not allocate one, retain disks or add ALL-107's lasting lifecycle. Custom domains are deferred.
+An EC2 stop/start or replacement can change the IP. Host startup updates the certificate target, but callers must update their base URL. To refresh stale Terraform outputs after a stop/start, rerun `make aws-deploy` with the same deployed commit and settings, review the plan and then run `make aws-status`. An Elastic IP can later supply the same address input; disposable deployments do not allocate one or retain disks when replaced or removed. Custom domains are deferred.
 
-First issuance and failed renewals depend on CA availability, network access and rate limits. Leave the Caddy volumes intact when retrying: deleting them can create unnecessary new accounts/orders. Certificate failures never expose an HTTP fallback. Monitor `docker compose logs caddy` through SSM; a running container alone does not prove trusted HTTPS readiness. This issue adds no external expiry alerting (ALL-111).
+First issuance and failed renewals depend on CA availability, network access and rate limits. Leave the Caddy volumes intact when retrying: deleting them can create unnecessary new accounts and orders. Certificate failures never expose an HTTP fallback. Monitor `docker compose logs caddy` through SSM; a running container alone does not prove trusted HTTPS readiness. External certificate-expiry alerts are not provided.
 
 ## Checking the server
 
-`make aws-smoke` waits up to 15 minutes for `/health` to answer 200, showing the time so far. In HTTPS mode it also validates the public certificate chain and exact IP identity without SNI, and probes ports 80, 8000, 8001, 5432, 5433 and 2019 to ensure they are closed or filtered. It verifies that an application redirect remains on HTTPS even if a caller spoofs the forwarded scheme. It then checks that API keys work, without calling Claude. It creates an API key on the server with `groundline keys create`, through SSM Run Command, and sends `POST /v1/omissions` with an empty body twice:
+`make aws-smoke` waits up to 15 minutes for `/health` to answer 200, showing the time so far. In HTTPS mode it also validates the public certificate chain and exact IP identity without SNI, and probes ports 80, 8000, 8001, 5432, 5433 and 2019 to ensure they are closed or filtered. It verifies that an application redirect remains on HTTPS even if a caller spoofs the forwarded scheme. It then checks that API keys work, without calling the model. It creates an API key on the server with `groundline keys create`, through SSM Run Command, and sends `POST /v1/omissions` with an empty body twice:
 
 - With an unknown API key, it expects 401, which shows the server turns away keys it doesn't know.
 - With the new API key, it expects 422. The server checks the API key before the body, so 422, for the empty body's missing fields, shows the API key was accepted. Looking the key up needs Postgres and the migrations, so this also shows they work. The body is rejected before any Claude call, so no Anthropic credit is spent.
@@ -203,7 +215,7 @@ Both smoke tests check only that the server is set up correctly and, for `make a
 
 ## Testing HTTPS restart recovery
 
-`make aws-https-smoke` checks an **existing HTTPS deployment** using the same public trust, IP identity, no-SNI, port isolation, redirect and API-key checks as `make aws-smoke`. It first verifies that the selected account/Region, Terraform instance/IP and AWS instance/IP agree, and that SSM and Caddy metadata are accessible. It does not create or replace a server.
+`make aws-https-smoke` checks an **existing HTTPS deployment** using the same public trust, IP identity, no-SNI, port isolation, redirect and API-key checks as `make aws-smoke`. It first verifies that the selected account and Region, Terraform instance/IP and AWS instance/IP agree, and that SSM and Caddy metadata are accessible. It does not create or replace a server.
 
 ```sh
 make aws-https-smoke                 # no services restarted
@@ -213,7 +225,7 @@ make aws-https-smoke RESTART=host    # Caddy check, then EC2 reboot and recovery
 
 Restart modes interrupt callers and require typing an explicit choice after the baseline checks; Enter or unattended EOF does not approve them. Use them on a disposable deployment or during an appropriate interruption window. Caddy checks require at least 15 minutes before expiry; host checks require at least 25 minutes. The command rechecks remaining time and target identity immediately before each interruption. It never extends the deadline; `make aws-reset-deadline` remains an explicit separate action.
 
-The command records the certificate fingerprint and the named certificate volume's identity/creation time. It checks recovery for up to five minutes after restarting Caddy, or ten minutes after requesting an EC2 reboot. SSM probes and individual network calls have their own limits, so a final in-flight probe can finish just after that recovery window. The host check requires a changed boot ID, successful public-IP discovery before Docker startup, unchanged expiry and retained certificate storage. Full smoke checks run again after each recovery, with shorter readiness/request timeouts and no Claude calls. Temporary-key revocation failure makes the run fail.
+Recovery waits up to five minutes for Caddy and ten minutes for the host. It verifies retained certificate storage and reruns the smoke checks. See the [infrastructure guide](../infra/README.md#repeatable-https-lifecycle-checks) for the metadata and timing checks.
 
 A matching fingerprint proves the same certificate was served after recovery. A different, valid certificate with retained storage is reported separately: this does not prove renewal or establish why the certificate changed. `make https-smoke` remains the automated accelerated renewal test, using a local ACME server. This AWS command never deletes certificates, forces production issuance, stops/starts EC2 to change its address, or tests days-long production renewal.
 
@@ -256,9 +268,9 @@ To try your summary app against a disposable deployment, point its backend at th
 - **API key:** one from `make aws-key`, sent as `Authorization: Bearer <API key>`. It's a groundline API key, separate from the Anthropic API key the server uses.
 - **Settings, not code:** a new server gets a new address, and its API keys go with the old one. Have the app read both from settings, such as `GROUNDLINE_URL` and `GROUNDLINE_API_KEY`, so switching servers doesn't need a code change.
 
-HTTPS mode accepts backend calls from other machines. Keep the API key on that backend. Groundline does not send CORS headers; cross-origin browser calls are outside this issue.
+HTTPS mode accepts backend calls from other machines. Keep the API key on that backend. groundline does not send CORS headers; cross-origin browser calls are not supported.
 
-In `tester_http` mode, only the public IP you deployed from can reach the server; run your app's backend on that computer. This legacy mode sends plaintext and is for internal testing only. Both modes still prohibit real patient notes.
+In `tester_http` mode, only the public IP you deployed from can reach the server; run your app's backend on that computer. This mode sends plaintext and is for internal testing only. Both modes still prohibit real patient notes.
 
 ## Costs
 

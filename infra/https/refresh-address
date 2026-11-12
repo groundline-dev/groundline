@@ -23,6 +23,8 @@ done
 mkdir -p runtime
 temporary="$(mktemp runtime/Caddyfile.XXXXXX)"
 trap 'rm -f "$temporary"' EXIT
+# Render a mounted file rather than a Compose env_file: existing containers
+# retain their creation-time environment across host and container restarts.
 # Only the public address is written here; no application credentials.
 sed 's/{$GROUNDLINE_PUBLIC_IP}/'"$address"'/g' Caddyfile >"$temporary"
 chmod 644 "$temporary"

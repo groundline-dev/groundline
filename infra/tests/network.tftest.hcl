@@ -12,6 +12,7 @@ mock_provider "aws" {
 }
 
 variables {
+  access_mode        = "tester_http"
   region             = "eu-north-1"
   deployment_name    = "alice"
   budget_alert_email = "alerts@example.com"
@@ -75,4 +76,20 @@ run "unknown_access_modes_are_rejected" {
     access_mode = "public_http"
   }
   expect_failures = [var.access_mode]
+}
+
+run "http_requires_a_tester_address" {
+  command = plan
+  variables {
+    tester_cidr = null
+  }
+  expect_failures = [var.tester_cidr]
+}
+
+run "https_needs_no_tester_address" {
+  command = plan
+  variables {
+    access_mode = "https"
+    tester_cidr = null
+  }
 }

@@ -5,13 +5,19 @@ services:
   app:
     ports: !reset []
     environment:
-      # Only the private Docker network reaches this app. Caddy overwrites
+      # Only Caddy's address is trusted. Caddy overwrites
       # client-supplied forwarded headers; trust its scheme for HTTPS redirects.
-      FORWARDED_ALLOW_IPS: "*"
+      FORWARDED_ALLOW_IPS: "172.30.254.2"
+    networks:
+      default:
+      proxy:
   postgres:
     ports: !reset []
   caddy:
     image: caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee
+    networks:
+      proxy:
+        ipv4_address: 172.30.254.2
     ports:
       - "443:443"
     volumes:
@@ -28,3 +34,10 @@ services:
 volumes:
   caddy-data:
   caddy-config:
+
+# Dedicated proxy network gives Uvicorn one stable trusted peer.
+networks:
+  proxy:
+    ipam:
+      config:
+        - subnet: 172.30.254.0/29

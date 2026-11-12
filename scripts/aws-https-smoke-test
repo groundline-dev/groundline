@@ -20,18 +20,13 @@ done
 # Bound SDK retries as well as the per-call and recovery timeouts.
 export AWS_MAX_ATTEMPTS=1
 use_project
-output() {
-  local value
-  value="$(terraform -chdir=infra output -raw "$1")" && [ -n "$value" ] \
-    || fail "missing Terraform output $1: run make aws-up first"
-  printf '%s' "$value"
-}
+
 instance="$(output instance_id)"
 app_url="$(output app_url)"
 public_ip="$(output public_ip)"
 [ "$(output access_mode)" = https ] || fail "this command requires an HTTPS deployment"
 [ "$(output region)" = "$region" ] || fail "the saved deployment Region differs from the selected AWS Region"
-uv run --quiet python scripts/https_check.py "$app_url" "$public_ip" --validate-only
+uv run --no-project --quiet python scripts/https_check.py "$app_url" "$public_ip" --validate-only
 
 check_target() {
   local actual saved
@@ -59,7 +54,7 @@ snapshot_command=$(cat <<'SCRIPT'
 set -eu
 cd /opt/groundline
 cat /proc/sys/kernel/random/boot_id
-if [ -f /var/lib/groundline/terminate-at ]; then cat /var/lib/groundline/terminate-at; else echo none; fi
+if [ -f @DEADLINE_FILE@ ]; then cat @DEADLINE_FILE@; else echo none; fi
 date +%s
 container=$(docker compose ps -q caddy)
 test -n "$container"
@@ -70,6 +65,7 @@ awk '/^[[:space:]]*default_sni / {print $2}' infra/https/runtime/Caddyfile
 systemctl show docker --property=ExecStartPre --value
 SCRIPT
 )
+snapshot_command="${snapshot_command//@DEADLINE_FILE@/$deadline_file}"
 snapshot() {
   local raw
   raw="$(on_server "$snapshot_command" 30)" || return 1
@@ -121,7 +117,7 @@ smoke() {
   GROUNDLINE_SMOKE_WAIT_SECONDS=60 GROUNDLINE_SMOKE_REQUEST_TIMEOUT=30 scripts/aws-smoke-test
 }
 certificate() {
-  uv run --quiet python scripts/https_check.py "$app_url" "$public_ip" --json
+  uv run --no-project --quiet python scripts/https_check.py "$app_url" "$public_ip" --json
 }
 smoke
 if [ "$restart" = none ]; then
@@ -192,7 +188,7 @@ recover caddy "$before" 300
 if [ "$restart" = host ]; then
   check_target || fail "AWS target changed before reboot"
   before="$(snapshot)" || fail "couldn't refresh host metadata before reboot"
-  check_time "$before" 1500
+  check_time "$before" "$minimum"
   doing "Rebooting $instance"
   aws ec2 reboot-instances --region "$region" --instance-ids "$instance" \
     --cli-connect-timeout 3 --cli-read-timeout 5
