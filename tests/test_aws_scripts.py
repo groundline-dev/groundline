@@ -124,6 +124,11 @@ def run(
 ) -> Run:
     """Run the script against the stand-ins, typing answer at its prompts."""
     assert script.is_file(), f"{script.relative_to(ROOT)} is missing"
+    # Scripts cd to their checkout and inspect its Terraform workspaces. Keep
+    # real deployment state out of these offline tests, as in the wizard tests.
+    checkout = tmp_path / "checkout"
+    shutil.copytree(ROOT / "scripts", checkout / "scripts", dirs_exist_ok=True)
+    (checkout / "infra").mkdir(exist_ok=True)
     world_path = tmp_path / "world.json"
     world_path.write_text(json.dumps(world))
     env = {
@@ -157,8 +162,8 @@ raise SystemExit(subprocess.run([{real_curl!r}, *args]).returncode)
     # Unset, so the script counts as the one you ran and prints what_next.
     env.pop("GROUNDLINE_AWS_SCRIPT", None)
     finished = subprocess.run(
-        [str(script), *args],
-        cwd=ROOT,
+        [str(checkout / "scripts" / script.name), *args],
+        cwd=checkout,
         env=env,
         input=answer,
         # One stream, so the output is in the order a terminal shows it.

@@ -11,6 +11,9 @@ services:
     networks:
       default:
       proxy:
+        # The app starts before Caddy. Without its own address Docker may
+        # dynamically give it .2, preventing Caddy from starting.
+        ipv4_address: 172.30.254.3
   postgres:
     ports: !reset []
   caddy:

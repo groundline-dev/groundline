@@ -39,6 +39,68 @@ def docker(*args: str) -> str:
     return command("docker", *args)
 
 
+def check_compose_proxy_addresses(config: dict[str, Any]) -> None:
+    """Exercise production IPAM and service attachments in app-first order.
+
+    The lifecycle fixture below starts containers directly. It cannot catch
+    Compose/Docker dynamically allocating Caddy's trusted address to the app.
+    Only process commands/images are replaced here; network configuration comes
+    from the effective production Compose files, with no published host ports.
+    """
+    project = "groundline-proxy-ipam-" + uuid.uuid4().hex[:10]
+    networks = {
+        name: {key: value for key, value in network.items() if key != "name"}
+        for name, network in config["networks"].items()
+    }
+    fixture = {
+        "services": {
+            service: {
+                "image": PYTHON,
+                "command": ["python", "-c", "import time; time.sleep(3600)"],
+                "networks": config["services"][service]["networks"],
+            }
+            for service in ("app", "caddy")
+        },
+        "networks": networks,
+    }
+    with tempfile.TemporaryDirectory(prefix=project) as directory:
+        path = Path(directory) / "compose.json"
+        path.write_text(json.dumps(fixture))
+        compose = (
+            "compose",
+            "--env-file",
+            "/dev/null",
+            "--project-name",
+            project,
+            "-f",
+            str(path),
+        )
+        try:
+            # Starting app alone forces its IP allocation before Caddy exists.
+            docker(*compose, "up", "-d", "--no-build", "app")
+            docker(*compose, "up", "-d", "--no-build", "caddy")
+            for service, expected in (
+                ("app", "172.30.254.3"),
+                ("caddy", "172.30.254.2"),
+            ):
+                container = docker(*compose, "ps", "-q", service)
+                assert container, f"{service} did not start"
+                state = json.loads(docker("inspect", container))[0]
+                assert state["State"]["Running"], service
+                assert (
+                    state["NetworkSettings"]["Networks"][f"{project}_proxy"][
+                        "IPAddress"
+                    ]
+                    == expected
+                ), service
+        finally:
+            command("docker", *compose, "down", "--remove-orphans", check=False)
+    print(
+        "PASS: Compose starts app before Caddy without claiming its trusted IP",
+        flush=True,
+    )
+
+
 def main() -> None:
     name = "groundline-https-" + uuid.uuid4().hex[:10]
     containers: list[str] = []
@@ -78,6 +140,7 @@ def main() -> None:
     caddy_image = config["services"]["caddy"]["image"]
     assert [p["published"] for p in config["services"]["caddy"]["ports"]] == ["443"]
     assert not config["services"]["caddy"].get("environment")
+    check_compose_proxy_addresses(config)
     docker("network", "create", name)
     try:
         network = json.loads(docker("network", "inspect", name))[0]
