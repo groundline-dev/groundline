@@ -38,7 +38,7 @@ from sqlalchemy import func, insert, or_, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
-from groundline.core.deadline import remaining
+from groundline.core.deadline import raise_if_cancelling, remaining
 from groundline.db import api_keys
 from groundline.settings import read_settings
 
@@ -197,9 +197,7 @@ class APIKeys:
                     )
                     yield connection
         except (SQLAlchemyError, OSError):
-            task = asyncio.current_task()
-            if task is not None and task.cancelling():
-                raise asyncio.CancelledError() from None
+            raise_if_cancelling()
             # Driver messages can contain SQL parameters or database passwords.
             raise APIKeyStorageError("API-key storage is unavailable") from None
 

@@ -6,6 +6,7 @@ import random as randomness
 import time
 from collections.abc import Awaitable, Callable
 
+from groundline.core.deadline import raise_if_cancelling
 from groundline.core.deadline import remaining as check_remaining
 from groundline.core.errors import ModelTimeoutError
 
@@ -41,9 +42,7 @@ async def retry_call[T](
         except Exception as error:
             if boundary.expired() or allowance() <= 0:
                 raise ModelTimeoutError("retry") from None
-            task = asyncio.current_task()
-            if task is not None and task.cancelling():
-                raise asyncio.CancelledError() from None
+            raise_if_cancelling()
             retryable, minimum = decide(error)
             if not retryable or attempt + 1 >= max_attempts:
                 raise

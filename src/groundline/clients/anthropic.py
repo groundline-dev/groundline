@@ -26,6 +26,7 @@ from groundline.core import (
     ModelRefusal,
     ModelReply,
 )
+from groundline.core.deadline import raise_if_cancelling
 from groundline.core.errors import ModelTimeoutError
 from groundline.settings import read_settings
 
@@ -125,9 +126,7 @@ class AnthropicClient:
             except Exception:
                 if boundary.expired():
                     raise ModelTimeoutError("attempt") from None
-                task = asyncio.current_task()
-                if task is not None and task.cancelling():
-                    raise asyncio.CancelledError() from None
+                raise_if_cancelling()
                 raise
             finally:
                 logger.info(

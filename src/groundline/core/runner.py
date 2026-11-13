@@ -21,7 +21,7 @@ from pydantic import BaseModel, ValidationError
 
 from groundline.core.cache import Cache, stable_hash
 from groundline.core.calls import CallRecord, Usage, summarize_usage
-from groundline.core.deadline import remaining
+from groundline.core.deadline import raise_if_cancelling, remaining
 from groundline.core.errors import ModelTimeoutError, SetupError
 from groundline.core.implementation import StageContext
 from groundline.core.inputs import Inputs
@@ -162,9 +162,7 @@ async def run_pipeline(
             error = ModelTimeoutError()
             error.calls = tuple(call for ctx in contexts.values() for call in ctx.calls)
             raise error from None
-        task = asyncio.current_task()
-        if task is not None and task.cancelling():
-            raise asyncio.CancelledError() from None
+        raise_if_cancelling()
         # Report the first failure; the other stages were canceled because of it.
         # Keep its original cause, and hide the task group's wrapper.
         first = failed.exceptions[0]

@@ -9,7 +9,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from groundline.api.errors import AUTHENTICATION_UNAVAILABLE, INVALID_API_KEY
 from groundline.api_keys import APIKeyInfo, APIKeys, valid_api_key_format
-from groundline.core.deadline import remaining
+from groundline.core.deadline import raise_if_cancelling, remaining
 from groundline.settings import read_settings
 
 logger = logging.getLogger("groundline.auth")
@@ -40,9 +40,7 @@ async def require_api_key(
         ):
             info = await keys.authenticate(credentials.credentials)
     except Exception as error:
-        task = asyncio.current_task()
-        if task is not None and task.cancelling():
-            raise asyncio.CancelledError() from None
+        raise_if_cancelling()
         # Even an unexpected error must not put credentials or driver details in
         # an HTTP response or a server traceback. Never log the exception here.
         logger.error("API-key authentication is unavailable: %s", type(error).__name__)
