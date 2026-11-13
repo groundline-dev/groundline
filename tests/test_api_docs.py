@@ -4,7 +4,9 @@ from importlib.metadata import version
 from typing import Any
 
 import pytest
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from openapi_spec_validator import validate
 
 from groundline.api.commissions import CommissionsRequest, CommissionsResponse
 from groundline.api.common import ApiModel, ErrorBody, InvalidRequestBody
@@ -157,3 +159,54 @@ def test_the_503_example_names_the_stages_needing_the_anthropic_key(path: str):
 
     assert "  Needed by: " in detail and "(claude-" in detail
     assert "(no price" not in str(schema["paths"][path]["post"]["responses"]["502"])
+
+
+OPERATION_IDS = {
+    ("post", "/v1/omissions"): "evaluate_omissions",
+    ("post", "/v1/commissions"): "evaluate_commissions",
+    ("get", "/health"): "get_health",
+    ("get", "/ready"): "get_ready",
+}
+"""Each operation ID becomes a method name in the generated SDK, so changing
+one is a breaking change for its users."""
+
+
+def _operations() -> dict[tuple[str, str], dict[str, Any]]:
+    return {
+        (method, path): operation
+        for path, methods in schema["paths"].items()
+        for method, operation in methods.items()
+    }
+
+
+def test_every_route_has_an_explicit_operation_id():
+    """FastAPI invents an ID from the URL when a route sets none, such as
+    omissions_v1_omissions_post. Setting one makes the ID the route's own."""
+    routes = [
+        route
+        for route in app.routes
+        if isinstance(route, APIRoute) and route.include_in_schema
+    ]
+
+    assert routes
+    for route in routes:
+        assert route.operation_id, f"{route.path} has no operation_id"
+
+
+def test_operation_ids_are_the_documented_names_and_unique():
+    ids = {key: operation["operationId"] for key, operation in _operations().items()}
+
+    assert ids == OPERATION_IDS
+    assert len(set(ids.values())) == len(ids)
+
+
+def test_ready_documents_its_503_with_the_error_body():
+    response = _operations()[("get", "/ready")]["responses"]["503"]
+    body = response["content"]["application/json"]["schema"]
+
+    assert response["description"]
+    assert _resolve(body)["title"] == "ErrorBody"
+
+
+def test_the_openapi_file_is_valid():
+    validate(schema)

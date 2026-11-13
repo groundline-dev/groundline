@@ -10,6 +10,7 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from groundline.api import commissions, errors, omissions
+from groundline.api.common import ErrorBody
 from groundline.api_keys import APIKeys
 from groundline.core.errors import SetupError
 from groundline.db import check_connection
@@ -188,14 +189,20 @@ def api_docs(request: Request) -> HTMLResponse:
     )
 
 
-@app.get("/health")
+@app.get("/health", operation_id="get_health")
 def health() -> dict[str, str]:
     """Whether the app is running. It never touches the database, so an outage
     doesn't mark a working app unhealthy in Compose."""
     return {"status": "ok"}
 
 
-@app.get("/ready", responses={503: {"description": "The database isn't answering."}})
+@app.get(
+    "/ready",
+    operation_id="get_ready",
+    responses={
+        503: {"model": ErrorBody, "description": "The database isn't answering."}
+    },
+)
 async def ready(request: Request) -> dict[str, str]:
     """Whether the app can serve requests that need the database."""
     database: _Database | None = getattr(request.app.state, "database", None)
