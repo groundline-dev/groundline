@@ -225,33 +225,72 @@ deployment_name() {
     infra/terraform.tfvars 2>/dev/null | tail -n 1
 }
 
-# Normalize only saved local inputs, never deployed state. Passing the result
-# explicitly to Terraform prevents environment/auto.tfvars from widening access.
-configured_access_mode() {
-  local setting temporary
+# Read one supported literal mode. Status 1 means absent; 2 means invalid.
+# This reader never changes settings or prints an interactive prompt.
+read_access_mode() {
+  local setting
   setting="$(sed -n '/^[[:space:]]*access_mode[[:space:]]*=/p' infra/terraform.tfvars)"
+  [ -n "$setting" ] || return 1
   if [[ "$setting" =~ ^[[:space:]]*access_mode[[:space:]]*=[[:space:]]*\"(restricted|unrestricted)\"[[:space:]]*(#.*)?$ ]]; then
     echo "${BASH_REMATCH[1]}"
-    return
+  else
+    return 2
   fi
+}
+
+save_access_mode() {
+  local mode="$1" temporary
+  case "$mode" in restricted | unrestricted) ;; *) fail "unsupported access mode: $mode" ;; esac
   temporary="$(mktemp infra/terraform.tfvars.XXXXXX)"
-  if ! awk '
+  if ! awk -v mode="$mode" '
     /^[[:space:]]*access_mode[[:space:]]*=/ {
-      if (!written) print "access_mode = \"restricted\""
+      comment=""
+      if (match($0, /"[[:space:]]*#/)) comment=" " substr($0, RSTART + 1)
+      if (!written) print "access_mode = \"" mode "\"" comment
       written=1; next
     }
     { print }
-    END { if (!written) print "access_mode = \"restricted\"" }
+    END { if (!written) print "access_mode = \"" mode "\"" }
   ' infra/terraform.tfvars >"$temporary" || ! mv "$temporary" infra/terraform.tfvars; then
     rm -f "$temporary"
-    fail "could not save the IP-restricted HTTPS default in infra/terraform.tfvars"
+    fail "could not save access_mode in infra/terraform.tfvars"
   fi
-  if [ -z "$setting" ]; then
-    warn 'No access_mode set. Saved the IP-restricted HTTPS default.'
-  else
-    warn 'Unrecognized access_mode. Saved the IP-restricted HTTPS default; HTTP deployments are no longer supported. Changes to a running server require approving and applying a deployment plan.'
-  fi
-  echo restricted
+}
+
+# Direct deployment must not guess at an unrecognized saved setting.
+configured_access_mode() {
+  local mode status=0
+  mode="$(read_access_mode)" || status=$?
+  case "$status" in
+    0) echo "$mode" ;;
+    1)
+      save_access_mode restricted
+      warn 'No access_mode set. Saved the IP-restricted HTTPS default.'
+      echo restricted
+      ;;
+    *) fail 'Unrecognized access_mode. Run make aws-up to choose restricted or unrestricted, or correct infra/terraform.tfvars.' ;;
+  esac
+}
+
+choose_access_mode() {
+  echo "  1) IP-restricted HTTPS for testing from this computer (recommended)"
+  echo "  2) Unrestricted HTTPS for callers from any IP"
+  bullet "Both use automatic certificates; protected API endpoints require API keys."
+  choose "Who may access the HTTPS application? (1 IP-restricted, 2 unrestricted)" 2 1
+  access_mode=restricted
+  [ "$answer" = 1 ] || access_mode=unrestricted
+}
+
+public_ipv4() {
+  local ip octet
+  local octets
+  ip="$(curl --disable --fail --silent --show-error --max-time 10 https://checkip.amazonaws.com | tr -d '[:space:]')" || ip=""
+  [[ "$ip" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || fail "couldn't find this computer's public IPv4 address"
+  IFS=. read -r -a octets <<<"$ip"
+  for octet in "${octets[@]}"; do
+    ((10#$octet <= 255)) || fail "invalid public IPv4 address"
+  done
+  echo "$ip"
 }
 
 # Outputs describe the actual deployed access, independently of local defaults.

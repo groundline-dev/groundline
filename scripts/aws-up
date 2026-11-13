@@ -98,12 +98,7 @@ if [ ! -f infra/terraform.tfvars ]; then
   done
   email="$answer"
   echo
-  echo "  1) IP-restricted HTTPS for testing from this computer (recommended)"
-  echo "  2) Unrestricted HTTPS for callers from any IP"
-  bullet "Both use automatic certificates; protected API endpoints require API keys."
-  choose "Who may access the HTTPS application? (1 IP-restricted, 2 unrestricted)" 2 1
-  access_mode=restricted
-  [ "$answer" = 1 ] || access_mode=unrestricted
+  choose_access_mode
   awk -v name="$name" -v email="$email" -v mode="$access_mode" '
     /^deployment_name[[:space:]]*=/ { print "deployment_name = \"" name "\""; next }
     /^budget_alert_email[[:space:]]*=/ { print "budget_alert_email = \"" email "\""; next }
@@ -113,7 +108,22 @@ if [ ! -f infra/terraform.tfvars ]; then
   answer_ok "wrote infra/terraform.tfvars"
 fi
 name="$(deployment_name)"
-access_mode="$(configured_access_mode)"
+mode_status=0
+access_mode="$(read_access_mode)" || mode_status=$?
+case "$mode_status" in
+  0) ;;
+  1)
+    access_mode=restricted
+    save_access_mode "$access_mode"
+    answer_warn "no access_mode set; saved the IP-restricted HTTPS default"
+    ;;
+  *)
+    answer_warn "the saved access_mode is unrecognized; choose a supported HTTPS access mode"
+    choose_access_mode
+    save_access_mode "$access_mode"
+    answer_ok "saved $access_mode HTTPS access"
+    ;;
+esac
 [ -n "$name" ] || fail "infra/terraform.tfvars has no deployment_name: add one, such as deployment_name = \"alice\""
 
 # --- A server of yours that's already running ---
@@ -142,10 +152,17 @@ if [ -n "$instance" ] \
     echo "  2) Cancel and leave the running server unchanged"
     choose "Review deployment changes? (1 review, 2 cancel)" 2
     [ "$answer" = 1 ] || fail "cancelled: running server unchanged"
-  elif [ -n "$running_ref" ] && confirm "Keep your running server and check it?"; then
-    keep=yes
-    REF="$running_ref" REF_NAME=""
-    answer_ok "keeping $instance, running ${running_ref:0:7} in $running_mode HTTPS mode"
+  else
+    if [ "$running_mode" = restricted ] && [ -n "$running_ref" ]; then
+      current_ip="$(public_ipv4)"
+      allowed_cidr="$(output allowed_cidr)"
+      [ "$current_ip/32" = "$allowed_cidr" ] || fail "this server allows $allowed_cidr, but your current public IP is $current_ip. To update access without replacing the server, run REF=$running_ref make aws-deploy, then make aws-smoke."
+    fi
+    if [ -n "$running_ref" ] && confirm "Keep your running server and check it?"; then
+      keep=yes
+      REF="$running_ref" REF_NAME=""
+      answer_ok "keeping $instance, running ${running_ref:0:7} in $running_mode HTTPS mode"
+    fi
   fi
 fi
 

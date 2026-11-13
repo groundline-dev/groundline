@@ -64,6 +64,7 @@ class FakeApp:
     statuses: dict[str, int] = field(default_factory=lambda: {KEY: 422, "default": 401})
     requests: list[tuple[str, str]] = field(default_factory=lambda: [])
     url: str = ""
+    health_status: int = 200
 
 
 @pytest.fixture
@@ -81,7 +82,7 @@ def app() -> Iterator[FakeApp]:
 
         def do_GET(self) -> None:
             fake.requests.append(("GET", self.path))
-            self.answer(200 if self.path == "/health" else 404)
+            self.answer(fake.health_status if self.path == "/health" else 404)
 
         def do_POST(self) -> None:
             length = int(self.headers.get("Content-Length") or 0)
@@ -643,3 +644,17 @@ def test_failed_key_cleanup_makes_the_smoke_test_fail(app: FakeApp, tmp_path: Pa
     assert "couldn't revoke" in result.output
     assert "all checks passed" not in result.output
     assert KEY not in result.output
+
+
+def test_restricted_health_403_fails_promptly_without_creating_a_key(
+    app: FakeApp, tmp_path: Path
+):
+    app.health_status = 403
+    started = time.monotonic()
+    result = run(SMOKE_TEST, tmp_path, smoke_world(app))
+    assert result.returncode != 0
+    assert "restricted HTTPS denied this source IP (403)" in result.output
+    assert "make aws-deploy" in result.output
+    assert "Waiting for the server" not in result.output
+    assert not result.sent_commands()
+    assert time.monotonic() - started < 15

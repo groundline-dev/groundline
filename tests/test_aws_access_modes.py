@@ -35,7 +35,7 @@ case "$*" in
   *rev-parse*) echo aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa ;;
 esac
 """,
-        "curl": '#!/bin/sh\necho called >>"$CURL_CALLS"\necho 198.51.100.20\n',
+        "curl": '#!/bin/sh\necho called >>"$CURL_CALLS"\necho "$FAKE_PUBLIC_IP"\n',
     }.items():
         tool = checkout / "bin" / name
         if name == "git" and world.get("missing_https"):
@@ -49,6 +49,7 @@ esac
         **fake_env,
         PATH=f"{checkout}/bin:{os.environ['PATH']}",
         CURL_CALLS=str(checkout / "curl-calls"),
+        FAKE_PUBLIC_IP=world.get("tester_ip", "198.51.100.20"),
         AWS_PROFILE="test",
         REPOSITORY_URL="https://github.com/example/groundline.git",
     )
@@ -73,18 +74,7 @@ def settings(checkout: Path, mode: str | None):
     (checkout / "infra/terraform.tfvars").write_text(text)
 
 
-@pytest.mark.parametrize(
-    "mode",
-    [
-        None,
-        "tester_http",
-        "https",
-        "public_http",
-        "unrestricted_typo",
-        "restricted",
-        "unrestricted",
-    ],
-)
+@pytest.mark.parametrize("mode", [None, "restricted", "unrestricted"])
 def test_deploy_defaults_saves_and_discovers_only_the_restricted_tester(
     checkout: Path, mode: str | None
 ):
@@ -103,11 +93,6 @@ def test_deploy_defaults_saves_and_discovers_only_the_restricted_tester(
         f'access_mode = "{effective}"'
         in (checkout / "infra/terraform.tfvars").read_text()
     )
-    assert (
-        "Unrecognized access_mode. Saved the IP-restricted HTTPS default; "
-        "HTTP deployments are no longer supported. Changes to a running server "
-        "require approving and applying a deployment plan." in result.stderr
-    ) == (mode not in (None, "restricted", "unrestricted"))
     result, _ = invoke(checkout, "aws-deploy", world)
     assert result.returncode == 0, result.stderr
     assert "Saved the IP-restricted" not in result.stderr
@@ -159,6 +144,7 @@ def test_keep_requires_matching_mode(
             "git_ref": "a" * 40,
             "repository_url": "https://example.com/repo.git",
             "access_mode": running_mode,
+            "allowed_cidr": "198.51.100.20/32",
         },
         existing={"i-test": "running"},
     )
@@ -218,3 +204,88 @@ def test_failed_access_reload_is_not_success(checkout: Path):
         "Terraform configuration is unchanged" in result.stdout
     )  # Terraform alone was not sufficient
     assert "What next" not in result.stdout
+
+
+@pytest.mark.parametrize("mode", ["tester_http", "https", "unrestriced", "public_http"])
+def test_direct_deploy_rejects_invalid_settings_without_rewriting(
+    checkout: Path, mode: str
+):
+    settings(checkout, mode)
+    original = (checkout / "infra/terraform.tfvars").read_bytes()
+    result, world = invoke(checkout, "aws-deploy", aws_fakes.new_world())
+    assert result.returncode != 0
+    assert "Run make aws-up" in result.stderr
+    assert (checkout / "infra/terraform.tfvars").read_bytes() == original
+    assert not any("plan" in call or "apply" in call for call in world["calls"])
+
+
+@pytest.mark.parametrize("choice,mode", [("1", "restricted"), ("2", "unrestricted")])
+def test_invalid_wizard_mode_requires_selection_and_preserves_comments(
+    checkout: Path, choice: str, mode: str
+):
+    settings(checkout, "unrestriced")
+    path = checkout / "infra/terraform.tfvars"
+    path.write_text(path.read_text().rstrip() + " # keep this comment\n")
+    stub_children(checkout)
+    result, _ = invoke(checkout, "aws-up", aws_fakes.new_world(), f"\n{choice}\n\n")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "unrecognized" in result.stderr
+    assert f'access_mode = "{mode}"' in path.read_text()
+    assert "# keep this comment" in path.read_text()
+    assert 'deployment_name = "alice"' in path.read_text()
+    assert (checkout / "aws-deploy-called").exists()
+
+
+def test_invalid_wizard_eof_preserves_settings_and_does_not_deploy(checkout: Path):
+    settings(checkout, "unrestriced")
+    original = (checkout / "infra/terraform.tfvars").read_bytes()
+    stub_children(checkout)
+    result, world = invoke(checkout, "aws-up", aws_fakes.new_world(), "\n")
+    assert result.returncode != 0
+    assert (checkout / "infra/terraform.tfvars").read_bytes() == original
+    assert not (checkout / "aws-deploy-called").exists()
+    assert not world["commands"]
+
+
+@pytest.mark.parametrize("allowed", ["198.51.100.19/32", "unavailable"])
+def test_changed_or_undiscoverable_ip_stops_before_keep(checkout: Path, allowed: str):
+    settings(checkout, "restricted")
+    stub_children(checkout)
+    world = aws_fakes.new_world(
+        outputs={
+            "instance_id": "i-test",
+            "git_ref": "a" * 40,
+            "access_mode": "restricted",
+            "allowed_cidr": allowed,
+        },
+        existing={"i-test": "running"},
+    )
+    if allowed == "unavailable":
+        # The command is installed by invoke; change its output at the env boundary.
+        world["tester_ip"] = "unavailable"
+    result, world = invoke(checkout, "aws-up", world, "\n\n")
+    assert result.returncode != 0
+    assert "Keep your running server" not in result.stdout
+    assert not (checkout / "aws-deploy-called").exists()
+    assert not (checkout / "aws-smoke-test-called").exists()
+    assert not world["commands"]
+    if allowed == "unavailable":
+        assert "couldn't find" in result.stderr
+    else:
+        assert "REF=" + "a" * 40 + " make aws-deploy" in result.stderr
+
+
+def test_unrestricted_keep_does_not_discover_tester_ip(checkout: Path):
+    settings(checkout, "unrestricted")
+    stub_children(checkout)
+    world = aws_fakes.new_world(
+        outputs={
+            "instance_id": "i-test",
+            "git_ref": "a" * 40,
+            "access_mode": "unrestricted",
+        },
+        existing={"i-test": "running"},
+    )
+    result, _ = invoke(checkout, "aws-up", world, "\n\n")
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not (checkout / "curl-calls").exists()

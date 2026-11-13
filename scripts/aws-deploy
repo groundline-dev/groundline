@@ -55,8 +55,7 @@ ref_name="${REF_NAME:-${REF:-$(git branch --show-current)}}"
 tester_args=()
 allowed_cidr=0.0.0.0/0
 if [ "$access_mode" = restricted ]; then
-  ip="$(curl --disable --fail --silent --show-error --max-time 10 https://checkip.amazonaws.com | tr -d '[:space:]')" || ip=""
-  [[ "$ip" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || fail "couldn't find this computer's public IPv4 address (got '$ip')"
+  ip="$(public_ipv4)"
   allowed_cidr="$ip/32"
   tester_args=(-var "tester_cidr=$allowed_cidr")
   exposure="application accessible only from $ip over HTTPS; TLS 443 stays public for certificate validation"

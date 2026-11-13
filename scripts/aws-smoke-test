@@ -74,7 +74,14 @@ health() {
 # waits up to 10 seconds for an answer. In a terminal, one line shows the time,
 # rewritten each second. Elsewhere, such as in a log, a line a minute says it's
 # still waiting.
-if [ "$(health)" = 200 ]; then
+check_access_response() {
+  if [ "$access_mode" = restricted ] && [ "$1" = 403 ]; then
+    fail "restricted HTTPS denied this source IP (403). Review allowed_cidr and your current network; update the allowed IP with make aws-deploy using the deployed commit, then rerun make aws-smoke."
+  fi
+}
+health_status="$(health)"
+check_access_response "$health_status"
+if [ "$health_status" = 200 ]; then
   echo
   ok "the server has already started"
 else
@@ -94,7 +101,12 @@ else
     if [ -n "$checking" ] && ! kill -0 "$checking" 2>/dev/null; then
       wait "$checking" || true
       checking=""
-      [ "$(cat "$health_file")" = 200 ] && break
+      health_status="$(cat "$health_file")"
+      if [ "$health_status" = 403 ] && [ "$access_mode" = restricted ]; then
+        rm -f "$health_file"
+        check_access_response "$health_status"
+      fi
+      [ "$health_status" = 200 ] && break
     fi
     elapsed=$((SECONDS - started))
     if [ -t 1 ]; then
