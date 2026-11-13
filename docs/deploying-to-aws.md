@@ -41,7 +41,7 @@ On every run, `make aws-up` asks two questions:
 - **Which AWS project to deploy to.** It shows the project you're signed in to, such as `groundline (123456789012), in us-east-2`. Answer `y` to deploy there, or `n` to choose another. Choosing another, or signing in for the first time, asks you to sign in to the project in the AWS Management Console, then for its Region, and opens your browser, where you choose the project's session. When your sign-in has expired, it names the project's account ID and asks whether to sign in again to that project, which only opens your browser.
 - **Which code the server runs:** `main` from groundline-dev/groundline, or your current branch.
 
-If your server is already running in that project, it says which commit it runs and asks whether to keep it. The keep/check option is available only when the deployed access mode matches the saved mode. If they differ, it explains the difference and offers a deployment plan or cancellation. Terraform describes replacement and database/API-key loss before asking to proceed.
+If your server is already running in that project, it says which commit it runs and asks whether to keep it. The option to keep and check the server is available only when the deployed access mode matches the saved mode. If they differ, it explains the difference and offers a deployment plan or cancellation. Terraform describes replacement and loss of the database and API keys before asking to proceed. For a restricted server, a changed public IP stops before the keep prompt and provides an update command targeting the deployed commit; unrestricted keep does not discover a tester IP.
 
 Otherwise, it asks only about what isn't set up yet:
 
@@ -144,7 +144,7 @@ If you deploy to a shared project, use a separate Anthropic API key, created in 
 | `AWS_ANTHROPIC_API_KEY` | `ANTHROPIC_API_KEY` from `.env`, or a key you paste | `.env` ([step 4](#4-store-your-anthropic-api-key)) |
 | `FULL_PLAN` | Off, so only a short plan is shown | `FULL_PLAN=1 make aws-deploy` |
 
-`infra/terraform.tfvars.example` lists the `terraform.tfvars` settings, and `.env.example` lists `AWS_ANTHROPIC_API_KEY` next to the local settings. `make aws-deploy` fills in the rest of Terraform's variables: the Region, the selected mode, the tester IP only for restricted mode, and the commit. The scripts save the restricted HTTPS default for missing or unrecognized mode settings, explaining any correction. They pass the supported mode explicitly, so environment or auto-tfvars overrides cannot silently broaden access. This corrects local settings; it does not change a running server until deployment changes are approved and applied. Calling Terraform directly requires valid input values.
+`infra/terraform.tfvars.example` lists the `terraform.tfvars` settings, and `.env.example` lists `AWS_ANTHROPIC_API_KEY` next to the local settings. `make aws-deploy` fills in the rest of Terraform's variables: the Region, the selected mode, the tester IP only for restricted mode, and the commit. Missing settings are saved as restricted HTTPS. For an unrecognized saved value, `make aws-up` presents the two supported modes and saves your selection; cancellation or EOF preserves the setting. Direct `make aws-deploy` stops with instructions to choose through the wizard or correct the file. Deployment scripts pass the supported mode explicitly, so environment or auto-tfvars overrides cannot silently broaden access. This corrects local settings; it does not change a running server until deployment changes are approved and applied. Calling Terraform directly requires valid input values.
 
 ### Server size
 
@@ -181,7 +181,7 @@ Terminating removes only the server and its data. Its security group, IAM role, 
 
 ## Selecting and switching HTTPS access
 
-1. Set `access_mode = "restricted"` or `"unrestricted"` in `infra/terraform.tfvars`. The wizard uses restricted HTTPS by default. Missing and outdated values are saved as `restricted`; choose unrestricted explicitly if callers use other public IPs.
+1. Set `access_mode = "restricted"` or `"unrestricted"` in `infra/terraform.tfvars`. The wizard uses restricted HTTPS by default. Missing values default to `restricted`; unrecognized values require a choice in the wizard. Choose unrestricted explicitly if callers use other public IPs.
 2. Run `make aws-up` and confirm the AWS project and a commit supporting both HTTPS access modes.
 3. If a running deployment has another access mode, the wizard offers a deployment plan or cancellation instead of keeping it unchanged.
 4. Review the plan. **Switching modes replaces the server and deletes its database and API keys.** Approve only when that loss is acceptable.
@@ -199,7 +199,7 @@ Caddy uses an explicit Let's Encrypt ACME issuer and the `shortlived` certificat
 
 Certificate/account state lives in a separate Docker volume and survives container restarts. The EC2 host reads its public IP through IMDSv2 and renders Caddy's configuration before Docker starts on each boot. The helper also reads the access-mode and allowed-CIDR tags through IMDSv2 and renders the source-IP filter. Missing or invalid metadata blocks Docker startup rather than broadening access. Caddy's default TLS server name handles clients that omit SNI for IP addresses. No application secrets or Docker socket are mounted into Caddy.
 
-An EC2 stop/start or replacement can change the IP. Host startup updates the certificate target, but callers must update their base URL. To refresh stale Terraform outputs after a stop/start, rerun `make aws-deploy` with the same deployed commit and settings, review the plan and then run `make aws-status`. An Elastic IP can later supply the same address input; disposable deployments do not allocate one or retain disks when replaced or removed. Custom domains are deferred.
+An EC2 stop/start or replacement can change the IP. Host startup updates the certificate target, but callers must update their base URL. To refresh stale Terraform outputs after a stop/start, rerun `make aws-deploy` with the same deployed commit and settings, review the plan and then run `make aws-status`. An Elastic IP can later supply the same address input; disposable deployments do not allocate one or retain disks when replaced or removed. These deployments do not configure custom domains.
 
 First issuance and failed renewals depend on CA availability, network access and rate limits. Leave the Caddy volumes intact when retrying: deleting them can create unnecessary new accounts and orders. Certificate failures never expose an HTTP fallback. Monitor `docker compose logs caddy` through SSM; a running container alone does not prove trusted HTTPS readiness. External certificate-expiry alerts are not provided.
 
@@ -271,7 +271,7 @@ SSM keeps each command's output, so anyone who can read your project's Run Comma
 
 To try your summary app against a disposable deployment, point its backend at the server instead of a local groundline:
 
-- **Base URL:** the server's address, such as `https://203.0.113.10` . `make aws-up` prints it under What next, and `make aws-status` shows it too. The app calls `POST <base URL>/v1/omissions` and `POST <base URL>/v1/commissions`, with the same requests and responses as a local server ([README](../README.md#post-v1omissions)). A check may take longer than two minutes; choose an appropriate client timeout. Caddy adds no response timeout or automatic request retries.
+- **Base URL:** the server's address, such as `https://203.0.113.10`. `make aws-up` prints it under What next, and `make aws-status` shows it too. The app calls `POST <base URL>/v1/omissions` and `POST <base URL>/v1/commissions`, with the same requests and responses as a local server ([README](../README.md#post-v1omissions)). A check may take longer than two minutes; choose an appropriate client timeout. Caddy adds no response timeout or automatic request retries.
 - **API key:** one from `make aws-key`, sent as `Authorization: Bearer <API key>`. It's a groundline API key, separate from the Anthropic API key the server uses.
 - **Settings, not code:** a new server gets a new address, and its API keys go with the old one. Have the app read both from settings, such as `GROUNDLINE_URL` and `GROUNDLINE_API_KEY`, so switching servers doesn't need a code change.
 
@@ -286,7 +286,7 @@ The server costs about $0.024 an hour, so one that runs to its 8-hour limit cost
 ## Troubleshooting
 
 - **`make aws-smoke` times out:** it prints the end of the server's startup log (`/var/log/groundline-bootstrap.log`) and the containers' status and logs. A failed startup also leaves `/var/lib/groundline/bootstrap-failed`.
-- **Restricted HTTPS returns 403 from a new network:** your public IP changed. Rerun `make aws-deploy` with the same deployed commit and mode, review the allowed-IP update, then run `make aws-smoke`. The server and data are preserved.
+- **Restricted HTTPS returns 403 from a new network:** smoke checks report the access denial immediately. Your public IP may have changed. Rerun `make aws-deploy` with the same deployed commit and mode, review the allowed-IP update, then run `make aws-smoke`. The server and data are preserved.
 - **`make aws-deploy` fails because a role or budget already exists:** someone else in the AWS project uses the same `deployment_name`. Pick another one in `infra/terraform.tfvars`.
 - **AWS calls that worked start failing with Access Denied:** your project may have reached its spend limit, which pauses it. Check in AWS Settings, under Billing.
 

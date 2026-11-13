@@ -130,6 +130,8 @@ def run(
     checkout = tmp_path / "checkout"
     shutil.copytree(ROOT / "scripts", checkout / "scripts", dirs_exist_ok=True)
     (checkout / "infra").mkdir(exist_ok=True)
+    if world.get("saved_settings"):
+        (checkout / "infra/terraform.tfvars").write_text(world["saved_settings"])
     world_path = tmp_path / "world.json"
     world_path.write_text(json.dumps(world))
     env = {
@@ -676,3 +678,15 @@ def test_smoke_rejects_unsupported_deployed_mode(tmp_path: Path, mode: str):
     assert result.returncode != 0
     assert "unsupported deployed access mode" in result.output
     assert not result.sent_commands()
+
+
+@pytest.mark.parametrize("saved_mode", [None, "tester_http", "https"])
+def test_destroy_uses_unrestricted_validation_without_a_tester_placeholder(
+    tmp_path: Path, saved_mode: str | None
+):
+    saved = f'access_mode = "{saved_mode}"\n' if saved_mode else ""
+    result = run(DESTROY, tmp_path, aws_fakes.new_world(saved_settings=saved))
+    assert result.returncode == 0, result.output
+    plan = next(call for call in result.world["calls"] if "plan" in call)
+    assert "access_mode=unrestricted" in plan
+    assert not any(str(arg).startswith("tester_cidr=") for arg in plan)

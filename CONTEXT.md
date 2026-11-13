@@ -153,5 +153,5 @@ A disposable deployment a developer creates to try one commit, for internal test
 _Avoid_: test server, dev server, staging (a staging deployment serves callers and lasts)
 
 **Access mode**:
-Who may access a deployment's application: callers from the tester's public IP address, or callers without an IP restriction. Both use encrypted connections, and protected API endpoints require API keys in either mode.
+Who may access a deployment's application: restricted limits callers to the developer's public IP address; unrestricted allows callers without an IP restriction.
 _Avoid_: deployment mode, network mode

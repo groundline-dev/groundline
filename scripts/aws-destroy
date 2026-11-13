@@ -34,7 +34,7 @@ echo "Deleting your test deployment in $(project_label)."
 # Destroying doesn't use these values, but Terraform asks for every required
 # variable without a default, and infra/terraform.tfvars may be missing.
 plan_and_apply "nothing to delete: Terraform's state for this project lists no resources." -destroy \
-  -var "region=$region" -var "tester_cidr=127.0.0.1/32" -var "git_ref=unused" -var "access_mode=restricted" \
+  -var "region=$region" -var "git_ref=unused" -var "access_mode=unrestricted" \
   -var "deployment_name=unused" -var "budget_alert_email=unused@example.com"
 
 leftover=0

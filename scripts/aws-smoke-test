@@ -5,7 +5,7 @@
 #     key, and 422 with one created on the server through SSM Run Command. The
 #     server checks the API key before the body, so 422 shows the key was
 #     accepted, which needs the app, Postgres and its migrations. The empty body
-#     is rejected before any Claude call.
+#     is rejected before any model call.
 #   - with --live, one real commission check answers 200 (under a cent)
 #
 # Usage: scripts/aws-smoke-test          (make aws-smoke)
@@ -31,14 +31,10 @@ case "${1:-}" in
 esac
 
 use_project
-# With nothing deployed, terraform output exits 0 and prints nothing, so an empty
-# value counts as missing too.
-
 instance="$(output instance_id)"
 app_url="$(output app_url)"
 access_mode="$(deployed_access_mode)"
 allowed_cidr="$(output allowed_cidr)"
-curl_protocol=https
 public_ip="$(output public_ip)"
 uv run --no-project --quiet python scripts/https_check.py "$app_url" "$public_ip" --validate-only --source-filter "$access_mode" --allowed-cidr "$allowed_cidr" \
   || fail "invalid HTTPS endpoint in Terraform state"
@@ -65,7 +61,7 @@ fi
 
 # health: the status GET /health returns, or 000 if the server doesn't answer.
 health() {
-  curl --disable --proto "=$curl_protocol" --silent --show-error --max-time 10 \
+  curl --disable --proto '=https' --silent --show-error --max-time 10 \
     --output /dev/null --write-out '%{http_code}' "$app_url/health" 2>"$tls_errors" || true
 }
 
@@ -132,7 +128,7 @@ else
 fi
 
 if $live; then
-  doing "Checking the server, with one call to Claude that costs under a cent"
+  doing "Checking the server, with one call to the model that costs under a cent"
 else
   doing "Checking the server, without calling the model"
 fi
@@ -167,7 +163,7 @@ expect() {
   local want="$1" shows="$2" failure="$3" method="$4" path="$5"
   shift 5
   local got
-  got="$(curl --disable --proto "=$curl_protocol" --silent --show-error --max-time "$request_timeout" --output /dev/null --write-out '%{http_code}' \
+  got="$(curl --disable --proto '=https' --silent --show-error --max-time "$request_timeout" --output /dev/null --write-out '%{http_code}' \
     --request "$method" "$@" "$app_url$path" || true)"
   [ "$got" = "$want" ] || fail "$failure ($method $path returned ${got:-nothing}, expected $want)"
   check_ok "$shows"

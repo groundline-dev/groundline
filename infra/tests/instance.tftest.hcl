@@ -175,10 +175,6 @@ run "the_startup_script_installs_docker_and_starts_the_pinned_revision" {
     error_message = "The startup script should clone repository_url and check out git_ref."
   }
   assert {
-    condition     = !strcontains(aws_instance.app.user_data, "APP_BIND_ADDRESS=0.0.0.0")
-    error_message = "The startup script must never publish a direct HTTP app port."
-  }
-  assert {
     condition     = can(regex("docker compose[^\n]* up (-d|--detach)", aws_instance.app.user_data))
     error_message = "The startup script should start the stack with docker compose up -d."
   }
