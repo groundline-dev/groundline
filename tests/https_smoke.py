@@ -7,6 +7,7 @@ than skipping validation. Only this harness trusts its generated test root.
 import ipaddress
 import json
 import os
+import secrets
 import subprocess
 import tempfile
 import time
@@ -39,33 +40,40 @@ def docker(*args: str) -> str:
     return command("docker", *args)
 
 
-def check_compose_proxy_addresses(config: dict[str, Any]) -> None:
-    """Exercise production IPAM and service attachments in app-first order.
+def reserve_proxy_network(name: str, prefix: int) -> ipaddress.IPv4Network:
+    """Reserve a free test subnet atomically, retrying only Docker overlaps."""
+    pool = ipaddress.IPv4Network("172.16.0.0/12")
+    if not pool.prefixlen <= prefix <= 30:
+        raise ValueError("proxy fixture requires a private subnet with usable peers")
+    for _ in range(32):
+        offset = secrets.randbelow(1 << (prefix - pool.prefixlen)) << (32 - prefix)
+        subnet = ipaddress.IPv4Network((int(pool.network_address) + offset, prefix))
+        result = subprocess.run(
+            ["docker", "network", "create", "--subnet", str(subnet), name],
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode == 0:
+            return subnet
+        if "overlap" not in result.stderr.lower():
+            raise RuntimeError(f"cannot reserve proxy fixture network: {result.stderr}")
+    raise RuntimeError("cannot reserve a free proxy fixture subnet after 32 overlaps")
 
-    The lifecycle fixture below starts containers directly. It cannot catch
-    Compose/Docker dynamically allocating Caddy's trusted address to the app.
-    Only process commands/images are replaced here; network configuration comes
-    from the effective production Compose files, with no published host ports.
+
+def check_compose_proxy_addresses(config: dict[str, Any]) -> None:
+    """Exercise app-first allocation using production attachment relationships.
+
+    Docker reserves a free subnet with the production prefix; static addresses
+    retain their production host offsets. Never require or modify the actual
+    production subnet on a developer machine.
     """
     project = "groundline-proxy-ipam-" + uuid.uuid4().hex[:10]
-    networks = {
-        name: {key: value for key, value in network.items() if key != "name"}
-        for name, network in config["networks"].items()
-    }
-    fixture = {
-        "services": {
-            service: {
-                "image": PYTHON,
-                "command": ["python", "-c", "import time; time.sleep(3600)"],
-                "networks": config["services"][service]["networks"],
-            }
-            for service in ("app", "caddy")
-        },
-        "networks": networks,
-    }
+    network_name = project + "-proxy"
+    production = ipaddress.IPv4Network(
+        config["networks"]["proxy"]["ipam"]["config"][0]["subnet"]
+    )
     with tempfile.TemporaryDirectory(prefix=project) as directory:
         path = Path(directory) / "compose.json"
-        path.write_text(json.dumps(fixture))
         compose = (
             "compose",
             "--env-file",
@@ -75,30 +83,58 @@ def check_compose_proxy_addresses(config: dict[str, Any]) -> None:
             "-f",
             str(path),
         )
+        subnet = reserve_proxy_network(network_name, production.prefixlen)
         try:
-            # Starting app alone forces its IP allocation before Caddy exists.
+            networks = {
+                name: {key: value for key, value in network.items() if key != "name"}
+                for name, network in config["networks"].items()
+            }
+            networks["proxy"] = {"external": True, "name": network_name}
+            services: dict[str, Any] = {}
+            for service in ("app", "caddy"):
+                attachments = json.loads(
+                    json.dumps(config["services"][service]["networks"])
+                )
+                original = attachments["proxy"].get("ipv4_address")
+                if original:
+                    address = ipaddress.IPv4Address(original)
+                    if address not in production:
+                        raise ValueError(
+                            f"{service} address is outside production proxy subnet"
+                        )
+                    attachments["proxy"]["ipv4_address"] = str(
+                        subnet.network_address
+                        + (int(address) - int(production.network_address))
+                    )
+                services[service] = {
+                    "image": PYTHON,
+                    "command": ["python", "-c", "import time; time.sleep(3600)"],
+                    "networks": attachments,
+                }
+            path.write_text(json.dumps({"services": services, "networks": networks}))
+            # Force app allocation before Caddy exists, reproducing the old bug.
             docker(*compose, "up", "-d", "--no-build", "app")
             docker(*compose, "up", "-d", "--no-build", "caddy")
-            for service, expected in (
-                ("app", "172.30.254.3"),
-                ("caddy", "172.30.254.2"),
-            ):
+            for service, offset in (("app", 3), ("caddy", 2)):
                 container = docker(*compose, "ps", "-q", service)
                 assert container, f"{service} did not start"
                 state = json.loads(docker("inspect", container))[0]
                 assert state["State"]["Running"], service
-                assert (
-                    state["NetworkSettings"]["Networks"][f"{project}_proxy"][
-                        "IPAddress"
-                    ]
-                    == expected
-                ), service
+                assert state["NetworkSettings"]["Networks"][network_name][
+                    "IPAddress"
+                ] == str(subnet.network_address + offset), service
         finally:
-            command("docker", *compose, "down", "--remove-orphans", check=False)
-    print(
-        "PASS: Compose starts app before Caddy without claiming its trusted IP",
-        flush=True,
-    )
+            command(
+                "docker",
+                *compose,
+                "down",
+                "--timeout",
+                "0",
+                "--remove-orphans",
+                check=False,
+            )
+            docker("network", "rm", network_name)
+    print("PASS: Compose app-first allocation on an isolated test subnet", flush=True)
 
 
 def main() -> None:
@@ -332,7 +368,12 @@ ThreadingHTTPServer(('0.0.0.0', 8000), Handler).serve_forever()
             # Pebble uses the separate forwarder; its peer is deliberately NOT
             # allowed for application access, so challenge validation tests the
             # TLS-versus-application boundary during issuance and renewal.
-            def client(source: str, container: str = allowed_client) -> str:
+            def client(
+                source: str,
+                container: str = allowed_client,
+                *,
+                fixture_trust: bool = False,
+            ) -> str:
                 routing = f"""import socket
 original_connect = socket.create_connection
 def connect(target, *args, **kwargs):
@@ -340,6 +381,11 @@ def connect(target, *args, **kwargs):
     return original_connect(target, *args, **kwargs)
 socket.create_connection = connect
 """
+                if fixture_trust:
+                    routing += (
+                        "import ssl\n"
+                        "ctx = ssl.create_default_context(cafile='/tmp/issuer.pem')\n"
+                    )
                 return docker("exec", container, "python", "-c", routing + source)
 
             # Trust the issuing root from the test CA's authenticated management API.
@@ -379,19 +425,20 @@ with socket.create_connection(('{address}', 443), timeout=150) as tcp:
                 "PASS: untrusted certificate and incorrect identity rejected",
                 flush=True,
             )
-            client(f"""import ssl, urllib.request
-ctx = ssl.create_default_context(cafile='/tmp/issuer.pem')
+            client(
+                f"""import ssl, urllib.request
 request = urllib.request.Request('https://{address}/client-ip',
     headers={{'X-Forwarded-For': '192.0.2.55'}})
 assert urllib.request.urlopen(request, context=ctx).read() != b'192.0.2.55'
-""")
+""",
+                fixture_trust=True,
+            )
 
             def denied(
                 container: str = denied_client, claimed_address: str = allowed_address
             ) -> None:
                 client(
                     f"""import ssl, urllib.request, urllib.error
-ctx = ssl.create_default_context(cafile='/tmp/issuer.pem')
 for path in ('/health', '/docs', '/openapi.json', '/v1/omissions'):
     request = urllib.request.Request('https://{address}' + path,
         data=b'{{}}' if path.startswith('/v1/') else None,
@@ -408,12 +455,12 @@ for path in ('/health', '/docs', '/openapi.json', '/v1/omissions'):
         raise AssertionError('denied source accessed application route')
 """,
                     container,
+                    fixture_trust=True,
                 )
 
             def authentication(container: str = allowed_client) -> None:
                 client(
                     f"""import ssl, urllib.request, urllib.error
-ctx = ssl.create_default_context(cafile='/tmp/issuer.pem')
 for key, status in (('invalid', 401), ('fixture-key', 422)):
     request = urllib.request.Request('https://{address}/v1/omissions', data=b'{{}}',
         headers={{'Authorization': 'Bearer ' + key}})
@@ -422,6 +469,7 @@ for key, status in (('invalid', 401), ('fixture-key', 422)):
     else: raise AssertionError('fixture authentication bypassed')
 """,
                     container,
+                    fixture_trust=True,
                 )
 
             # Install the fixture root only in this disposable test client so
@@ -475,11 +523,13 @@ probe['check_source_filter']('{address}', '{mode}', '{cidr}')
                 "PASS: Caddy renewed and served a new certificate automatically",
                 flush=True,
             )
-            client(f"""import ssl, urllib.request
-ctx = ssl.create_default_context(cafile='/tmp/issuer.pem')
+            client(
+                f"""import ssl, urllib.request
 response = urllib.request.urlopen('https://{address}/slow', context=ctx, timeout=150)
 assert response.read() == b'ok'
-""")
+""",
+                fixture_trust=True,
+            )
             print("PASS: response after 125 seconds of silence", flush=True)
             # A failed renewal must not expose HTTP or mint a locally trusted fallback.
             docker("network", "disconnect", name, ca)
@@ -534,10 +584,10 @@ for port in (80, 8000, 8001, 5432, 5433, 2019):
             )
             client(
                 f"""import ssl, urllib.request
-ctx = ssl.create_default_context(cafile='/tmp/issuer.pem')
 assert urllib.request.urlopen('https://{address}/health', context=ctx).read() == b'ok'
 """,
                 denied_client,
+                fixture_trust=True,
             )
             authentication(denied_client)
             source_probe("unrestricted", "0.0.0.0/0")
