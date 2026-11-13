@@ -319,11 +319,21 @@ def check_failures() -> Generator[None]:
         logger.warning("can't check: %s", error.api_message())
         raise HTTPException(503, detail=error.api_message()) from error
     except ModelTimeoutError as error:
-        raise HTTPException(504, detail=f"{error}{_spent(error)}") from None
+        spent = _spent(error)
+        logger.warning("check timed out (reason=%s)%s", error.reason, spent)
+        raise HTTPException(504, detail=f"{error}{spent}") from None
     except StageError as error:
         spent = _spent(error)
-        cause = type(error.__cause__).__name__
-        logger.warning("stage '%s' failed (%s)%s", error.step, cause, spent)
+        cause = error.__cause__
+        if isinstance(cause, (ModelTimeoutError, anthropic.APITimeoutError)):
+            reason = cause.reason if isinstance(cause, ModelTimeoutError) else "attempt"
+            logger.warning(
+                "stage '%s' timed out (reason=%s)%s", error.step, reason, spent
+            )
+        else:
+            logger.warning(
+                "stage '%s' failed (%s)%s", error.step, type(cause).__name__, spent
+            )
         if not isinstance(error.__cause__, UPSTREAM_CAUSES):
             raise
         status = (

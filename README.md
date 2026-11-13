@@ -254,7 +254,6 @@ Every finished check answers **200, flagged or not** ([ADR 0008](docs/adr/0008-t
 | 500 | An unexpected error, a bug in groundline. Details are in the server log. |
 | 502 | The model or Anthropic's API failed: an unusable reply, a refusal or an outage. `detail` names the step and recorded usage before stopping; for an Anthropic API error it gives only the status and error type. Retrying later may work. |
 | 503 | `ANTHROPIC_API_KEY` is missing or rejected, or settings cannot be read. It's also 503 when authentication is unavailable (missing/unusable `DATABASE_URL`, unavailable storage, or authentication taking more than its default 5 seconds), with `{"detail": "Authentication is unavailable"}`. Model setup errors provide setup guidance, without the path of the server's `.env`. |
-
 | 504 | The whole check, model attempt, or model retry allowance expired. The final stopping reason controls the status: a final model error returns 502 even if an earlier attempt timed out. |
 
 Interrupted model requests can incur charges without returning usage. Error cost reports cover recorded usage only; the provider bill may be higher. A retry near the deadline can consume the remaining allowance and add charges without producing a result. The addition of 504 in v1 is an explicit exception to the status-code versioning policy (ALL-134).

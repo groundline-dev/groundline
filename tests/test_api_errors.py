@@ -2,7 +2,7 @@
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import httpx2
 import pytest
@@ -14,6 +14,8 @@ from groundline.api import common, errors
 from groundline.api.errors import safe_traceback
 from groundline.app import app
 from groundline.clients.anthropic import AnthropicClient
+from groundline.core import CallRecord, StageError
+from groundline.core.errors import ModelTimeoutError
 from tests.anthropic_helpers import api_error
 from tests.auth_helpers import SECRET as API_KEY
 from tests.auth_helpers import Endpoint, FakeKeys
@@ -279,3 +281,48 @@ def test_final_model_stopping_reason_controls_http_status(
             await model.close()
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("reason", ["check", "attempt", "retry"])
+@pytest.mark.parametrize("stage_wrapped", [False, True])
+def test_timeout_logging_names_reason_and_recorded_usage(
+    reason: Literal["check", "attempt", "retry"],
+    stage_wrapped: bool,
+    caplog: pytest.LogCaptureFixture,
+):
+    """Exercise log/HTTP mapping; real deadline enforcement is tested separately."""
+    timeout = ModelTimeoutError(reason)
+    calls = (
+        CallRecord(
+            step="extract",
+            model="claude-opus-5-5",
+            input_tokens=12345,
+            output_tokens=300,
+            seconds=0.3,
+        ),
+    )
+    failure: Exception = timeout
+    if stage_wrapped:
+        stage_error = StageError("extract", str(timeout))
+        stage_error.__cause__ = timeout
+        stage_error.calls = calls
+        failure = stage_error
+    else:
+        timeout.calls = calls
+
+    with caplog.at_level(logging.WARNING, logger="groundline.api"):
+        with pytest.raises(HTTPException) as response:
+            with common.check_failures():
+                raise failure
+    assert response.value.status_code == 504
+    records = [r for r in caplog.records if r.name == "groundline.api"]
+    assert len(records) == 1
+    logged = records[0].getMessage()
+    assert f"reason={reason}" in logged
+    assert "Recorded cost before stopping:" in logged
+    assert "12,345 input / 300 output tokens" in logged
+    if stage_wrapped:
+        assert "stage 'extract'" in logged
+    for secret in (SECRET, API_KEY, PRIVATE):
+        assert secret not in logged + str(response.value.detail)
+    assert records[0].exc_info is None
