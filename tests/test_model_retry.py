@@ -1,17 +1,13 @@
-"""Provider-independent scheduler contract for ALL-134.
-
-retry_call is internal. It accepts an async operation, a decision callback returning
-(retryable, minimum_wait), limits, and injectable clock/sleep/random callables.
-budget_seconds bounds all attempts and waits together, including a hung operation.
-The random source returns a fraction in [0, 1]; no provider exceptions or headers
-belong here. Production code is deliberately not added in the tests session.
-"""
+"""Provider-independent retry scheduling, budgets and cancellation."""
 
 import asyncio
+from collections.abc import Awaitable, Callable
 
 import pytest
 
 from groundline.clients.retry import retry_call
+from groundline.core.errors import ModelTimeoutError
+from tests.async_helpers import finish_before_watchdog
 
 
 class TemporaryFailure(Exception):
@@ -31,6 +27,30 @@ class Clock:
         self.now += seconds
 
 
+async def scheduled[T](
+    operation: Callable[[], Awaitable[T]],
+    clock: Clock,
+    *,
+    attempts: int = 3,
+    budget: float = 120,
+    remaining: float = 120,
+    minimum: float = 0,
+    fraction: float = 0.5,
+) -> T:
+    return await retry_call(
+        operation,
+        decide=lambda error: (True, minimum),
+        max_attempts=attempts,
+        budget_seconds=budget,
+        base_seconds=1,
+        cap_seconds=8,
+        remaining=lambda: remaining,
+        clock=clock.read,
+        sleep=clock.sleep,
+        random=lambda: fraction,
+    )
+
+
 @pytest.mark.parametrize("fraction", [0, 0.25, 1])
 def test_full_jitter_doubles_then_caps(fraction: float):
     clock = Clock()
@@ -43,20 +63,7 @@ def test_full_jitter_doubles_then_caps(fraction: float):
             raise TemporaryFailure()
         return "recovered"
 
-    result = asyncio.run(
-        retry_call(
-            operation,
-            decide=lambda error: (True, 0),
-            max_attempts=8,
-            budget_seconds=120,
-            base_seconds=1,
-            cap_seconds=8,
-            remaining=lambda: 120,
-            clock=clock.read,
-            sleep=clock.sleep,
-            random=lambda: fraction,
-        )
-    )
+    result = asyncio.run(scheduled(operation, clock, attempts=8, fraction=fraction))
     assert result == "recovered"
     assert calls == 8
     assert clock.waits == [fraction * cap for cap in (1, 2, 4, 8, 8, 8, 8)]
@@ -74,20 +81,7 @@ def test_provider_minimum_is_respected(minimum: float):
             raise TemporaryFailure()
         return "ok"
 
-    asyncio.run(
-        retry_call(
-            operation,
-            decide=lambda error: (True, minimum),
-            max_attempts=3,
-            budget_seconds=10,
-            base_seconds=1,
-            cap_seconds=8,
-            remaining=lambda: 10,
-            clock=clock.read,
-            sleep=clock.sleep,
-            random=lambda: 0.5,
-        )
-    )
+    asyncio.run(scheduled(operation, clock, budget=10, remaining=10, minimum=minimum))
     assert len(clock.waits) == 1
     assert clock.waits[0] >= max(minimum, 0.5)
     assert calls == 2
@@ -105,20 +99,7 @@ def test_attempt_limit_includes_original(attempts: int):
         raise failure
 
     with pytest.raises(TemporaryFailure) as error:
-        asyncio.run(
-            retry_call(
-                operation,
-                decide=lambda error: (True, 0),
-                max_attempts=attempts,
-                budget_seconds=120,
-                base_seconds=1,
-                cap_seconds=8,
-                remaining=lambda: 120,
-                clock=clock.read,
-                sleep=clock.sleep,
-                random=lambda: 0.5,
-            )
-        )
+        asyncio.run(scheduled(operation, clock, attempts=attempts))
     assert error.value is failure
     assert calls == attempts
 
@@ -137,17 +118,13 @@ def test_minimum_wait_must_fit_both_allowances(
 
     with pytest.raises(TemporaryFailure):
         asyncio.run(
-            retry_call(
+            scheduled(
                 operation,
-                decide=lambda error: (True, 1),
-                max_attempts=3,
-                budget_seconds=retry_budget,
-                base_seconds=1,
-                cap_seconds=8,
-                remaining=lambda: check_remaining,
-                clock=clock.read,
-                sleep=clock.sleep,
-                random=lambda: 0,
+                clock,
+                budget=retry_budget,
+                remaining=check_remaining,
+                minimum=1,
+                fraction=0,
             )
         )
     assert calls == 1
@@ -164,20 +141,9 @@ def test_call_time_consumes_retry_budget():
         clock.now += 0.75
         raise TemporaryFailure()
 
-    with pytest.raises(Exception):
+    with pytest.raises(TemporaryFailure):
         asyncio.run(
-            retry_call(
-                operation,
-                decide=lambda error: (True, 1),
-                max_attempts=5,
-                budget_seconds=1,
-                base_seconds=1,
-                cap_seconds=8,
-                remaining=lambda: 120,
-                clock=clock.read,
-                sleep=clock.sleep,
-                random=lambda: 0,
-            )
+            scheduled(operation, clock, attempts=5, budget=1, minimum=1, fraction=0)
         )
     assert calls == 1
     assert clock.waits == []
@@ -252,31 +218,24 @@ def test_retry_budget_cancels_hung_operation_without_retry():
             waits.append(seconds)
             await asyncio.sleep(seconds)
 
-        task = asyncio.create_task(
-            retry_call(
-                operation,
-                decide=decide,
-                max_attempts=3,
-                budget_seconds=0.3,
-                base_seconds=1,
-                cap_seconds=8,
-                remaining=lambda: 120,
-                clock=asyncio.get_running_loop().time,
-                sleep=sleep,
-                random=lambda: 0.5,
+        with pytest.raises(ModelTimeoutError) as error:
+            await finish_before_watchdog(
+                retry_call(
+                    operation,
+                    decide=decide,
+                    max_attempts=3,
+                    budget_seconds=0.3,
+                    base_seconds=1,
+                    cap_seconds=8,
+                    remaining=lambda: 120,
+                    clock=asyncio.get_running_loop().time,
+                    sleep=sleep,
+                    random=lambda: 0.5,
+                )
             )
-        )
-        try:
-            done, _ = await asyncio.wait({task}, timeout=3)
-            assert done, "retry budget must cancel a hung operation before the watchdog"
-            # Budget exhaustion is an owned timeout, not external cancellation.
-            with pytest.raises(Exception):
-                task.result()
-            assert calls == cancelled == 1
-            assert decisions == [], "budget exhaustion must bypass retry classification"
-            assert waits == []
-        finally:
-            task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
+        assert error.value.reason == "retry"
+        assert calls == cancelled == 1
+        assert decisions == [], "budget exhaustion must bypass retry classification"
+        assert waits == []
 
     asyncio.run(run())

@@ -14,8 +14,10 @@ from anthropic import DefaultAsyncHttpxClient
 
 from groundline.clients.anthropic import AnthropicClient
 from groundline.core import APIKeyRejectedError, ModelError, ModelRefusal, ModelReply
+from groundline.core.errors import ModelTimeoutError
 from groundline.settings import Settings
 from tests.anthropic_helpers import api_error, message
+from tests.async_helpers import finish_before_watchdog
 
 
 def complete(
@@ -204,7 +206,7 @@ def test_provider_retry_false_vetoes_transient_status(status: int):
             json=api_error("api_error", "private-body"),
         )
 
-    with pytest.raises(Exception):
+    with pytest.raises(anthropic.APIStatusError):
         run_outage_transport(handler)
     assert len(calls) == 1
 
@@ -220,7 +222,7 @@ def test_attempt_setting_counts_original_attempt(
         calls.append(request)
         return httpx2.Response(529, json=api_error("overloaded_error", "private-body"))
 
-    with pytest.raises(Exception):
+    with pytest.raises(anthropic.APIStatusError):
         run_outage_transport(handler)
     assert len(calls) == attempts
 
@@ -268,20 +270,15 @@ def test_retry_after_that_cannot_fit_stops_immediately(headers: dict[str, str]):
             ),
         )
         try:
-            task = asyncio.create_task(
-                client.complete(
-                    "private-prompt",
-                    model="claude-opus-5-5",
-                    effort="medium",
-                    max_tokens=100,
+            with pytest.raises(anthropic.APIStatusError):
+                await finish_before_watchdog(
+                    client.complete(
+                        "private-prompt",
+                        model="claude-opus-5-5",
+                        effort="medium",
+                        max_tokens=100,
+                    )
                 )
-            )
-            done, _ = await asyncio.wait({task}, timeout=3)
-            if not done:
-                task.cancel()
-                await asyncio.gather(task, return_exceptions=True)
-            assert done, "Retry-After cannot fit: must stop without sleeping"
-            assert task.exception() is not None
             assert len(calls) == 1
         finally:
             await client.close()
@@ -342,17 +339,13 @@ def test_actual_hung_transport_is_cancelled_within_attempt_and_retry_budgets(
             ),
         )
         try:
-            task = asyncio.create_task(
-                client.complete(
-                    "a", model="claude-opus-5-5", effort="medium", max_tokens=100
+            with pytest.raises(ModelTimeoutError):
+                await finish_before_watchdog(
+                    client.complete(
+                        "a", model="claude-opus-5-5", effort="medium", max_tokens=100
+                    ),
+                    seconds=4,
                 )
-            )
-            done, _ = await asyncio.wait({task}, timeout=4)
-            if not done:
-                task.cancel()
-                await asyncio.gather(task, return_exceptions=True)
-            assert done, "transport inactivity timeout alone cannot bound a hung call"
-            assert task.exception() is not None
             assert len(calls) == len(cancelled) == expected_attempts
         finally:
             await client.close()

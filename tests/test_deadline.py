@@ -15,7 +15,9 @@ from groundline import evaluate, evaluate_sync, load_preset
 from groundline.api import common
 from groundline.app import app
 from groundline.core import ModelReply
+from groundline.core.errors import ModelTimeoutError
 from groundline.settings import Settings
+from tests.async_helpers import finish_before_watchdog
 from tests.auth_helpers import BODY, HEADERS, FakeKeys
 from tests.fakes import FakeClient
 from tests.omission_helpers import not_flagged_script
@@ -57,13 +59,9 @@ def test_hung_model_is_cancelled_and_answers_safe_504(route: str):
             transport=httpx2.ASGITransport(app=app, raise_app_exceptions=False),
             base_url="http://test",
         ) as http:
-            task = asyncio.create_task(http.post(route, headers=HEADERS, json=BODY))
-            done, _ = await asyncio.wait({task}, timeout=3)
-            if not done:
-                task.cancel()
-                await asyncio.gather(task, return_exceptions=True)
-            assert done, "whole-check deadline must cut off hung model work"
-            response = task.result()
+            response = await finish_before_watchdog(
+                http.post(route, headers=HEADERS, json=BODY)
+            )
             assert response.status_code == 504
             assert set(response.json()) == {"detail"}
             assert BODY["source"] not in response.text
@@ -77,15 +75,10 @@ def test_existing_python_entry_points_bound_caller_supplied_clients(sync: bool):
     model = HungClient()
 
     async def run():
-        task = asyncio.create_task(
-            evaluate("private source", "private summary", client=model)
-        )
-        done, _ = await asyncio.wait({task}, timeout=3)
-        if not done:
-            task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
-        assert done, "evaluate must enforce its own finite deadline"
-        assert task.exception() is not None
+        with pytest.raises(ModelTimeoutError):
+            await finish_before_watchdog(
+                evaluate("private source", "private summary", client=model)
+            )
         assert model.started == model.cancelled == 1
 
     if not sync:
@@ -104,12 +97,8 @@ def test_existing_python_entry_points_bound_caller_supplied_clients(sync: bool):
                     ) from None
 
         model = WatchdogClient()
-        with pytest.raises(Exception) as error:
+        with pytest.raises(ModelTimeoutError):
             evaluate_sync("private source", "private summary", client=model)
-        cause = error.value
-        while cause.__cause__:
-            cause = cause.__cause__
-        assert not isinstance(cause, AssertionError), str(cause)
         assert model.cancelled == 1
 
 
@@ -346,7 +335,6 @@ def test_overlapping_requests_have_independent_deadlines():
 @pytest.mark.parametrize("owner_cancels", [False, True])
 def test_cleanup_failure_preserves_timeout_or_owner_cancellation(owner_cancels: bool):
     """A client's cleanup error must not replace the reason work was stopped."""
-    from groundline.core.errors import ModelTimeoutError
 
     class NoisyClient(HungClient):
         async def complete(self, prompt: str, **kwargs: Any) -> ModelReply:
