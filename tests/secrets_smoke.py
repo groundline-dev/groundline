@@ -14,6 +14,34 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 CHECK = ROOT / "scripts" / "check_secrets.py"
+# Construct a synthetic provider-pattern value; never publish this fixture.
+SYNTHETIC_TOKEN = "ghp_" + "Ab3De6Gh9Jk2Mn5Pq8St1Vw4Yz7Bc0Ef3Hi6"
+
+
+def git(repo: Path, *args: str) -> str:
+    return subprocess.check_output(
+        [
+            "git",
+            "-c",
+            "core.hooksPath=/dev/null",
+            "-c",
+            "user.name=Secret check test",
+            "-c",
+            "user.email=test@example.invalid",
+            *args,
+        ],
+        cwd=repo,
+        text=True,
+    ).strip()
+
+
+def init_repo(repo: Path, *config: str) -> None:
+    """Commit copies of the given repository files to a new Git repository."""
+    git(repo, "init", "-q")
+    for name in config:
+        shutil.copyfile(ROOT / name, repo / name)
+    git(repo, "add", ".")
+    git(repo, "commit", "-qm", "chore: initialize fixture")
 
 
 class SecretChecks(unittest.TestCase):
@@ -21,26 +49,10 @@ class SecretChecks(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(prefix="groundline-secrets-test-")
         self.addCleanup(self.temporary.cleanup)
         self.repo = Path(self.temporary.name)
-        self.git("init", "-q")
-        shutil.copyfile(ROOT / ".gitleaks.toml", self.repo / ".gitleaks.toml")
-        self.git("add", ".")
-        self.git("commit", "-qm", "chore: initialize fixture")
+        init_repo(self.repo, ".gitleaks.toml")
 
     def git(self, *args: str) -> str:
-        return subprocess.check_output(
-            [
-                "git",
-                "-c",
-                "core.hooksPath=/dev/null",
-                "-c",
-                "user.name=Secret check test",
-                "-c",
-                "user.email=test@example.invalid",
-                *args,
-            ],
-            cwd=self.repo,
-            text=True,
-        ).strip()
+        return git(self.repo, *args)
 
     def scan(self, mode: str, expected: int) -> str:
         result = subprocess.run(
@@ -79,20 +91,18 @@ class SecretChecks(unittest.TestCase):
         example.write_text("GITHUB_TOKEN=\n")
         self.git("add", ".env.example")
         self.scan("staged", 0)
-        # Construct a synthetic provider-pattern value; never publish this fixture.
-        synthetic = "ghp_" + "Ab3De6Gh9Jk2Mn5Pq8St1Vw4Yz7Bc0Ef3Hi6"
-        example.write_text(f"GITHUB_TOKEN={synthetic}\n")
+        example.write_text(f"GITHUB_TOKEN={SYNTHETIC_TOKEN}\n")
         self.scan("staged", 0)  # The secret-shaped change is not staged yet.
         output = self.scan("tracked", 1)
-        self.assertNotIn(synthetic, output)
+        self.assertNotIn(SYNTHETIC_TOKEN, output)
         self.git("add", ".env.example")
         output = self.scan("staged", 1)
-        self.assertNotIn(synthetic, output)
+        self.assertNotIn(SYNTHETIC_TOKEN, output)
         self.git("commit", "-qm", "test: synthetic secret")
         self.git("rm", ".env.example")
         self.git("commit", "-qm", "test: remove synthetic secret")
         output = self.scan("history", 1)
-        self.assertNotIn(synthetic, output)
+        self.assertNotIn(SYNTHETIC_TOKEN, output)
 
     def test_secret_introduced_only_by_merge_resolution_is_detected(self) -> None:
         original = self.git("branch", "--show-current")
@@ -105,8 +115,7 @@ class SecretChecks(unittest.TestCase):
         self.git("add", "main.txt")
         self.git("commit", "-qm", "test: main change")
         self.git("merge", "--no-commit", "--no-ff", "topic")
-        synthetic = "ghp_" + "Ab3De6Gh9Jk2Mn5Pq8St1Vw4Yz7Bc0Ef3Hi6"
-        (self.repo / "resolution.txt").write_text(f"GITHUB_TOKEN={synthetic}\n")
+        (self.repo / "resolution.txt").write_text(f"GITHUB_TOKEN={SYNTHETIC_TOKEN}\n")
         self.git("add", "resolution.txt")
         self.git("commit", "-qm", "test: merge-only synthetic secret")
         self.scan("history", 1)
