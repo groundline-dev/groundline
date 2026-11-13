@@ -163,7 +163,8 @@ def test_missing_url_is_helpful_and_help_needs_no_database(command: str):
 
 @pytest.mark.parametrize("command", ["create", "list"])
 def test_unreadable_env_names_the_fix_without_quoting_it(command: str):
-    Path(".env").write_bytes(b"DATABASE_URL=postgresql://gl:\xffsecret@localhost/db")
+    url = b"postgresql://gl:\xffsecret@localhost/db"  # betterleaks:allow (fixture)
+    Path(".env").write_bytes(b"DATABASE_URL=" + url)
     result = runner.invoke(cli.app, ["keys", command])
     assert result.exit_code == 2
     assert "can't read the settings (UnicodeDecodeError)" in result.stderr

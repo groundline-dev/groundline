@@ -64,7 +64,7 @@ def test_a_malformed_url_is_a_setup_error_without_the_password(raw: str, which: 
     [
         "postgresql+psycopg2://gl:pw-secret@localhost/gl",
         "postgresql+asyncpg://gl:pw-secret@localhost/gl",
-        "mysql://gl:pw-secret@localhost/gl",
+        "mysql://gl:pw-secret@localhost/gl",  # betterleaks:allow (fixture)
     ],
 )
 @pytest.mark.parametrize("which", ["DATABASE_URL", "DATABASE_ADMIN_URL"])

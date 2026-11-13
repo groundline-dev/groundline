@@ -76,6 +76,12 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
+    ignore:
+      # Betterleaks v2 drops the --staged and --log-opts flags that
+      # scripts/check_secrets.py uses and changes fingerprints, so upgrading
+      # to it is manual.
+      - dependency-name: "*betterleaks*"
+        update-types: [version-update:semver-major]
     groups:
       minor-and-patch:
         patterns: ["*"]

@@ -13,14 +13,33 @@ env:
   UV_LOCKED: "1"
 
 jobs:
+  secrets:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      # The scanner comes from the pre-commit pin, so CI and commits use the same
+      # release. Caching skips rebuilding it until the pin changes.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+      - name: Test the secret checks with the real scanner
+        run: uv run pre-commit run secrets-smoke --hook-stage manual --all-files
+      - name: Scan full history for secrets
+        run: uv run pre-commit run secrets-history --hook-stage manual --all-files
+
   check:
     runs-on: ubuntu-latest
     # A normal run takes under a minute; stop a hung one well before GitHub's 6-hour default.
     timeout-minutes: 15
     env:
       # Throwaway passwords for the Postgres this job starts and then discards.
-      POSTGRES_PASSWORD: ci-admin-password
-      GROUNDLINE_DB_PASSWORD: ci-app-password
+      POSTGRES_PASSWORD: ci-admin-password # betterleaks:allow
+      GROUNDLINE_DB_PASSWORD: ci-app-password # betterleaks:allow
       DATABASE_ADMIN_URL: postgresql+psycopg://postgres:ci-admin-password@localhost:5433/postgres
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

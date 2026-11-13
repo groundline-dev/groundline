@@ -1,0 +1,46 @@
+# Historical smoke test deliberately sends an invalid value and expects HTTP 401.
+# It is not a groundline API key; reviewed in ALL-100.
+8aad8f879f00c4f52021ea8a717c90c77500d43c:scripts/aws-smoke-test:curl-auth-header:88
+
+# Empty .env.old used only by the closed, unmerged acceptance PR #29.
+# GitHub retains refs/pull/29/head after branch deletion; the blob is zero bytes.
+bfe8044e647b643493d9e7bed0d4c2a6992f9497:.env.old:env-file:0
+
+# Low-confidence generic rules (new in Betterleaks) on placeholders that were
+# reviewed in ALL-100 without printing their values. Current copies carry
+# betterleaks:allow comments.
+
+# CI's throwaway passwords for the Postgres the check job starts and discards.
+53709ee59b2445e107e73c1913f7c81f68031cce:.github/workflows/ci.yml:generic-password:22
+53709ee59b2445e107e73c1913f7c81f68031cce:.github/workflows/ci.yml:generic-password:23
+8f84c18b45832c9934a17eefe6407b1ddc5c9552:.github/workflows/ci.yml:generic-password:22
+8f84c18b45832c9934a17eefe6407b1ddc5c9552:.github/workflows/ci.yml:generic-password:23
+966c978a256311f437a9a4a71ff69f78c0b6ed50:.github/workflows/ci.yml:generic-password:22
+966c978a256311f437a9a4a71ff69f78c0b6ed50:.github/workflows/ci.yml:generic-password:23
+a02b81e509f07a7ba387be4a031021da682046cc:.github/workflows/ci.yml:generic-password:22
+a02b81e509f07a7ba387be4a031021da682046cc:.github/workflows/ci.yml:generic-password:23
+c35ca619dff85a318b6d229e933cd88ea87b186c:.github/workflows/ci.yml:generic-password:22
+c35ca619dff85a318b6d229e933cd88ea87b186c:.github/workflows/ci.yml:generic-password:23
+
+# EXAMPLE_PASSWORD: the public placeholder that db-setup refuses to use.
+44f02b401db3c098302b8d5d1a215b2d2a9f332f:src/groundline/db/setup.py:generic-password:25
+4b1ec76b685a2f47665bf615c51c9b018b486928:src/groundline/db/setup.py:generic-password:26
+4d12d7d9fa6de2e24e172c591d27f0d2b0903675:src/groundline/db/setup.py:generic-password:26
+5a4fe46ae674b8798f234dd57b75aaf4f0ca92e6:src/groundline/db/setup.py:generic-password:26
+7732d0f59d48a0a7ca903bdfbb60a8ffe7efa184:src/groundline/db/setup.py:generic-password:24
+9561dfd703cbc8c78395e6ec045b80244426c36b:src/groundline/db/setup.py:generic-password:26
+dae5d1ba6055bf501450044ee4f27693acffded5:src/groundline/db/setup.py:generic-password:25
+
+# Test fixture URL with a dummy password.
+4b1ec76b685a2f47665bf615c51c9b018b486928:tests/test_db_setup.py:generic-credential-uri:70
+4d12d7d9fa6de2e24e172c591d27f0d2b0903675:tests/test_db_setup.py:generic-credential-uri:70
+5a4fe46ae674b8798f234dd57b75aaf4f0ca92e6:tests/test_db_setup.py:generic-credential-uri:70
+9561dfd703cbc8c78395e6ec045b80244426c36b:tests/test_db_setup.py:generic-credential-uri:70
+f4a5f8c9b7f97e370c5a8c9fc912634bb7fab4dc:tests/test_db_setup.py:generic-credential-uri:70
+
+# Test fixture URL with a dummy password.
+1e4555d7d07607cb32d21a856ca8c84d1facba0d:tests/test_keys_cli.py:generic-credential-uri:166
+2a1f53a23c60a452b40cd22ea012306189df240c:tests/test_keys_cli.py:generic-credential-uri:166
+392c46fa140087c80ee8750830eef8ec9c7a1ec5:tests/test_keys_cli.py:generic-credential-uri:166
+c4877bcc60a50853bae732a57746f2ce0a6f9f78:tests/test_keys_cli.py:generic-credential-uri:166
+d3cb5f013c4d1ce319f221fb9abd2af5075df572:tests/test_keys_cli.py:generic-credential-uri:166
