@@ -201,3 +201,20 @@ def test_attempt_count_must_be_an_integer(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("GROUNDLINE_MODEL_MAX_ATTEMPTS", "2.5")
     with pytest.raises(ValidationError):
         Settings()
+
+
+def test_copying_env_example_preserves_application_timeout_defaults():
+    example = Path(__file__).resolve().parents[1] / ".env.example"
+    Path(".env").write_text(example.read_text())
+    settings = Settings()
+    for name in TIME_SETTINGS:
+        assert getattr(settings, name) == Settings.model_fields[name].default
+
+
+def test_timeout_override_can_use_dotenv_or_environment(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    Path(".env").write_text("GROUNDLINE_CHECK_TIMEOUT_SECONDS=30\n")
+    assert Settings().check_timeout_seconds == 30
+    monkeypatch.setenv("GROUNDLINE_CHECK_TIMEOUT_SECONDS", "60")
+    assert Settings().check_timeout_seconds == 60

@@ -60,10 +60,22 @@ You need [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13 (0.1
 
 ## Timeouts and outage retries
 
-New settings use the `GROUNDLINE_` prefix. Set them in the environment or `.env`;
-existing environment values take precedence. `ANTHROPIC_API_KEY`, `DATABASE_URL`
-and `DATABASE_ADMIN_URL` keep their existing names. Compose forwards each app
-setting explicitly and never forwards the admin credential.
+Timeout and retry defaults live in `src/groundline/settings.py`. No environment
+variables or `.env` entries are needed to use them. The table below documents the
+current defaults; `.env.example` contains commented examples of optional overrides.
+
+To override a value, set its `GROUNDLINE_` variable in the shell or deployment
+environment, or uncomment it in `.env`. Existing environment values take precedence.
+For example, `GROUNDLINE_CHECK_TIMEOUT_SECONDS=180 make dev` changes the check
+limit for that run. The same assignment works with `make docker-run`.
+
+Compose's key-only environment entries forward supplied overrides and omit unset
+ones, so the container uses the same application defaults. It never receives the
+whole `.env` file or the admin credential. `ANTHROPIC_API_KEY`, `DATABASE_URL` and
+`DATABASE_ADMIN_URL` retain their existing names.
+
+If you copied an earlier `.env.example`, comment out or remove timeout/retry entries
+you do not intend to override; existing uncommented values remain explicit overrides.
 
 All durations below are positive finite seconds. Attempts must be a positive
 integer. Defaults require no additional setup.
