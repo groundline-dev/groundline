@@ -38,19 +38,27 @@ _Avoid_: metric, scorer
 
 **Fact**:
 A single point from the source that a complete summary should record, with a quote from the source as its evidence. Its counterpart on the summary side is a claim.
-_Avoid_: item, statement
+_Avoid_: item
 
 **Omission**:
 A fact the summary leaves out or only partly records.
 _Avoid_: gap, miss
 
 **Commission**:
-A statement in the summary that the source doesn't support, whether it contradicts the source or isn't in it at all. A fact recorded wrongly, such as a wrong dose, is a commission; the omission check may also report the correct fact as partial or absent.
+A claim in the summary that the source doesn't support, whether it contradicts the source or isn't in it at all. A fact recorded wrongly, such as a wrong dose, is a commission; the omission check may also report the correct fact as partial or absent.
 _Avoid_: hallucination, inaccuracy, accuracy error
 
+**Finding**:
+One omission or commission, as a check reports it. The term is broader than either on purpose, so a future pipeline that runs both checks together can return both kinds in one list.
+_Avoid_: issue (an issue is also a tracker ticket)
+
 **Claim**:
-A single checkable statement the summary makes, with a quote from the summary as its evidence. Its counterpart on the source side is a fact.
-_Avoid_: fact (that is the source side), item, statement
+A single checkable point the summary makes, with a quote from the summary as its evidence. Its counterpart on the source side is a fact.
+_Avoid_: fact (that is the source side), item
+
+**Statement**:
+The fact or the claim that a finding is about.
+_Avoid_: item
 
 **Support verdict**:
 Whether the source supports a claim: supported, unsupported or contradicted. A claim judged unsupported or contradicted is a commission.
@@ -65,12 +73,16 @@ How much it would matter if a fact were left out of the summary, or a claim in i
 _Avoid_: importance, priority
 
 **Verdict**:
-Whether the summary records a fact: present, partial or absent. It belongs to the omission check; the commission check uses a support verdict.
+The outcome a check reached for one fact or one claim: for a fact, whether the summary records it (present, partial or absent); for a claim, its support verdict. A finding's verdict is partial or absent for an omission, and unsupported or contradicted for a commission.
 _Avoid_: label, status, result
 
 **Missing confidence**:
 How sure the check is that a fact is missing from the summary, from 0 to 1.
 _Avoid_: p_missing, probability, score
+
+**Confidence**:
+How sure the check is of a finding, from 0 to 1: its missing confidence for an omission, its unsupported confidence for a commission.
+_Avoid_: probability, score
 
 **Refute**:
 A second look at facts judged partial or absent, or at claims judged unsupported or contradicted, which can only clear them, and only with a quote verified in the text that would back them up: the summary for a fact, the source for a claim.
