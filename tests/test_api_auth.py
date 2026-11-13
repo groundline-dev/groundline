@@ -8,7 +8,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from groundline.api import common
-from groundline.api.common import MAX_CHARS
 from groundline.api_keys import APIKeyStorageError
 from groundline.app import app
 from tests.auth_helpers import BODY, HEADERS, SECRET, Endpoint, FakeKeys
@@ -161,7 +160,9 @@ def test_invalid_fields_follow_authentication_and_never_call_model(
         "empty": "",
         "blank": " \n ",
         "type": {"text": PRIVATE},
-        "too-long": PRIVATE + "x" * MAX_CHARS,
+        "too-long": PRIVATE
+        + "x"
+        * common.CheckRequest.model_json_schema()["properties"][field]["maxLength"],
     }
     if invalid == "missing":
         del body[field]

@@ -41,6 +41,13 @@ def test_the_docs_show_groundlines_release_and_label_the_api_version():
         assert schema["paths"][path]["post"]["tags"] == ["v1"]
 
 
+def test_version_policy_documents_body_and_timeout_status_exceptions():
+    description = schema["info"]["description"]
+    versions = description.split("### Versions", 1)[1].split("\n### ", 1)[0]
+    assert "413" in versions
+    assert "504" in versions
+
+
 def _resolve(ref: dict[str, Any]) -> dict[str, Any]:
     name = ref["$ref"].removeprefix("#/components/schemas/")
     return schema["components"]["schemas"][name]
@@ -87,7 +94,17 @@ def test_each_score_is_defined_in_the_docs(model: str, field: str, empty_case: s
 def test_each_check_has_a_valid_example_for_every_error(path: str):
     responses = schema["paths"][path]["post"]["responses"]
 
-    assert set(responses) == {"200", "400", "401", "422", "500", "502", "503", "504"}
+    assert set(responses) == {
+        "200",
+        "400",
+        "401",
+        "413",
+        "422",
+        "500",
+        "502",
+        "503",
+        "504",
+    }
     for status, response in responses.items():
         if status == "200":
             continue

@@ -32,6 +32,9 @@ from tests.omission_helpers import (
 http = TestClient(app, headers={"Authorization": f"Bearer {API_KEY}"})
 
 SECRET = "patient is HIV positive and takes tenofovir"
+MAX_SOURCE_CHARS = common.CheckRequest.model_json_schema()["properties"]["source"][
+    "maxLength"
+]
 
 
 @pytest.fixture(autouse=True)
@@ -108,7 +111,7 @@ def test_a_source_with_no_facts_answers_200_with_a_score_of_one():
         check(threshold="moderate"),
         check(source=""),
         check(summary="  \n "),
-        check(source="x" * (common.MAX_CHARS + 1)),
+        check(source="x" * (MAX_SOURCE_CHARS + 1)),
         check(pipeline="custom.yaml"),
         {"source": SOURCE},
     ],
@@ -134,7 +137,10 @@ def test_unusable_input_is_a_422_before_any_call(body: dict[str, object]):
 @pytest.mark.parametrize(
     ("body", "loc"),
     [
-        (check(source=SECRET + "x" * common.MAX_CHARS), ["body", "source"]),
+        (
+            check(source=SECRET + "x" * MAX_SOURCE_CHARS),
+            ["body", "source"],
+        ),
         (check(source={"text": SECRET}), ["body", "source"]),
         (check(notes=SECRET), ["body"]),
         (check(**{SECRET: "x"}), ["body"]),

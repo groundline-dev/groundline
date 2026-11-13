@@ -5,6 +5,7 @@ They never touch the developer's database. They log in with DATABASE_ADMIN_URL
 throwaway login and database for each test module.
 """
 
+import os
 import uuid
 from collections.abc import Iterator
 
@@ -14,6 +15,15 @@ from sqlalchemy import Engine, create_engine, make_url
 from groundline.db import api_keys
 from groundline.db.setup import drop_database, setup_database
 from groundline.settings import Settings
+
+# API limits are loaded while test modules import the app. Keep inherited
+# operator overrides out of the suite; override tests use fresh processes.
+for _limit_name in (
+    "GROUNDLINE_MAX_BODY_BYTES",
+    "GROUNDLINE_MAX_SOURCE_CHARS",
+    "GROUNDLINE_MAX_SUMMARY_CHARS",
+):
+    os.environ.pop(_limit_name, None)
 
 
 @pytest.fixture(scope="session")
