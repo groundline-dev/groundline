@@ -9,7 +9,8 @@ from fastapi.openapi.docs import get_swagger_ui_html
 from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from groundline.api import commissions, errors, omissions
+from groundline.api import commissions, common, errors, omissions
+from groundline.api.limits import BodyLimitMiddleware
 from groundline.api_keys import APIKeys
 from groundline.core.errors import SetupError
 from groundline.db import check_connection
@@ -121,6 +122,12 @@ Both checks need a groundline API key, sent as `Authorization: Bearer gl_...`.
 Create one with `groundline keys create`, then use **Authorize** below.
 `/health` and `/ready` are public.
 
+The body-byte allowance applies to every HTTP path and method, including public
+and unknown routes. A declared oversized body can return **413 Content Too Large**
+before authentication or **404 Not Found** / **405 Method Not Allowed** responses.
+For streamed bodies, the allowance is enforced as the application reads them;
+routes that do not read a body do not buffer it to check its size.
+
 ### Versions
 
 Both checks are under `/v1`. groundline isn't public yet, so v1 can still
@@ -141,11 +148,13 @@ app = FastAPI(
     title="groundline",
     version=version("groundline"),
     description=DESCRIPTION,
+    responses={413: common.FAILURE_RESPONSES[413]},
     openapi_tags=[
         {"name": "v1", "description": "The checks, version 1. Each needs an API key."}
     ],
     lifespan=lifespan,
 )
+app.add_middleware(BodyLimitMiddleware)
 errors.install(app)
 v1 = APIRouter(prefix="/v1", tags=["v1"])
 v1.include_router(omissions.router)

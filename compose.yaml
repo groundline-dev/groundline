@@ -55,6 +55,10 @@ services:
       # The application supplies timeout/retry defaults.
       GROUNDLINE_CHECK_TIMEOUT_SECONDS:
       GROUNDLINE_MODEL_MAX_ATTEMPTS:
+      # Empty values select code defaults; Compose may read overrides from .env.
+      GROUNDLINE_MAX_BODY_BYTES: ${GROUNDLINE_MAX_BODY_BYTES:-}
+      GROUNDLINE_MAX_SOURCE_CHARS: ${GROUNDLINE_MAX_SOURCE_CHARS:-}
+      GROUNDLINE_MAX_SUMMARY_CHARS: ${GROUNDLINE_MAX_SUMMARY_CHARS:-}
       DATABASE_URL: postgresql+psycopg://groundline:${GROUNDLINE_DB_PASSWORD:?set GROUNDLINE_DB_PASSWORD in .env (see .env.example)}@postgres:5432/groundline
     ports:
       # Local development uses loopback port 8001 alongside `make dev` on 8000.

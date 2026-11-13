@@ -41,6 +41,21 @@ def test_the_docs_show_groundlines_release_and_label_the_api_version():
         assert schema["paths"][path]["post"]["tags"] == ["v1"]
 
 
+def test_every_documented_route_has_the_global_body_limit_response():
+    for path, operations in schema["paths"].items():
+        for method, operation in operations.items():
+            response = operation["responses"]["413"]
+            assert "every HTTP path and method" in response["description"], (
+                path,
+                method,
+                response,
+            )
+            example = response["content"]["application/json"]["examples"][
+                "body_too_large"
+            ]
+            ErrorBody.model_validate(example["value"])
+
+
 def _resolve(ref: dict[str, Any]) -> dict[str, Any]:
     name = ref["$ref"].removeprefix("#/components/schemas/")
     return schema["components"]["schemas"][name]
@@ -94,7 +109,17 @@ def test_each_score_is_defined_in_the_docs(model: str, empty_case: str):
 def test_each_check_has_a_valid_example_for_every_error(path: str):
     responses = schema["paths"][path]["post"]["responses"]
 
-    assert set(responses) == {"200", "400", "401", "422", "500", "502", "503", "504"}
+    assert set(responses) == {
+        "200",
+        "400",
+        "401",
+        "413",
+        "422",
+        "500",
+        "502",
+        "503",
+        "504",
+    }
     for status, response in responses.items():
         if status == "200":
             continue

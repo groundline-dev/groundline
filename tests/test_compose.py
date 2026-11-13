@@ -8,7 +8,8 @@ passes:
 - A port is published on every network interface, so other machines on the
   network can reach the app or the database. It should be on 127.0.0.1 only.
 - Postgres lets clients connect without a password.
-- compose.yaml reads a setting that .env.example doesn't list.
+- compose.yaml reads a setting that .env.example doesn't list (the API size
+  limits are left out on purpose).
 - The app container gets the admin password, or misses a setting the app reads.
 
 These tests only read the file, so they don't need Docker.
@@ -112,8 +113,8 @@ def test_the_app_health_check_ignores_the_database(services: dict[str, Any]):
 
 
 @pytest.mark.usefixtures("services")  # fails plainly if compose.yaml is missing
-def test_every_setting_compose_reads_is_in_env_example():
-    names = set(re.findall(r"\$\{(\w+)", COMPOSE.read_text()))
+def test_compose_settings_other_than_api_limits_are_in_env_example():
+    names = set(re.findall(r"\$\{(\w+)", COMPOSE.read_text())) - API_LIMIT_SETTINGS
     documented = ENV_EXAMPLE.read_text()
 
     missing = {
@@ -125,6 +126,11 @@ def test_every_setting_compose_reads_is_in_env_example():
 
 
 ADMIN_ONLY = {"DATABASE_ADMIN_URL", "POSTGRES_PASSWORD"}
+API_LIMIT_SETTINGS = {
+    "GROUNDLINE_MAX_BODY_BYTES",
+    "GROUNDLINE_MAX_SOURCE_CHARS",
+    "GROUNDLINE_MAX_SUMMARY_CHARS",
+}
 
 
 def environment_names(service: dict[str, Any]) -> set[str]:
@@ -188,7 +194,7 @@ def test_deadline_and_retry_overrides_are_optional(services: dict[str, Any], nam
     assert not re.search(rf"^{name}=", example, re.MULTILINE)
 
 
-def test_compose_exposes_only_operator_timeout_and_retry_controls(
+def test_compose_exposes_only_operator_controls(
     services: dict[str, Any],
 ):
     names = {
@@ -196,7 +202,20 @@ def test_compose_exposes_only_operator_timeout_and_retry_controls(
         for name in services["app"]["environment"]
         if name.startswith("GROUNDLINE_")
     }
-    assert names == {
-        "GROUNDLINE_CHECK_TIMEOUT_SECONDS",
-        "GROUNDLINE_MODEL_MAX_ATTEMPTS",
-    }
+    assert (
+        names
+        == {
+            "GROUNDLINE_CHECK_TIMEOUT_SECONDS",
+            "GROUNDLINE_MODEL_MAX_ATTEMPTS",
+        }
+        | API_LIMIT_SETTINGS
+    )
+
+
+@pytest.mark.parametrize("name", sorted(API_LIMIT_SETTINGS))
+def test_api_limits_forward_overrides_without_compose_defaults(
+    services: dict[str, Any], name: str
+):
+    environment = services["app"]["environment"]
+    assert environment.get(name) == "${" + name + ":-}"
+    assert not re.search(rf"^\s*{name}=", ENV_EXAMPLE.read_text(), re.MULTILINE)

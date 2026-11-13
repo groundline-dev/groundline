@@ -300,3 +300,18 @@ The server costs about $0.024 an hour, so one that runs to its 8-hour limit cost
 It also deletes your Anthropic API key from Parameter Store. If anyone else can access the AWS project, they could have copied the key while your server ran, so revoke it in the Anthropic Console if that matters to you.
 
 Terraform state stays in `infra/` on your computer. Delete the server with `make aws-destroy` from the same folder you created it from; another clone doesn't know about it.
+
+## Request size limits
+
+`make aws-up` uses the defaults: a 5 MiB request body, 200,000 characters each
+for source and summary, a 120-second check timeout and up to three attempts per
+model call. Local `.env` settings and exported overrides do not change these
+values on AWS.
+
+You can try custom limits locally with `make dev` or Docker Compose;
+see the commands in [request size limits](../DEVELOPMENT.md#request-size-limits).
+
+To check a running deployment's limits, open its base URL with `/docs` appended
+(or `/api`, which shows the same documentation). The 413 response description
+shows the body limit in bytes. Expand the `CheckRequest` schema to see `maxLength`
+for `source` and `summary`.
