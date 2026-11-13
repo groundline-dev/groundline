@@ -79,14 +79,11 @@ def test_the_served_examples_keep_the_nulls_a_real_response_has():
 
 
 @pytest.mark.parametrize(
-    ("model", "field", "empty_case"),
-    [
-        ("OmissionsResponse", "score", "no facts"),
-        ("CommissionsResponse", "score", "no claims"),
-    ],
+    ("model", "empty_case"),
+    [("OmissionsResponse", "no facts"), ("CommissionsResponse", "no claims")],
 )
-def test_each_score_is_defined_in_the_docs(model: str, field: str, empty_case: str):
-    text = schema["components"]["schemas"][model]["properties"][field]["description"]
+def test_each_score_is_defined_in_the_docs(model: str, empty_case: str):
+    text = schema["components"]["schemas"][model]["properties"]["score"]["description"]
 
     for phrase in ("From 0 to 1", "Higher is better", "below 0.5", "alarm"):
         assert phrase in text

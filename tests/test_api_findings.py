@@ -10,6 +10,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from groundline.api import common
+from groundline.api.findings import EXPLANATIONS
 from groundline.app import app
 from tests.auth_helpers import HEADERS, FakeKeys
 from tests.commissions_helpers import (
@@ -45,12 +46,6 @@ FINDING = {
     "summary_evidence",
     "evidence_found",
     "explanation",
-}
-EXPLANATIONS = {
-    ("omission", "absent"): "The summary does not record this fact.",
-    ("omission", "partial"): "The summary only partly records this fact.",
-    ("commission", "unsupported"): "The source does not mention this claim.",
-    ("commission", "contradicted"): "The source says something different.",
 }
 SECRET = "patient is HIV positive and takes tenofovir"
 
@@ -246,18 +241,6 @@ def test_an_explanation_never_repeats_the_source_or_the_summary():
 
 
 # --- R2: the meanings are written in the docs -----------------------------------
-
-
-@pytest.mark.parametrize(
-    ("model", "empty_case"),
-    [("OmissionsResponse", "no facts"), ("CommissionsResponse", "no claims")],
-)
-def test_the_score_is_defined_in_the_docs(model: str, empty_case: str):
-    schema = app.openapi()["components"]["schemas"][model]["properties"]["score"]
-
-    for phrase in ("From 0 to 1", "Higher is better", "below 0.5", "alarm"):
-        assert phrase in schema["description"]
-    assert empty_case in schema["description"]
 
 
 @pytest.mark.parametrize("model", ["OmissionsResponse", "CommissionsResponse"])
