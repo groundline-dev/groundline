@@ -41,7 +41,7 @@ On every run, `make aws-up` asks two questions:
 - **Which AWS project to deploy to.** It shows the project you're signed in to, such as `groundline (123456789012), in us-east-2`. Answer `y` to deploy there, or `n` to choose another. Choosing another, or signing in for the first time, asks you to sign in to the project in the AWS Management Console, then for its Region, and opens your browser, where you choose the project's session. When your sign-in has expired, it names the project's account ID and asks whether to sign in again to that project, which only opens your browser.
 - **Which code the server runs:** `main` from groundline-dev/groundline, or your current branch.
 
-If your server is already running in that project, it says which commit it runs and asks whether to keep it. The option to keep and check the server is available only when the deployed access mode matches the saved mode. If they differ, it explains the difference and offers a deployment plan or cancellation. Terraform describes replacement and loss of the database and API keys before asking to proceed. For a restricted server, a changed public IP stops before the keep prompt and provides an update command targeting the deployed commit; unrestricted keep does not discover a tester IP.
+If your server is already running in that project, it says which commit it runs and asks whether to keep it. The option to keep and check the server is available only when the deployed access mode matches the saved mode. If they differ, it explains the difference and offers a deployment plan or cancellation. Terraform describes replacement and loss of the database and API keys before asking to proceed. For a restricted server, a change to the developer's public IP stops the wizard before the keep prompt and provides an update command targeting the deployed commit.
 
 Otherwise, it asks only about what isn't set up yet:
 
@@ -144,7 +144,7 @@ If you deploy to a shared project, use a separate Anthropic API key, created in 
 | `AWS_ANTHROPIC_API_KEY` | `ANTHROPIC_API_KEY` from `.env`, or a key you paste | `.env` ([step 4](#4-store-your-anthropic-api-key)) |
 | `FULL_PLAN` | Off, so only a short plan is shown | `FULL_PLAN=1 make aws-deploy` |
 
-`infra/terraform.tfvars.example` lists the `terraform.tfvars` settings, and `.env.example` lists `AWS_ANTHROPIC_API_KEY` next to the local settings. `make aws-deploy` fills in the rest of Terraform's variables: the Region, the selected mode, the tester IP only for restricted mode, and the commit. Missing settings are saved as restricted HTTPS. For an unrecognized saved value, `make aws-up` presents the two supported modes and saves your selection; cancellation or EOF preserves the setting. Direct `make aws-deploy` stops with instructions to choose through the wizard or correct the file. Deployment scripts pass the supported mode explicitly, so environment or auto-tfvars overrides cannot silently broaden access. This corrects local settings; it does not change a running server until deployment changes are approved and applied. Calling Terraform directly requires valid input values.
+`infra/terraform.tfvars.example` lists the `terraform.tfvars` settings, and `.env.example` lists `AWS_ANTHROPIC_API_KEY` next to the local settings. `make aws-deploy` fills in the rest of Terraform's variables: the Region, the selected mode, the developer's public IP only for restricted mode, and the commit. Missing settings are saved as restricted HTTPS. For an unrecognized saved value, `make aws-up` presents the two supported modes and saves your selection; cancellation or EOF preserves the setting. Direct `make aws-deploy` stops with instructions to choose through the wizard or correct the file. Deployment scripts pass the supported mode explicitly, so environment or auto-tfvars overrides cannot silently broaden access. This corrects local settings; it does not change a running server until deployment changes are approved and applied. Calling Terraform directly requires valid input values.
 
 ### Server size
 
@@ -189,7 +189,7 @@ Terminating removes only the server and its data. Its security group, IAM role, 
 
 HTTPS ingress opens during Terraform apply, before the smoke checks run. Wait for those checks to pass before giving callers the endpoint and API keys; the checks do not gate network access.
 
-For a new tester IP, rerun `make aws-deploy` with the same deployed commit and mode. It updates the allowed-IP tag and reloads Caddy through SSM while preserving the server, database, API keys, certificate volumes and original expiry. It retries metadata reconciliation within a bounded window and reports failure if the approved access configuration cannot be loaded. Do not consider that deployment successful until a retry and smoke checks pass.
+When the developer's public IP changes, rerun `make aws-deploy` with the same deployed commit and mode. It updates the allowed-IP tag and reloads Caddy through SSM while preserving the server, database, API keys, certificate volumes and original expiry. It retries metadata reconciliation within a bounded window and reports failure if the approved access configuration cannot be loaded. Do not consider that deployment successful until a retry and smoke checks pass.
 
 ## HTTPS and certificate lifecycle
 
