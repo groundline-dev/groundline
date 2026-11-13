@@ -20,6 +20,7 @@ from typing import Annotated
 import platformdirs
 import typer
 
+from groundline_core.command import EXIT_ERROR, EXIT_FLAGGED, EXIT_NOT_FLAGGED
 from groundline_core.core import (
     FileCache,
     ModelClient,
@@ -50,8 +51,6 @@ app = typer.Typer(
     pretty_exceptions_enable=False,
 )
 app.add_typer(keys_app, name="keys")
-
-EXIT_NOT_FLAGGED, EXIT_FLAGGED, EXIT_ERROR = 0, 1, 2
 
 CACHE_WARNING = (
     "warning: caching is on. The cache stores sources, summaries and the facts "

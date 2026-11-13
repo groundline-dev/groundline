@@ -12,9 +12,10 @@ import traceback
 
 from groundline_core.extras import CLI_MESSAGE, CLI_PACKAGES, is_missing_one_of
 
-EXIT_ERROR = 2
-"""The same as `cli.EXIT_ERROR`, which can't be imported here: loading `cli`
-is what may fail."""
+EXIT_NOT_FLAGGED, EXIT_FLAGGED, EXIT_ERROR = 0, 1, 2
+"""What the command's exit code means (ADR 0005). They live here rather than in
+`cli`, which imports them, because this module must load even when `cli`
+can't."""
 
 
 def main() -> None:

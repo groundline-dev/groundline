@@ -31,12 +31,12 @@ wheel="${wheels[0]}"
 
 check() {
   local installer="$1" env="$2"
-  local python="$env/bin/python" output status
+  local python="$env/bin/python" unwanted command_output import_output status
 
   "$python" -I -c 'from groundline_core import evaluate, evaluate_sync, load_preset' \
     || fail "$installer: the library doesn't load without extras"
 
-  output="$("$python" -I - <<'EOF'
+  unwanted="$("$python" -I - <<'EOF'
 from importlib.metadata import PackageNotFoundError, version
 
 found = []
@@ -49,18 +49,18 @@ for name in ("fastapi", "sqlalchemy", "psycopg", "alembic", "typer"):
 print(" ".join(found))
 EOF
 )"
-  [ -z "$output" ] || fail "$installer: installed without being asked for: $output"
+  [ -z "$unwanted" ] || fail "$installer: installed without being asked for: $unwanted"
 
   status=0
-  output="$("$env/bin/groundline-core" omissions source.txt summary.txt 2>&1)" || status=$?
-  [ "$status" = 2 ] || fail "$installer: groundline-core without the cli extra exited $status, not 2: $output"
-  [ "$output" = "$cli_message" ] || fail "$installer: groundline-core without the cli extra printed: $output"
+  command_output="$("$env/bin/groundline-core" omissions source.txt summary.txt 2>&1)" || status=$?
+  [ "$status" = 2 ] || fail "$installer: groundline-core without the cli extra exited $status, not 2: $command_output"
+  [ "$command_output" = "$cli_message" ] || fail "$installer: groundline-core without the cli extra printed: $command_output"
 
   status=0
-  output="$("$python" -I -c 'import groundline_core.app' 2>&1)" || status=$?
+  import_output="$("$python" -I -c 'import groundline_core.app' 2>&1)" || status=$?
   [ "$status" != 0 ] || fail "$installer: groundline_core.app imported without the server extra"
-  [[ "$output" == *"$server_message"* ]] \
-    || fail "$installer: importing groundline_core.app without the server extra printed: $output"
+  [[ "$import_output" == *"$server_message"* ]] \
+    || fail "$installer: importing groundline_core.app without the server extra printed: $import_output"
 
   echo "ok: $installer installs groundline-core without extras"
 }

@@ -20,6 +20,8 @@ from typing import Any
 
 import pytest
 
+from groundline_core.extras import CLI_PACKAGES, SERVER_PACKAGES
+
 ROOT = Path(__file__).resolve().parents[1]
 
 CORE = {"anthropic", "pydantic-settings", "pyyaml"}
@@ -59,6 +61,18 @@ def test_each_extra_adds_its_own_packages_and_the_database(
 ):
     extras = pyproject["project"].get("optional-dependencies", {})
     assert names(extras.get(extra, [])) == expected
+
+
+@pytest.mark.parametrize(
+    ("extra", "known"), [("server", SERVER_PACKAGES), ("cli", CLI_PACKAGES)]
+)
+def test_the_missing_extra_messages_know_every_package_in_the_extra(
+    pyproject: dict[str, Any], extra: str, known: frozenset[str]
+):
+    # extras.py names the extra to install only for a package it knows, so a
+    # package added to an extra must be added there too. Each package in these
+    # extras is imported under the name it is installed as.
+    assert names(pyproject["project"]["optional-dependencies"][extra]) <= known
 
 
 def test_the_dev_group_installs_both_extras(pyproject: dict[str, Any]):
