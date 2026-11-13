@@ -125,26 +125,24 @@ See [API statuses and errors](README.md#statuses-and-errors) for response codes.
 
 ## Request size limits
 
-The API limits each request body to 5 MiB by default to keep large uploads from
-using too much memory while the application reads them. The same limit applies
-to every HTTP path and method, including public endpoints and requests to unknown
-routes. Applying it once for the whole API also protects new routes automatically.
-To change it, set `GROUNDLINE_MAX_BODY_BYTES` before starting the API, as shown below.
+The API limits request bodies to keep a single upload from using too much memory.
+The same limit applies to every HTTP path and method, including public endpoints,
+unknown routes and new routes added later.
 
-Both check endpoints also limit the source and summary to 200,000 Unicode
-characters each by default. These character limits apply to the text after JSON
-has been decoded; the body limit counts the bytes sent, including JSON structure
-and escaping. The server's [/docs](http://127.0.0.1:8000/docs) or
-[/api](http://127.0.0.1:8000/api) show effective numbers: the body allowance in the
-413 Content Too Large description, and field allowances in the request schema.
-These are operational safeguards, not guarantees that input fits a model's
-context window. CLI and direct Python evaluation keep their existing input policy.
+Both check endpoints also limit the number of Unicode characters in source and
+summary after JSON decoding. The body limit counts the bytes sent, including
+JSON structure and escaping. These limits control how much text the API accepts. Models have their own
+limits, measured in tokens rather than characters, and the instructions sent
+with your text also take up space. An accepted request can therefore still be
+too large for the selected model.
+
+CLI and direct Python evaluation do not go through the HTTP API, so these request
+limits do not apply to them. The selected model's limits still apply.
 
 A declared oversized body can return **413 Content Too Large** before
 authentication, **404 Not Found** or **405 Method Not Allowed**. Streamed bodies
 are limited as the application reads them; routes that do not read a body do not
-buffer it to check its size. New routes inherit the body allowance automatically;
-field validation still belongs to their request models.
+buffer it to check its size.
 
 | Setting | Unit | Default |
 | --- | --- | --- |
@@ -168,11 +166,8 @@ underscores, fractions or exponents. Invalid configuration stops API startup
 with an error naming the setting and omitting its rejected value. Missing or
 empty values select the code defaults.
 
-Changing a limit requires restarting the API. Limits are read once at startup
-to configure body enforcement, field validation and the OpenAPI schema. Restarting
-keeps enforcement and the documented limits in sync. Restart `make dev` after
-changing exported values; recreate the app container after changing Compose
-overrides:
+After changing `.env` or exported values, restart `make dev` or recreate the
+Compose app container to apply them:
 
 ```sh
 docker compose up -d --force-recreate app
@@ -182,14 +177,14 @@ Body and field allowances are independent. Raising a field allowance may require
 raising the body allowance too; a deliberately tighter body allowance can reject
 otherwise valid fields. Oversized bodies return **413 Content Too Large**;
 overlong fields return **422 Unprocessable Content**, without echoing input.
-A body within the allowance still requires authentication and field validation.
 
 This limit prevents a single upload from being too large. The server still needs
 memory to process requests, and several requests can arrive at once, so its total
 memory use can exceed this limit.
 
-The [AWS launcher](docs/deploying-to-aws.md#request-size-limits) currently supports
-only the default size limits.
+The running server's `/docs` (also `/api`) shows its current limits: body bytes
+in the 413 response description, and character limits in the `CheckRequest` schema.
+For AWS restrictions, see [deployment limits](docs/deploying-to-aws.md#request-size-limits).
 
 ## Running the whole stack in Docker
 
