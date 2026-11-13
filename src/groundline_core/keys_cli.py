@@ -18,6 +18,7 @@ from groundline_core.api_keys import (
     APIKeyStorageError,
     api_key_name,
 )
+from groundline_core.command import EXIT_ERROR
 from groundline_core.core.errors import SetupError
 from groundline_core.db.connection import make_engine
 from groundline_core.settings import read_settings
@@ -61,12 +62,12 @@ def _finish(action: Callable[[], None]) -> None:
         APIKeyInputError,
     ) as error:
         typer.echo(f"error: {error}", err=True)
-        raise typer.Exit(2) from None
+        raise typer.Exit(EXIT_ERROR) from None
     except Exception:
         # Do not reuse the evaluator's wrapper: arbitrary exception text can
         # contain credentials, database passwords, or SQL parameters.
         typer.echo("error: API-key operation failed", err=True)
-        raise typer.Exit(2) from None
+        raise typer.Exit(EXIT_ERROR) from None
 
 
 @app.command()

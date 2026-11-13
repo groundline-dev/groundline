@@ -39,8 +39,10 @@ check() {
   unwanted="$("$python" -I - <<'EOF'
 from importlib.metadata import PackageNotFoundError, version
 
+from groundline_core.extras import CLI_PACKAGES, SERVER_PACKAGES
+
 found = []
-for name in ("fastapi", "sqlalchemy", "psycopg", "alembic", "typer"):
+for name in sorted(SERVER_PACKAGES | CLI_PACKAGES):
     try:
         version(name)
     except PackageNotFoundError:
