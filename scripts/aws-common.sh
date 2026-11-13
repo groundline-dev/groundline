@@ -257,18 +257,32 @@ save_access_mode() {
   fi
 }
 
-# Direct deployment must not guess at an unrecognized saved setting.
+# configured_access_mode [fail|ask]: print only the supported mode on stdout.
+# Missing settings default to restricted. Only the wizard asks about invalid
+# settings; prompts and notices go to stderr so callers can capture the mode.
 configured_access_mode() {
-  local mode status=0
+  local on_invalid="${1:-fail}" mode status=0 notice=warn access_mode
+  case "$on_invalid" in
+    fail) ;;
+    ask) notice=answer_warn ;;
+    *) fail "unsupported invalid access-mode action: $on_invalid" ;;
+  esac
   mode="$(read_access_mode)" || status=$?
   case "$status" in
     0) echo "$mode" ;;
     1)
       save_access_mode restricted
-      warn 'No access_mode set. Saved the IP-restricted HTTPS default.'
+      "$notice" 'No access_mode set. Saved the IP-restricted HTTPS default.'
       echo restricted
       ;;
-    *) fail 'Unrecognized access_mode. Run make aws-up to choose restricted or unrestricted, or correct infra/terraform.tfvars.' ;;
+    *)
+      [ "$on_invalid" = ask ] || fail 'Unrecognized access_mode. Run make aws-up to choose restricted or unrestricted, or correct infra/terraform.tfvars.'
+      answer_warn "the saved access_mode is unrecognized; choose a supported HTTPS access mode"
+      choose_access_mode >&2
+      save_access_mode "$access_mode"
+      answer_ok "saved $access_mode HTTPS access" >&2
+      echo "$access_mode"
+      ;;
   esac
 }
 

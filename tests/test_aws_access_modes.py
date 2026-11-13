@@ -110,12 +110,19 @@ def stub_children(checkout: Path):
 @pytest.mark.parametrize("choice,mode", [("", "restricted"), ("2", "unrestricted")])
 def test_new_wizard_asks_once_and_saves_choice(checkout: Path, choice: str, mode: str):
     stub_children(checkout)
+    example = checkout / "infra/terraform.tfvars.example"
+    example.write_text(
+        example.read_text().replace(
+            'access_mode = "restricted"',
+            'access_mode = "restricted" # keep this comment',
+        )
+    )
     answers = f"\nalice\nalerts@example.com\n{choice}\n\n"
     result, _ = invoke(checkout, "aws-up", aws_fakes.new_world(), answers)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert (
-        f'access_mode = "{mode}"' in (checkout / "infra/terraform.tfvars").read_text()
-    )
+    saved = (checkout / "infra/terraform.tfvars").read_text()
+    assert f'access_mode = "{mode}"' in saved
+    assert "# keep this comment" in saved
     result, _ = invoke(checkout, "aws-up", aws_fakes.new_world(), "\n\n")
     assert result.returncode == 0, result.stdout + result.stderr
     assert "recommended" not in result.stdout
@@ -245,6 +252,53 @@ def test_invalid_wizard_eof_preserves_settings_and_does_not_deploy(checkout: Pat
     assert (checkout / "infra/terraform.tfvars").read_bytes() == original
     assert not (checkout / "aws-deploy-called").exists()
     assert not world["commands"]
+
+
+@pytest.mark.parametrize("action", ["fail", "ask"])
+@pytest.mark.parametrize("mode", [None, "restricted", "unrestricted", "invalid"])
+def test_configured_mode_separates_value_from_notices(
+    checkout: Path, action: str, mode: str | None
+):
+    settings(checkout, mode)
+    path = checkout / "infra/terraform.tfvars"
+    original = path.read_bytes()
+    result = subprocess.run(
+        [
+            "bash",
+            "-c",
+            "set -euo pipefail; source scripts/aws-common.sh; "
+            'mode="$(configured_access_mode "$1")"; printf "%s\\n" "$mode"',
+            "test",
+            action,
+        ],
+        cwd=checkout,
+        input="2\n",
+        text=True,
+        capture_output=True,
+        timeout=10,
+    )
+    if mode == "invalid" and action == "fail":
+        assert result.returncode != 0
+        assert result.stdout == ""
+        assert "Run make aws-up" in result.stderr
+        assert path.read_bytes() == original
+        return
+    assert result.returncode == 0, result.stderr
+    expected = "unrestricted" if mode in ("invalid", "unrestricted") else "restricted"
+    assert result.stdout == f"{expected}\n"
+    assert f'access_mode = "{expected}"' in path.read_text()
+    if mode is None:
+        assert (
+            "No access_mode set. Saved the IP-restricted HTTPS default."
+            in result.stderr
+        )
+    elif mode == "invalid":
+        assert "1) IP-restricted HTTPS" in result.stderr
+        assert "2) Unrestricted HTTPS" in result.stderr
+        assert "ok: saved unrestricted HTTPS access" in result.stderr
+    else:
+        assert result.stderr == ""
+        assert path.read_bytes() == original
 
 
 @pytest.mark.parametrize("allowed", ["198.51.100.19/32", "unavailable"])

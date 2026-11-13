@@ -99,31 +99,16 @@ if [ ! -f infra/terraform.tfvars ]; then
   email="$answer"
   echo
   choose_access_mode
-  awk -v name="$name" -v email="$email" -v mode="$access_mode" '
+  awk -v name="$name" -v email="$email" '
     /^deployment_name[[:space:]]*=/ { print "deployment_name = \"" name "\""; next }
     /^budget_alert_email[[:space:]]*=/ { print "budget_alert_email = \"" email "\""; next }
-    /^access_mode[[:space:]]*=/ { print "access_mode = \"" mode "\""; next }
     { print }
   ' infra/terraform.tfvars.example >infra/terraform.tfvars
+  save_access_mode "$access_mode"
   answer_ok "wrote infra/terraform.tfvars"
 fi
 name="$(deployment_name)"
-mode_status=0
-access_mode="$(read_access_mode)" || mode_status=$?
-case "$mode_status" in
-  0) ;;
-  1)
-    access_mode=restricted
-    save_access_mode "$access_mode"
-    answer_warn "no access_mode set; saved the IP-restricted HTTPS default"
-    ;;
-  *)
-    answer_warn "the saved access_mode is unrecognized; choose a supported HTTPS access mode"
-    choose_access_mode
-    save_access_mode "$access_mode"
-    answer_ok "saved $access_mode HTTPS access"
-    ;;
-esac
+access_mode="$(configured_access_mode ask)"
 [ -n "$name" ] || fail "infra/terraform.tfvars has no deployment_name: add one, such as deployment_name = \"alice\""
 
 # --- A server of yours that's already running ---
