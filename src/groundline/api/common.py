@@ -9,7 +9,7 @@ written to be safe, or left to `groundline.api.errors`, which never repeats one.
 import logging
 from collections.abc import AsyncGenerator, Generator
 from contextlib import contextmanager
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 import anthropic
 from fastapi import HTTPException
@@ -34,7 +34,7 @@ from groundline.core import (
 from groundline.core.deadline import check_deadline
 from groundline.core.errors import ModelTimeoutError
 from groundline.evaluate import default_registry, model_users
-from groundline.evaluators.models import AlarmOutput
+from groundline.evaluators.models import AlarmOutput, Severity
 from groundline.evaluators.report import usage_text
 from groundline.profiles import load_builtin_profile
 from groundline.result import EvaluationResult
@@ -285,6 +285,93 @@ class Usage(ApiModel):
     input_tokens: int
     output_tokens: int
     cost_usd: float
+
+
+class Counts(ApiModel):
+    total: int
+    """Facts found in the source."""
+    present: int
+    """Facts the summary fully records."""
+    partial: int
+    """Facts the summary only partly records."""
+    absent: int
+    """Facts the summary leaves out."""
+
+
+class Finding(ApiModel):
+    """One omission or one commission, as a check reports it. The same fields serve
+    both kinds, so a check that finds both can return them in one list."""
+
+    type: Literal["omission", "commission"]
+    """`omission`: a fact from the source that the summary leaves out or only
+    partly records. `commission`: a claim in the summary that the source doesn't
+    support."""
+    severity: Severity | None
+    """How much it would matter if the fact were left out, or the claim were wrong.
+    Null when the check didn't grade it."""
+    verdict: Literal["partial", "absent", "unsupported", "contradicted"]
+    """For an omission, `partial` (the summary records only part of the fact) or
+    `absent`. For a commission, `unsupported` (the source doesn't mention the
+    claim) or `contradicted` (the source says otherwise)."""
+    confidence: float | None
+    """From 0 to 1: how sure the check is. For an omission, that the fact is
+    missing; for a commission, that the source doesn't support the claim. Null
+    when the check gave none."""
+    statement: str
+    """The fact from the source that the summary leaves out, or the words in the
+    summary that make the claim, word for word."""
+    source_evidence: str | None
+    """The passage of the source behind the finding. For an omission, the passage
+    the fact came from. For a contradicted commission, the passage the model quoted
+    as contradicting the claim. Null for an unsupported commission, or if the model
+    quoted none."""
+    summary_evidence: str | None
+    """For a partial omission, the words in the summary that partly record the
+    fact. Null otherwise."""
+    evidence_found: bool | None
+    """Whether `source_evidence` appears in the source word for word, ignoring
+    case, punctuation and spacing. True means verified. False only means it
+    couldn't be matched, which a reworded quote or markup in the source, such as a
+    scribe's tags, can cause; it doesn't mean the passage was invented. Null when
+    there is no evidence."""
+    explanation: str
+    """What kind of problem this is, in a fixed sentence for each type and verdict.
+    It is the same for every finding of that kind, so use the other fields for the
+    details."""
+
+
+class Metadata[A: Alarm](ApiModel):
+    """How the check ran and how it decided: what ran, the alarm behind the flag,
+    and what it cost."""
+
+    pipeline: str
+    """The pipeline that ran. It is a validated preset, whose measured results
+    apply to this run."""
+    alarm: A
+    """The alarm score, the threshold it was compared with, and the threshold
+    level. The summary is flagged when the alarm score reaches the threshold."""
+    usage: Usage
+    """The model calls the check made, and what they cost."""
+
+
+class CheckResponse[E: str, M: ApiModel](ApiModel):
+    """What every check answers: the same top-level fields, whichever check ran."""
+
+    evaluation_type: E
+    """Which check made this response: `omissions` or `commissions`."""
+    flagged: bool
+    """Whether the alarm score reached the threshold."""
+    score: float
+    """From 0 to 1. Higher is better. A score below 0.5 means the summary is
+    flagged, and a summary passes at 0.5 or above; the flag is exactly the
+    alarm's."""
+    findings: list[Finding]
+    """What the check found, most important first."""
+    counts: Counts | None
+    """How many of the source's facts the summary records, fully, partly or not at
+    all. Null for a check that doesn't count facts, such as the commission check."""
+    metadata: M
+    """How the check ran: the pipeline, the alarm behind the flag, and the usage."""
 
 
 async def begin_check() -> AsyncGenerator[None]:
