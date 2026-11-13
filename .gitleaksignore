@@ -1,0 +1,3 @@
+# Historical smoke test deliberately sends an invalid value and expects HTTP 401.
+# It is not a groundline API key; reviewed in docs/security-audit.md.
+8aad8f879f00c4f52021ea8a717c90c77500d43c:scripts/aws-smoke-test:curl-auth-header:88

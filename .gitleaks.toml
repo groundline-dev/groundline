@@ -1,0 +1,11 @@
+[extend]
+useDefault = true
+
+[[rules]]
+id = "env-file"
+description = "Environment files must not be committed; use .env.example for templates"
+path = '''(^|/)(\.env[^/]*|[^/]*\.env)$'''
+
+  # This exempts the filename only. The built-in rules still scan its contents.
+  [[rules.allowlists]]
+  paths = ['''(^|/)\.env\.example$''']

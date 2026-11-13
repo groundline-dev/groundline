@@ -6,6 +6,21 @@ repos:
         args: [--enforce-all]
         exclude: ^uv\.lock$
 
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: 83d9cd684c87d95d656c1458ef04895a7f1cbd8e # v8.30.1; match the secrets CI job
+    hooks:
+      - id: gitleaks
+        name: Check staged files for secrets
+        entry: python3 scripts/check_secrets.py staged
+        stages: [pre-commit]
+        always_run: true
+      - id: gitleaks
+        alias: gitleaks-tracked
+        name: Check tracked files for secrets
+        entry: python3 scripts/check_secrets.py tracked
+        stages: [manual]
+        always_run: true
+
   - repo: local
     hooks:
       - id: ruff-check
