@@ -1,6 +1,8 @@
 """`evaluate`: the single entry point for running a pipeline on a source and summary.
 
 The CLI, the API and evaluator adapters all call this, so they behave the same.
+Only where the Anthropic API key comes from differs: the CLI and the API also
+read `.env`, and library callers name a `.env` file only if they want one.
 """
 
 import asyncio

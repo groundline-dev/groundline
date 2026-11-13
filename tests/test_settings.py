@@ -27,7 +27,7 @@ def isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
 
 
-ARGUMENT = "the anthropic_api_key argument"
+FROM_ARGUMENT = "the anthropic_api_key argument"
 
 
 def test_reads_key_from_environment(monkeypatch: pytest.MonkeyPatch):
@@ -88,7 +88,7 @@ def test_the_argument_wins_over_environment_and_env_file(
     key = anthropic_key(argument, env_file=ENV_FILE)
 
     assert key.value.get_secret_value() == "sk-arg"
-    assert key.source == ARGUMENT
+    assert key.source == FROM_ARGUMENT
     assert key.name == "The Anthropic API key"
 
 
@@ -100,6 +100,22 @@ def test_a_blank_argument_is_missing_even_when_the_environment_has_a_key(
 
     with pytest.raises(MissingAPIKeyError):
         anthropic_key(blank, env_file=None)
+
+
+def test_a_blank_argument_says_so_even_with_an_env_file():
+    Path(".env").write_text("ANTHROPIC_API_KEY=sk-dotenv\n")
+
+    with pytest.raises(MissingAPIKeyError) as error:
+        anthropic_key(" ", env_file=ENV_FILE, needed_by="extract (claude-opus-5-5)")
+
+    expected = (
+        "The anthropic_api_key argument is blank.\n"
+        "  Needed by: extract (claude-opus-5-5)\n"
+        "  Fix: pass the Anthropic API key, or leave anthropic_api_key out "
+        "to use ANTHROPIC_API_KEY."
+    )
+    assert str(error.value) == expected
+    assert error.value.api_message() == expected
 
 
 def test_missing_key_raises_a_helpful_error():
@@ -151,6 +167,11 @@ def test_missing_key_message_notes_a_dotenv_file_without_the_key():
 
     with pytest.raises(MissingAPIKeyError, match=r"\.env \(found, but it has no"):
         anthropic_key(None, env_file=ENV_FILE)
+
+
+def test_the_fix_names_the_env_file_the_caller_gave(tmp_path: Path):
+    with pytest.raises(MissingAPIKeyError, match=r"copy \.env\.example to app\.env"):
+        anthropic_key(None, env_file=tmp_path / "app.env")
 
 
 def test_without_an_env_file_the_missing_key_message_names_no_path():
