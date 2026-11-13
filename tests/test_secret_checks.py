@@ -2,43 +2,33 @@
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
+import tomllib
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-ROOT = Path(__file__).resolve().parents[1]
-CHECK = ROOT / "scripts" / "check_secrets.py"
+from tests.secrets_smoke import CHECK, ROOT, git, init_repo
 
-
-def git(repo: Path, *args: str) -> str:
-    return subprocess.check_output(
-        [
-            "git",
-            "-c",
-            "core.hooksPath=/dev/null",
-            "-c",
-            "user.name=Secret check test",
-            "-c",
-            "user.email=test@example.invalid",
-            *args,
-        ],
-        cwd=repo,
-        text=True,
-    ).strip()
+BLOCKED_NAMES = [
+    ".env",
+    ".env-old",
+    "prod.env",
+    "a/b/.env.local",
+    ".env.example.backup",
+]
+ALLOWED_NAMES = [".env.example", "nested/.env.example", "environment.py", "env.txt"]
 
 
 @pytest.fixture
 def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     repository = tmp_path / "repo"
     repository.mkdir()
-    git(repository, "init", "-q")
-    shutil.copyfile(ROOT / ".gitleaks.toml", repository / ".gitleaks.toml")
-    shutil.copyfile(ROOT / ".gitignore", repository / ".gitignore")
-    git(repository, "add", ".")
-    git(repository, "commit", "-qm", "chore: initialize fixture")
+    init_repo(repository, ".gitleaks.toml", ".gitignore")
     binaries = tmp_path / "bin"
     binaries.mkdir()
     fake = binaries / "gitleaks"
@@ -59,16 +49,23 @@ def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     return repository
 
 
-def scan(repo: Path, mode: str) -> subprocess.CompletedProcess[str]:
+def scan(
+    repo: Path, mode: str, env: dict[str, str] | None = None
+) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        [sys.executable, str(CHECK), mode], cwd=repo, capture_output=True, text=True
+        [sys.executable, str(CHECK), mode],
+        cwd=repo,
+        env=env,
+        capture_output=True,
+        text=True,
     )
 
 
-@pytest.mark.parametrize(
-    "name",
-    [".env", ".env-old", "prod.env", "a/b/.env.local", ".env.example.backup"],
-)
+def scan_record(repo: Path) -> dict[str, Any]:
+    return json.loads((repo.parent / "scan.json").read_text())
+
+
+@pytest.mark.parametrize("name", BLOCKED_NAMES)
 def test_empty_environment_files_are_ignored_and_blocked(repo: Path, name: str):
     path = repo / name
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -108,13 +105,29 @@ def test_history_includes_other_refs_and_root_commits(repo: Path):
 
 
 def test_examples_are_allowed_at_all_depths(repo: Path):
-    for name in [".env.example", "nested/.env.example", "environment.py", "env.txt"]:
+    for name in ALLOWED_NAMES:
         path = repo / name
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text("PLACEHOLDER=\n")
         git(repo, "add", "--", name)
     assert scan(repo, "staged").returncode == 0
     assert scan(repo, "tracked").returncode == 0
+
+
+def test_gitleaks_env_file_rule_matches_filename_check():
+    # The Python check repeats this rule because Gitleaks patch scans skip empty
+    # files and renames; keep both definitions blocking the same names.
+    config = tomllib.loads((ROOT / ".gitleaks.toml").read_text())
+    rule = next(rule for rule in config["rules"] if rule["id"] == "env-file")
+    allowed = [path for allow in rule["allowlists"] for path in allow["paths"]]
+
+    def blocked(name: str) -> bool:
+        return bool(re.search(rule["path"], name)) and not any(
+            re.search(path, name) for path in allowed
+        )
+
+    assert all(blocked(name) for name in BLOCKED_NAMES)
+    assert not any(blocked(name) for name in ALLOWED_NAMES)
 
 
 def test_staged_check_uses_index_names(repo: Path):
@@ -131,7 +144,7 @@ def test_tracked_scan_uses_working_contents_and_excludes_untracked_files(repo: P
     (repo / ".env").write_text("local only\n")
     (repo / "untracked.txt").write_text("not tracked\n")
     assert scan(repo, "tracked").returncode == 0
-    record = json.loads((repo.parent / "scan.json").read_text())
+    record = scan_record(repo)
     assert record["files"]["tracked.txt"] == "working version\n"
     assert ".env" not in record["files"]
     assert "untracked.txt" not in record["files"]
@@ -145,7 +158,7 @@ def test_symlinks_scan_link_text_without_reading_external_targets(repo: Path):
     (repo / "link").symlink_to(external)
     git(repo, "add", "link")
     assert scan(repo, "tracked").returncode == 0
-    record = json.loads((repo.parent / "scan.json").read_text())
+    record = scan_record(repo)
     assert record["files"]["link"] == str(external)
 
 
@@ -179,12 +192,6 @@ def test_missing_scanner_fails_closed(repo: Path):
     git_binary = shutil.which("git")
     assert git_binary
     (repo.parent / "bin" / "git").symlink_to(git_binary)
-    result = subprocess.run(
-        [sys.executable, str(CHECK), "tracked"],
-        cwd=repo,
-        env={**os.environ, "PATH": str(repo.parent / "bin")},
-        capture_output=True,
-        text=True,
-    )
+    result = scan(repo, "tracked", {**os.environ, "PATH": str(repo.parent / "bin")})
     assert result.returncode == 2
     assert "could not finish" in result.stderr
