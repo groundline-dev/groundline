@@ -185,7 +185,7 @@ curl -s http://127.0.0.1:8000/v1/omissions \
   -d '{"source": "...transcript...", "summary": "...note..."}'
 ```
 
-`source` and `summary` must not be blank, and each can be up to 200,000 characters. The default whole-check limit is 120 seconds, including authentication, model calls, and retry waits. Set your HTTP client timeout above that limit to allow request and response transfer time. No timeout configuration is required. See [the overall check limit](DEVELOPMENT.md#overall-check-limit) if observed check durations justify changing it.
+`source` and `summary` must not be blank. Both decoded field lengths and the total request body are limited; the server’s [/docs](http://127.0.0.1:8000/docs) and [/api](http://127.0.0.1:8000/api) show its effective allowances. See [request size limits](DEVELOPMENT.md#request-size-limits) to configure them. The default whole-check limit is 120 seconds, including authentication, model calls, and retry waits. Set your HTTP client timeout above that limit to allow request and response transfer time. No timeout configuration is required. See [the overall check limit](DEVELOPMENT.md#overall-check-limit) if observed check durations justify changing it.
 
 ```json
 {
@@ -252,6 +252,7 @@ Both check endpoints use the following statuses. Every error response is JSON wi
 | 401 | The groundline API key is missing or invalid. Provide a valid, unexpired key in the `Authorization: Bearer ...` header. Revoked keys are not accepted. The response includes `WWW-Authenticate: Bearer`. |
 | 404 | The route does not exist. The error names the method and path you requested; `/docs` lists the available routes. |
 | 405 | The route exists, but does not accept the requested HTTP method. For example, checks require `POST`, not `GET`. |
+| 413 Content Too Large | The request body exceeds the server’s byte allowance, including JSON structure and escaping. Reduce its size; this can be returned before authentication. |
 | 422 | The request is invalid. Check the JSON syntax, required fields, text length and any extra fields. The body must be a JSON object, and the source and summary must not be blank. |
 | 500 | An unexpected error occurred in groundline. Details are recorded in the server log. |
 | 502 | The model or Anthropic's API failed, refused the request, or returned a response groundline could not use. Retrying later may help. |
@@ -264,7 +265,7 @@ For **503** responses, `detail` provides configuration guidance or reports that 
 
 **Failed checks may still incur model charges.** Interrupted model requests can incur charges without returning usage, so costs reported in errors cover only recorded usage. The provider's bill may be higher. A retry near the deadline can also use the remaining time and incur charges without producing a result.
 
-The server parses JSON before authenticating the API key, then validates the fields after authentication. This means malformed JSON returns 422 even without credentials; a body that cannot be decoded returns 400. Bodies recognized as UTF-16 or UTF-32 are decoded before JSON parsing, and may also return 422. Requests rejected by authentication never start a check or make model calls.
+The server enforces the body-byte allowance before JSON parsing, parses JSON before authenticating the API key, then validates the fields after authentication. This means malformed JSON returns 422 even without credentials; a body that cannot be decoded returns 400. Bodies recognized as UTF-16 or UTF-32 are decoded before JSON parsing, and may also return 422. Requests rejected by authentication never start a check or make model calls.
 
 Error responses and server logs never include the source or summary text. Logs record each completed check's outcome, the number of omissions or commissions, and its cost, along with failures.
 

@@ -121,6 +121,54 @@ shell values take precedence.
 
 See [API statuses and errors](README.md#statuses-and-errors) for response codes.
 
+## Request size limits
+
+Both check endpoints limit the whole body in bytes, then the decoded source and
+summary in Unicode characters. JSON structure and escaping count toward body
+bytes. The server's [/docs](http://127.0.0.1:8000/docs) or
+[/api](http://127.0.0.1:8000/api) show effective numbers: the body allowance in the
+413 Content Too Large description, and field allowances in the request schema.
+These are operational safeguards, not guarantees that input fits a model's
+context window. CLI and direct Python evaluation keep their existing input policy.
+
+| Setting | Unit |
+| --- | --- |
+| `GROUNDLINE_MAX_BODY_BYTES` | Total body bytes |
+| `GROUNDLINE_MAX_SOURCE_CHARS` | Decoded source characters |
+| `GROUNDLINE_MAX_SUMMARY_CHARS` | Decoded summary characters |
+
+For `make dev`, export overrides in the shell before starting the API:
+
+```sh
+export GROUNDLINE_MAX_SOURCE_CHARS=100000
+make dev
+```
+
+Unlike the credential and timeout settings, these API-only settings do **not**
+automatically load `.env`. Compose explicitly forwards them from the shell or
+its `.env` interpolation; an empty value selects the code default. Nonempty
+values must be positive ASCII decimal integers, without spaces, signs,
+underscores, fractions or exponents. Invalid configuration stops API startup
+with an error naming the setting and omitting its rejected value.
+
+Limits load when the API is imported. Restart `make dev` after changing exported
+values; recreate the app container after changing Compose overrides:
+
+```sh
+docker compose up -d --force-recreate app
+```
+
+Body and field allowances are independent. Raising a field allowance may require
+raising the body allowance too; a deliberately tighter body allowance can reject
+otherwise valid fields. Oversized bodies return **413 Content Too Large**;
+overlong fields return **422 Unprocessable Content**, without echoing input.
+A body within the allowance still requires authentication and field validation.
+The byte allowance bounds application body buffering; it does not cap all process
+memory, concurrent uploads or upload duration.
+
+The [AWS launcher](docs/deploying-to-aws.md) uses the code defaults; forwarding
+custom size settings through that launcher requires separate support.
+
 ## Running the whole stack in Docker
 
 To run Postgres, the database setup and the app together, as they'll run on a server, start the stack at http://127.0.0.1:8001. Stop it with Ctrl+C:

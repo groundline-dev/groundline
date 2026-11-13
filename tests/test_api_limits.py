@@ -23,6 +23,7 @@ from starlette.types import Message, Scope
 from groundline import settings
 from groundline.api import common
 from groundline.app import app
+from groundline.settings import APILimitsSettings
 from tests.auth_helpers import ENDPOINTS, HEADERS, SECRET, Endpoint, FakeKeys
 from tests.fakes import FakeClient
 
@@ -51,9 +52,7 @@ def isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 
 def limits() -> dict[str, int]:
-    limits_type = getattr(settings, "APILimitsSettings", None)
-    assert limits_type is not None, "APILimitsSettings has not been implemented"
-    return limits_type().model_dump()
+    return APILimitsSettings().model_dump()
 
 
 def process_environment(overrides: dict[str, str] | None = None) -> dict[str, str]:

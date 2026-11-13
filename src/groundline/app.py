@@ -9,6 +9,7 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from groundline.api import commissions, errors, omissions
+from groundline.api.limits import CheckBodyLimitMiddleware
 from groundline.api_keys import APIKeys
 from groundline.core.errors import SetupError
 from groundline.db import check_connection
@@ -125,9 +126,14 @@ Create one with `groundline keys create`, then use **Authorize** below.
 Both checks are under `/v1`. Within v1, a change only adds:
 new endpoints, or new fields in a response. A change that could break a
 caller, such as removing or renaming a field or changing a status code, gets a
-new prefix, `/v2`. One explicit exception in v1 is the addition of **504** for
-model timeouts (ALL-134); other model failures remain 502 and database
-authentication timeouts remain 503. groundline is still pre-1.0, so it doesn't
+new prefix, `/v2`. Explicit exceptions in v1 are:
+
+- **504 Gateway Timeout** for model timeouts (ALL-134).
+- **413 Content Too Large** for oversized request bodies (ALL-136).
+
+Other model failures remain **502 Bad Gateway** and database authentication
+timeouts remain **503 Service Unavailable**. Field validation remains
+**422 Unprocessable Content**. groundline is still pre-1.0, so it doesn't
 yet promise how long an old version stays available after a new one ships.
 The version next to the title is groundline's release, not the API version.
 
@@ -145,6 +151,7 @@ app = FastAPI(
     ],
     lifespan=lifespan,
 )
+app.add_middleware(CheckBodyLimitMiddleware)
 errors.install(app)
 v1 = APIRouter(prefix="/v1", tags=["v1"])
 v1.include_router(omissions.router)

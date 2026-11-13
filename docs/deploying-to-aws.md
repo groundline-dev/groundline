@@ -245,3 +245,13 @@ The server costs about $0.024 an hour, so one that runs to its 8-hour limit cost
 It also deletes your Anthropic API key from Parameter Store. If anyone else can access the AWS project, they could have copied the key while your server ran, so revoke it in the Anthropic Console if that matters to you.
 
 Terraform state stays in `infra/` on your computer. Delete the server with `make aws-destroy` from the same folder you created it from; another clone doesn't know about it.
+
+## Request size limits
+
+Deployments created with `make aws-up` use the API's code defaults for request
+size limits. The launcher does not forward `GROUNDLINE_MAX_BODY_BYTES`,
+`GROUNDLINE_MAX_SOURCE_CHARS` or `GROUNDLINE_MAX_SUMMARY_CHARS`. Supporting custom
+limits through this launcher requires separate forwarding support. This does not
+restrict configuration through the process environment when running the API by
+other means. The deployment's `/docs` and `/api` show its effective limits; see
+[request size limits](../DEVELOPMENT.md#request-size-limits) for units and behavior.

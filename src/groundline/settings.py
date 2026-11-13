@@ -9,7 +9,7 @@ import os
 from pathlib import Path
 from typing import ClassVar
 
-from pydantic import Field, SecretStr
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from groundline.core.errors import SetupError
@@ -36,6 +36,29 @@ class UnreadableSettingsError(SetupError):
 def dotenv_path() -> Path:
     """Return the `.env` path in the current working directory."""
     return Path.cwd() / ENV_FILE
+
+
+class APILimitsSettings(BaseSettings):
+    """API-only allowances, read from the process environment at API import.
+
+    No automatic .env loading: CLI and direct Python evaluation keep their
+    existing input policy. Exactly empty overrides use the code defaults.
+    """
+
+    model_config = SettingsConfigDict(env_prefix="GROUNDLINE_", env_ignore_empty=True)
+
+    max_body_bytes: int = Field(default=5_242_880, gt=0)
+    max_source_chars: int = Field(default=200_000, gt=0)
+    max_summary_chars: int = Field(default=200_000, gt=0)
+
+    @field_validator(
+        "max_body_bytes", "max_source_chars", "max_summary_chars", mode="before"
+    )
+    @classmethod
+    def _positive_decimal(cls, value: object) -> object:
+        if isinstance(value, str) and not (value.isascii() and value.isdecimal()):
+            raise ValueError("must be a positive ASCII decimal integer")
+        return value
 
 
 class Settings(BaseSettings):

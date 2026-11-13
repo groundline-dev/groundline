@@ -20,6 +20,7 @@ from groundline.api.errors import (
     INVALID_API_KEY,
     UNEXPECTED,
 )
+from groundline.api.limits import BODY_TOO_LARGE, LIMITS
 from groundline.core import (
     CallRecord,
     ModelClient,
@@ -41,10 +42,6 @@ from groundline.result import EvaluationResult
 from groundline.settings import MissingAPIKeyError, read_settings
 
 logger = logging.getLogger("groundline.api")
-
-MAX_CHARS = 200_000
-"""The longest source or summary accepted, far longer than any consultation, so
-one request can't spend dollars on a huge input."""
 
 # A stage can fail because the model timed out (504) or because the model or
 # Anthropic's API failed in another way (502). These exceptions cover both cases.
@@ -106,6 +103,13 @@ FAILURE_RESPONSES: dict[int | str, dict[str, Any]] = {
         "The body isn't valid UTF-8 text. Bytes that begin like UTF-16 or UTF-32 "
         "text are read as that, and answer 422 if they aren't JSON.",
         not_utf8=("Not UTF-8", {"detail": "There was an error parsing the body"}),
+    ),
+    413: _error(
+        ErrorBody,
+        f"Content Too Large: the request body exceeds {LIMITS.max_body_bytes} bytes. "
+        "This includes JSON structure and escaping. The request may be rejected "
+        "before authentication; reduce the upload size.",
+        body_too_large=("Body size limit", {"detail": BODY_TOO_LARGE}),
     ),
     422: _error(
         InvalidRequestBody,
@@ -255,9 +259,9 @@ class CheckRequest(ApiModel):
         }
     )
 
-    source: Annotated[str, Field(min_length=1, max_length=MAX_CHARS)]
+    source: Annotated[str, Field(min_length=1, max_length=LIMITS.max_source_chars)]
     """The original material, such as a consultation transcript."""
-    summary: Annotated[str, Field(min_length=1, max_length=MAX_CHARS)]
+    summary: Annotated[str, Field(min_length=1, max_length=LIMITS.max_summary_chars)]
     """The AI-written summary to check, such as a clinical note."""
 
     @field_validator("source", "summary")
