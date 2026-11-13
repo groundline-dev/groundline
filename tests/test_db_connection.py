@@ -13,6 +13,7 @@ from groundline.app import app
 from groundline.db import check_connection
 from groundline.db import connection as connection_module
 from groundline.db.connection import make_engine
+from tests.async_helpers import finish_before_watchdog
 
 UNREACHABLE = "postgresql+psycopg://groundline:pw-secret@127.0.0.1:1/groundline"
 
@@ -155,19 +156,14 @@ def test_readiness_bounds_both_owned_and_borrowed_engines(
             return engine
 
         monkeypatch.setattr(connection_module, "create_async_engine", factory)
-        task = asyncio.create_task(
+        result = await finish_before_watchdog(
             check_connection(
                 UNREACHABLE,
-                timeout=1,
+                timeout=0.1,
                 engine=cast(AsyncEngine, engine) if borrowed else None,
             )
         )
-        done, _ = await asyncio.wait({task}, timeout=2)
-        if not done:
-            task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
-        assert done, f"readiness must bound {hang_at} even with a supplied engine"
-        assert task.result() is False
+        assert result is False
         assert cancelled == [hang_at]
         assert disposed == ([] if borrowed else [True])
 
