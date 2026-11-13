@@ -197,6 +197,9 @@ class APIKeys:
                     )
                     yield connection
         except (SQLAlchemyError, OSError):
+            task = asyncio.current_task()
+            if task is not None and task.cancelling():
+                raise asyncio.CancelledError() from None
             # Driver messages can contain SQL parameters or database passwords.
             raise APIKeyStorageError("API-key storage is unavailable") from None
 

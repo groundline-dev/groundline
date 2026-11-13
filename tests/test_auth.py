@@ -197,3 +197,79 @@ def test_openapi_advertises_bearer_security():
     schema = protected_app().openapi()
     assert schema["paths"]["/protected"]["get"]["security"] == [{"HTTPBearer": []}]
     assert "security" not in schema["paths"]["/health"]["get"]
+
+
+@pytest.mark.parametrize("boundary", ["transaction", "authentication"])
+def test_cleanup_error_does_not_replace_external_cancellation(
+    boundary: str, monkeypatch: pytest.MonkeyPatch
+):
+    """Cleanup failures are synthetic; this does not simulate a lost commit."""
+    import asyncio
+    from collections.abc import AsyncGenerator
+    from contextlib import asynccontextmanager
+    from typing import cast
+
+    from fastapi import Request
+    from fastapi.security import HTTPAuthorizationCredentials
+    from sqlalchemy.exc import SQLAlchemyError
+    from sqlalchemy.ext.asyncio import AsyncConnection
+
+    from groundline.api_keys import APIKeyInfo
+    from groundline.auth import require_api_key
+
+    for name in ("AUTH", "CONNECT", "CHECK", "POOL", "QUERY"):
+        monkeypatch.setenv(f"GROUNDLINE_DB_{name}_TIMEOUT_SECONDS", "5")
+
+    async def run():
+        entered = asyncio.Event()
+        attempts = 0
+
+        async def hang():
+            nonlocal attempts
+            attempts += 1
+            entered.set()
+            await asyncio.Event().wait()
+
+        class Connection:
+            async def execute(self, statement: object):
+                await hang()
+
+        class Engine:
+            @asynccontextmanager
+            async def begin(self) -> AsyncGenerator[AsyncConnection]:
+                try:
+                    yield cast(AsyncConnection, Connection())
+                finally:
+                    raise SQLAlchemyError("private rollback failure")
+
+        class NoisyKeys(FakeKeys):
+            async def authenticate(self, credential: str) -> APIKeyInfo | None:
+                try:
+                    await hang()
+                finally:
+                    raise RuntimeError("private cleanup failure")
+
+        if boundary == "transaction":
+            keys = APIKeys(cast(AsyncEngine, Engine()))
+            task = asyncio.create_task(keys.authenticate(SECRET))
+        else:
+            app = protected_app(with_lifespan=False)
+            app.state.api_keys = NoisyKeys()
+            task = asyncio.create_task(
+                require_api_key(
+                    Request({"type": "http", "app": app}),
+                    HTTPAuthorizationCredentials(scheme="Bearer", credentials=SECRET),
+                )
+            )
+        try:
+            await asyncio.wait_for(entered.wait(), 3)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            assert task.cancelled()
+            assert attempts == 1
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(run())
