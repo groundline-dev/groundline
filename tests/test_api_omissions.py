@@ -61,12 +61,16 @@ def test_a_summary_that_is_not_flagged():
 
     assert response.status_code == 200
     body = response.json()
+    assert body["evaluation_type"] == "omissions"
     assert body["flagged"] is False
-    assert body["alarm"] == {"score": 0.0, "threshold": 0.9, "level": "strict"}
-    assert body["omission_score"] == 1.0
-    assert body["pipeline"] == body["validated_preset"] == DEFAULT_PRESET
+    assert body["score"] == 1.0
     assert body["counts"] == {"total": 3, "present": 1, "partial": 1, "absent": 1}
-    assert body["usage"]["calls"] == 4
+    metadata = body["metadata"]
+    assert metadata.pop("usage")["calls"] == 4
+    assert metadata == {
+        "pipeline": DEFAULT_PRESET,
+        "alarm": {"score": 0.0, "threshold": 0.9, "level": "strict"},
+    }
 
 
 def test_a_flagged_summary_still_answers_200():
@@ -77,13 +81,17 @@ def test_a_flagged_summary_still_answers_200():
     assert response.status_code == 200
     body = response.json()
     assert body["flagged"] is True
-    assert body["omission_score"] == pytest.approx(0.25)
-    assert body["omissions"][0] == {
-        "fact": "Motrin 600 mg every 6 hours for a week.",
+    assert body["score"] == pytest.approx(0.25)
+    assert body["findings"][0] == {
+        "type": "omission",
         "severity": "critical",
         "verdict": "absent",
-        "missing_confidence": 0.95,
-        "quote": None,
+        "confidence": 0.95,
+        "statement": "Motrin 600 mg every 6 hours for a week.",
+        "source_evidence": "motrin 600 mg every 6 hours",
+        "summary_evidence": None,
+        "evidence_found": True,
+        "explanation": "The summary does not record this fact.",
     }
 
 
@@ -95,11 +103,15 @@ def test_a_source_with_no_facts_answers_200_with_a_score_of_one():
     assert response.status_code == 200
     body = response.json()
     assert body["flagged"] is False
-    assert body["alarm"] == {"score": 0.0, "threshold": 0.9, "level": "strict"}
-    assert body["omission_score"] == 1.0
-    assert body["omissions"] == []
+    assert body["metadata"]["alarm"] == {
+        "score": 0.0,
+        "threshold": 0.9,
+        "level": "strict",
+    }
+    assert body["score"] == 1.0
+    assert body["findings"] == []
     assert body["counts"] == {"total": 0, "present": 0, "partial": 0, "absent": 0}
-    assert body["usage"]["calls"] == 1
+    assert body["metadata"]["usage"]["calls"] == 1
 
 
 @pytest.mark.parametrize(

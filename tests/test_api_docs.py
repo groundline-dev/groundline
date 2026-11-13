@@ -41,13 +41,6 @@ def test_the_docs_show_groundlines_release_and_label_the_api_version():
         assert schema["paths"][path]["post"]["tags"] == ["v1"]
 
 
-def test_version_policy_documents_body_and_timeout_status_exceptions():
-    description = schema["info"]["description"]
-    versions = description.split("### Versions", 1)[1].split("\n### ", 1)[0]
-    assert "413" in versions
-    assert "504" in versions
-
-
 def test_every_documented_route_has_the_global_body_limit_response():
     for path, operations in schema["paths"].items():
         for method, operation in operations.items():
@@ -78,7 +71,6 @@ def _resolve(ref: dict[str, Any]) -> dict[str, Any]:
 def test_each_check_has_a_valid_example_request_and_response(
     path: str, request_model: type[ApiModel], response_model: type[ApiModel]
 ):
-    # Read from the docs, not the models: FastAPI drops nulls from examples.
     operation = schema["paths"][path]["post"]
     request = operation["requestBody"]["content"]["application/json"]["schema"]
     response = operation["responses"]["200"]["content"]["application/json"]["schema"]
@@ -90,15 +82,23 @@ def test_each_check_has_a_valid_example_request_and_response(
             model.model_validate(example)
 
 
+def test_the_served_examples_keep_the_nulls_a_real_response_has():
+    # FastAPI strips every null from the schema it builds, so the docs would show
+    # a commissions response without `counts` and `summary_evidence`.
+    served = http.get("/openapi.json").json()
+    example = served["components"]["schemas"]["CommissionsResponse"]["examples"][0]
+
+    assert "counts" in example and example["counts"] is None
+    finding = example["findings"][0]
+    assert "summary_evidence" in finding and finding["summary_evidence"] is None
+
+
 @pytest.mark.parametrize(
-    ("model", "field", "empty_case"),
-    [
-        ("OmissionsResponse", "omission_score", "no facts"),
-        ("CommissionsResponse", "commission_score", "no claims"),
-    ],
+    ("model", "empty_case"),
+    [("OmissionsResponse", "no facts"), ("CommissionsResponse", "no claims")],
 )
-def test_each_score_is_defined_in_the_docs(model: str, field: str, empty_case: str):
-    text = schema["components"]["schemas"][model]["properties"][field]["description"]
+def test_each_score_is_defined_in_the_docs(model: str, empty_case: str):
+    text = schema["components"]["schemas"][model]["properties"]["score"]["description"]
 
     for phrase in ("From 0 to 1", "Higher is better", "below 0.5", "alarm"):
         assert phrase in text

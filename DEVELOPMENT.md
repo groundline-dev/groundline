@@ -208,7 +208,7 @@ If you run the image with your own `docker run`, publish the port on `127.0.0.1`
 
 ## Deploying to AWS
 
-Test deployments are for internal testing by groundline's developers only. A test deployment runs the Compose stack, at a commit you choose, on an EC2 server in your AWS project. Only your computer's IP can reach it, so it's for test data only, and it deletes itself, with its data, after 8 hours.
+See the [deployment guide](docs/deploying-to-aws.md) for access modes, prerequisites and the disposable deployment lifecycle.
 
 **1. Once, before your first deployment:** get everything [Before you start](docs/deploying-to-aws.md#before-you-start) lists. The wizard can't do these for you:
 
@@ -260,6 +260,8 @@ A major Postgres upgrade, such as 18 to 19, uses the same commands: back up, che
 
 ## Tests
 
+`tests/https_smoke.py` is an executable integration harness, invoked by `make https-smoke`, rather than a pytest suite. It lives beside the other Docker smoke harness and uses the runtime Python image pinned in `Dockerfile`.
+
 There are three test suites. They differ in what they use for Postgres and Claude, so run each one when your change calls for it:
 
 - **`make test-fast`** runs every test except the two groups below, with fakes in place of Postgres and Claude: a fake Claude returns recorded replies, and API keys are kept in memory. It covers the pipeline steps, the API's endpoints and errors, the CLI, the schemas, the replayed preset runs, and the checks of `compose.yaml`, the Terraform files and the AWS scripts. It needs nothing running and costs nothing. Run it before every push; `make check` runs it too.
@@ -288,7 +290,7 @@ Anthropic SDK DEBUG logging includes raw prompts. Privacy assertions capture gro
 
 ## Lint, format and type checks
 
-`make check` runs ruff, pyright in strict mode, the large-file check and the tests, without changing files. CI runs it too, along with the database tests (`make test-db`), the Docker stack check (`make docker-smoke`) and the Terraform checks (`make infra-check`). `make infra-check` needs Terraform, but no AWS credentials: its tests plan against a mock AWS provider. Run it when you change `infra/`. `make fix` applies ruff's fixes and formatting. Pyright errors need fixing by hand.
+`make check` runs ruff, pyright in strict mode, the large-file check and the tests, without changing files. CI runs it too, along with the database tests (`make test-db`), the Docker stack check (`make docker-smoke`), the Terraform checks (`make infra-check`) and the local certificate lifecycle checks (`make https-smoke`). `make infra-check` needs Terraform, but no AWS credentials: its tests plan against a mock AWS provider. Run it when you change `infra/`. `make fix` applies ruff's fixes and formatting. Pyright errors need fixing by hand.
 
 The `pre-commit` hook runs the same checks on staged files. If ruff fails, run `make fix` and stage the result.
 

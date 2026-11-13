@@ -61,9 +61,8 @@ services:
       GROUNDLINE_MAX_SUMMARY_CHARS: ${GROUNDLINE_MAX_SUMMARY_CHARS:-}
       DATABASE_URL: postgresql+psycopg://groundline:${GROUNDLINE_DB_PASSWORD:?set GROUNDLINE_DB_PASSWORD in .env (see .env.example)}@postgres:5432/groundline
     ports:
-      # Loopback by default. A server that callers reach over the network sets
-      # APP_BIND_ADDRESS=0.0.0.0 in .env. 8001, not 8000, so the stack can run
-      # alongside `make dev`.
+      # Local development uses loopback port 8001 alongside `make dev` on 8000.
+      # AWS uses compose.https.yaml, which removes this host-port publication.
       - "${APP_BIND_ADDRESS:-127.0.0.1}:${APP_HOST_PORT:-8001}:8000"
     depends_on:
       setup:

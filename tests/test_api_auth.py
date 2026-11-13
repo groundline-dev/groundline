@@ -95,7 +95,7 @@ def test_authorized_requests_run_and_authentication_is_rechecked(
         assert response.status_code == 200
         body = response.json()
         assert body["flagged"] is False
-        assert body["usage"]["calls"] == endpoint.calls
+        assert body["metadata"]["usage"]["calls"] == endpoint.calls
         assert SECRET not in response.text
     keys.info = None  # Simulate storage rejecting a previously accepted API key.
     rejected = http.post(endpoint.path, json=BODY, headers=HEADERS)

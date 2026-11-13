@@ -31,7 +31,7 @@ echo "Where to deploy and what to run. It skips what's already set up."
 
 # Homebrew's name for each tool this needs.
 missing="" formulas=""
-for tool in terraform:hashicorp/tap/terraform aws:awscli jq:jq git:git curl:curl; do
+for tool in terraform:hashicorp/tap/terraform aws:awscli jq:jq git:git curl:curl uv:uv; do
   command -v "${tool%%:*}" >/dev/null || { missing+="${tool%%:*}"$'\n' formulas+=" ${tool#*:}"; }
 done
 if [ -n "$missing" ]; then
@@ -97,14 +97,18 @@ if [ ! -f infra/terraform.tfvars ]; then
     echo "  That doesn't look like an email address."
   done
   email="$answer"
+  echo
+  choose_access_mode
   awk -v name="$name" -v email="$email" '
     /^deployment_name[[:space:]]*=/ { print "deployment_name = \"" name "\""; next }
     /^budget_alert_email[[:space:]]*=/ { print "budget_alert_email = \"" email "\""; next }
     { print }
   ' infra/terraform.tfvars.example >infra/terraform.tfvars
+  save_access_mode "$access_mode"
   answer_ok "wrote infra/terraform.tfvars"
 fi
 name="$(deployment_name)"
+access_mode="$(configured_access_mode ask)"
 [ -n "$name" ] || fail "infra/terraform.tfvars has no deployment_name: add one, such as deployment_name = \"alice\""
 
 # --- A server of yours that's already running ---
@@ -121,18 +125,29 @@ if [ -n "$instance" ] \
   running_ref="$(terraform -chdir=infra output -raw git_ref 2>/dev/null || true)"
   running_repository="$(terraform -chdir=infra output -raw repository_url 2>/dev/null || true)"
   echo
-  echo "Your test deployment $name is already running in $project."
+  echo "Your deployment $name is already running in $project."
   [ -z "$running_ref" ] || bullet "It runs ${running_ref:0:7}, from $running_repository."
   bullet "It costs money until make aws-destroy, or until it terminates itself."
   bullet "Deploying other code replaces it, and deletes its data."
-  if [ -n "$running_ref" ] && confirm "Keep your running server and check it?"; then
-    keep=yes
-    # The commit has to be here for make aws-deploy to check it.
-    git cat-file -e "$running_ref^{commit}" 2>/dev/null \
-      || git fetch --quiet "$running_repository" "$running_ref"
-    REF="$running_ref" REF_NAME="" REPOSITORY_URL="$running_repository"
-    export REPOSITORY_URL
-    answer_ok "keeping $instance, running ${running_ref:0:7}"
+  running_mode="$(deployed_access_mode)"
+  if [ "$access_mode" != "$running_mode" ]; then
+    answer_warn "running access is $running_mode HTTPS; saved access is $access_mode HTTPS. Keeping this server would not apply your settings."
+    bullet "Switching modes replaces the server, deleting its database and API keys."
+    echo "  1) Review a deployment plan"
+    echo "  2) Cancel and leave the running server unchanged"
+    choose "Review deployment changes? (1 review, 2 cancel)" 2
+    [ "$answer" = 1 ] || fail "canceled: running server unchanged"
+  else
+    if [ -n "$running_ref" ] && confirm "Keep your running server and check it?"; then
+      if [ "$running_mode" = restricted ]; then
+        current_ip="$(public_ipv4)"
+        allowed_cidr="$(output allowed_cidr)"
+        [ "$current_ip/32" = "$allowed_cidr" ] || fail "this server allows $allowed_cidr, but your current public IP is $current_ip. To update access without replacing the server, run REF=$running_ref make aws-deploy, then make aws-smoke."
+      fi
+      keep=yes
+      REF="$running_ref" REF_NAME=""
+      answer_ok "keeping $instance, running ${running_ref:0:7} in $running_mode HTTPS mode"
+    fi
   fi
 fi
 
@@ -251,11 +266,15 @@ export REF REF_NAME
 answer_ok "step 1 done: deployment $name in $project, running ${REF:0:7}${REF_NAME:+ ($REF_NAME)}"
 
 step "Step 2 of 3: deploy"
-scripts/aws-deploy
+if [ -n "$keep" ]; then
+  ok "kept the running server and its access settings"
+else
+  scripts/aws-deploy
+fi
 
 step "Step 3 of 3: check the server"
 echo "A new server takes about 5 to 10 minutes to start. Then a few requests check"
-echo "that it works, without calling Claude."
+echo "that it works, without calling the model."
 scripts/aws-smoke-test
 
 what_next
