@@ -1,0 +1,6 @@
+# Betterleaks's built-in rules, passed explicitly so a BETTERLEAKS_CONFIG
+# environment variable can't replace them. Filenames such as .env are blocked by
+# scripts/check_secrets.py instead: the scanner's patch scans miss empty files and
+# renames, and v1 ignores a filename-only rule's allowlist.
+[extend]
+useDefault = true

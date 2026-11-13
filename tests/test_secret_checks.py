@@ -2,17 +2,15 @@
 
 import json
 import os
-import re
 import shutil
 import subprocess
 import sys
-import tomllib
 from pathlib import Path
 from typing import Any
 
 import pytest
 
-from tests.secrets_smoke import CHECK, ROOT, git, init_repo
+from tests.secrets_smoke import CHECK, git, init_repo
 
 BLOCKED_NAMES = [
     ".env",
@@ -28,10 +26,10 @@ ALLOWED_NAMES = [".env.example", "nested/.env.example", "environment.py", "env.t
 def repo(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     repository = tmp_path / "repo"
     repository.mkdir()
-    init_repo(repository, ".gitleaks.toml", ".gitignore")
+    init_repo(repository, ".betterleaks.toml", ".gitignore")
     binaries = tmp_path / "bin"
     binaries.mkdir()
-    fake = binaries / "gitleaks"
+    fake = binaries / "betterleaks"
     fake.write_text(
         f"#!{sys.executable}\n"
         "import json, os, pathlib, sys\n"
@@ -114,22 +112,6 @@ def test_examples_are_allowed_at_all_depths(repo: Path):
     assert scan(repo, "tracked").returncode == 0
 
 
-def test_gitleaks_env_file_rule_matches_filename_check():
-    # The Python check repeats this rule because Gitleaks patch scans skip empty
-    # files and renames; keep both definitions blocking the same names.
-    config = tomllib.loads((ROOT / ".gitleaks.toml").read_text())
-    rule = next(rule for rule in config["rules"] if rule["id"] == "env-file")
-    allowed = [path for allow in rule["allowlists"] for path in allow["paths"]]
-
-    def blocked(name: str) -> bool:
-        return bool(re.search(rule["path"], name)) and not any(
-            re.search(path, name) for path in allowed
-        )
-
-    assert all(blocked(name) for name in BLOCKED_NAMES)
-    assert not any(blocked(name) for name in ALLOWED_NAMES)
-
-
 def test_staged_check_uses_index_names(repo: Path):
     (repo / "example.txt").write_text("placeholder\n")
     git(repo, "add", "example.txt")
@@ -149,7 +131,7 @@ def test_tracked_scan_uses_working_contents_and_excludes_untracked_files(repo: P
     assert ".env" not in record["files"]
     assert "untracked.txt" not in record["files"]
     assert "--redact=100" in record["args"]
-    assert str(repo / ".gitleaks.toml") in record["args"]
+    assert str(repo / ".betterleaks.toml") in record["args"]
 
 
 def test_symlinks_scan_link_text_without_reading_external_targets(repo: Path):
@@ -167,7 +149,7 @@ def test_historical_exceptions_are_specific_to_one_commit_and_path(repo: Path):
     git(repo, "add", "-f", "sample.env")
     git(repo, "commit", "-qm", "test: harmless historical file")
     commit = git(repo, "rev-parse", "HEAD")
-    (repo / ".gitleaksignore").write_text(
+    (repo / ".betterleaksignore").write_text(
         f"# Reviewed empty historical fixture\n{commit}:sample.env:env-file:0\n"
     )
     assert scan(repo, "history").returncode == 0
@@ -187,8 +169,8 @@ def test_scanner_failures_are_not_reported_as_success(
 
 
 def test_missing_scanner_fails_closed(repo: Path):
-    (repo.parent / "bin" / "gitleaks").unlink()
-    # Keep Git available without accidentally finding an installed Gitleaks.
+    (repo.parent / "bin" / "betterleaks").unlink()
+    # Keep Git available without accidentally finding an installed scanner.
     git_binary = shutil.which("git")
     assert git_binary
     (repo.parent / "bin" / "git").symlink_to(git_binary)

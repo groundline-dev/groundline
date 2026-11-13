@@ -1,6 +1,6 @@
-"""Run the real pinned Gitleaks against disposable repositories; stdlib only.
+"""Run the real pinned Betterleaks against disposable repositories; stdlib only.
 
-Usage: python3 tests/secrets_smoke.py (gitleaks must be on PATH).
+Usage: python3 tests/secrets_smoke.py (betterleaks must be on PATH).
 CI runs this before auditing history. All credential-shaped text is synthetic
 and stays in temporary local repositories.
 """
@@ -49,7 +49,7 @@ class SecretChecks(unittest.TestCase):
         self.temporary = tempfile.TemporaryDirectory(prefix="groundline-secrets-test-")
         self.addCleanup(self.temporary.cleanup)
         self.repo = Path(self.temporary.name)
-        init_repo(self.repo, ".gitleaks.toml")
+        init_repo(self.repo, ".betterleaks.toml")
 
     def git(self, *args: str) -> str:
         return git(self.repo, *args)

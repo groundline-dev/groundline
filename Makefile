@@ -33,7 +33,7 @@ test-live:
 # running. CI also runs test-db, docker-smoke and infra-check.
 check:
 	uv run pre-commit run --all-files
-	uv run pre-commit run gitleaks-tracked --hook-stage manual --all-files
+	uv run pre-commit run secrets-tracked --hook-stage manual --all-files
 	uv run pytest
 
 fix:

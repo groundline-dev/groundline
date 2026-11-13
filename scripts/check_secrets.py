@@ -1,8 +1,9 @@
 """Scan staged changes, tracked working files, or all fetched Git history.
 
-The pinned pre-commit environment supplies Gitleaks locally; CI installs the same
-release. Git filenames are checked separately because patch scans omit empty
-files and content-preserving renames. No application dependencies are needed.
+The pinned pre-commit environment supplies Betterleaks locally; CI installs the
+same release. Filenames are checked here, not by the scanner, because its patch
+scans omit empty files and content-preserving renames. No application
+dependencies are needed.
 """
 
 import argparse
@@ -12,6 +13,8 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path, PurePosixPath
+
+SCANNER = "betterleaks"
 
 # Names of added or changed files, so staged and history modes agree.
 CHANGED_NAMES = ("--name-only", "-z", "--no-renames", "--diff-filter=ACMT")
@@ -33,7 +36,7 @@ def forbidden(path: str) -> bool:
 
 
 def ignored_fingerprints(root: Path) -> set[str]:
-    path = root / ".gitleaksignore"
+    path = root / ".betterleaksignore"
     if not path.exists():
         return set()
     lines = map(str.strip, path.read_text().splitlines())
@@ -106,9 +109,10 @@ def scan(root: Path, mode: str) -> int:
     filenames_ok = check_filenames(root, mode, tracked)
     common = [
         "--config",
-        str(root / ".gitleaks.toml"),
+        str(root / ".betterleaks.toml"),
+        # Betterleaks v1 kept this flag name from Gitleaks.
         "--gitleaks-ignore-path",
-        str(root / ".gitleaksignore"),
+        str(root / ".betterleaksignore"),
         "--redact=100",
         "--no-banner",
         "--verbose",
@@ -118,14 +122,14 @@ def scan(root: Path, mode: str) -> int:
         # files, caches and virtual environments.
         with tempfile.TemporaryDirectory(prefix="groundline-secrets-") as temporary:
             snapshot(root, tracked, Path(temporary))
-            result = subprocess.run(["gitleaks", "dir", *common, temporary], cwd=root)
+            result = subprocess.run([SCANNER, "dir", *common, temporary], cwd=root)
     else:
         # -m includes changes introduced only while resolving a merge.
         selection = (
             ["--staged"] if mode == "staged" else ["--log-opts=--all --full-history -m"]
         )
         result = subprocess.run(
-            ["gitleaks", "git", *common, *selection, str(root)], cwd=root
+            [SCANNER, "git", *common, *selection, str(root)], cwd=root
         )
     return result.returncode or int(not filenames_ok)
 
