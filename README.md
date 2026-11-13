@@ -185,7 +185,7 @@ curl -s http://127.0.0.1:8000/v1/omissions \
   -d '{"source": "...transcript...", "summary": "...note..."}'
 ```
 
-`source` and `summary` must not be blank, and each can be up to 200,000 characters. A check takes about 30 to 60 seconds, so give your HTTP client a long timeout.
+`source` and `summary` must not be blank, and each can be up to 200,000 characters. The default whole-check limit is 120 seconds, including authentication, model calls, and retry waits. Set your HTTP client timeout above that limit to allow request and response transfer time. See [timeout settings](DEVELOPMENT.md#timeouts-and-outage-retries) to tune it.
 
 ```json
 {
@@ -252,8 +252,12 @@ Every finished check answers **200, flagged or not** ([ADR 0008](docs/adr/0008-t
 | 405 | The route doesn't take that method, such as `GET /v1/omissions`. |
 | 422 | The request is unusable: broken JSON, not a JSON object, a blank or too-long text, or an unexpected field. |
 | 500 | An unexpected error, a bug in groundline. Details are in the server log. |
-| 502 | The model or Anthropic's API failed: an unusable reply, a refusal or an outage. `detail` names the step and what the check had spent; for an Anthropic API error it gives only the status and error type. Retrying later may work. |
-| 503 | `ANTHROPIC_API_KEY` is missing or rejected, or settings cannot be read. It's also 503 when authentication is unavailable (missing/unusable `DATABASE_URL` or unavailable storage), with `{"detail": "Authentication is unavailable"}`. Model setup errors provide setup guidance, without the path of the server's `.env`. |
+| 502 | The model or Anthropic's API failed: an unusable reply, a refusal or an outage. `detail` names the step and recorded usage before stopping; for an Anthropic API error it gives only the status and error type. Retrying later may work. |
+| 503 | `ANTHROPIC_API_KEY` is missing or rejected, or settings cannot be read. It's also 503 when authentication is unavailable (missing/unusable `DATABASE_URL`, unavailable storage, or authentication taking more than its default 5 seconds), with `{"detail": "Authentication is unavailable"}`. Model setup errors provide setup guidance, without the path of the server's `.env`. |
+
+| 504 | The whole check, model attempt, or model retry allowance expired. The final stopping reason controls the status: a final model error returns 502 even if an earlier attempt timed out. |
+
+Interrupted model requests can incur charges without returning usage. Error cost reports cover recorded usage only; the provider bill may be higher. A retry near the deadline can consume the remaining allowance and add charges without producing a result. The addition of 504 in v1 is an explicit exception to the status-code versioning policy (ALL-134).
 
 JSON parsing happens before authentication: broken JSON returns 422 and invalid UTF-8 bodies return 400 even without credentials. For readable JSON, authentication precedes field validation. Requests rejected by authentication never start the pipeline or make model calls.
 

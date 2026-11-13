@@ -198,7 +198,7 @@ def test_an_unusable_reply_exits_with_2(
 
     assert result.exit_code == 2
     assert result.stderr.startswith("error: stage 'commissions_check' failed")
-    assert "Cost before stopping: $0.0001 · 2 calls · " in result.stderr
+    assert "Recorded cost before stopping: $0.0001 · 2 calls · " in result.stderr
 
 
 def test_a_missing_input_file_exits_with_2(

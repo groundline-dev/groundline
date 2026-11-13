@@ -1,4 +1,8 @@
-"""Errors about the environment a pipeline runs in, rather than about a stage."""
+"""Setup failures and internal model/check time limits."""
+
+from typing import Literal
+
+from groundline.core.calls import CallRecord
 
 
 class SetupError(Exception):
@@ -23,3 +27,16 @@ class SetupError(Exception):
 
 class APIKeyRejectedError(SetupError):
     """The provider rejected the API key, or it lacks access to the model."""
+
+
+class ModelTimeoutError(Exception):
+    """An owned check, model attempt or retry allowance expired.
+
+    Available records describe known usage only; interrupted requests may bill
+    additional usage that the provider never returned.
+    """
+
+    def __init__(self, reason: Literal["check", "attempt", "retry"] = "check") -> None:
+        self.reason = reason
+        self.calls: tuple[CallRecord, ...] = ()
+        super().__init__("time limit expired while waiting for the model")

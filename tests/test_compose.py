@@ -146,7 +146,10 @@ def test_the_app_gets_every_setting_it_reads_and_not_the_admin_password(
 ):
     """A setting added to Settings must also be passed to the app in compose.yaml,
     or the app runs in Compose without it and nothing reports the gap."""
-    reads = {name.upper() for name in Settings.model_fields} - ADMIN_ONLY
+    reads = {
+        str(field.validation_alias or name.upper())
+        for name, field in Settings.model_fields.items()
+    } - ADMIN_ONLY
     gets = environment_names(services["app"])
 
     assert reads <= gets, f"compose.yaml doesn't pass {sorted(reads - gets)} to app"

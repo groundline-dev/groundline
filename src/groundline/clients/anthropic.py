@@ -8,18 +8,63 @@ Notes for Claude Opus 5.5:
   raised as an error instead.
 """
 
+import asyncio
+import logging
+import math
+import time
+from email.utils import parsedate_to_datetime
+
 import anthropic
 import httpx2
 from anthropic import AsyncAnthropic
 
+from groundline.clients.retry import retry_call
 from groundline.core import (
     APIKeyRejectedError,
     Effort,
     ModelError,
     ModelRefusal,
     ModelReply,
-    as_object,
 )
+from groundline.core.errors import ModelTimeoutError
+from groundline.settings import read_settings
+
+logger = logging.getLogger("groundline.model")
+
+
+def _seconds(value: str | None, scale: float = 1) -> float | None:
+    try:
+        number = float(value) / scale if value is not None else float("nan")
+    except ValueError:
+        return None
+    return number if math.isfinite(number) and number >= 0 else None
+
+
+def retry_decision(
+    error: Exception, *, now: float | None = None
+) -> tuple[bool, float | None]:
+    if isinstance(error, (ModelTimeoutError, anthropic.APIConnectionError)):
+        return True, None
+    if not isinstance(error, anthropic.APIStatusError):
+        return False, None
+    headers = error.response.headers
+    transient = error.status_code in (408, 409, 429) or 500 <= error.status_code < 600
+    if not transient or headers.get("x-should-retry") == "false":
+        return False, None
+    minimum = _seconds(headers.get("retry-after-ms"), 1000)
+    if minimum is None:
+        value = headers.get("retry-after")
+        minimum = _seconds(value)
+        if minimum is None and value:
+            try:
+                minimum = max(
+                    0.0,
+                    parsedate_to_datetime(value).timestamp()
+                    - (time.time() if now is None else now),
+                )
+            except (ValueError, TypeError, OverflowError):
+                pass
+    return True, minimum
 
 
 class AnthropicClient:
@@ -28,47 +73,103 @@ class AnthropicClient:
         api_key: str,
         *,
         key_source: str = "ANTHROPIC_API_KEY",
-        max_retries: int = 4,
+        max_retries: int | None = None,
         http_client: httpx2.AsyncClient | None = None,
     ) -> None:
         """`key_source` says where the key came from, for error messages."""
         self._key_source = key_source
-        # The SDK retries connection errors, 408, 409, 429 and 5xx with backoff.
+        self._settings = read_settings()
+        self._max_attempts = (
+            (max_retries + 1)
+            if max_retries is not None
+            else self._settings.model_max_attempts
+        )
+        # One outage retry layer belongs to groundline.
         self._sdk = AsyncAnthropic(
-            api_key=api_key, max_retries=max_retries, http_client=http_client
+            api_key=api_key, max_retries=0, http_client=http_client
         )
 
-    def _rejected(self, what: str, fix: str) -> APIKeyRejectedError:
+    def _rejected(self, what: str, fix: str, *, safe_what: str) -> APIKeyRejectedError:
         """The error for a key that was refused. Where the key came from can be a
         path on the server, so only the full message names it, not an HTTP response."""
         return APIKeyRejectedError(
             f"{what}\n  Key from: {self._key_source}\n  Fix: {fix}",
-            f"{what}\n  Fix: {fix}",
+            f"{safe_what}\n  Fix: {fix}",
         )
 
     async def complete(
         self, prompt: str, *, model: str, effort: Effort, max_tokens: int
     ) -> ModelReply:
+        settings = self._settings
+        attempt = 0
+
+        async def operation():
+            nonlocal attempt
+            attempt += 1
+            started = time.monotonic()
+            boundary = asyncio.timeout(settings.model_timeout_seconds)
+            try:
+                async with boundary:
+                    return await self._sdk.messages.create(
+                        model=model,
+                        max_tokens=max_tokens,
+                        output_config={"effort": effort},
+                        messages=[{"role": "user", "content": prompt}],
+                        timeout=httpx2.Timeout(
+                            settings.model_timeout_seconds,
+                            connect=settings.model_connect_timeout_seconds,
+                        ),
+                    )
+            except anthropic.APITimeoutError:
+                raise ModelTimeoutError("attempt") from None
+            except Exception:
+                if boundary.expired():
+                    raise ModelTimeoutError("attempt") from None
+                task = asyncio.current_task()
+                if task is not None and task.cancelling():
+                    raise asyncio.CancelledError() from None
+                raise
+            finally:
+                logger.info(
+                    "model attempt=%d duration=%.3f",
+                    attempt,
+                    time.monotonic() - started,
+                )
+
+        def decide(error: Exception) -> tuple[bool, float | None]:
+            logger.info(
+                "model attempt=%d status=%s",
+                attempt,
+                error.status_code
+                if isinstance(error, anthropic.APIStatusError)
+                else type(error).__name__,
+            )
+            return retry_decision(error)
+
         try:
-            message = await self._sdk.messages.create(
-                model=model,
-                max_tokens=max_tokens,
-                output_config={"effort": effort},
-                messages=[{"role": "user", "content": prompt}],
+            message = await retry_call(
+                operation,
+                decide=decide,
+                max_attempts=self._max_attempts,
+                budget_seconds=settings.model_retry_timeout_seconds,
+                base_seconds=settings.model_retry_base_seconds,
+                cap_seconds=settings.model_retry_cap_seconds,
             )
         except anthropic.AuthenticationError as error:
             raise self._rejected(
                 f"ANTHROPIC_API_KEY was rejected by the Anthropic API "
-                f"({error.status_code}: {_detail(error)}).",
+                f"({error.status_code}).",
                 "check the key is complete, hasn't been revoked, "
                 "and belongs to the workspace you expect.",
+                safe_what="ANTHROPIC_API_KEY was rejected by the Anthropic API (401).",
             ) from error
         except anthropic.PermissionDeniedError as error:
             raise self._rejected(
                 f"ANTHROPIC_API_KEY doesn't have access to {model} "
-                f"({error.status_code}: {_detail(error)}).",
+                f"({error.status_code}).",
                 "use a key from a workspace that can use this model, "
                 "or change the stage's model setting.",
+                safe_what=f"ANTHROPIC_API_KEY doesn't have access to {model} (403).",
             ) from error
         text = "".join(block.text for block in message.content if block.type == "text")
         reply = ModelReply(
@@ -98,11 +199,3 @@ class AnthropicClient:
 
     async def close(self) -> None:
         await self._sdk.close()
-
-
-def _detail(error: anthropic.APIStatusError) -> str:
-    """The API's own explanation, such as "invalid x-api-key", if it gave one."""
-    body = as_object(error.body)
-    inner = as_object(body.get("error")) if body else None
-    message = inner.get("message") if inner else None
-    return message if isinstance(message, str) else error.message

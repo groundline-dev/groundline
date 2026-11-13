@@ -4,6 +4,7 @@ The CLI, the API and evaluator adapters all call this, so they behave the same.
 """
 
 import asyncio
+import logging
 
 from groundline.clients import AnthropicClient
 from groundline.core import (
@@ -18,11 +19,14 @@ from groundline.core import (
     pipeline_fingerprint,
     run_pipeline,
 )
+from groundline.core.deadline import check_deadline
 from groundline.evaluators.builtin import default_registry
 from groundline.presets import builtin_presets, load_preset
 from groundline.profiles import load_builtin_profile
 from groundline.result import EvaluationResult
 from groundline.settings import read_settings
+
+logger = logging.getLogger("groundline.evaluate")
 
 DEFAULT_PRESET = "omission_all_opus"
 DEFAULT_COMMISSIONS_PRESET = "commission_quick"
@@ -53,39 +57,48 @@ async def evaluate(
     to an Anthropic client using ANTHROPIC_API_KEY. The spec is checked and the
     key looked up before any model call, so mistakes cost nothing.
     """
-    spec = spec or load_preset(DEFAULT_PRESET)
-    registry = registry or default_registry()
-    if profile is None and spec.profile is not None:
-        profile = load_builtin_profile(spec.profile)
-    pipeline = build_pipeline(spec, registry, profile)
-    validated, warnings = _compare_with_presets(pipeline)
+    settings = read_settings()
+    with check_deadline(settings.check_timeout_seconds):
+        spec = spec or load_preset(DEFAULT_PRESET)
+        registry = registry or default_registry()
+        if profile is None and spec.profile is not None:
+            profile = load_builtin_profile(spec.profile)
+        pipeline = build_pipeline(spec, registry, profile)
+        validated, warnings = _compare_with_presets(pipeline)
 
-    own_client = None
-    needed_by = model_users(pipeline)
-    if client is None and needed_by:
-        settings = read_settings()
-        client = own_client = AnthropicClient(
-            settings.anthropic_key(needed_by=needed_by),
-            key_source=settings.anthropic_key_source(),
-        )
-    try:
-        run = await run_pipeline(
-            pipeline,
-            Inputs(source=source, summary=summary),
-            cache=cache,
-            client=client,
-        )
-    finally:
-        if own_client is not None:
-            await own_client.close()
+        own_client = None
+        needed_by = model_users(pipeline)
+        if client is None and needed_by:
+            client = own_client = AnthropicClient(
+                settings.anthropic_key(needed_by=needed_by),
+                key_source=settings.anthropic_key_source(),
+            )
+        try:
+            run = await run_pipeline(
+                pipeline,
+                Inputs(source=source, summary=summary),
+                cache=cache,
+                client=client,
+            )
+        finally:
+            if own_client is not None:
+                # Closing a provider connection is bounded even after the check
+                # expired. Cleanup errors must not replace its original failure.
+                try:
+                    async with asyncio.timeout(settings.model_connect_timeout_seconds):
+                        await own_client.close()
+                except Exception as error:
+                    logger.warning(
+                        "model client cleanup failed (%s)", type(error).__name__
+                    )
 
-    return EvaluationResult(
-        pipeline=spec.name,
-        profile=profile.name if profile else None,
-        validated_preset=validated,
-        run=run,
-        warnings=warnings,
-    )
+        return EvaluationResult(
+            pipeline=spec.name,
+            profile=profile.name if profile else None,
+            validated_preset=validated,
+            run=run,
+            warnings=warnings,
+        )
 
 
 def evaluate_sync(

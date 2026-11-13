@@ -19,6 +19,7 @@ from groundline.api.common import (
     CheckRequest,
     Usage,
     alarm_of,
+    begin_check,
     check_failures,
     check_responses,
     model_client,
@@ -128,7 +129,7 @@ class CommissionsResponse(ApiModel):
 
 @router.post(
     "/commissions",
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(begin_check), Depends(require_api_key)],
     responses=check_responses(load_preset(DEFAULT_COMMISSIONS_PRESET)),
 )
 async def commissions(

@@ -8,7 +8,7 @@ settings are printed or logged.
 import os
 from pathlib import Path
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from groundline.core.errors import SetupError
@@ -51,6 +51,82 @@ class Settings(BaseSettings):
     database_admin_url: SecretStr | None = None
     """The Postgres admin login, which only setup and the database tests use to
     create the app's login and database. The app itself never gets it (ADR 0013)."""
+
+    check_timeout_seconds: float = Field(
+        default=120,
+        gt=0,
+        allow_inf_nan=False,
+        validation_alias="GROUNDLINE_CHECK_TIMEOUT_SECONDS",
+    )
+    db_auth_timeout_seconds: float = Field(
+        default=5,
+        gt=0,
+        allow_inf_nan=False,
+        validation_alias="GROUNDLINE_DB_AUTH_TIMEOUT_SECONDS",
+    )
+    db_connect_timeout_seconds: float = Field(
+        default=5,
+        gt=0,
+        allow_inf_nan=False,
+        validation_alias="GROUNDLINE_DB_CONNECT_TIMEOUT_SECONDS",
+    )
+    db_pool_timeout_seconds: float = Field(
+        default=5,
+        gt=0,
+        allow_inf_nan=False,
+        validation_alias="GROUNDLINE_DB_POOL_TIMEOUT_SECONDS",
+    )
+    db_query_timeout_seconds: float = Field(
+        default=5,
+        gt=0,
+        allow_inf_nan=False,
+        validation_alias="GROUNDLINE_DB_QUERY_TIMEOUT_SECONDS",
+    )
+    db_check_timeout_seconds: float = Field(
+        default=5,
+        gt=0,
+        allow_inf_nan=False,
+        validation_alias="GROUNDLINE_DB_CHECK_TIMEOUT_SECONDS",
+    )
+    db_readiness_timeout_seconds: float = Field(
+        default=5,
+        gt=0,
+        allow_inf_nan=False,
+        validation_alias="GROUNDLINE_DB_READINESS_TIMEOUT_SECONDS",
+    )
+    model_timeout_seconds: float = Field(
+        default=60,
+        gt=0,
+        allow_inf_nan=False,
+        validation_alias="GROUNDLINE_MODEL_TIMEOUT_SECONDS",
+    )
+    model_connect_timeout_seconds: float = Field(
+        default=5,
+        gt=0,
+        allow_inf_nan=False,
+        validation_alias="GROUNDLINE_MODEL_CONNECT_TIMEOUT_SECONDS",
+    )
+    model_retry_timeout_seconds: float = Field(
+        default=120,
+        gt=0,
+        allow_inf_nan=False,
+        validation_alias="GROUNDLINE_MODEL_RETRY_TIMEOUT_SECONDS",
+    )
+    model_retry_base_seconds: float = Field(
+        default=1,
+        gt=0,
+        allow_inf_nan=False,
+        validation_alias="GROUNDLINE_MODEL_RETRY_BASE_SECONDS",
+    )
+    model_retry_cap_seconds: float = Field(
+        default=8,
+        gt=0,
+        allow_inf_nan=False,
+        validation_alias="GROUNDLINE_MODEL_RETRY_CAP_SECONDS",
+    )
+    model_max_attempts: int = Field(
+        default=3, gt=0, validation_alias="GROUNDLINE_MODEL_MAX_ATTEMPTS"
+    )
 
     def require_database_url(self) -> str:
         """Require storage only when an operation actually uses it."""

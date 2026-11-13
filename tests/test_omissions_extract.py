@@ -101,7 +101,9 @@ def test_malformed_json_is_retried_once():
     ],
 )
 def test_malformed_twice_fails_clearly(bad: str):
-    with pytest.raises(StageError, match="stage 'extract'.*after 1 retry"):
+    with pytest.raises(
+        StageError, match="stage 'extract'.*after a request for correction"
+    ):
         run([EXTRACT], Script(extract=[bad, bad]))
 
 

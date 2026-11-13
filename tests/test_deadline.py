@@ -340,3 +340,39 @@ def test_overlapping_requests_have_independent_deadlines():
             assert first_model.cancelled == 1
 
     asyncio.run(run())
+
+
+@pytest.mark.parametrize("owner_cancels", [False, True])
+def test_cleanup_failure_preserves_timeout_or_owner_cancellation(owner_cancels: bool):
+    """A client's cleanup error must not replace the reason work was stopped."""
+    from groundline.core.errors import ModelTimeoutError
+
+    class NoisyClient(HungClient):
+        async def complete(self, prompt: str, **kwargs: Any) -> ModelReply:
+            try:
+                return await super().complete(prompt, **kwargs)
+            finally:
+                raise RuntimeError("private cleanup failure")
+
+    async def run():
+        model = NoisyClient()
+        task = asyncio.create_task(evaluate("a", "b", client=model))
+        try:
+            async with asyncio.timeout(3):
+                while not model.started:
+                    await asyncio.sleep(0)
+            if owner_cancels:
+                task.cancel()
+                with pytest.raises(asyncio.CancelledError):
+                    await task
+            else:
+                done, _ = await asyncio.wait({task}, timeout=3)
+                assert done, "the application deadline must beat the watchdog"
+                with pytest.raises(ModelTimeoutError):
+                    task.result()
+            assert model.started == model.cancelled == 1
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(run())

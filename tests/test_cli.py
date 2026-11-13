@@ -122,7 +122,9 @@ def test_an_unusable_reply_exits_with_2(
 
     assert result.exit_code == 2
     assert result.stderr.startswith("error: stage 'extract' failed")
-    assert re.search(r"Cost before stopping: \$0\.\d{4} · 2 calls · ", result.stderr)
+    assert re.search(
+        r"Recorded cost before stopping: \$0\.\d{4} · 2 calls · ", result.stderr
+    )
 
 
 def test_a_missing_input_file_exits_with_2(

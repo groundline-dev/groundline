@@ -8,49 +8,14 @@ belong here. Production code is deliberately not added in the tests session.
 """
 
 import asyncio
-import importlib
-import importlib.util
-from collections.abc import Awaitable, Callable
-from typing import Any, Protocol, cast
 
 import pytest
+
+from groundline.clients.retry import retry_call
 
 
 class TemporaryFailure(Exception):
     pass
-
-
-class RetryCall(Protocol):
-    async def __call__(
-        self,
-        operation: Callable[[], Awaitable[Any]],
-        *,
-        decide: Callable[[Exception], tuple[bool, float | None]],
-        max_attempts: int,
-        budget_seconds: float,
-        base_seconds: float,
-        cap_seconds: float,
-        remaining: Callable[[], float],
-        clock: Callable[[], float],
-        sleep: Callable[[float], Awaitable[None]],
-        random: Callable[[], float],
-    ) -> Any: ...
-
-
-@pytest.fixture
-def retry_call() -> RetryCall:
-    # Implementation session: replace this temporary lookup with a normal import
-    # once groundline.clients.retry exists.
-    async def run(*args: Any, **kwargs: Any) -> Any:
-        assert importlib.util.find_spec("groundline.clients.retry") is not None, (
-            "the shared provider-independent retry scheduler is not implemented"
-        )
-        module = importlib.import_module("groundline.clients.retry")
-        call = getattr(module, "retry_call", None)
-        assert callable(call), "shared retry_call must expose its scheduling contract"
-        return await cast(RetryCall, call)(*args, **kwargs)
-
-    return cast(RetryCall, run)
 
 
 class Clock:
@@ -67,7 +32,7 @@ class Clock:
 
 
 @pytest.mark.parametrize("fraction", [0, 0.25, 1])
-def test_full_jitter_doubles_then_caps(retry_call: RetryCall, fraction: float):
+def test_full_jitter_doubles_then_caps(fraction: float):
     clock = Clock()
     calls = 0
 
@@ -98,7 +63,7 @@ def test_full_jitter_doubles_then_caps(retry_call: RetryCall, fraction: float):
 
 
 @pytest.mark.parametrize("minimum", [0, 3])
-def test_provider_minimum_is_respected(retry_call: RetryCall, minimum: float):
+def test_provider_minimum_is_respected(minimum: float):
     clock = Clock()
     calls = 0
 
@@ -129,7 +94,7 @@ def test_provider_minimum_is_respected(retry_call: RetryCall, minimum: float):
 
 
 @pytest.mark.parametrize("attempts", [1, 2, 4])
-def test_attempt_limit_includes_original(retry_call: RetryCall, attempts: int):
+def test_attempt_limit_includes_original(attempts: int):
     clock = Clock()
     calls = 0
     failure = TemporaryFailure()
@@ -160,7 +125,7 @@ def test_attempt_limit_includes_original(retry_call: RetryCall, attempts: int):
 
 @pytest.mark.parametrize("check_remaining,retry_budget", [(0.5, 10), (10, 0.5)])
 def test_minimum_wait_must_fit_both_allowances(
-    retry_call: RetryCall, check_remaining: float, retry_budget: float
+    check_remaining: float, retry_budget: float
 ):
     clock = Clock()
     calls = 0
@@ -189,7 +154,7 @@ def test_minimum_wait_must_fit_both_allowances(
     assert clock.waits == []
 
 
-def test_call_time_consumes_retry_budget(retry_call: RetryCall):
+def test_call_time_consumes_retry_budget():
     clock = Clock()
     calls = 0
 
@@ -219,7 +184,7 @@ def test_call_time_consumes_retry_budget(retry_call: RetryCall):
 
 
 @pytest.mark.parametrize("where", ["call", "wait"])
-def test_cancellation_never_retries(retry_call: RetryCall, where: str):
+def test_cancellation_never_retries(where: str):
     async def run():
         entered = asyncio.Event()
         calls = 0
@@ -263,7 +228,7 @@ def test_cancellation_never_retries(retry_call: RetryCall, where: str):
     asyncio.run(run())
 
 
-def test_retry_budget_cancels_hung_operation_without_retry(retry_call: RetryCall):
+def test_retry_budget_cancels_hung_operation_without_retry():
     async def run():
         calls = 0
         cancelled = 0

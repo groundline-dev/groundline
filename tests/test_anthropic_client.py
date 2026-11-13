@@ -106,7 +106,7 @@ def test_a_rejected_key_gets_a_clear_message():
 
     message = str(error.value)
     assert message.startswith("ANTHROPIC_API_KEY was rejected by the Anthropic API")
-    assert "invalid x-api-key" in message
+    assert "invalid x-api-key" not in message
     assert "Key from: /repo/.env" in message
 
 

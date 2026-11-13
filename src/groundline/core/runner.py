@@ -21,7 +21,8 @@ from pydantic import BaseModel, ValidationError
 
 from groundline.core.cache import Cache, stable_hash
 from groundline.core.calls import CallRecord, Usage, summarize_usage
-from groundline.core.errors import SetupError
+from groundline.core.deadline import remaining
+from groundline.core.errors import ModelTimeoutError, SetupError
 from groundline.core.implementation import StageContext
 from groundline.core.inputs import Inputs
 from groundline.core.model_client import ModelClient
@@ -91,6 +92,9 @@ async def run_pipeline(
         for needed in impl.reads:
             await tasks[needed]  # validation guarantees it was created earlier
 
+        if remaining() <= 0:
+            raise ModelTimeoutError()
+
         ctx = StageContext(
             inputs=inputs,
             step=stage.step,
@@ -141,15 +145,30 @@ async def run_pipeline(
             status=status, seconds=round(time.perf_counter() - started, 3)
         )
 
+    boundary = asyncio.timeout(remaining())
     try:
-        async with asyncio.TaskGroup() as group:
-            for stage in pipeline.stages:
-                tasks[stage.step] = group.create_task(run_stage(stage))
+        async with boundary:
+            async with asyncio.TaskGroup() as group:
+                for stage in pipeline.stages:
+                    tasks[stage.step] = group.create_task(run_stage(stage))
+    except TimeoutError:
+        if not boundary.expired():
+            raise
+        error = ModelTimeoutError()
+        error.calls = tuple(call for ctx in contexts.values() for call in ctx.calls)
+        raise error from None
     except ExceptionGroup as failed:
+        if boundary.expired():
+            error = ModelTimeoutError()
+            error.calls = tuple(call for ctx in contexts.values() for call in ctx.calls)
+            raise error from None
+        task = asyncio.current_task()
+        if task is not None and task.cancelling():
+            raise asyncio.CancelledError() from None
         # Report the first failure; the other stages were canceled because of it.
         # Keep its original cause, and hide the task group's wrapper.
         first = failed.exceptions[0]
-        if isinstance(first, StageError):
+        if isinstance(first, (StageError, ModelTimeoutError)):
             first.calls = tuple(
                 call
                 for stage in pipeline.stages

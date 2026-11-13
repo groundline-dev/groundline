@@ -87,7 +87,7 @@ def test_each_score_is_defined_in_the_docs(model: str, field: str, empty_case: s
 def test_each_check_has_a_valid_example_for_every_error(path: str):
     responses = schema["paths"][path]["post"]["responses"]
 
-    assert set(responses) == {"200", "400", "401", "422", "500", "502", "503"}
+    assert set(responses) == {"200", "400", "401", "422", "500", "502", "503", "504"}
     for status, response in responses.items():
         if status == "200":
             continue

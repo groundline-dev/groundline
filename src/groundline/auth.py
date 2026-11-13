@@ -1,5 +1,6 @@
 """Opt-in authentication for protected routes; public routes need no database."""
 
+import asyncio
 import logging
 from typing import Annotated
 
@@ -8,6 +9,8 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 
 from groundline.api.errors import AUTHENTICATION_UNAVAILABLE, INVALID_API_KEY
 from groundline.api_keys import APIKeyInfo, APIKeys, valid_api_key_format
+from groundline.core.deadline import remaining
+from groundline.settings import read_settings
 
 logger = logging.getLogger("groundline.auth")
 _bearer = HTTPBearer(auto_error=False)
@@ -32,7 +35,10 @@ async def require_api_key(
     if not isinstance(keys, APIKeys):
         raise HTTPException(status_code=503, detail=AUTHENTICATION_UNAVAILABLE)
     try:
-        info = await keys.authenticate(credentials.credentials)
+        async with asyncio.timeout(
+            min(remaining(), read_settings().db_auth_timeout_seconds)
+        ):
+            info = await keys.authenticate(credentials.credentials)
     except Exception as error:
         # Even an unexpected error must not put credentials or driver details in
         # an HTTP response or a server traceback. Never log the exception here.

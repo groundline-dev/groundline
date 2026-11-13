@@ -31,6 +31,7 @@ from groundline.core import (
     load_spec,
     summarize_usage,
 )
+from groundline.core.errors import ModelTimeoutError
 from groundline.evaluate import (
     DEFAULT_COMMISSIONS_PRESET,
     DEFAULT_PRESET,
@@ -195,11 +196,11 @@ def _finish(run: Callable[[], int]) -> None:
     bug. Python's own exit code for an uncaught error is 1."""
     try:
         code = run()
-    except StageError as error:
+    except (StageError, ModelTimeoutError) as error:
         typer.echo(f"error: {error}", err=True)
         if error.calls:
             cost = usage_text(summarize_usage(error.calls))
-            typer.echo(f"  Cost before stopping: {cost}", err=True)
+            typer.echo(f"  Recorded cost before stopping: {cost}", err=True)
         code = EXIT_ERROR
     except (SetupError, SpecError, ProfileError, ValueError, OSError) as error:
         typer.echo(f"error: {error}", err=True)
