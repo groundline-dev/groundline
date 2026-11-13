@@ -170,28 +170,30 @@ The `pre-commit` hook runs lint, format, type, large-file and secret checks on s
 
 ### Secret checks
 
-`make setup` enables the commit hook. On its first run, pre-commit downloads and builds Gitleaks. The hook scans staged changes for likely secrets and blocks filenames starting with `.env` or ending in `.env`, even if the file is empty or force-added. Use `.env.example` for templates; its filename is allowed, but its contents are still scanned.
+Secrets are checked in three places:
 
-`make check` additionally scans the current contents of all tracked files, including unstaged edits. It excludes untracked files, local environment files and caches. To run just that scan:
+- **Commit hook**, enabled by `make setup`: scans staged changes, and blocks filenames starting with `.env` or ending in `.env`, even if the file is empty or force-added. Use `.env.example` for templates; its filename is allowed, but its contents are still scanned. On its first run, pre-commit downloads and builds Gitleaks, so expect a delay.
+- **`make check`**: also scans the current contents of all tracked files, including unstaged edits, but not untracked files.
+- **CI** (`secrets` job): scans all fetched Git history, including secrets removed by later commits, and redacts findings. It runs after a push, so it can't stop a secret reaching the public repository; only the commit hook can.
+
+To run the tracked-files scan alone:
 
 ```sh
 uv run pre-commit run gitleaks-tracked --hook-stage manual --all-files
 ```
 
-The `secrets` CI job scans all fetched Git history, including secrets removed by later commits, and redacts findings in its output. CI runs after a push, so a failed check cannot prevent a secret from reaching the public repository.
-
-For a harmless dummy value that Gitleaks flags, add `gitleaks:allow` in a comment on that line and explain why it is harmless. For a confirmed historical false positive, add its fingerprint to `.gitleaksignore` with an explanation; do not copy the secret or source line. These exceptions are narrower than excluding a file, rule or commit. A comment does not bypass the filename check: rename templates to `.env.example`.
-
-If a real secret reaches GitHub, revoke and replace it first, then tell the team without sharing its value. Deleting it or rewriting history does not invalidate it. Coordinate cleanup with the team; see GitHub's [sensitive-data removal guide](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository).
-
-When updating Gitleaks, update both the commit SHA and release comment in `.pre-commit-config.yaml` and `GITLEAKS_VERSION` in `.github/workflows/ci.yml`. Dependabot updates the hook pin; update the matching CLI version in the same change.
-
-CI runs `tests/secrets_smoke.py`, an executable integration harness that checks Gitleaks against disposable repositories. To run it and the history scan locally, put the matching Gitleaks release on `PATH`:
+To run CI's checks locally, put the Gitleaks release pinned in `.pre-commit-config.yaml` on `PATH`, then run the integration tests and the history scan:
 
 ```sh
 python3 tests/secrets_smoke.py
 python3 scripts/check_secrets.py history
 ```
+
+**False positives.** For a harmless dummy value, add `gitleaks:allow` in a comment on that line and explain why it is harmless. For a confirmed historical false positive, add its fingerprint to `.gitleaksignore` with an explanation; do not copy the secret or source line. Both are narrower than excluding a file, rule or commit. Neither bypasses the filename check: rename templates to `.env.example`.
+
+**If a real secret reaches GitHub**, revoke and replace it first, then tell the team without sharing its value. Deleting it or rewriting history does not invalidate it. Coordinate cleanup with the team; see GitHub's [sensitive-data removal guide](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository).
+
+**Updating Gitleaks.** Dependabot updates the pin in `.pre-commit-config.yaml`; in the same change, set `GITLEAKS_VERSION` in `.github/workflows/ci.yml` to the matching release.
 
 The [history audit record](docs/security-audit.md) states the scanned scope and findings.
 
