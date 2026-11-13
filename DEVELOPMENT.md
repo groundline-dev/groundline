@@ -98,6 +98,12 @@ A higher attempt limit allows more retries, but does not extend the overall chec
 limit. Failed or interrupted model calls may still incur charges. Reported costs
 include only usage returned by the provider.
 
+#### Why groundline owns retries
+
+Groundline disables the Anthropic SDK's automatic retries so it can keep all model
+attempts and waits within one check deadline. Separate retry layers or a fresh
+timeout for each stage could make a check take much longer than intended.
+
 ### Other limits
 
 Each model attempt has a 60-second limit. One model call, including all its
