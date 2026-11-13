@@ -1,6 +1,6 @@
 """Run the real pinned Betterleaks against disposable repositories; stdlib only.
 
-Usage: python3 tests/secrets_smoke.py (betterleaks must be on PATH).
+Usage: uv run pre-commit run secrets-smoke --hook-stage manual
 CI runs this before auditing history. All credential-shaped text is synthetic
 and stays in temporary local repositories.
 """

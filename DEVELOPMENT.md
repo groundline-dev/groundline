@@ -176,24 +176,19 @@ Secrets are checked in three places:
 - **`make check`**: also scans the current contents of all tracked files, including unstaged edits, but not untracked files.
 - **CI** (`secrets` job): scans all fetched Git history, including secrets removed by later commits, and redacts findings. It runs after a push, so it can't stop a secret reaching the public repository; only the commit hook can.
 
-To run the tracked-files scan alone:
+To run one check on its own: the tracked-files scan, CI's tests of the checks against the real scanner, or CI's history scan:
 
 ```sh
 uv run pre-commit run secrets-tracked --hook-stage manual --all-files
-```
-
-To run CI's checks locally, put the Betterleaks release pinned in `.pre-commit-config.yaml` on `PATH`, then run the integration tests and the history scan:
-
-```sh
-python3 tests/secrets_smoke.py
-python3 scripts/check_secrets.py history
+uv run pre-commit run secrets-smoke --hook-stage manual --all-files
+uv run pre-commit run secrets-history --hook-stage manual --all-files
 ```
 
 **False positives.** For a harmless dummy value, add `betterleaks:allow` in a comment on that line and explain why it is harmless. For a confirmed historical false positive, add its fingerprint to `.betterleaksignore` with an explanation; do not copy the secret or source line. Both are narrower than excluding a file, rule or commit. Neither bypasses the filename check: rename templates to `.env.example`.
 
 **If a real secret reaches GitHub**, revoke and replace it first, then tell the team without sharing its value. Deleting it or rewriting history does not invalidate it. Coordinate cleanup with the team; see GitHub's [sensitive-data removal guide](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository).
 
-**Updating Betterleaks.** Dependabot updates the pin in `.pre-commit-config.yaml`; in the same change, set `BETTERLEAKS_VERSION` in `.github/workflows/ci.yml` to the matching release. Moving to v2 is manual: it drops flags `scripts/check_secrets.py` uses and changes fingerprints.
+**Updating Betterleaks.** The pin in `.pre-commit-config.yaml` is the only one; CI runs the same hooks. Dependabot updates it within v1. Moving to v2 is manual: it drops flags `scripts/check_secrets.py` uses and changes fingerprints.
 
 The [history audit record](docs/security-audit.md) states the scanned scope and findings.
 

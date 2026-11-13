@@ -20,27 +20,17 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
-      - name: Install Betterleaks
-        # Match the pinned release in .pre-commit-config.yaml.
-        env:
-          BETTERLEAKS_VERSION: 1.10.0
-        run: |
-          set -euo pipefail
-          install_dir="$(mktemp -d)"
-          cd "$install_dir"
-          archive="betterleaks_${BETTERLEAKS_VERSION}_linux_x64.tar.gz"
-          checksums="checksums.txt"
-          release="https://github.com/betterleaks/betterleaks/releases/download/v${BETTERLEAKS_VERSION}"
-          curl --fail --silent --show-error --location "$release/$archive" -o "$archive"
-          curl --fail --silent --show-error --location "$release/$checksums" -o "$checksums"
-          awk -v archive="$archive" '$2 == archive { print; found = 1 } END { if (!found) exit 1 }' "$checksums" > selected-checksum.txt
-          sha256sum --check --strict selected-checksum.txt
-          tar -xzf "$archive" betterleaks
-          echo "$install_dir" >> "$GITHUB_PATH"
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      # The scanner comes from the pre-commit pin, so CI and commits use the same
+      # release. Caching skips rebuilding it until the pin changes.
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/pre-commit
+          key: pre-commit-${{ runner.os }}-${{ hashFiles('.pre-commit-config.yaml') }}
+      - name: Test the secret checks with the real scanner
+        run: uv run pre-commit run secrets-smoke --hook-stage manual --all-files
       - name: Scan full history for secrets
-        run: |
-          python3 tests/secrets_smoke.py
-          python3 scripts/check_secrets.py history
+        run: uv run pre-commit run secrets-history --hook-stage manual --all-files
 
   check:
     runs-on: ubuntu-latest

@@ -1,9 +1,9 @@
 """Scan staged changes, tracked working files, or all fetched Git history.
 
-The pinned pre-commit environment supplies Betterleaks locally; CI installs the
-same release. Filenames are checked here, not by the scanner, because its patch
-scans omit empty files and content-preserving renames. No application
-dependencies are needed.
+The pinned pre-commit environment supplies Betterleaks, locally and in CI.
+Filenames are checked here, not by the scanner, because its patch scans omit
+empty files and content-preserving renames. No application dependencies are
+needed.
 """
 
 import argparse
