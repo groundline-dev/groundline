@@ -76,7 +76,7 @@ class InvalidRequestBody(ApiModel):
     detail: list[Problem]
 
 
-def _error(
+def error_response(
     model: type[ApiModel], description: str, **examples: tuple[str, object]
 ) -> dict[str, Any]:
     """An error status's entry in a route's `responses`. Each example is a
@@ -96,13 +96,13 @@ def _error(
 
 
 FAILURE_RESPONSES: dict[int | str, dict[str, Any]] = {
-    400: _error(
+    400: error_response(
         ErrorBody,
         "The body isn't valid UTF-8 text. Bytes that begin like UTF-16 or UTF-32 "
         "text are read as that, and answer 422 if they aren't JSON.",
         not_utf8=("Not UTF-8", {"detail": "There was an error parsing the body"}),
     ),
-    422: _error(
+    422: error_response(
         InvalidRequestBody,
         "The request is unusable: broken JSON, not a JSON object, a blank or "
         "too-long text, or an unexpected field. The response never repeats the "
@@ -125,7 +125,7 @@ FAILURE_RESPONSES: dict[int | str, dict[str, Any]] = {
             },
         ),
     ),
-    500: _error(
+    500: error_response(
         ErrorBody,
         "An unexpected error, a bug in groundline. The details are in the server log.",
         unexpected=("Unexpected error", {"detail": UNEXPECTED}),
@@ -139,7 +139,7 @@ Check routes use `check_responses`, which adds authentication's 401 and the
 PROTECTED_RESPONSES: dict[int | str, dict[str, Any]] = {
     **FAILURE_RESPONSES,
     401: {
-        **_error(
+        **error_response(
             ErrorBody,
             "The API key is missing or invalid.",
             invalid_key=("Invalid or missing key", {"detail": INVALID_API_KEY}),
@@ -174,7 +174,7 @@ def check_responses(spec: PipelineSpec) -> dict[int | str, dict[str, Any]]:
     )
     cost = usage_text(summarize_usage([call, call]))
     failed = f"stage '{stage.step}' failed"
-    upstream = _error(
+    upstream = error_response(
         ErrorBody,
         "The model or Anthropic's API failed. Retrying later may work.",
         unusable_reply=(
@@ -190,7 +190,7 @@ def check_responses(spec: PipelineSpec) -> dict[int | str, dict[str, Any]]:
             {"detail": f"{failed}: the Anthropic API answered 529 (OverloadedError)"},
         ),
     )
-    unavailable = _error(
+    unavailable = error_response(
         ErrorBody,
         "Authentication is unavailable, the Anthropic API key is missing or "
         "rejected, or the settings can't be read.",

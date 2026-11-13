@@ -4,10 +4,13 @@ from importlib.metadata import version
 from typing import Any
 
 import pytest
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from openapi_spec_validator import validate
 
 from groundline_core.api.commissions import CommissionsRequest, CommissionsResponse
 from groundline_core.api.common import ApiModel, ErrorBody, InvalidRequestBody
+from groundline_core.api.errors import DATABASE_UNAVAILABLE
 from groundline_core.api.omissions import OmissionsRequest, OmissionsResponse
 from groundline_core.app import app
 from groundline_core.evaluate import DEFAULT_COMMISSIONS_PRESET, DEFAULT_PRESET
@@ -157,3 +160,57 @@ def test_the_503_example_names_the_stages_needing_the_anthropic_key(path: str):
 
     assert "  Needed by: " in detail and "(claude-" in detail
     assert "(no price" not in str(schema["paths"][path]["post"]["responses"]["502"])
+
+
+OPERATION_IDS = {
+    ("post", "/v1/omissions"): "evaluate_omissions",
+    ("post", "/v1/commissions"): "evaluate_commissions",
+    ("get", "/health"): "get_health",
+    ("get", "/ready"): "get_ready",
+}
+"""Each operation ID becomes a method name in the generated SDK, so changing
+one is a breaking change for its users."""
+
+
+def _operations() -> dict[tuple[str, str], dict[str, Any]]:
+    return {
+        (method, path): operation
+        for path, methods in schema["paths"].items()
+        for method, operation in methods.items()
+    }
+
+
+def test_every_route_has_an_explicit_operation_id():
+    """FastAPI invents an ID from the URL when a route sets none, such as
+    omissions_v1_omissions_post. Each ID becomes an SDK method name, so an
+    invented one would change whenever the URL or the function name did."""
+    routes = [
+        route
+        for route in app.routes
+        if isinstance(route, APIRoute) and route.include_in_schema
+    ]
+
+    assert routes
+    for route in routes:
+        assert route.operation_id, f"{route.path} has no operation_id"
+
+
+def test_operation_ids_are_the_documented_names_and_unique():
+    ids = {key: operation["operationId"] for key, operation in _operations().items()}
+
+    assert ids == OPERATION_IDS
+    assert len(set(ids.values())) == len(ids)
+
+
+def test_ready_documents_its_503_with_the_error_body_and_an_example():
+    response = schema["paths"]["/ready"]["get"]["responses"]["503"]
+    content = response["content"]["application/json"]
+    example = next(iter(content["examples"].values()))
+
+    assert response["description"]
+    assert _resolve(content["schema"])["title"] == "ErrorBody"
+    assert example["value"] == {"detail": DATABASE_UNAVAILABLE}
+
+
+def test_the_openapi_file_is_valid():
+    validate(schema)
