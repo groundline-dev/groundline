@@ -136,7 +136,7 @@ else
   echo "This will interrupt callers: restart Caddy on $instance and check recovery."
 fi
 choose "Run these restart checks? (1 run them, 2 cancel)" 2
-[ "$answer" = 1 ] || fail "cancelled: no restart requested"
+[ "$answer" = 1 ] || fail "canceled: no restart requested"
 
 recover() {
   local kind="$1" baseline="$2" limit="$3" after remaining

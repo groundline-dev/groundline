@@ -136,7 +136,7 @@ if [ -n "$instance" ] \
     echo "  1) Review a deployment plan"
     echo "  2) Cancel and leave the running server unchanged"
     choose "Review deployment changes? (1 review, 2 cancel)" 2
-    [ "$answer" = 1 ] || fail "cancelled: running server unchanged"
+    [ "$answer" = 1 ] || fail "canceled: running server unchanged"
   else
     if [ -n "$running_ref" ] && confirm "Keep your running server and check it?"; then
       if [ "$running_mode" = restricted ]; then

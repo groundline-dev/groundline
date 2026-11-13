@@ -94,7 +94,7 @@ ask() {
   local suffix=""
   [ -n "${2:-}" ] && suffix=" [$2]"
   echo
-  read -rp "  $1$suffix: " answer || fail "cancelled: no answer to \"$1\""
+  read -rp "  $1$suffix: " answer || fail "canceled: no answer to \"$1\""
   answer="${answer:-${2:-}}"
 }
 
@@ -171,7 +171,7 @@ choose_project() {
   bullet "No project yet? Create one at https://settings.aws.com > Project >"
   echo "    Create project, then sign in to it."
   echo
-  read -rp "  Press Enter once you're signed in to the project in your browser: " _ || fail "cancelled: no project chosen"
+  read -rp "  Press Enter once you're signed in to the project in your browser: " _ || fail "canceled: no project chosen"
   echo
   echo "Each project has its own Region. To copy it, in the console go to"
   echo "Manage projects > Overview > Additional Info > Region, and use its Copy button."
@@ -185,7 +185,7 @@ choose_project() {
   echo "Next, your browser opens to give these scripts access to the project."
   bullet "Choose the session of the project you just signed in to."
   echo
-  read -rp "  Press Enter to open the browser and choose the project's session: " _ || fail "cancelled: no project chosen"
+  read -rp "  Press Enter to open the browser and choose the project's session: " _ || fail "canceled: no project chosen"
   aws_login
 }
 
@@ -668,7 +668,7 @@ plan_and_apply() {
     choose "Make the changes above? (1 make them, 2 cancel)" 2
     [ "$answer" = 1 ] || answer=3
   fi
-  [ "$answer" = 1 ] || fail "cancelled: nothing changed"
+  [ "$answer" = 1 ] || fail "canceled: nothing changed"
   plan_changed=yes
   doing "Making the changes"
   terraform -chdir=infra apply -input=false "$plan"

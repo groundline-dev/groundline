@@ -194,7 +194,7 @@ def test_cancelling_deployment_does_not_apply(checkout: Path):
     )
     result, world = invoke(checkout, "aws-deploy", world, "3\n")
     assert result.returncode != 0
-    assert "cancelled: nothing changed" in result.stderr
+    assert "canceled: nothing changed" in result.stderr
     assert not any("apply" in call for call in world["calls"])
 
 

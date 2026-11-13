@@ -436,13 +436,13 @@ def test_an_expired_sign_in_says_to_run_make_aws_project(tmp_path: Path):
     assert "aws login" not in result.output
 
 
-def test_destroy_deletes_nothing_when_cancelled(tmp_path: Path):
+def test_destroy_deletes_nothing_when_canceled(tmp_path: Path):
     world = aws_fakes.new_world(outputs=DESTROY_OUTPUTS)
 
     result = run(DESTROY, tmp_path, world, answer="3\n")
 
     assert result.returncode != 0, result.output
-    assert "cancelled: nothing changed" in result.output
+    assert "canceled: nothing changed" in result.output
     assert not result.world["destroyed"]
     assert deleted_parameters(result) == []
 
@@ -590,7 +590,7 @@ def test_a_passing_smoke_test_ends_with_what_next(app: FakeApp, tmp_path: Path):
             aws_fakes.new_world(outputs=DESTROY_OUTPUTS),
             (),
             "3\n",
-            id="destroy-cancelled",
+            id="destroy-canceled",
         ),
         pytest.param(
             DESTROY,
