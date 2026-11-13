@@ -34,7 +34,7 @@ from tests.omission_helpers import (
 
 http = TestClient(app, headers=HEADERS)
 
-TOP_LEVEL = {"evaluation_type", "flagged", "score", "findings", "usage", "metadata"}
+TOP_LEVEL = {"evaluation_type", "flagged", "score", "findings", "counts", "metadata"}
 FINDING = {
     "type",
     "severity",
@@ -52,17 +52,6 @@ EXPLANATIONS = {
     ("commission", "unsupported"): "The source does not mention this claim.",
     ("commission", "contradicted"): "The source says something different.",
 }
-OLD_FIELDS = {
-    "omission_score",
-    "commission_score",
-    "alarm",
-    "omissions",
-    "commissions",
-    "counts",
-    "pipeline",
-    "validated_preset",
-}
-
 SECRET = "patient is HIV positive and takes tenofovir"
 
 
@@ -99,6 +88,10 @@ def commissions(*issues: dict[str, Any], **body: str) -> dict[str, Any]:
     return response.json()
 
 
+def without_usage(metadata: dict[str, Any]) -> dict[str, Any]:
+    return {key: value for key, value in metadata.items() if key != "usage"}
+
+
 # --- R1: one structure ----------------------------------------------------------
 
 
@@ -111,15 +104,10 @@ def test_each_check_names_its_evaluation_type():
     assert commissions(DOSE_ISSUE)["evaluation_type"] == "commissions"
 
 
-def test_the_old_fields_are_gone():
-    assert OLD_FIELDS.isdisjoint(omissions())
-    assert OLD_FIELDS.isdisjoint(commissions(DOSE_ISSUE))
-
-
-def test_usage_is_at_the_top_level_for_both_checks():
-    assert omissions()["usage"]["calls"] == 4
-    assert commissions(DOSE_ISSUE)["usage"]["calls"] == 1
-    assert set(commissions(DOSE_ISSUE)["usage"]) == {
+def test_usage_is_in_the_metadata_for_both_checks():
+    assert omissions()["metadata"]["usage"]["calls"] == 4
+    assert commissions(DOSE_ISSUE)["metadata"]["usage"]["calls"] == 1
+    assert set(commissions(DOSE_ISSUE)["metadata"]["usage"]) == {
         "calls",
         "input_tokens",
         "output_tokens",
@@ -135,10 +123,10 @@ def test_a_flagged_omission_check_reports_its_score_findings_and_metadata():
 
     assert body["flagged"] is True
     assert body["score"] == pytest.approx(0.25)
-    assert body["metadata"] == {
+    assert body["counts"] == {"total": 3, "present": 0, "partial": 1, "absent": 2}
+    assert without_usage(body["metadata"]) == {
         "pipeline": "omission_all_opus",
         "alarm": {"score": 0.95, "threshold": 0.9, "level": "strict"},
-        "counts": {"total": 3, "present": 0, "partial": 1, "absent": 2},
     }
     first, second, third = body["findings"]
     assert first == {
@@ -166,7 +154,8 @@ def test_a_flagged_commission_check_reports_its_score_findings_and_metadata():
 
     assert body["flagged"] is True
     assert body["score"] == pytest.approx(0.1667, abs=1e-4)
-    assert body["metadata"] == {
+    assert body["counts"] is None
+    assert without_usage(body["metadata"]) == {
         "pipeline": "commission_quick",
         "alarm": {"score": 0.95, "threshold": 0.85, "level": "default"},
     }
@@ -210,13 +199,8 @@ def test_a_check_with_nothing_to_report_scores_one_and_has_no_findings():
         assert body["flagged"] is False
         assert body["score"] == 1.0
         assert body["findings"] == []
-    assert no_facts["metadata"]["counts"] == {
-        "total": 0,
-        "present": 0,
-        "partial": 0,
-        "absent": 0,
-    }
-    assert "counts" not in no_claims["metadata"]
+    assert no_facts["counts"] == {"total": 0, "present": 0, "partial": 0, "absent": 0}
+    assert no_claims["counts"] is None
 
 
 # --- R3: findings a program can use ---------------------------------------------

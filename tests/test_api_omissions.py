@@ -63,12 +63,13 @@ def test_a_summary_that_is_not_flagged():
     assert body["evaluation_type"] == "omissions"
     assert body["flagged"] is False
     assert body["score"] == 1.0
-    assert body["metadata"] == {
+    assert body["counts"] == {"total": 3, "present": 1, "partial": 1, "absent": 1}
+    metadata = body["metadata"]
+    assert metadata.pop("usage")["calls"] == 4
+    assert metadata == {
         "pipeline": DEFAULT_PRESET,
         "alarm": {"score": 0.0, "threshold": 0.9, "level": "strict"},
-        "counts": {"total": 3, "present": 1, "partial": 1, "absent": 1},
     }
-    assert body["usage"]["calls"] == 4
 
 
 def test_a_flagged_summary_still_answers_200():
@@ -108,13 +109,8 @@ def test_a_source_with_no_facts_answers_200_with_a_score_of_one():
     }
     assert body["score"] == 1.0
     assert body["findings"] == []
-    assert body["metadata"]["counts"] == {
-        "total": 0,
-        "present": 0,
-        "partial": 0,
-        "absent": 0,
-    }
-    assert body["usage"]["calls"] == 1
+    assert body["counts"] == {"total": 0, "present": 0, "partial": 0, "absent": 0}
+    assert body["metadata"]["usage"]["calls"] == 1
 
 
 @pytest.mark.parametrize(

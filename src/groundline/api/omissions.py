@@ -16,9 +16,9 @@ from pydantic import ConfigDict
 
 from groundline.api.common import (
     Alarm,
-    ApiModel,
     CheckRequest,
     CheckResponse,
+    Counts,
     Finding,
     Metadata,
     alarm_of,
@@ -52,21 +52,8 @@ class OmissionsAlarm(Alarm):
     partials at half weight; 0 if there are none."""
 
 
-class Counts(ApiModel):
-    total: int
-    """Facts found in the source."""
-    present: int
-    """Facts the summary fully records."""
-    partial: int
-    """Facts the summary only partly records."""
-    absent: int
-    """Facts the summary leaves out."""
-
-
 class OmissionsMetadata(Metadata[OmissionsAlarm]):
-    counts: Counts
-    """How many of the source's facts the summary records, fully, partly or not at
-    all."""
+    pass
 
 
 class OmissionsResponse(CheckResponse[Literal["omissions"], OmissionsMetadata]):
@@ -90,16 +77,16 @@ class OmissionsResponse(CheckResponse[Literal["omissions"], OmissionsMetadata]):
                             "explanation": EXPLANATIONS["omission", "partial"],
                         }
                     ],
-                    "usage": {
-                        "calls": 4,
-                        "input_tokens": 31620,
-                        "output_tokens": 8140,
-                        "cost_usd": 0.29,
-                    },
+                    "counts": {"total": 4, "present": 3, "partial": 1, "absent": 0},
                     "metadata": {
                         "pipeline": "omission_all_opus",
                         "alarm": {"score": 0.475, "threshold": 0.9, "level": "strict"},
-                        "counts": {"total": 4, "present": 3, "partial": 1, "absent": 0},
+                        "usage": {
+                            "calls": 4,
+                            "input_tokens": 31620,
+                            "output_tokens": 8140,
+                            "cost_usd": 0.29,
+                        },
                     },
                 }
             ]
@@ -112,7 +99,7 @@ class OmissionsResponse(CheckResponse[Literal["omissions"], OmissionsMetadata]):
     alarm's. The score is the alarm score turned around and rescaled around the
     alarm's threshold. It shows whether a critical omission was found, not how
     good the summary is overall. A source with no facts scores 1: nothing
-    critical was found, and `metadata.counts.total` is 0."""
+    critical was found, and `counts.total` is 0."""
     findings: list[Finding]
     """The facts not fully recorded, most important first."""
 
@@ -158,15 +145,15 @@ def _response(result: EvaluationResult) -> OmissionsResponse:
         findings=[
             omission_finding(m, ranked_facts[m.id]) for m in scored.missing_facts
         ],
-        usage=usage_of(result),
+        counts=Counts(
+            total=scored.total,
+            present=scored.present,
+            partial=scored.partial,
+            absent=scored.absent,
+        ),
         metadata=OmissionsMetadata(
             pipeline=result.pipeline,
             alarm=alarm_of(alarm, OmissionsAlarm),
-            counts=Counts(
-                total=scored.total,
-                present=scored.present,
-                partial=scored.partial,
-                absent=scored.absent,
-            ),
+            usage=usage_of(result),
         ),
     )

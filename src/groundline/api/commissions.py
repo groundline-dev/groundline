@@ -78,15 +78,16 @@ class CommissionsResponse(CheckResponse[Literal["commissions"], CommissionsMetad
                             "explanation": EXPLANATIONS["commission", "contradicted"],
                         }
                     ],
-                    "usage": {
-                        "calls": 1,
-                        "input_tokens": 9800,
-                        "output_tokens": 420,
-                        "cost_usd": 0.0012,
-                    },
+                    "counts": None,
                     "metadata": {
                         "pipeline": "commission_quick",
                         "alarm": {"score": 0.95, "threshold": 0.85, "level": "default"},
+                        "usage": {
+                            "calls": 1,
+                            "input_tokens": 9800,
+                            "output_tokens": 420,
+                            "cost_usd": 0.0012,
+                        },
                     },
                 }
             ]
@@ -146,9 +147,10 @@ def _response(result: EvaluationResult) -> CommissionsResponse:
         flagged=alarm.flagged,
         score=alarm.rescaled_score,
         findings=[commission_finding(c) for c in ranked(found.commissions)],
-        usage=usage_of(result),
+        counts=None,
         metadata=CommissionsMetadata(
             pipeline=result.pipeline,
             alarm=alarm_of(alarm, CommissionsAlarm),
+            usage=usage_of(result),
         ),
     )

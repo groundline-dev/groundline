@@ -66,8 +66,10 @@ def test_a_flagged_summary_answers_200_with_its_commissions_most_important_first
     assert body["evaluation_type"] == "commissions"
     assert body["flagged"] is True
     assert body["score"] == pytest.approx(0.1667, abs=1e-4)
-    assert body["usage"]["calls"] == 1
-    assert body["metadata"] == {
+    assert body["counts"] is None
+    metadata = body["metadata"]
+    assert metadata.pop("usage")["calls"] == 1
+    assert metadata == {
         "pipeline": DEFAULT_COMMISSIONS_PRESET,
         "alarm": {"score": 0.95, "threshold": 0.85, "level": "default"},
     }
@@ -88,10 +90,10 @@ def test_the_response_has_only_the_documented_fields():
         "flagged",
         "score",
         "findings",
-        "usage",
+        "counts",
         "metadata",
     }
-    assert set(body["metadata"]) == {"pipeline", "alarm"}
+    assert set(body["metadata"]) == {"pipeline", "alarm", "usage"}
     assert set(body["findings"][0]) == {
         "type",
         "severity",

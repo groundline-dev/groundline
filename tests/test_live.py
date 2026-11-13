@@ -99,10 +99,12 @@ def test_the_omissions_endpoint_runs_end_to_end(http: TestClient):
 
     assert response.status_code == 200, response.text
     body = response.json()
-    print(f"\nlive API run: {body['usage']}")
+    usage = body["metadata"]["usage"]
+    print(f"\nlive API run: {usage}")
 
     assert body["metadata"]["pipeline"] == "omission_all_opus"
-    assert body["usage"]["calls"] >= 3 and body["usage"]["cost_usd"] > 0
+    assert usage["calls"] >= 3 and usage["cost_usd"] > 0
+    assert body["counts"]["total"] > 0
     assert 0.0 <= body["metadata"]["alarm"]["score"] <= 1.0
 
 
@@ -114,9 +116,11 @@ def test_the_commissions_endpoint_runs_end_to_end(http: TestClient):
 
     assert response.status_code == 200, response.text
     body = response.json()
-    print(f"\nlive API run: {body['usage']}")
+    usage = body["metadata"]["usage"]
+    print(f"\nlive API run: {usage}")
 
     assert body["metadata"]["pipeline"] == "commission_quick"
-    assert body["usage"]["calls"] >= 1 and body["usage"]["cost_usd"] > 0
+    assert usage["calls"] >= 1 and usage["cost_usd"] > 0
+    assert body["counts"] is None
     assert 0.0 <= body["metadata"]["alarm"]["score"] <= 1.0
     assert all(0.0 <= f["confidence"] <= 1.0 for f in body["findings"])

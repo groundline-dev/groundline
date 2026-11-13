@@ -172,10 +172,13 @@ def verify_evaluation(endpoint: str, body: dict[str, Any]) -> None:
     assert body["evaluation_type"] == endpoint, body
     assert body["metadata"]["pipeline"] == PRESETS[endpoint], body
     assert body["findings"], body
-    assert body["usage"]["calls"] == calls, body
-    assert body["usage"]["input_tokens"] == 100 * calls, body
-    assert body["usage"]["output_tokens"] == 20 * calls, body
-    assert body["usage"]["cost_usd"] > 0, body
+    usage = body["metadata"]["usage"]
+    assert usage["calls"] == calls, body
+    assert usage["input_tokens"] == 100 * calls, body
+    assert usage["output_tokens"] == 20 * calls, body
+    assert usage["cost_usd"] > 0, body
+    # Only the omission check counts facts.
+    assert (body["counts"] is None) == (endpoint == "commissions"), body
 
 
 def main() -> None:

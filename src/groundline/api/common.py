@@ -264,6 +264,17 @@ class Usage(ApiModel):
     cost_usd: float
 
 
+class Counts(ApiModel):
+    total: int
+    """Facts found in the source."""
+    present: int
+    """Facts the summary fully records."""
+    partial: int
+    """Facts the summary only partly records."""
+    absent: int
+    """Facts the summary leaves out."""
+
+
 class Finding(ApiModel):
     """One omission or one commission, as a check reports it. The same fields serve
     both kinds, so a check that finds both can return them in one list."""
@@ -307,7 +318,8 @@ class Finding(ApiModel):
 
 
 class Metadata[A: Alarm](ApiModel):
-    """What the check ran and how it decided. Each check adds its own entries."""
+    """How the check ran and how it decided: what ran, the alarm behind the flag,
+    and what it cost."""
 
     pipeline: str
     """The pipeline that ran. It is a validated preset, whose measured results
@@ -315,6 +327,8 @@ class Metadata[A: Alarm](ApiModel):
     alarm: A
     """The alarm score, the threshold it was compared with, and the threshold
     level. The summary is flagged when the alarm score reaches the threshold."""
+    usage: Usage
+    """The model calls the check made, and what they cost."""
 
 
 class CheckResponse[E: str, M: ApiModel](ApiModel):
@@ -330,11 +344,11 @@ class CheckResponse[E: str, M: ApiModel](ApiModel):
     alarm's."""
     findings: list[Finding]
     """What the check found, most important first."""
-    usage: Usage
-    """The model calls the check made, and what they cost."""
+    counts: Counts | None
+    """How many of the source's facts the summary records, fully, partly or not at
+    all. Null for a check that doesn't count facts, such as the commission check."""
     metadata: M
-    """What ran and how the flag was decided: the pipeline and the alarm, plus any
-    entries specific to the check."""
+    """How the check ran: the pipeline, the alarm behind the flag, and the usage."""
 
 
 def model_client() -> ModelClient | None:

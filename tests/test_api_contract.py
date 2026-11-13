@@ -157,7 +157,7 @@ def assert_success(
 ) -> None:
     assert response.status_code == 200
     body = response.json()
-    usage = body.pop("usage")
+    usage = body["metadata"].pop("usage")
     assert body == expected
     assert len(wire.requests) == usage["calls"] == calls
     assert usage["input_tokens"] == 100 * calls
@@ -223,10 +223,10 @@ def test_omission_success_uses_environment_key_and_returns_expected_values(
             "flagged": flagged,
             "score": 0.25 if flagged else 1.0,
             "findings": findings,
+            "counts": counts,
             "metadata": {
                 "pipeline": "omission_all_opus",
                 "alarm": {"score": score, "threshold": 0.9, "level": "strict"},
-                "counts": counts,
             },
         },
         calls,
@@ -269,6 +269,7 @@ def test_commission_success_uses_environment_key_and_returns_expected_values(
             "flagged": flagged,
             "score": 0.1667 if flagged else 1.0,
             "findings": findings,
+            "counts": None,
             "metadata": {
                 "pipeline": "commission_quick",
                 "alarm": {"score": score, "threshold": 0.85, "level": "default"},
