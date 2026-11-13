@@ -148,7 +148,7 @@ def test_a_dotenv_url_follows_the_postgres_port(port_line: str, port: str):
     assert f"@localhost:{port}/" in url.get_secret_value()
 
 
-# ALL-134 R2/R3/R4/R5: finite, independently configurable allowances.
+# Timeout defaults include two operator controls and internal safeguards.
 TIME_SETTINGS = {
     "check_timeout_seconds": 120,
     "db_auth_timeout_seconds": 5,
@@ -175,7 +175,7 @@ def test_retry_and_timeout_defaults(
     assert getattr(Settings(), name, None) == default
 
 
-@pytest.mark.parametrize("name", TIME_SETTINGS)
+@pytest.mark.parametrize("name", ["check_timeout_seconds", "model_max_attempts"])
 def test_retry_and_timeout_settings_can_be_overridden(
     name: str, monkeypatch: pytest.MonkeyPatch
 ):
@@ -183,7 +183,7 @@ def test_retry_and_timeout_settings_can_be_overridden(
     assert getattr(Settings(), name, None) == 2
 
 
-@pytest.mark.parametrize("name", TIME_SETTINGS)
+@pytest.mark.parametrize("name", ["check_timeout_seconds", "model_max_attempts"])
 @pytest.mark.parametrize("value", ["0", "-1", "nan", "inf", "nonsense"])
 def test_retry_and_timeout_settings_reject_unbounded_or_invalid_values(
     name: str, value: str, monkeypatch: pytest.MonkeyPatch
@@ -207,8 +207,8 @@ def test_copying_env_example_preserves_application_timeout_defaults():
     example = Path(__file__).resolve().parents[1] / ".env.example"
     Path(".env").write_text(example.read_text())
     settings = Settings()
-    for name in TIME_SETTINGS:
-        assert getattr(settings, name) == Settings.model_fields[name].default
+    for name, default in TIME_SETTINGS.items():
+        assert getattr(settings, name) == default
 
 
 def test_timeout_override_can_use_dotenv_or_environment(
@@ -218,3 +218,22 @@ def test_timeout_override_can_use_dotenv_or_environment(
     assert Settings().check_timeout_seconds == 30
     monkeypatch.setenv("GROUNDLINE_CHECK_TIMEOUT_SECONDS", "60")
     assert Settings().check_timeout_seconds == 60
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        name
+        for name in TIME_SETTINGS
+        if name not in {"check_timeout_seconds", "model_max_attempts"}
+    ],
+)
+def test_internal_limits_ignore_environment_and_dotenv(
+    name: str, monkeypatch: pytest.MonkeyPatch
+):
+    variable = "GROUNDLINE_" + name.upper()
+    Path(".env").write_text(f"{variable}=nonsense\n")
+    assert getattr(Settings(), name) == TIME_SETTINGS[name]
+    monkeypatch.setenv(variable, "0.001")
+    assert getattr(Settings(), name) == TIME_SETTINGS[name]
+    assert name not in Settings.model_fields

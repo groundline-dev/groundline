@@ -18,6 +18,7 @@ from groundline import app as app_module
 from groundline.api_keys import APIKeyInfo, APIKeys, APIKeyStorageError
 from groundline.auth import require_api_key
 from groundline.db.connection import make_engine
+from groundline.settings import Settings
 from tests.auth_helpers import SECRET, FakeKeys, protected_app
 
 
@@ -213,7 +214,7 @@ def test_cleanup_error_does_not_replace_external_cancellation(
 ):
     """Cleanup failures are synthetic; this does not simulate a lost commit."""
     for name in ("AUTH", "CONNECT", "CHECK", "POOL", "QUERY"):
-        monkeypatch.setenv(f"GROUNDLINE_DB_{name}_TIMEOUT_SECONDS", "5")
+        monkeypatch.setattr(Settings, f"db_{name.lower()}_timeout_seconds", 5)
 
     async def run():
         entered = asyncio.Event()
@@ -278,9 +279,9 @@ def test_internal_timeout_with_cleanup_failure_keeps_its_safe_error(
 ):
     """Synthetic cleanup errors verify timeout mapping, not actual DB rollback."""
     for name in ("AUTH", "CONNECT", "CHECK", "POOL", "QUERY"):
-        monkeypatch.setenv(f"GROUNDLINE_DB_{name}_TIMEOUT_SECONDS", "5")
+        monkeypatch.setattr(Settings, f"db_{name.lower()}_timeout_seconds", 5)
     setting = "AUTH" if limit == "authentication" else "QUERY"
-    monkeypatch.setenv(f"GROUNDLINE_DB_{setting}_TIMEOUT_SECONDS", "0.3")
+    monkeypatch.setattr(Settings, f"db_{setting.lower()}_timeout_seconds", 0.3)
 
     async def run():
         attempts = 0

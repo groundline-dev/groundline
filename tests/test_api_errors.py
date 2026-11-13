@@ -16,6 +16,7 @@ from groundline.app import app
 from groundline.clients.anthropic import AnthropicClient
 from groundline.core import CallRecord, StageError
 from groundline.core.errors import ModelTimeoutError
+from groundline.settings import Settings
 from tests.anthropic_helpers import api_error
 from tests.auth_helpers import SECRET as API_KEY
 from tests.auth_helpers import Endpoint, FakeKeys
@@ -203,13 +204,16 @@ def test_final_model_stopping_reason_controls_http_status(
         "GROUNDLINE_CHECK_TIMEOUT_SECONDS": "0.5"
         if outcome == "retry-after-check-too-short"
         else "3",
-        "GROUNDLINE_MODEL_TIMEOUT_SECONDS": "0.3",
+        "model_timeout_seconds": "0.3",
         "GROUNDLINE_MODEL_MAX_ATTEMPTS": "2",
-        "GROUNDLINE_MODEL_RETRY_TIMEOUT_SECONDS": "5",
-        "GROUNDLINE_MODEL_RETRY_BASE_SECONDS": "0.001",
-        "GROUNDLINE_MODEL_RETRY_CAP_SECONDS": "0.002",
+        "model_retry_timeout_seconds": "5",
+        "model_retry_base_seconds": "0.001",
+        "model_retry_cap_seconds": "0.002",
     }.items():
-        monkeypatch.setenv(name, value)
+        if not name.startswith("GROUNDLINE_"):
+            monkeypatch.setattr(Settings, name, float(value))
+        else:
+            monkeypatch.setenv(name, value)
     calls: list[httpx2.Request] = []
 
     cancelled: list[bool] = []

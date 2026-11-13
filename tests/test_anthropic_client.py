@@ -14,6 +14,7 @@ from anthropic import DefaultAsyncHttpxClient
 
 from groundline.clients.anthropic import AnthropicClient
 from groundline.core import APIKeyRejectedError, ModelError, ModelRefusal, ModelReply
+from groundline.settings import Settings
 from tests.anthropic_helpers import api_error, message
 
 
@@ -122,14 +123,17 @@ def outage_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.chdir(tmp_path)
     for name, value in {
         "GROUNDLINE_MODEL_MAX_ATTEMPTS": "3",
-        "GROUNDLINE_MODEL_RETRY_TIMEOUT_SECONDS": "120",
-        "GROUNDLINE_MODEL_TIMEOUT_SECONDS": "60",
-        "GROUNDLINE_MODEL_CONNECT_TIMEOUT_SECONDS": "5",
-        "GROUNDLINE_MODEL_RETRY_BASE_SECONDS": "0.001",
-        "GROUNDLINE_MODEL_RETRY_CAP_SECONDS": "0.002",
+        "model_retry_timeout_seconds": "120",
+        "model_timeout_seconds": "60",
+        "model_connect_timeout_seconds": "5",
+        "model_retry_base_seconds": "0.001",
+        "model_retry_cap_seconds": "0.002",
         "GROUNDLINE_CHECK_TIMEOUT_SECONDS": "120",
     }.items():
-        monkeypatch.setenv(name, value)
+        if not name.startswith("GROUNDLINE_"):
+            monkeypatch.setattr(Settings, name, float(value))
+        else:
+            monkeypatch.setenv(name, value)
 
 
 def run_outage_transport(handler: Callable[[httpx2.Request], httpx2.Response]):
@@ -314,10 +318,10 @@ def test_retry_logs_have_metadata_without_private_content(
 def test_actual_hung_transport_is_cancelled_within_attempt_and_retry_budgets(
     budget: float, expected_attempts: int, monkeypatch: pytest.MonkeyPatch
 ):
-    monkeypatch.setenv("GROUNDLINE_MODEL_TIMEOUT_SECONDS", "0.3")
-    monkeypatch.setenv("GROUNDLINE_MODEL_RETRY_TIMEOUT_SECONDS", str(budget))
-    monkeypatch.setenv("GROUNDLINE_MODEL_RETRY_BASE_SECONDS", "0.0001")
-    monkeypatch.setenv("GROUNDLINE_MODEL_RETRY_CAP_SECONDS", "0.0001")
+    monkeypatch.setattr(Settings, "model_timeout_seconds", 0.3)
+    monkeypatch.setattr(Settings, "model_retry_timeout_seconds", budget)
+    monkeypatch.setattr(Settings, "model_retry_base_seconds", 0.0001)
+    monkeypatch.setattr(Settings, "model_retry_cap_seconds", 0.0001)
 
     async def run():
         calls: list[httpx2.Request] = []
@@ -393,8 +397,8 @@ def test_header_translation_uses_explicit_wall_clock(
 def test_configured_connection_timeout_reaches_transport(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    monkeypatch.setenv("GROUNDLINE_MODEL_CONNECT_TIMEOUT_SECONDS", "0.7")
-    monkeypatch.setenv("GROUNDLINE_MODEL_TIMEOUT_SECONDS", "2")
+    monkeypatch.setattr(Settings, "model_connect_timeout_seconds", 0.7)
+    monkeypatch.setattr(Settings, "model_timeout_seconds", 2)
     requests: list[httpx2.Request] = []
 
     def handler(request: httpx2.Request):

@@ -46,10 +46,13 @@ MAX_CHARS = 200_000
 """The longest source or summary accepted, far longer than any consultation, so
 one request can't spend dollars on a huge input."""
 
-# Stage failures caused by the model or Anthropic's API, which answer 502. Our
-# own two are written to be safe to show; the SDK's can quote the request, so
-# only its type is shown. Any other failure is a bug of ours, and its message
-# may quote the source or summary.
+# A stage can fail because the model timed out (504) or because the model or
+# Anthropic's API failed in another way (502). These exceptions cover both cases.
+# Unexpected stage failures are handled by the app and return 500.
+#
+# Groundline's model error messages are safe to include in the response.
+# Anthropic SDK messages may contain source or summary text, so the response
+# includes only the SDK error's type and HTTP status, when available.
 UPSTREAM_CAUSES = (ReplyError, ModelError, ModelTimeoutError, anthropic.APIError)
 
 
@@ -158,10 +161,16 @@ PROTECTED_RESPONSES: dict[int | str, dict[str, Any]] = {
 
 
 def check_responses(spec: PipelineSpec) -> dict[int | str, dict[str, Any]]:
-    """Every error status a check route can answer, for its `responses`:
-    `PROTECTED_RESPONSES`, a 502 whose examples fail in the pipeline's first
-    model call, priced at its model, and a 503 that names the stages needing
-    the Anthropic API key, as the real one does."""
+    """Describe the errors a check endpoint can return in the API docs.
+
+    Start with the request and authentication errors in `PROTECTED_RESPONSES`.
+    Add 502 for model or provider failures, 503 for configuration or
+    authentication problems, and 504 when a time limit expires.
+
+    Tailor the examples to this pipeline: use its first model stage and pricing
+    for the 502 examples, and name the stages that need an Anthropic API key
+    in the missing-key 503 example.
+    """
     profile = load_builtin_profile(spec.profile) if spec.profile else None
     pipeline = build_pipeline(spec, default_registry(), profile)
     stage = next(s for s in pipeline.stages if s.enabled and s.implementation.models())

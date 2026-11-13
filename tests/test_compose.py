@@ -176,17 +176,6 @@ def test_the_example_urls_follow_the_postgres_port(name: str):
     "name",
     [
         "GROUNDLINE_CHECK_TIMEOUT_SECONDS",
-        "GROUNDLINE_DB_AUTH_TIMEOUT_SECONDS",
-        "GROUNDLINE_DB_CONNECT_TIMEOUT_SECONDS",
-        "GROUNDLINE_DB_POOL_TIMEOUT_SECONDS",
-        "GROUNDLINE_DB_QUERY_TIMEOUT_SECONDS",
-        "GROUNDLINE_DB_CHECK_TIMEOUT_SECONDS",
-        "GROUNDLINE_DB_READINESS_TIMEOUT_SECONDS",
-        "GROUNDLINE_MODEL_TIMEOUT_SECONDS",
-        "GROUNDLINE_MODEL_CONNECT_TIMEOUT_SECONDS",
-        "GROUNDLINE_MODEL_RETRY_TIMEOUT_SECONDS",
-        "GROUNDLINE_MODEL_RETRY_BASE_SECONDS",
-        "GROUNDLINE_MODEL_RETRY_CAP_SECONDS",
         "GROUNDLINE_MODEL_MAX_ATTEMPTS",
     ],
 )
@@ -197,3 +186,17 @@ def test_deadline_and_retry_overrides_are_optional(services: dict[str, Any], nam
     example = ENV_EXAMPLE.read_text()
     assert re.search(rf"^#\s*{name}=", example, re.MULTILINE)
     assert not re.search(rf"^{name}=", example, re.MULTILINE)
+
+
+def test_compose_exposes_only_operator_timeout_and_retry_controls(
+    services: dict[str, Any],
+):
+    names = {
+        name
+        for name in services["app"]["environment"]
+        if name.startswith("GROUNDLINE_")
+    }
+    assert names == {
+        "GROUNDLINE_CHECK_TIMEOUT_SECONDS",
+        "GROUNDLINE_MODEL_MAX_ATTEMPTS",
+    }

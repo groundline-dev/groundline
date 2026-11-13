@@ -1,6 +1,6 @@
 # Deploying to AWS
 
-Test deployments are for groundline's developers to test groundline internally, not for customers or other real callers. A test deployment runs groundline's Compose stack, at a commit you choose, on an EC2 server in your AWS project. Only your computer's public IP can reach it, over plain HTTP, so use only test data with it. Serving real callers needs HTTPS first (ALL-90).
+Test deployments are for groundline's developers to test groundline internally, not for customers or other real callers. A test deployment runs groundline's Compose stack, at a commit you choose, on an EC2 server in your AWS project. Only your computer's public IP can reach it, over plain HTTP, so use only test data with it. Serving real callers requires HTTPS first.
 
 Each test deployment is disposable. Its data survives container restarts and reboots until `make aws-destroy`, a deployment of another commit, or the time limit deletes the server and the data with it.
 
@@ -219,7 +219,7 @@ SSM keeps each command's output, so anyone who can read your project's Run Comma
 
 To try your summary app against a test deployment, point the app at the server instead of a local groundline:
 
-- **Base URL:** the server's address, such as `http://203.0.113.10:8001`. `make aws-up` prints it under What next, and `make aws-status` shows it too. The app calls `POST <base URL>/v1/omissions` and `POST <base URL>/v1/commissions`, with the same requests and responses as a local server ([README](../README.md#post-v1omissions)). A check takes 30 to 60 seconds, so give the app's HTTP client a long timeout.
+- **Base URL:** the server's address, such as `http://203.0.113.10:8001`. `make aws-up` prints it under What next, and `make aws-status` shows it too. The app calls `POST <base URL>/v1/omissions` and `POST <base URL>/v1/commissions`, with the same requests and responses as a local server ([README](../README.md#post-v1omissions)). Set the app's HTTP client timeout above the configured whole-check limit, which defaults to 120 seconds, to allow time for request and response transfer.
 - **API key:** one from `make aws-key`, sent as `Authorization: Bearer <API key>`. It's a groundline API key, separate from the Anthropic API key the server uses.
 - **Settings, not code:** a new server gets a new address, and its API keys go with the old one. Have the app read both from settings, such as `GROUNDLINE_URL` and `GROUNDLINE_API_KEY`, so switching servers doesn't need a code change.
 

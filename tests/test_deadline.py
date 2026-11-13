@@ -15,6 +15,7 @@ from groundline import evaluate, evaluate_sync, load_preset
 from groundline.api import common
 from groundline.app import app
 from groundline.core import ModelReply
+from groundline.settings import Settings
 from tests.auth_helpers import BODY, HEADERS, FakeKeys
 from tests.fakes import FakeClient
 from tests.omission_helpers import not_flagged_script
@@ -24,7 +25,7 @@ from tests.omission_helpers import not_flagged_script
 def isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("GROUNDLINE_CHECK_TIMEOUT_SECONDS", "0.5")
-    monkeypatch.setenv("GROUNDLINE_DB_AUTH_TIMEOUT_SECONDS", "0.5")
+    monkeypatch.setattr(Settings, "db_auth_timeout_seconds", 0.5)
     monkeypatch.setenv("ANTHROPIC_API_KEY", "dummy")
     monkeypatch.setattr(app.state, "api_keys", FakeKeys(), raising=False)
     yield
@@ -260,7 +261,7 @@ def test_authentication_time_is_part_of_check_allowance(
     monkeypatch: pytest.MonkeyPatch,
 ):
     monkeypatch.setenv("GROUNDLINE_CHECK_TIMEOUT_SECONDS", "0.3")
-    monkeypatch.setenv("GROUNDLINE_DB_AUTH_TIMEOUT_SECONDS", "1")
+    monkeypatch.setattr(Settings, "db_auth_timeout_seconds", 1)
 
     class SlowKeys(FakeKeys):
         async def authenticate(self, credential: str):

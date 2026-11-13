@@ -17,6 +17,7 @@ from groundline import app as app_module
 from groundline.cli import app as cli
 from groundline.db import api_keys
 from groundline.db.connection import make_engine
+from groundline.settings import Settings
 from tests.auth_helpers import protected_app
 
 pytestmark = pytest.mark.db
@@ -140,7 +141,7 @@ def test_exhausted_pool_is_bounded_and_recovers(
     from groundline.api_keys import APIKeys, APIKeyStorageError
     from groundline.db import connection as connection_module
 
-    monkeypatch.setenv("GROUNDLINE_DB_POOL_TIMEOUT_SECONDS", "0.3")
+    monkeypatch.setattr(Settings, "db_pool_timeout_seconds", 0.3)
 
     def factory(*args: Any, **kwargs: Any):
         return create_async_engine(*args, **kwargs, pool_size=1, max_overflow=0)
@@ -179,7 +180,7 @@ def test_timed_out_query_releases_connection_for_next_authentication(
 
     from groundline.api_keys import APIKeys, APIKeyStorageError
 
-    monkeypatch.setenv("GROUNDLINE_DB_QUERY_TIMEOUT_SECONDS", "0.3")
+    monkeypatch.setattr(Settings, "db_query_timeout_seconds", 0.3)
 
     async def run():
         engine = make_engine(db_url)
@@ -234,7 +235,7 @@ def test_write_lock_wait_times_out_once_and_pool_recovers(
 
     from groundline.api_keys import APIKeys, APIKeyStorageError
 
-    monkeypatch.setenv("GROUNDLINE_DB_QUERY_TIMEOUT_SECONDS", "0.3")
+    monkeypatch.setattr(Settings, "db_query_timeout_seconds", 0.3)
 
     async def run():
         engine = make_engine(db_url)

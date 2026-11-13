@@ -60,103 +60,60 @@ You need [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13 (0.1
 
 ## Timeouts and outage retries
 
-Timeout and retry defaults live in `src/groundline/settings.py`. No environment
-variables or `.env` entries are needed to use them. The table below documents the
-current defaults; `.env.example` contains commented examples of optional overrides.
+By default, groundline allows 120 seconds to complete a check and up to three
+attempts for each model call. You can change either setting in `.env`.
 
-To override a value, set its `GROUNDLINE_` variable in the shell or deployment
-environment, or uncomment it in `.env`. Existing environment values take precedence.
-For example, `GROUNDLINE_CHECK_TIMEOUT_SECONDS=180 make dev` changes the check
-limit for that run. The same assignment works with `make docker-run`.
+### Overall check limit
 
-Compose's key-only environment entries forward supplied overrides and omit unset
-ones, so the container uses the same application defaults. It never receives the
-whole `.env` file or the admin credential. `ANTHROPIC_API_KEY`, `DATABASE_URL` and
-`DATABASE_ADMIN_URL` retain their existing names.
+The 120-second limit covers the entire check, including authentication, model
+calls and retries. It applies to the API, CLI and Python evaluations.
 
-If you copied an earlier `.env.example`, comment out or remove timeout/retry entries
-you do not intend to override; existing uncommented values remain explicit overrides.
+To change the limit, add this line to `.env`:
 
-All durations below are positive finite seconds. Attempts must be a positive
-integer. Defaults require no additional setup.
-
-| Environment setting | Default | Bounds |
-|---|---:|---|
-| `GROUNDLINE_CHECK_TIMEOUT_SECONDS` | 120 | Whole check, starting before API authentication; also existing CLI and Python evaluation paths |
-| `GROUNDLINE_DB_AUTH_TIMEOUT_SECONDS` | 5 | Entire authentication operation |
-| `GROUNDLINE_DB_CONNECT_TIMEOUT_SECONDS` | 5 | Database connection establishment |
-| `GROUNDLINE_DB_POOL_TIMEOUT_SECONDS` | 5 | Waiting for a pooled connection |
-| `GROUNDLINE_DB_CHECK_TIMEOUT_SECONDS` | 5 | Connection acquisition including pre-ping; also disposal of owned readiness engines |
-| `GROUNDLINE_DB_QUERY_TIMEOUT_SECONDS` | 5 | PostgreSQL statements including lock waits; API-key transactions also have this allowance after acquisition, including commit |
-| `GROUNDLINE_DB_READINESS_TIMEOUT_SECONDS` | 5 | Whole startup/readiness probe, for owned and borrowed engines |
-| `GROUNDLINE_MODEL_TIMEOUT_SECONDS` | 60 | Each model attempt |
-| `GROUNDLINE_MODEL_CONNECT_TIMEOUT_SECONDS` | 5 | Model connection establishment |
-| `GROUNDLINE_MODEL_RETRY_TIMEOUT_SECONDS` | 120 | One model call's attempts and waits together |
-| `GROUNDLINE_MODEL_MAX_ATTEMPTS` | 3 | Total attempts, including the original; default permits two outage retries |
-| `GROUNDLINE_MODEL_RETRY_BASE_SECONDS` | 1 | Initial full-jitter backoff cap |
-| `GROUNDLINE_MODEL_RETRY_CAP_SECONDS` | 8 | Maximum backoff cap |
-
-Each nested operation is capped by the remaining whole-check allowance; another
-stage or request for correction never resets the deadline. The model retry budget
-is independent: it can expire first if reduced, or if the check allowance is
-increased. Caller-supplied model clients receive the check deadline through task
-cancellation and remain responsible for their own outage retries. These are
-internal mechanisms, not new public library configuration arguments or exports.
-Cancellation is cooperative; code that suppresses cancellation cannot be forcibly
-stopped. Allow a short cleanup interval after expiry for connections to close.
-
-Groundline disables Anthropic SDK retries and retries 408, 409, 429, 5xx,
-connection errors, and temporary timeouts in one layer. Permanent errors are not
-retried. Full-jitter waits are uniform from zero to the current cap: 1, 2, 4,
-then 8 seconds at default settings. Valid `retry-after-ms` takes precedence over
-`Retry-After` seconds or HTTP dates and sets a minimum wait. Malformed values fall
-back to the next valid header or backoff. `x-should-retry=false` vetoes a retry;
-true never overrides permanent errors, cancellation, attempts, or deadlines.
-A wait that cannot fit stops immediately on the upstream error (502) unless an
-allowance has expired (504). The final permitted attempt timing out returns 504
-even if whole-check time remains. Authentication timeouts return 503.
-
-A request for correction follows an answered but unusable model reply. It remains
-separate from outage retries, shares the check deadline, and may incur another
-charge. Interrupted attempts may bill without returning usage; failure cost
-reports describe recorded usage only. A late retry can consume the remaining
-time and add charges without yielding a result. Use an HTTP client timeout longer
-than the configured check allowance plus transfer time.
-
-The initial defaults were checked against historical evaluator timing records:
-reconstructed omission model-call totals had p95 86.92 seconds and maximum 91.97;
-extraction alone reached 42.27 seconds. Quick commission totals reached 18.42
-seconds. These exclude authentication and application overhead and are not fresh
-end-to-end benchmarks; monitor real durations before tuning the defaults.
-
-Database acquisition uses the smallest connection/check/pool allowance, with a
-separate SQLAlchemy pool timeout. libpq's integer `connect_timeout` has a two-second minimum; async
-acquisition boundaries enforce shorter configured allowances. PostgreSQL
-`statement_timeout` is set per application connection, never globally. SQLAlchemy
-rolls back failed transactions where possible or discards unusable connections;
-connection maintenance does not replay failed application transactions.
-
-Database operations are never automatically retried. API-key CLI errors exit 2;
-Python callers receive a sanitized storage exception. A failed commit can leave
-the outcome unknown: inspect the database before repeating a write. API-key names
-are not unique. A key created during an uncertain commit may have no recoverable
-plaintext; identify the record and revoke it if appropriate. There is no automatic
-reconciliation or guarantee that repetition is safe.
-
-To reproduce the failure paths without paid model calls:
-
-```sh
-uv run pytest -v tests/test_model_retry.py tests/test_anthropic_client.py tests/test_deadline.py tests/test_api_errors.py
-make test-db
-make docker-smoke
+```dotenv
+GROUNDLINE_CHECK_TIMEOUT_SECONDS=180
 ```
 
-The offline tests inject 529 responses, transport timeouts, and hung operations;
-they verify recovery, cancellation, sanitized 502/504 responses, and the shared
-authentication deadline. Database tests use throwaway databases to exercise query
-and lock timeouts, pool exhaustion, rollback, and subsequent authentication.
-The Docker smoke test uses its existing mock provider for both successful checks.
+If you call the API, configure your application to wait longer than the check
+limit for a response.
 
+### Model retries
+
+Groundline retries temporary model failures, such as rate limits, connection
+errors and timeouts. Each model call allows up to three attempts, including the
+first request. Groundline does not retry permanent errors or database operations.
+
+To disable outage retries, add this line to `.env`:
+
+```dotenv
+GROUNDLINE_MODEL_MAX_ATTEMPTS=1
+```
+
+If the model answers in the wrong format, groundline asks it to answer again
+in the required format. This can happen even with `GROUNDLINE_MODEL_MAX_ATTEMPTS=1`:
+that setting controls retries after temporary failures, not requests to fix
+the format of an answer.
+
+A higher attempt limit allows more retries, but does not extend the overall check
+limit. Failed or interrupted model calls may still incur charges. Reported costs
+include only usage returned by the provider.
+
+### Other limits
+
+Each model attempt has a 60-second limit. One model call, including all its
+attempts and retry waits, has a 120-second limit. Increasing the overall check
+limit does not increase either limit. A model call stops sooner if the overall
+check runs out of time.
+
+Database operations also have their own time limits. The model and database
+limits are defined on the `Settings` class in
+[`src/groundline/settings.py`](src/groundline/settings.py).
+
+The two environment settings for checks are `GROUNDLINE_CHECK_TIMEOUT_SECONDS`
+and `GROUNDLINE_MODEL_MAX_ATTEMPTS`. Set them in `.env` or in the shell;
+shell values take precedence.
+
+See [API statuses and errors](README.md#statuses-and-errors) for response codes.
 
 ## Running the whole stack in Docker
 
