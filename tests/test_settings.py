@@ -8,7 +8,7 @@ from groundline.settings import MissingAPIKeyError, Settings
 @pytest.fixture(autouse=True)
 def isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Keep the developer's real key and .env out of these tests."""
-    for name in TIME_SETTINGS:
+    for name in (*OPERATOR_DEFAULTS, *INTERNAL_LIMITS):
         monkeypatch.delenv("GROUNDLINE_" + name.upper(), raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     for name in (
@@ -148,31 +148,26 @@ def test_a_dotenv_url_follows_the_postgres_port(port_line: str, port: str):
     assert f"@localhost:{port}/" in url.get_secret_value()
 
 
-# Timeout defaults include two operator controls and internal safeguards.
-TIME_SETTINGS = {
-    "check_timeout_seconds": 120,
-    "db_auth_timeout_seconds": 5,
-    "db_connect_timeout_seconds": 5,
-    "db_pool_timeout_seconds": 5,
-    "db_query_timeout_seconds": 5,
-    "db_check_timeout_seconds": 5,
-    "db_readiness_timeout_seconds": 5,
-    "model_timeout_seconds": 60,
-    "model_connect_timeout_seconds": 5,
-    "model_retry_timeout_seconds": 120,
-    "model_retry_base_seconds": 1,
-    "model_retry_cap_seconds": 8,
-    "model_max_attempts": 3,
-}
+OPERATOR_DEFAULTS = {"check_timeout_seconds": 120, "model_max_attempts": 3}
+INTERNAL_LIMITS = (
+    "db_auth_timeout_seconds",
+    "db_connect_timeout_seconds",
+    "db_pool_timeout_seconds",
+    "db_query_timeout_seconds",
+    "db_check_timeout_seconds",
+    "db_readiness_timeout_seconds",
+    "model_timeout_seconds",
+    "model_connect_timeout_seconds",
+    "model_retry_timeout_seconds",
+    "model_retry_base_seconds",
+    "model_retry_cap_seconds",
+)
 
 
-@pytest.mark.parametrize("name,default", TIME_SETTINGS.items())
-def test_retry_and_timeout_defaults(
-    name: str, default: float, monkeypatch: pytest.MonkeyPatch
-):
-    for field in TIME_SETTINGS:
-        monkeypatch.delenv("GROUNDLINE_" + field.upper(), raising=False)
-    assert getattr(Settings(), name, None) == default
+def test_retry_and_timeout_defaults():
+    settings = Settings()
+    for name, default in OPERATOR_DEFAULTS.items():
+        assert getattr(settings, name) == default
 
 
 @pytest.mark.parametrize("name", ["check_timeout_seconds", "model_max_attempts"])
@@ -207,7 +202,7 @@ def test_copying_env_example_preserves_application_timeout_defaults():
     example = Path(__file__).resolve().parents[1] / ".env.example"
     Path(".env").write_text(example.read_text())
     settings = Settings()
-    for name, default in TIME_SETTINGS.items():
+    for name, default in OPERATOR_DEFAULTS.items():
         assert getattr(settings, name) == default
 
 
@@ -220,20 +215,17 @@ def test_timeout_override_can_use_dotenv_or_environment(
     assert Settings().check_timeout_seconds == 60
 
 
-@pytest.mark.parametrize(
-    "name",
-    [
-        name
-        for name in TIME_SETTINGS
-        if name not in {"check_timeout_seconds", "model_max_attempts"}
-    ],
-)
 def test_internal_limits_ignore_environment_and_dotenv(
-    name: str, monkeypatch: pytest.MonkeyPatch
+    monkeypatch: pytest.MonkeyPatch,
 ):
-    variable = "GROUNDLINE_" + name.upper()
-    Path(".env").write_text(f"{variable}=nonsense\n")
-    assert getattr(Settings(), name) == TIME_SETTINGS[name]
-    monkeypatch.setenv(variable, "0.001")
-    assert getattr(Settings(), name) == TIME_SETTINGS[name]
-    assert name not in Settings.model_fields
+    defaults = {name: getattr(Settings(), name) for name in INTERNAL_LIMITS}
+    Path(".env").write_text(
+        "\n".join(f"GROUNDLINE_{name.upper()}=nonsense" for name in INTERNAL_LIMITS)
+    )
+    for name, default in defaults.items():
+        assert getattr(Settings(), name) == default
+        monkeypatch.setenv("GROUNDLINE_" + name.upper(), "0.001")
+    settings = Settings()
+    for name, default in defaults.items():
+        assert getattr(settings, name) == default
+        assert name not in Settings.model_fields

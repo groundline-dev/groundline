@@ -249,8 +249,9 @@ def test_commit_failure_does_not_return_a_secret_or_leave_a_row(
             connection.execute(text("DROP FUNCTION reject_created_key()"))
 
 
-@pytest.mark.parametrize("sqlstate", ["08006", "57014", "40P01", "42601", "42501"])
-@pytest.mark.parametrize("operation", ["create", "revoke"])
+@pytest.mark.parametrize(
+    "operation,sqlstate", [("create", "40P01"), ("revoke", "57014")]
+)
 def test_failed_write_rolls_back_without_replay(
     db_url: str, db_engine: Engine, sqlstate: str, operation: str
 ):

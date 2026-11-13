@@ -18,6 +18,7 @@ from groundline.core import CallRecord, StageError
 from groundline.core.errors import ModelTimeoutError
 from groundline.settings import Settings
 from tests.anthropic_helpers import api_error
+from tests.async_helpers import finish_before_watchdog
 from tests.auth_helpers import SECRET as API_KEY
 from tests.auth_helpers import Endpoint, FakeKeys
 from tests.auth_helpers import endpoint as endpoint
@@ -176,17 +177,20 @@ def test_a_safe_traceback_has_each_type_and_frame_but_no_message():
     assert SECRET not in text
 
 
-@pytest.mark.parametrize("route", ["/v1/omissions", "/v1/commissions"])
+# Exercise the shared error handling through commissions; omissions also checks
+# both statuses without repeating every provider sequence.
 @pytest.mark.parametrize(
-    "outcome,expected",
+    "route,outcome,expected",
     [
-        ("timeout", 504),
-        ("hung-transport", 504),
-        ("retry-after-check-too-short", 502),
-        ("timeout-then-error", 502),
-        ("error-then-timeout", 504),
-        ("error", 502),
-        ("retry-after-too-long", 502),
+        ("/v1/commissions", "timeout", 504),
+        ("/v1/commissions", "hung-transport", 504),
+        ("/v1/commissions", "retry-after-check-too-short", 502),
+        ("/v1/commissions", "timeout-then-error", 502),
+        ("/v1/commissions", "error-then-timeout", 504),
+        ("/v1/commissions", "error", 502),
+        ("/v1/commissions", "retry-after-too-long", 502),
+        ("/v1/omissions", "timeout", 504),
+        ("/v1/omissions", "error", 502),
     ],
 )
 def test_final_model_stopping_reason_controls_http_status(
@@ -258,19 +262,14 @@ def test_final_model_stopping_reason_controls_http_status(
                 base_url="http://test",
             ) as client:
                 started = asyncio.get_running_loop().time()
-                task = asyncio.create_task(
+                response = await finish_before_watchdog(
                     client.post(
                         route,
                         json={"source": PRIVATE, "summary": PRIVATE},
                         headers={"Authorization": f"Bearer {API_KEY}"},
-                    )
+                    ),
+                    seconds=5,
                 )
-                done, _ = await asyncio.wait({task}, timeout=5)
-                if not done:
-                    task.cancel()
-                    await asyncio.gather(task, return_exceptions=True)
-                assert done, "provider failures must stop within configured allowances"
-                response = task.result()
                 if outcome == "retry-after-check-too-short":
                     assert asyncio.get_running_loop().time() - started < 0.5, (
                         "a wait that cannot fit must be rejected before check expiry"

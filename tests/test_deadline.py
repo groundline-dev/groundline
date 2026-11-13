@@ -175,13 +175,10 @@ def test_authentication_timeout_is_503_without_model_work(route: str):
             transport=httpx2.ASGITransport(app=app, raise_app_exceptions=False),
             base_url="http://test",
         ) as http:
-            task = asyncio.create_task(http.post(route, headers=HEADERS, json=BODY))
-            done, _ = await asyncio.wait({task}, timeout=3)
-            if not done:
-                task.cancel()
-                await asyncio.gather(task, return_exceptions=True)
-            assert done, "authentication must be bounded independently"
-            assert task.result().status_code == 503
+            response = await finish_before_watchdog(
+                http.post(route, headers=HEADERS, json=BODY)
+            )
+            assert response.status_code == 503
             assert keys.cancelled
             assert len(keys.calls) == 1
             assert model.started == 0
@@ -228,15 +225,9 @@ def test_shared_deadline_preserves_known_usage_across_calls(corrective: bool):
             transport=httpx2.ASGITransport(app=app, raise_app_exceptions=False),
             base_url="http://test",
         ) as http:
-            task = asyncio.create_task(
+            response = await finish_before_watchdog(
                 http.post("/v1/omissions", headers=HEADERS, json=BODY)
             )
-            done, _ = await asyncio.wait({task}, timeout=3)
-            if not done:
-                task.cancel()
-                await asyncio.gather(task, return_exceptions=True)
-            assert done, "later stages and corrective calls share the check deadline"
-            response = task.result()
             assert response.status_code == 504
             assert model.started == 2
             assert model.cancelled == 1

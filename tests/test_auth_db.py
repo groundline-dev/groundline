@@ -18,6 +18,7 @@ from groundline.cli import app as cli
 from groundline.db import api_keys
 from groundline.db.connection import make_engine
 from groundline.settings import Settings
+from tests.async_helpers import finish_before_watchdog
 from tests.auth_helpers import protected_app
 
 pytestmark = pytest.mark.db
@@ -154,15 +155,10 @@ def test_exhausted_pool_is_bounded_and_recovers(
             keys = APIKeys(engine)
             created = await keys.create(name="pool-test")
             async with engine.connect():
-                task = asyncio.create_task(
-                    keys.authenticate(created.secret.get_secret_value())
-                )
-                done, _ = await asyncio.wait({task}, timeout=3)
-                if not done:
-                    task.cancel()
-                    await asyncio.gather(task, return_exceptions=True)
-                assert done, "pool checkout must use its configured finite allowance"
-                assert isinstance(task.exception(), APIKeyStorageError)
+                with pytest.raises(APIKeyStorageError):
+                    await finish_before_watchdog(
+                        keys.authenticate(created.secret.get_secret_value())
+                    )
             assert (
                 await keys.authenticate(created.secret.get_secret_value()) is not None
             )
@@ -204,15 +200,10 @@ def test_timed_out_query_releases_connection_for_next_authentication(
                 engine.sync_engine, "before_cursor_execute", slow_query, retval=True
             )
             try:
-                task = asyncio.create_task(
-                    keys.authenticate(created.secret.get_secret_value())
-                )
-                done, _ = await asyncio.wait({task}, timeout=3)
-                if not done:
-                    task.cancel()
-                    await asyncio.gather(task, return_exceptions=True)
-                assert done, "statement timeout must interrupt a hung database query"
-                assert isinstance(task.exception(), APIKeyStorageError)
+                with pytest.raises(APIKeyStorageError):
+                    await finish_before_watchdog(
+                        keys.authenticate(created.secret.get_secret_value())
+                    )
                 assert len(statements) == 1
             finally:
                 event.remove(engine.sync_engine, "before_cursor_execute", slow_query)
@@ -258,13 +249,8 @@ def test_write_lock_wait_times_out_once_and_pool_recovers(
             event.listen(engine.sync_engine, "before_cursor_execute", capture)
             with db_engine.begin() as blocker:
                 blocker.execute(text("SELECT id FROM api_keys FOR UPDATE"))
-                task = asyncio.create_task(keys.revoke(created.info.id))
-                done, _ = await asyncio.wait({task}, timeout=3)
-                if not done:
-                    task.cancel()
-                    await asyncio.gather(task, return_exceptions=True)
-                assert done, "statement timeout must include lock waits"
-                assert isinstance(task.exception(), APIKeyStorageError)
+                with pytest.raises(APIKeyStorageError):
+                    await finish_before_watchdog(keys.revoke(created.info.id))
                 assert len(updates) == 1
             info = await keys.authenticate(created.secret.get_secret_value())
             assert info is not None and info.status == "active"
