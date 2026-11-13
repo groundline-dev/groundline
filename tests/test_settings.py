@@ -66,6 +66,7 @@ def test_without_an_env_file_no_dotenv_is_read():
     with pytest.raises(MissingAPIKeyError):
         anthropic_key(None, env_file=None)
     assert read_settings(None).anthropic_api_key is None
+    assert Settings().anthropic_api_key is None
 
 
 def test_environment_wins_over_env_file(monkeypatch: pytest.MonkeyPatch):
@@ -215,7 +216,7 @@ def test_reads_the_database_url_and_hides_it():
     Path(".env").write_text(
         "DATABASE_URL=postgresql+psycopg://gl:pw-secret@localhost/gl\n"
     )
-    settings = Settings()
+    settings = read_settings(ENV_FILE)
 
     assert settings.database_url is not None
     assert settings.database_url.get_secret_value().endswith("@localhost/gl")
@@ -223,14 +224,14 @@ def test_reads_the_database_url_and_hides_it():
 
 
 def test_the_database_url_is_optional():
-    assert Settings().database_url is None
+    assert read_settings(ENV_FILE).database_url is None
 
 
 def test_reads_the_admin_url_as_a_secret(monkeypatch: pytest.MonkeyPatch):
     url = "postgresql+psycopg://postgres:admin-secret@localhost:5433/postgres"
     monkeypatch.setenv("DATABASE_ADMIN_URL", url)
 
-    settings = Settings()
+    settings = read_settings(ENV_FILE)
 
     assert settings.database_admin_url is not None
     assert settings.database_admin_url.get_secret_value() == url
@@ -246,7 +247,7 @@ def test_a_dotenv_url_can_reuse_a_password_set_above_it():
         "@localhost:5433/groundline\n"
     )
 
-    url = Settings().database_url
+    url = read_settings(ENV_FILE).database_url
 
     assert url is not None
     assert url.get_secret_value() == (
@@ -264,7 +265,7 @@ def test_a_dotenv_url_follows_the_postgres_port(port_line: str, port: str):
         "@localhost:${POSTGRES_HOST_PORT:-5433}/groundline\n"
     )
 
-    url = Settings().database_url
+    url = read_settings(ENV_FILE).database_url
 
     assert url is not None
     assert f"@localhost:{port}/" in url.get_secret_value()

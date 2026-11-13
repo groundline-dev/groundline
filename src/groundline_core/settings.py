@@ -1,10 +1,10 @@
 """Secrets and environment settings, read from the environment or a `.env` file.
 
-Values already in the environment win over `.env`. `evaluate` reads a `.env`
-file only when its caller names one; the CLI and the server name `.env` in the
-current folder. `Settings()` on its own still reads `.env`, for the server-side
-code (database setup and migrations) that uses it directly. Keys are held as
-`SecretStr` so they never appear when settings are printed or logged.
+Values already in the environment win over `.env`. Nothing reads a `.env` file
+unless its caller names one: the CLI, the server and database setup name `.env`
+in the current folder, and library callers of `evaluate` name one only if they
+want it. Keys are held as `SecretStr` so they never appear when settings are
+printed or logged.
 """
 
 import os
@@ -17,7 +17,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from groundline_core.core.errors import SetupError
 
 ENV_FILE = ".env"
-"""The file the CLI and the server read settings from, in the current folder."""
+"""The file the CLI, the server and database setup read settings from, in the
+current folder."""
 
 ANTHROPIC_KEY_VARIABLE = "ANTHROPIC_API_KEY"
 ANTHROPIC_KEY_PARAMETER = "anthropic_api_key"
@@ -27,46 +28,24 @@ type EnvFile = str | Path | None
 
 
 class MissingAPIKeyError(SetupError):
-    def __init__(self, needed_by: str | None, env_file: EnvFile) -> None:
-        if env_file is None:
-            message = _missing_argument_message(needed_by)
-            super().__init__(message, message)
-        else:
-            super().__init__(
-                _missing_key_message(needed_by, Path(env_file)),
-                _missing_key_message(needed_by, Path(env_file), show_path=False),
-            )
-
-
-class BlankAPIKeyArgumentError(MissingAPIKeyError):
-    """The caller passed a blank Anthropic API key. Nothing else is looked at,
-    so the message names only the argument."""
-
-    def __init__(self, needed_by: str | None) -> None:
-        lines = [f"The {ANTHROPIC_KEY_PARAMETER} argument is blank."]
-        if needed_by:
-            lines.append(f"  Needed by: {needed_by}")
-        lines.append(
-            "  Fix: pass the Anthropic API key, or leave "
-            f"{ANTHROPIC_KEY_PARAMETER} out to use {ANTHROPIC_KEY_VARIABLE}."
-        )
-        message = "\n".join(lines)
-        SetupError.__init__(self, message, message)
+    """No usable Anthropic API key: none was found, or the caller passed a blank
+    one. `missing_key_error` builds the usual one."""
 
 
 class UnreadableSettingsError(SetupError):
     def __init__(self, error_type: str, env_file: EnvFile) -> None:
         if env_file is None:
-            message = (
-                f"can't read the settings ({error_type}).\n"
-                "  Fix: check the environment variables groundline reads."
-            )
-            super().__init__(message, message)
+            fix = api_fix = "check the environment variables groundline reads."
         else:
-            super().__init__(
-                _unreadable_message(error_type, Path(env_file)),
-                _unreadable_message(error_type, Path(env_file), show_path=False),
+            path = Path(env_file)
+            fix = f"check that {path.absolute()} is a readable UTF-8 text file."
+            api_fix = (
+                f"check that the server's {path.name} is a readable UTF-8 text file."
             )
+        super().__init__(
+            _unreadable_message(error_type, fix),
+            _unreadable_message(error_type, api_fix),
+        )
 
 
 @dataclass(frozen=True)
@@ -80,8 +59,10 @@ class AnthropicKey:
 
 
 class Settings(BaseSettings):
+    """The settings from the environment alone. `read_settings` adds a `.env`
+    file when its caller names one."""
+
     model_config = SettingsConfigDict(
-        env_file=ENV_FILE,
         env_ignore_empty=True,  # a blank `ANTHROPIC_API_KEY=` counts as unset
         extra="ignore",
     )
@@ -134,13 +115,19 @@ def anthropic_key(
     if argument is not None:
         value = argument if isinstance(argument, SecretStr) else SecretStr(argument)
         if not value.get_secret_value().strip():
-            raise BlankAPIKeyArgumentError(needed_by)
+            message = _key_message(
+                f"The {ANTHROPIC_KEY_PARAMETER} argument is blank.",
+                needed_by,
+                fix="pass the Anthropic API key, or leave "
+                f"{ANTHROPIC_KEY_PARAMETER} out to use {ANTHROPIC_KEY_VARIABLE}.",
+            )
+            raise MissingAPIKeyError(message, message)
         return AnthropicKey(
             value, "The Anthropic API key", f"the {ANTHROPIC_KEY_PARAMETER} argument"
         )
     from_settings = read_settings(env_file).anthropic_api_key
     if from_settings is None:
-        raise MissingAPIKeyError(needed_by, env_file)
+        raise missing_key_error(needed_by, env_file)
     if os.environ.get(ANTHROPIC_KEY_VARIABLE) or env_file is None:
         source = "the environment"
     else:
@@ -148,50 +135,53 @@ def anthropic_key(
     return AnthropicKey(from_settings, ANTHROPIC_KEY_VARIABLE, source)
 
 
-def _unreadable_message(
-    error_type: str, env_file: Path, *, show_path: bool = True
-) -> str:
-    """Why the settings can't be read and how to fix it. An HTTP response leaves
-    the path out (`show_path=False`), since it is a detail of the server."""
-    file = env_file.absolute() if show_path else f"the server's {env_file.name}"
-    return (
-        f"can't read the settings ({error_type}).\n"
-        f"  Fix: check that {file} is a readable UTF-8 text file."
+def missing_key_error(needed_by: str | None, env_file: EnvFile) -> MissingAPIKeyError:
+    """The error for a key found nowhere: where it was looked for, and how to fix
+    it. Without an `env_file`, the library's message names no path. With one, an
+    HTTP response still leaves the path out, since it is a detail of the server."""
+    if env_file is None:
+        message = _key_message(
+            "The Anthropic API key is not set.",
+            needed_by,
+            looked_in=f"the {ANTHROPIC_KEY_PARAMETER} argument, "
+            f"and {ANTHROPIC_KEY_VARIABLE} in the environment",
+            fix=f"pass {ANTHROPIC_KEY_PARAMETER}=..., or set {ANTHROPIC_KEY_VARIABLE}.",
+        )
+        return MissingAPIKeyError(message, message)
+    path = Path(env_file).absolute()
+    if not path.is_file():
+        status = "not found"
+    else:
+        status = f"found, but it has no {ANTHROPIC_KEY_VARIABLE}, or it's blank"
+    headline = f"{ANTHROPIC_KEY_VARIABLE} is not set."
+    fix = (
+        f"export {ANTHROPIC_KEY_VARIABLE}=..., or copy .env.example to "
+        f"{path.name} and add it there."
+    )
+    return MissingAPIKeyError(
+        _key_message(
+            headline,
+            needed_by,
+            looked_in=f"the environment, and {path} ({status})",
+            fix=fix,
+        ),
+        _key_message(headline, needed_by, fix=fix),
     )
 
 
-def _missing_argument_message(needed_by: str | None) -> str:
-    """Where the library looked for the key, when its caller named no `.env`."""
-    lines = ["The Anthropic API key is not set."]
+def _key_message(
+    headline: str, needed_by: str | None, *, fix: str, looked_in: str | None = None
+) -> str:
+    """A missing-key message: what's wrong, what needs the key, where it was
+    looked for, and how to fix it."""
+    lines = [headline]
     if needed_by:
         lines.append(f"  Needed by: {needed_by}")
-    lines.append(
-        f"  Looked in: the {ANTHROPIC_KEY_PARAMETER} argument, "
-        f"and {ANTHROPIC_KEY_VARIABLE} in the environment"
-    )
-    lines.append(
-        f"  Fix: pass {ANTHROPIC_KEY_PARAMETER}=..., or set {ANTHROPIC_KEY_VARIABLE}."
-    )
+    if looked_in:
+        lines.append(f"  Looked in: {looked_in}")
+    lines.append(f"  Fix: {fix}")
     return "\n".join(lines)
 
 
-def _missing_key_message(
-    needed_by: str | None, env_file: Path, *, show_path: bool = True
-) -> str:
-    """Where the key was looked for and how to fix it. An HTTP response leaves
-    the path out (`show_path=False`), since it is a detail of the server."""
-    lines = [f"{ANTHROPIC_KEY_VARIABLE} is not set."]
-    if needed_by:
-        lines.append(f"  Needed by: {needed_by}")
-    if show_path:
-        path = env_file.absolute()
-        if not path.is_file():
-            status = "not found"
-        else:
-            status = f"found, but it has no {ANTHROPIC_KEY_VARIABLE}, or it's blank"
-        lines.append(f"  Looked in: the environment, and {path} ({status})")
-    lines.append(
-        f"  Fix: export {ANTHROPIC_KEY_VARIABLE}=..., or copy .env.example to "
-        f"{env_file.name} and add it there."
-    )
-    return "\n".join(lines)
+def _unreadable_message(error_type: str, fix: str) -> str:
+    return f"can't read the settings ({error_type}).\n  Fix: {fix}"
