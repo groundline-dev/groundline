@@ -10,8 +10,8 @@ import pytest
 from sqlalchemy import Engine, func, select, update
 from typer.testing import CliRunner
 
-from groundline.cli import app
-from groundline.db import api_keys
+from groundline_core.cli import app
+from groundline_core.db import api_keys
 
 pytestmark = pytest.mark.db
 runner = CliRunner()

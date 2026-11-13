@@ -1,5 +1,5 @@
 [project]
-name = "groundline"
+name = "groundline-core"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
@@ -25,7 +25,7 @@ dependencies = [
 ]
 
 [project.scripts]
-groundline = "groundline.cli:app"
+groundline-core = "groundline_core.cli:app"
 
 [build-system]
 requires = ["uv_build>=0.13.6,<0.14.0"]
@@ -53,7 +53,7 @@ required-version = ">=0.13.7,<0.14"
 select = ["E", "W", "F", "I"]
 
 [tool.fastapi]
-entrypoint = "groundline.app:app"
+entrypoint = "groundline_core.app:app"
 
 [tool.pyright]
 include = ["src", "tests"]

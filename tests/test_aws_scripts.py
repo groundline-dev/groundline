@@ -50,7 +50,7 @@ KEYS_CREATE_OUTPUT = (
     "Copy the API key now; it cannot be retrieved later.\n"
     f"API key: {KEY}\n"
 )
-"""What `groundline keys create` prints (src/groundline/keys_cli.py)."""
+"""What `groundline-core keys create` prints (src/groundline_core/keys_cli.py)."""
 
 
 @dataclass

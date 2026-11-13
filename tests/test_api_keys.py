@@ -6,8 +6,8 @@ from typing import get_type_hints
 import pytest
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from groundline import api_keys
-from groundline.api_keys import APIKeys, APIKeyStorageError
+from groundline_core import api_keys
+from groundline_core.api_keys import APIKeys, APIKeyStorageError
 
 
 def test_listing_return_annotation_can_be_evaluated():

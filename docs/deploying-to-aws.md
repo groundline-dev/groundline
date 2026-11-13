@@ -175,7 +175,7 @@ Terminating removes only the server and its data. Its security group, IAM role, 
 
 ## Checking the server
 
-`make aws-smoke` waits up to 15 minutes for `/health` to answer 200, showing the time so far. It then checks that API keys work, without calling Claude. It creates an API key on the server with `groundline keys create`, through SSM Run Command, and sends `POST /v1/omissions` with an empty body twice:
+`make aws-smoke` waits up to 15 minutes for `/health` to answer 200, showing the time so far. It then checks that API keys work, without calling Claude. It creates an API key on the server with `groundline-core keys create`, through SSM Run Command, and sends `POST /v1/omissions` with an empty body twice:
 
 - With an unknown API key, it expects 401, which shows the server turns away keys it doesn't know.
 - With the new API key, it expects 422. The server checks the API key before the body, so 422, for the empty body's missing fields, shows the API key was accepted. Looking the key up needs Postgres and the migrations, so this also shows they work. The body is rejected before any Claude call, so no Anthropic credit is spent.
@@ -211,7 +211,7 @@ It answers 200 with the claims in the summary that the source doesn't support ([
 
 ## API keys for a demo
 
-The smoke test revokes its own API key. To create one that lasts, run `make aws-key`. It runs `groundline keys create` on the server through SSM Run Command and prints the API key and its ID. The `/docs` page itself doesn't need an API key, but sending a request from it does: choose Authorize and paste the API key.
+The smoke test revokes its own API key. To create one that lasts, run `make aws-key`. It runs `groundline-core keys create` on the server through SSM Run Command and prints the API key and its ID. The `/docs` page itself doesn't need an API key, but sending a request from it does: choose Authorize and paste the API key.
 
 SSM keeps each command's output, so anyone who can read your project's Run Command history can see the API key. It goes when the server does; to revoke it sooner, run `make aws-key REVOKE=<ID>`.
 

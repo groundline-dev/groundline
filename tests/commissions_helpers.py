@@ -3,8 +3,8 @@
 import json
 from typing import Any
 
-from groundline.core import FileCache, RunResult
-from groundline.evaluators.commissions import register_commissions
+from groundline_core.core import FileCache, RunResult
+from groundline_core.evaluators.commissions import register_commissions
 from tests.fakes import FakeClient, ScriptedReplies, run_stages
 from tests.omission_helpers import SOURCE
 
