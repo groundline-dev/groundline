@@ -192,8 +192,6 @@ uv run pre-commit run secrets-history --hook-stage manual --all-files
 
 **Updating Betterleaks.** The pin in `.pre-commit-config.yaml` is the only one; CI runs the same hooks. Dependabot updates it within v1. Moving to v2 is manual: it drops flags `scripts/check_secrets.py` uses and changes fingerprints.
 
-The [history audit record](docs/security-audit.md) states the scanned scope and findings.
-
 ## Editor schemas
 
 The YAML profiles, pipeline specs and presets are checked against generated JSON schemas. After changing the profile model or a stage implementation's settings, regenerate them (a test fails until you do):
