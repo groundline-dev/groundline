@@ -21,6 +21,7 @@ If a file, symbol or test named here no longer exists, find what replaced it (gr
 | 502/503 examples derived from the route's pipeline | `check_responses` | the 502/503 tests |
 | Success examples keep their nulls (FastAPI strips them from the schema it builds) | `app.py` `_openapi`, `_RESPONSE_MODELS` | `test_the_served_examples_keep_the_nulls_a_real_response_has` |
 | Request and success examples validate | `CheckRequest`, response models | `test_each_check_has_a_valid_example_request_and_response` (the docs' own copy must validate) |
+| Explicit operation ID on every route; valid OpenAPI file | `operation_id=` on each route | `test_every_route_has_an_explicit_operation_id`, `test_operation_ids_are_the_documented_names_and_unique`, `test_the_openapi_file_is_valid` |
 
 ## House style (match the existing text)
 
@@ -34,9 +35,10 @@ If a file, symbol or test named here no longer exists, find what replaced it (gr
 
 | Change | Update |
 |---|---|
-| New check route | `responses=check_responses(...)`, `tags`, request/response examples, its response model in `_RESPONSE_MODELS` (`app.py`), add to `tests/auth_helpers.ENDPOINTS`, README "Using the API" |
+| New check route | `operation_id=` (a verb phrase like `evaluate_omissions`; `tests/test_api_docs.py` fails without one), `responses=check_responses(...)`, `tags`, request/response examples, its response model in `_RESPONSE_MODELS` (`app.py`), add to `tests/auth_helpers.ENDPOINTS`, README "Using the API" |
 | New/renamed field | Docstring, success example, README if shown; renaming or removing a field breaks callers: allowed in `/v1` until the API is public, a `/v2` change after; flag it either way |
 | New status code or error message | `_error` entry with example; real-response test if the shape is new |
+| Renamed `operation_id` | Each one becomes an SDK method name, so renaming breaks SDK users: flag it, and update `OPERATION_IDS` in `tests/test_api_docs.py` |
 | Auth change | `DESCRIPTION` Authentication, 401/503 entries, README |
 | Default preset / threshold change | Threshold docstrings, success example arithmetic (derive from code) |
 
