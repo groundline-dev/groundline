@@ -1,6 +1,7 @@
 """The response both checks share: the same top-level fields, and findings that
 mean the same thing whichever check made them (ALL-140)."""
 
+import json
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import Any
@@ -17,12 +18,19 @@ from tests.commissions_helpers import (
     DOSE_SOURCE,
     EXAM,
     EXAM_ISSUE,
+    issue,
     issues_reply,
 )
 from tests.commissions_helpers import SUMMARY as COMMISSION_SUMMARY
 from tests.commissions_helpers import Script as CommissionScript
 from tests.fakes import FakeClient
-from tests.omission_helpers import SOURCE, SUMMARY, Script, flagged_script
+from tests.omission_helpers import (
+    SOURCE,
+    SUMMARY,
+    Script,
+    check_reply,
+    flagged_script,
+)
 
 http = TestClient(app, headers=HEADERS)
 
@@ -212,6 +220,28 @@ def test_a_check_with_nothing_to_report_scores_one_and_has_no_findings():
 
 
 # --- R3: findings a program can use ---------------------------------------------
+
+
+def test_a_quote_the_model_gives_for_an_absent_fact_is_not_reported():
+    check = json.loads(check_reply({"f3": 95}))
+    check["facts"][0].update(verdict="absent", quote="Motrin 600 mg every 6 hours")
+    script = flagged_script()
+    script.replies["check"] = [json.dumps(check)]
+
+    absent = omissions(script)["findings"][0]
+
+    assert absent["verdict"] == "absent"
+    assert absent["summary_evidence"] is None
+
+
+def test_evidence_the_model_gives_for_an_unsupported_claim_is_not_reported():
+    stray = issue(EXAM, "unsupported", 70, "supporting", DOSE_SOURCE)
+
+    unsupported = commissions(stray)["findings"][0]
+
+    assert unsupported["verdict"] == "unsupported"
+    assert unsupported["source_evidence"] is None
+    assert unsupported["evidence_found"] is None
 
 
 def test_each_explanation_is_one_of_the_fixed_sentences():
