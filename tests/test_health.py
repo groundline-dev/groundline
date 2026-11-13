@@ -5,7 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, make_url, text
 
-from groundline.app import app
+from groundline_core.app import app
 
 client = TestClient(app)
 

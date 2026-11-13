@@ -19,7 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
         ("infra/https/Caddyfile", True),
         ("compose.https.yaml", True),
         ("README.md", False),
-        ("src/groundline/evaluate.py", False),
+        ("src/groundline_core/evaluate.py", False),
     ],
 )
 def test_https_workflow_input_detection(tmp_path: Path, changed: str, expected: bool):

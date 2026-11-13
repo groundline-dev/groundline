@@ -8,10 +8,10 @@ from typing import ClassVar, cast
 
 import pytest
 
-from groundline import builtin_presets, load_preset
-from groundline.core import StageContext
-from groundline.evaluators.alarm import ThresholdAlarm, rescaled_score
-from groundline.evaluators.models import AlarmOutput
+from groundline_core import builtin_presets, load_preset
+from groundline_core.core import StageContext
+from groundline_core.evaluators.alarm import ThresholdAlarm, rescaled_score
+from groundline_core.evaluators.models import AlarmOutput
 from tests import commissions_helpers as commissions
 from tests import omission_helpers as omissions
 

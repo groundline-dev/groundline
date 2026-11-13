@@ -12,10 +12,10 @@ from uuid import UUID
 import pytest
 from fastapi import Depends, FastAPI
 
-from groundline.api import commissions, errors, omissions
-from groundline.api_keys import APIKeyInfo, APIKeys
-from groundline.app import health, lifespan
-from groundline.auth import require_api_key
+from groundline_core.api import commissions, errors, omissions
+from groundline_core.api_keys import APIKeyInfo, APIKeys
+from groundline_core.app import health, lifespan
+from groundline_core.auth import require_api_key
 from tests.commissions_helpers import Script, issues_reply
 from tests.omission_helpers import SOURCE, SUMMARY, not_flagged_script
 

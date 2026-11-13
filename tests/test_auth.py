@@ -7,9 +7,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from groundline import app as app_module
-from groundline.api_keys import APIKeys, APIKeyStorageError
-from groundline.db.connection import make_engine
+from groundline_core import app as app_module
+from groundline_core.api_keys import APIKeys, APIKeyStorageError
+from groundline_core.db.connection import make_engine
 from tests.auth_helpers import SECRET, FakeKeys, protected_app
 
 
