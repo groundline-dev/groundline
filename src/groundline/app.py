@@ -111,7 +111,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 DESCRIPTION = """
 groundline checks an AI-written summary, such as a clinical note, against the
 source it was written from, such as a consultation transcript. It reports the
-facts the summary leaves out (omissions) and the statements in it the source
+facts the summary leaves out (omissions) and the claims in it the source
 doesn't support (commissions). It is research code, **not for clinical use**,
 and must not be used with real patient data yet.
 

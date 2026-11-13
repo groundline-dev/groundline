@@ -98,7 +98,7 @@ class CommissionsResponse(CheckResponse[Literal["commissions"], CommissionsMetad
     """From 0 to 1. Higher is better. A score below 0.5 means the summary is
     flagged, and a summary passes at 0.5 or above; the flag is exactly the
     alarm's. The score is the alarm score turned around and rescaled around the
-    alarm's threshold. A flag means a statement wasn't found in the source, for
+    alarm's threshold. A flag means a claim wasn't found in the source, for
     a reviewer to check; the score doesn't say how good the summary is overall.
     A summary with no claims the source fails to support scores 1."""
     findings: list[Finding]
@@ -115,12 +115,12 @@ async def commissions(
     request: CommissionsRequest,
     client: Annotated[ModelClient | None, Depends(model_client)],
 ) -> CommissionsResponse:
-    """Find the statements a summary makes that its source doesn't support, and
+    """Find the claims a summary makes that its source doesn't support, and
     whether to flag it.
 
     Runs the validated quick commission check (often called hallucination
     detection): one Claude Haiku 5.5 call that costs about $0.002 for a typical
-    clinical note. A statement is a commission if the source contradicts it or
+    clinical note. A claim is a commission if the source contradicts it or
     never mentions it. Answers 200 for every finished check, flagged or not."""
     spec = load_preset(DEFAULT_COMMISSIONS_PRESET)
     started = time.perf_counter()
