@@ -48,6 +48,21 @@ def test_version_policy_documents_body_and_timeout_status_exceptions():
     assert "504" in versions
 
 
+def test_every_documented_route_has_the_global_body_limit_response():
+    for path, operations in schema["paths"].items():
+        for method, operation in operations.items():
+            response = operation["responses"]["413"]
+            assert "every HTTP path and method" in response["description"], (
+                path,
+                method,
+                response,
+            )
+            example = response["content"]["application/json"]["examples"][
+                "body_too_large"
+            ]
+            ErrorBody.model_validate(example["value"])
+
+
 def _resolve(ref: dict[str, Any]) -> dict[str, Any]:
     name = ref["$ref"].removeprefix("#/components/schemas/")
     return schema["components"]["schemas"][name]

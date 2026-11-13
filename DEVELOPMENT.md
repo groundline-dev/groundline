@@ -61,7 +61,9 @@ You need [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13 (0.1
 ## Timeouts and outage retries
 
 By default, groundline allows 120 seconds to complete a check and up to three
-attempts for each model call. You can change either setting in `.env`.
+attempts for each model call. For local development or Docker Compose, you can
+change either setting in `.env`. The AWS launcher currently uses the defaults;
+it does not pass these overrides to the deployed server.
 
 ### Overall check limit
 
@@ -123,36 +125,54 @@ See [API statuses and errors](README.md#statuses-and-errors) for response codes.
 
 ## Request size limits
 
-Both check endpoints limit the whole body in bytes, then the decoded source and
-summary in Unicode characters. JSON structure and escaping count toward body
-bytes. The server's [/docs](http://127.0.0.1:8000/docs) or
+The API limits each request body to 5 MiB by default to keep large uploads from
+using too much memory while the application reads them. The same limit applies
+to every HTTP path and method, including public endpoints and requests to unknown
+routes. Applying it once for the whole API also protects new routes automatically.
+To change it, set `GROUNDLINE_MAX_BODY_BYTES` before starting the API, as shown below.
+
+Both check endpoints also limit the source and summary to 200,000 Unicode
+characters each by default. These character limits apply to the text after JSON
+has been decoded; the body limit counts the bytes sent, including JSON structure
+and escaping. The server's [/docs](http://127.0.0.1:8000/docs) or
 [/api](http://127.0.0.1:8000/api) show effective numbers: the body allowance in the
 413 Content Too Large description, and field allowances in the request schema.
 These are operational safeguards, not guarantees that input fits a model's
 context window. CLI and direct Python evaluation keep their existing input policy.
 
-| Setting | Unit |
-| --- | --- |
-| `GROUNDLINE_MAX_BODY_BYTES` | Total body bytes |
-| `GROUNDLINE_MAX_SOURCE_CHARS` | Decoded source characters |
-| `GROUNDLINE_MAX_SUMMARY_CHARS` | Decoded summary characters |
+A declared oversized body can return **413 Content Too Large** before
+authentication, **404 Not Found** or **405 Method Not Allowed**. Streamed bodies
+are limited as the application reads them; routes that do not read a body do not
+buffer it to check its size. New routes inherit the body allowance automatically;
+field validation still belongs to their request models.
 
-For `make dev`, export overrides in the shell before starting the API:
+| Setting | Unit | Default |
+| --- | --- | --- |
+| `GROUNDLINE_MAX_BODY_BYTES` | Total body bytes | 5,242,880 (5 MiB) |
+| `GROUNDLINE_MAX_SOURCE_CHARS` | Decoded source characters | 200,000 |
+| `GROUNDLINE_MAX_SUMMARY_CHARS` | Decoded summary characters | 200,000 |
 
-```sh
-export GROUNDLINE_MAX_SOURCE_CHARS=100000
-make dev
+For `make dev` or Docker Compose, add the settings you want to change to `.env`:
+
+```dotenv
+GROUNDLINE_MAX_BODY_BYTES=10485760
+GROUNDLINE_MAX_SOURCE_CHARS=100000
 ```
 
-Unlike the credential and timeout settings, these API-only settings do **not**
-automatically load `.env`. Compose explicitly forwards them from the shell or
-its `.env` interpolation; an empty value selects the code default. Nonempty
-values must be positive ASCII decimal integers, without spaces, signs,
-underscores, fractions or exponents. Invalid configuration stops API startup
-with an error naming the setting and omitting its rejected value.
+This example allows a 10 MiB body and up to 100,000 source characters, while
+leaving the summary limit at its default. Exported shell values take precedence
+over `.env`, just as they do for the check timeout and retry settings.
 
-Limits load when the API is imported. Restart `make dev` after changing exported
-values; recreate the app container after changing Compose overrides:
+Setting values must be positive ASCII decimal integers, without spaces, signs,
+underscores, fractions or exponents. Invalid configuration stops API startup
+with an error naming the setting and omitting its rejected value. Missing or
+empty values select the code defaults.
+
+Changing a limit requires restarting the API. Limits are read once at startup
+to configure body enforcement, field validation and the OpenAPI schema. Restarting
+keeps enforcement and the documented limits in sync. Restart `make dev` after
+changing exported values; recreate the app container after changing Compose
+overrides:
 
 ```sh
 docker compose up -d --force-recreate app
@@ -163,11 +183,13 @@ raising the body allowance too; a deliberately tighter body allowance can reject
 otherwise valid fields. Oversized bodies return **413 Content Too Large**;
 overlong fields return **422 Unprocessable Content**, without echoing input.
 A body within the allowance still requires authentication and field validation.
-The byte allowance bounds application body buffering; it does not cap all process
-memory, concurrent uploads or upload duration.
 
-The [AWS launcher](docs/deploying-to-aws.md) uses the code defaults; forwarding
-custom size settings through that launcher requires separate support.
+This limit prevents a single upload from being too large. The server still needs
+memory to process requests, and several requests can arrive at once, so its total
+memory use can exceed this limit.
+
+The [AWS launcher](docs/deploying-to-aws.md#request-size-limits) currently supports
+only the default size limits.
 
 ## Running the whole stack in Docker
 

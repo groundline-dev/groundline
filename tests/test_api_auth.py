@@ -156,13 +156,16 @@ def test_invalid_fields_follow_authentication_and_never_call_model(
     evaluation: AsyncMock,
 ):
     body: dict[str, object] = dict(BODY)
+    max_chars = (
+        common.LIMITS.max_source_chars
+        if field == "source"
+        else common.LIMITS.max_summary_chars
+    )
     values: dict[str, object] = {
         "empty": "",
         "blank": " \n ",
         "type": {"text": PRIVATE},
-        "too-long": PRIVATE
-        + "x"
-        * common.CheckRequest.model_json_schema()["properties"][field]["maxLength"],
+        "too-long": PRIVATE + "x" * max_chars,
     }
     if invalid == "missing":
         del body[field]

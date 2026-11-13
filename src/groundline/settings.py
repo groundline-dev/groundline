@@ -39,13 +39,17 @@ def dotenv_path() -> Path:
 
 
 class APILimitsSettings(BaseSettings):
-    """API-only allowances, read from the process environment at API import.
+    """API-only limits, read from the environment or .env at API import.
 
-    No automatic .env loading: CLI and direct Python evaluation keep their
-    existing input policy. Exactly empty overrides use the code defaults.
+    CLI and direct Python evaluation do not load or enforce these limits.
     """
 
-    model_config = SettingsConfigDict(env_prefix="GROUNDLINE_", env_ignore_empty=True)
+    model_config = SettingsConfigDict(
+        env_prefix="GROUNDLINE_",
+        env_file=ENV_FILE,
+        env_ignore_empty=True,
+        extra="ignore",
+    )
 
     max_body_bytes: int = Field(default=5_242_880, gt=0)
     max_source_chars: int = Field(default=200_000, gt=0)

@@ -218,4 +218,4 @@ def test_api_limits_forward_overrides_without_compose_defaults(
 ):
     environment = services["app"]["environment"]
     assert environment.get(name) == "${" + name + ":-}"
-    assert not re.search(rf"^#?\s*{name}=", ENV_EXAMPLE.read_text(), re.MULTILINE)
+    assert not re.search(rf"^\s*{name}=", ENV_EXAMPLE.read_text(), re.MULTILINE)

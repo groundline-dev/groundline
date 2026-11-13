@@ -32,9 +32,7 @@ from tests.omission_helpers import (
 http = TestClient(app, headers={"Authorization": f"Bearer {API_KEY}"})
 
 SECRET = "patient is HIV positive and takes tenofovir"
-MAX_SOURCE_CHARS = common.CheckRequest.model_json_schema()["properties"]["source"][
-    "maxLength"
-]
+MAX_SOURCE_CHARS = common.LIMITS.max_source_chars
 
 
 @pytest.fixture(autouse=True)

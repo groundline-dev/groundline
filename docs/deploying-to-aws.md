@@ -248,10 +248,22 @@ Terraform state stays in `infra/` on your computer. Delete the server with `make
 
 ## Request size limits
 
-Deployments created with `make aws-up` use the API's code defaults for request
-size limits. The launcher does not forward `GROUNDLINE_MAX_BODY_BYTES`,
-`GROUNDLINE_MAX_SOURCE_CHARS` or `GROUNDLINE_MAX_SUMMARY_CHARS`. Supporting custom
-limits through this launcher requires separate forwarding support. This does not
-restrict configuration through the process environment when running the API by
-other means. The deployment's `/docs` and `/api` show its effective limits; see
-[request size limits](../DEVELOPMENT.md#request-size-limits) for units and behavior.
+`make aws-up` starts the API with a 5 MiB request-body limit and a 200,000-character
+limit for each source and summary. The launcher does not currently offer a way to
+change these limits. Adding `GROUNDLINE_MAX_BODY_BYTES`, `GROUNDLINE_MAX_SOURCE_CHARS`
+or `GROUNDLINE_MAX_SUMMARY_CHARS` to your local `.env` or exporting them before
+`make aws-up` will not change the deployed server's limits.
+
+To support custom limits, the launcher would need to pass those settings to the
+remote app container. Until that support is added, use the defaults for this AWS
+workflow. The launcher also does not forward local `GROUNDLINE_CHECK_TIMEOUT_SECONDS`
+or `GROUNDLINE_MODEL_MAX_ATTEMPTS` overrides: deployed checks use the default
+120-second timeout and up to three attempts per model call.
+
+You can try custom limits locally with `make dev` or Docker Compose;
+see the commands in [request size limits](../DEVELOPMENT.md#request-size-limits).
+
+To check a running deployment's limits, open its base URL with `/docs` appended
+(or `/api`, which shows the same documentation). The 413 response description
+shows the body limit in bytes. Expand the `CheckRequest` schema to see `maxLength`
+for `source` and `summary`.

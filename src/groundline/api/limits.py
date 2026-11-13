@@ -34,11 +34,10 @@ def _read_limits() -> APILimitsSettings:
 
 LIMITS = _read_limits()
 BODY_TOO_LARGE = "Request body exceeds the configured size limit"
-_CHECK_PATHS = {"/v1/omissions", "/v1/commissions"}
 
 
-class CheckBodyLimitMiddleware:
-    """Use Starlette's byte enforcement, with groundline's JSON errors.
+class BodyLimitMiddleware:
+    """Limit every HTTP request body, with groundline's JSON errors.
 
     FastAPI reads the entire body before parsing JSON. The native limiter
     bounds that read, checking both declared and actual byte counts. This
@@ -54,12 +53,6 @@ class CheckBodyLimitMiddleware:
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
-            return await self.app(scope, receive, send)
-        path = scope["path"]
-        root_path = scope.get("root_path", "")
-        if root_path and path.startswith(root_path + "/"):
-            path = path[len(root_path) :]
-        if scope["method"] != "POST" or path not in _CHECK_PATHS:
             return await self.app(scope, receive, send)
         replaced = False
 

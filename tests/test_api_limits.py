@@ -15,13 +15,14 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from fastapi import Request
+from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
-from starlette.types import Message, Scope
+from starlette.types import ASGIApp, Message, Scope
 
 from groundline import settings
 from groundline.api import common
+from groundline.api.limits import BodyLimitMiddleware
 from groundline.app import app
 from groundline.settings import APILimitsSettings
 from tests.auth_helpers import ENDPOINTS, HEADERS, SECRET, Endpoint, FakeKeys
@@ -93,24 +94,37 @@ def test_default_limits_contract():
     }
 
 
-def test_missing_and_empty_limits_ignore_dotenv(
+def test_limits_load_dotenv_and_environment_takes_precedence(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
-    expected = limits()
     (tmp_path / ".env").write_text(
-        "".join(f"{name}=invalid-private-value\n" for name in LIMIT_NAMES)
+        "".join(f"{name}=12345\n" for name in LIMIT_NAMES)
         + "GROUNDLINE_CHECK_TIMEOUT_SECONDS=37\nANTHROPIC_API_KEY=sk-dummy-dotenv\n"
     )
-    for value in (None, ""):
-        for name in LIMIT_NAMES:
-            if value is None:
-                monkeypatch.delenv(name, raising=False)
-            else:
-                monkeypatch.setenv(name, value)
-        assert limits() == expected
-    # API-only limits must not break existing .env settings for CLI/Python use.
+    assert set(limits().values()) == {12345}
+    for name in LIMIT_NAMES:
+        monkeypatch.setenv(name, "23456")
+    assert set(limits().values()) == {23456}
+    for name in LIMIT_NAMES:
+        monkeypatch.setenv(name, "")
+    assert set(limits().values()) == {12345}
     assert settings.Settings().check_timeout_seconds == 37
     assert settings.Settings().anthropic_key() == "sk-dummy-dotenv"
+
+
+def test_empty_dotenv_limits_use_defaults(tmp_path: Path):
+    expected = limits()
+    (tmp_path / ".env").write_text("".join(f"{name}=\n" for name in LIMIT_NAMES))
+    assert limits() == expected
+
+
+def test_invalid_api_limits_do_not_affect_cli_settings(tmp_path: Path):
+    (tmp_path / ".env").write_text(
+        "GROUNDLINE_MAX_BODY_BYTES=invalid\nGROUNDLINE_CHECK_TIMEOUT_SECONDS=37\n"
+    )
+    assert settings.Settings().check_timeout_seconds == 37
+    with pytest.raises(ValidationError):
+        limits()
 
 
 @pytest.mark.parametrize(
@@ -153,7 +167,12 @@ def test_invalid_limit_stops_startup_without_leaking_values(tmp_path: Path):
 
 
 async def asgi_request(
-    path: str, chunks: list[bytes | Exception | Message], headers: dict[str, str]
+    path: str,
+    chunks: list[bytes | Exception | Message],
+    headers: dict[str, str],
+    *,
+    method: str = "POST",
+    application: ASGIApp = app,
 ) -> dict[str, Any]:
     messages: list[Message] = []
     reads = 0
@@ -181,7 +200,7 @@ async def asgi_request(
         "type": "http",
         "asgi": {"version": "3.0"},
         "http_version": "1.1",
-        "method": "POST",
+        "method": method,
         "scheme": "http",
         "path": path,
         "raw_path": path.encode(),
@@ -191,7 +210,7 @@ async def asgi_request(
         "client": ("127.0.0.1", 12345),
         "server": ("test", 80),
     }
-    await asyncio.wait_for(app(scope, receive, send), timeout=10)
+    await asyncio.wait_for(application(scope, receive, send), timeout=10)
     starts = [m for m in messages if m["type"] == "http.response.start"]
     assert len(starts) <= 1 if disconnected else len(starts) == 1, messages
     body = b"".join(
@@ -260,6 +279,57 @@ def test_declared_oversize_is_rejected_before_reading(caplog: pytest.LogCaptureF
         )
         assert_private_rejection(row)
         assert row["reads"] == 0
+
+
+def test_global_body_limit_overrides_public_and_routing_responses():
+    for method, path, status in (
+        ("GET", "/health", 200),
+        ("POST", "/unknown-route", 404),
+        ("GET", "/v1/omissions", 405),
+    ):
+        row = asyncio.run(asgi_request(path, [], {}, method=method))
+        assert row["status"] == status, row
+        row = asyncio.run(
+            asgi_request(
+                path,
+                [(PRIVATE + SECRET).encode()],
+                {"Content-Length": str(limits()["max_body_bytes"] + 1)},
+                method=method,
+            )
+        )
+        assert row["status"] == 413, row
+        assert row["body"] == TOO_LARGE, row
+        assert row["reads"] == 0, row
+        assert PRIVATE not in json.dumps(row) and SECRET not in json.dumps(row)
+
+
+def test_future_put_route_inherits_streamed_body_limit():
+    future = FastAPI()
+    future.add_middleware(BodyLimitMiddleware)
+
+    @future.put("/future-upload")
+    async def upload(request: Request) -> dict[str, int]:
+        return {"bytes": len(await request.body())}
+
+    limit = limits()["max_body_bytes"]
+    exact = b" " * limit
+    row = asyncio.run(
+        asgi_request("/future-upload", [exact], {}, method="PUT", application=future)
+    )
+    assert row["status"] == 200, row
+    assert row["body"] == {"bytes": limit}, row
+    row = asyncio.run(
+        asgi_request(
+            "/future-upload",
+            [exact, b" ", b"unread tail"],
+            {},
+            method="PUT",
+            application=future,
+        )
+    )
+    assert row["status"] == 413, row
+    assert row["body"] == TOO_LARGE, row
+    assert row["reads"] == 2, row
 
 
 def test_streamed_body_boundary_and_actual_byte_count(caplog: pytest.LogCaptureFixture):
@@ -345,11 +415,18 @@ def check_custom_limits() -> None:
     print("custom limits reached docs and validation")
 
 
-def test_custom_limits_reach_docs_and_validation(tmp_path: Path):
+@pytest.mark.parametrize("source", ["environment", "dotenv"])
+def test_custom_limits_reach_docs_and_validation(tmp_path: Path, source: str):
+    overrides: dict[str, str] = dict(zip(LIMIT_NAMES, ("000256", "0009", "0007")))
+    if source == "dotenv":
+        (tmp_path / ".env").write_text(
+            "".join(f"{name}={value}\n" for name, value in overrides.items())
+        )
+        overrides = {}
     result = probe(
         "from tests.test_api_limits import check_custom_limits; check_custom_limits()",
         tmp_path,
-        dict(zip(LIMIT_NAMES, ("000256", "0009", "0007"))),
+        overrides,
     )
     assert result.returncode == 0, result.stderr
     assert "custom limits reached docs and validation" in result.stdout

@@ -108,7 +108,8 @@ FAILURE_RESPONSES: dict[int | str, dict[str, Any]] = {
         ErrorBody,
         f"Content Too Large: the request body exceeds {LIMITS.max_body_bytes} bytes. "
         "This includes JSON structure and escaping. The request may be rejected "
-        "before authentication; reduce the upload size.",
+        "before authentication or routing errors; reduce the upload size. "
+        "The body allowance applies to every HTTP path and method.",
         body_too_large=("Body size limit", {"detail": BODY_TOO_LARGE}),
     ),
     422: _error(

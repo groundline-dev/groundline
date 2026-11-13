@@ -171,6 +171,12 @@ for c in refute.commissions:
 
 Complete the [development setup](DEVELOPMENT.md#getting-started) first. Start the API with `make dev`; it serves at http://127.0.0.1:8000, with interactive docs at `/docs` (also at `/api`) and a read-only reference at `/redoc`. The docs list each endpoint with example requests and responses, and explain how the API is versioned. To run the API and Postgres together in Docker instead, see [Running the whole stack in Docker](DEVELOPMENT.md#running-the-whole-stack-in-docker); to run them as a test deployment in your AWS project, see [Deploying to AWS](docs/deploying-to-aws.md). Both check endpoints require a groundline API key, and every check spends your Anthropic credit. `/health` and `/ready` are public. `/health` answers 200 while the app is running, and `/ready` answers 503 while the database is unavailable.
 
+### Request limits and timeouts
+
+Every API route has a default request-body limit of 5 MiB, including JSON formatting and escaping. Both check endpoints also require nonblank `source` and `summary` text, with up to 200,000 characters in each field by default. Your server may use different size limits: check its [/docs](http://127.0.0.1:8000/docs) or [/api](http://127.0.0.1:8000/api) page for the current values. To change them, see [request size limits](DEVELOPMENT.md#request-size-limits).
+
+By default, the server allows 120 seconds to complete either check, including authentication, model calls and waits between retries. Set your HTTP client's timeout a little higher so it also has time to send the request and receive the result. You can leave the server's timeout at its default; see [the overall check limit](DEVELOPMENT.md#overall-check-limit) if you need to change it.
+
 ### `POST /v1/omissions`
 
 Runs the validated omission preset on one summary. Create a groundline API key, copy the secret printed once, and send it as a Bearer credential. This is separate from the Anthropic API key the server uses for model calls:
@@ -184,8 +190,6 @@ curl -s http://127.0.0.1:8000/v1/omissions \
   -H 'Content-Type: application/json' \
   -d '{"source": "...transcript...", "summary": "...note..."}'
 ```
-
-`source` and `summary` must not be blank. Both decoded field lengths and the total request body are limited; the server’s [/docs](http://127.0.0.1:8000/docs) and [/api](http://127.0.0.1:8000/api) show its effective allowances. See [request size limits](DEVELOPMENT.md#request-size-limits) to configure them. The default whole-check limit is 120 seconds, including authentication, model calls, and retry waits. Set your HTTP client timeout above that limit to allow request and response transfer time. No timeout configuration is required. See [the overall check limit](DEVELOPMENT.md#overall-check-limit) if observed check durations justify changing it.
 
 ```json
 {
@@ -242,26 +246,26 @@ A score shows whether a critical problem was found, not how good the summary is 
 
 ### Statuses and errors
 
-A completed check returns **200**, whether or not it flags the summary ([ADR 0008](docs/adr/0008-the-api-returns-200-for-a-flagged-summary.md)). A flagged summary is a completed result that requires review. Other statuses indicate that the request did not produce a completed check.
+A completed check returns **200 OK**, whether or not it flags the summary ([ADR 0008](docs/adr/0008-the-api-returns-200-for-a-flagged-summary.md)). A flagged summary is a completed result that requires review. Other statuses indicate that the request did not produce a completed check.
 
 Both check endpoints use the following statuses. Every error response is JSON with a `detail` field describing the error.
 
 | Status | Meaning |
 |---|---|
-| 400 | The server could not decode the request body. Send JSON encoded as UTF-8. |
-| 401 | The groundline API key is missing or invalid. Provide a valid, unexpired key in the `Authorization: Bearer ...` header. Revoked keys are not accepted. The response includes `WWW-Authenticate: Bearer`. |
-| 404 | The route does not exist. The error names the method and path you requested; `/docs` lists the available routes. |
-| 405 | The route exists, but does not accept the requested HTTP method. For example, checks require `POST`, not `GET`. |
-| 413 Content Too Large | The request body exceeds the server’s byte allowance, including JSON structure and escaping. Reduce its size; this can be returned before authentication. |
-| 422 | The request is invalid. Check the JSON syntax, required fields, text length and any extra fields. The body must be a JSON object, and the source and summary must not be blank. |
-| 500 | An unexpected error occurred in groundline. Details are recorded in the server log. |
-| 502 | The model or Anthropic's API failed, refused the request, or returned a response groundline could not use. Retrying later may help. |
-| 503 | The service is unavailable because of a model configuration or authentication database problem. The service operator should check the configuration and database availability. |
-| 504 | The check exceeded a time limit. This can happen during a model attempt, while retrying model calls, or when the overall check reaches its deadline. |
+| 400 Bad Request | The server could not decode the request body. Send JSON encoded as UTF-8. |
+| 401 Unauthorized | The groundline API key is missing or invalid. Provide a valid, unexpired key in the `Authorization: Bearer ...` header. Revoked keys are not accepted. The response includes `WWW-Authenticate: Bearer`. |
+| 404 Not Found | The route does not exist. The error names the method and path you requested; `/docs` lists the available routes. |
+| 405 Method Not Allowed | The route exists, but does not accept the requested HTTP method. For example, checks require `POST`, not `GET`. |
+| 413 Content Too Large | The request body exceeds the server's byte allowance, including JSON structure and escaping. The allowance applies to every HTTP path and method. Reduce its size; a declared oversized body can return this before authentication, 404 Not Found or 405 Method Not Allowed. |
+| 422 Unprocessable Content | The request is invalid. Check the JSON syntax, required fields, text length and any extra fields. The body must be a JSON object, and the source and summary must not be blank. |
+| 500 Internal Server Error | An unexpected error occurred in groundline. Details are recorded in the server log. |
+| 502 Bad Gateway | The model or Anthropic's API failed, refused the request, or returned a response groundline could not use. Retrying later may help. |
+| 503 Service Unavailable | The service is unavailable because of a model configuration or authentication database problem. The service operator should check the configuration and database availability. |
+| 504 Gateway Timeout | The check exceeded a time limit. This can happen during a model attempt, while retrying model calls, or when the overall check reaches its deadline. |
 
-For **502** responses, `detail` identifies the step that failed and any usage recorded before it stopped. Anthropic API errors include the provider's status and error type. If a retry ends in a model error, the response is 502 even if an earlier attempt timed out.
+For **502 Bad Gateway** responses, `detail` identifies the step that failed and any usage recorded before it stopped. Anthropic API errors include the provider's status and error type. If a retry ends in a model error, the response is 502 even if an earlier attempt timed out.
 
-For **503** responses, `detail` provides configuration guidance or reports that authentication is unavailable. See [development setup](DEVELOPMENT.md#getting-started) and the [timeout reference](DEVELOPMENT.md#model-retries) for troubleshooting.
+For **503 Service Unavailable** responses, `detail` provides configuration guidance or reports that authentication is unavailable. See [development setup](DEVELOPMENT.md#getting-started) and the [timeout reference](DEVELOPMENT.md#model-retries) for troubleshooting.
 
 **Failed checks may still incur model charges.** Interrupted model requests can incur charges without returning usage, so costs reported in errors cover only recorded usage. The provider's bill may be higher. A retry near the deadline can also use the remaining time and incur charges without producing a result.
 
