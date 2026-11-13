@@ -10,6 +10,7 @@ from openapi_spec_validator import validate
 
 from groundline_core.api.commissions import CommissionsRequest, CommissionsResponse
 from groundline_core.api.common import ApiModel, ErrorBody, InvalidRequestBody
+from groundline_core.api.errors import DATABASE_UNAVAILABLE
 from groundline_core.api.omissions import OmissionsRequest, OmissionsResponse
 from groundline_core.app import app
 from groundline_core.evaluate import DEFAULT_COMMISSIONS_PRESET, DEFAULT_PRESET
@@ -181,7 +182,8 @@ def _operations() -> dict[tuple[str, str], dict[str, Any]]:
 
 def test_every_route_has_an_explicit_operation_id():
     """FastAPI invents an ID from the URL when a route sets none, such as
-    omissions_v1_omissions_post. Setting one makes the ID the route's own."""
+    omissions_v1_omissions_post. Each ID becomes an SDK method name, so an
+    invented one would change whenever the URL or the function name did."""
     routes = [
         route
         for route in app.routes
@@ -200,12 +202,14 @@ def test_operation_ids_are_the_documented_names_and_unique():
     assert len(set(ids.values())) == len(ids)
 
 
-def test_ready_documents_its_503_with_the_error_body():
-    response = _operations()[("get", "/ready")]["responses"]["503"]
-    body = response["content"]["application/json"]["schema"]
+def test_ready_documents_its_503_with_the_error_body_and_an_example():
+    response = schema["paths"]["/ready"]["get"]["responses"]["503"]
+    content = response["content"]["application/json"]
+    example = next(iter(content["examples"].values()))
 
     assert response["description"]
-    assert _resolve(body)["title"] == "ErrorBody"
+    assert _resolve(content["schema"])["title"] == "ErrorBody"
+    assert example["value"] == {"detail": DATABASE_UNAVAILABLE}
 
 
 def test_the_openapi_file_is_valid():

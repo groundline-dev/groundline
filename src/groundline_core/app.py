@@ -15,7 +15,7 @@ try:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from groundline_core.api import commissions, errors, omissions
-    from groundline_core.api.common import ErrorBody
+    from groundline_core.api.common import ErrorBody, error_response
     from groundline_core.api_keys import APIKeys
     from groundline_core.core.errors import SetupError
     from groundline_core.db import check_connection
@@ -209,12 +209,19 @@ def health() -> dict[str, str]:
     "/ready",
     operation_id="get_ready",
     responses={
-        503: {"model": ErrorBody, "description": "The database isn't answering."}
+        503: error_response(
+            ErrorBody,
+            "The database isn't answering.",
+            database_unavailable=(
+                "The database isn't answering",
+                {"detail": errors.DATABASE_UNAVAILABLE},
+            ),
+        )
     },
 )
 async def ready(request: Request) -> dict[str, str]:
     """Whether the app can serve requests that need the database."""
     database: _Database | None = getattr(request.app.state, "database", None)
     if database is None or not await database.check():
-        raise HTTPException(503, detail="the database isn't available")
+        raise HTTPException(503, detail=errors.DATABASE_UNAVAILABLE)
     return {"status": "ok"}

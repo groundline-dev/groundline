@@ -15,7 +15,7 @@ If a file, symbol or test named here no longer exists, find what replaced it (gr
 |---|---|---|
 | `/api` serves the `/docs` page, honoring `root_path` | `app.py` `api_docs` | `test_api_and_docs_are_the_same_page_behind_a_proxy` |
 | Release version vs `/v1` API version; `v1` tag | `app.py` `DESCRIPTION` | `test_the_docs_show_groundlines_release_and_label_the_api_version` |
-| Labeled example for every error status | `api/common.py` `_error` | `test_each_check_has_a_valid_example_for_every_error` |
+| Labeled example for every error status | `api/common.py` `error_response` | `test_each_check_has_a_valid_example_for_every_error` |
 | Own 422 body, never echoing input | `FAILURE_RESPONSES`, `api/errors.py` | `test_a_real_422_has_the_documented_shape` |
 | 401 with `WWW-Authenticate: Bearer` | `PROTECTED_RESPONSES` | `test_a_401_documents_its_bearer_challenge` |
 | 502/503 examples derived from the route's pipeline | `check_responses` | the 502/503 tests |
@@ -27,7 +27,7 @@ If a file, symbol or test named here no longer exists, find what replaced it (gr
 
 - Field descriptions are attribute docstrings: what the value means, plus range/unit, e.g. "From 0 to 1: how sure…".
 - Error descriptions say when the status happens, in one or two sentences, plus what the caller can do if useful.
-- Examples: go through `_error` with a picker label; use the invented consultation; write a null where the response has one (a commission's `summary_evidence`), because `app.py` puts each response model's own examples back after FastAPI strips them. Never echo rejected input.
+- Examples: go through `error_response` with a picker label; use the invented consultation; write a null where the response has one (a commission's `summary_evidence`), because `app.py` puts each response model's own examples back after FastAPI strips them. Never echo rejected input.
 - Derive stage names, models, and costs from presets; don't hard-code them.
 - Intro keeps three parts: purpose + "not for clinical use", Authentication, Versions (until the API is public, v1 may still break a caller; once it is public, v1 only adds).
 
@@ -37,7 +37,7 @@ If a file, symbol or test named here no longer exists, find what replaced it (gr
 |---|---|
 | New check route | `operation_id=` (a verb phrase like `evaluate_omissions`; `tests/test_api_docs.py` fails without one), `responses=check_responses(...)`, `tags`, request/response examples, its response model in `_RESPONSE_MODELS` (`app.py`), add to `tests/auth_helpers.ENDPOINTS`, README "Using the API" |
 | New/renamed field | Docstring, success example, README if shown; renaming or removing a field breaks callers: allowed in `/v1` until the API is public, a `/v2` change after; flag it either way |
-| New status code or error message | `_error` entry with example; real-response test if the shape is new |
+| New status code or error message | `error_response` entry with example; real-response test if the shape is new |
 | Renamed `operation_id` | Each one becomes an SDK method name, so renaming breaks SDK users: flag it, and update `OPERATION_IDS` in `tests/test_api_docs.py` |
 | Auth change | `DESCRIPTION` Authentication, 401/503 entries, README |
 | Default preset / threshold change | Threshold docstrings, success example arithmetic (derive from code) |
