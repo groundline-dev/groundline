@@ -248,17 +248,10 @@ Terraform state stays in `infra/` on your computer. Delete the server with `make
 
 ## Request size limits
 
-`make aws-up` starts the API with a 5 MiB request-body limit and a 200,000-character
-limit for each source and summary. The launcher does not currently offer a way to
-change these limits. Adding `GROUNDLINE_MAX_BODY_BYTES`, `GROUNDLINE_MAX_SOURCE_CHARS`
-or `GROUNDLINE_MAX_SUMMARY_CHARS` to your local `.env` or exporting them before
-`make aws-up` will not change the deployed server's limits.
-
-To support custom limits, the launcher would need to pass those settings to the
-remote app container. Until that support is added, use the defaults for this AWS
-workflow. The launcher also does not forward local `GROUNDLINE_CHECK_TIMEOUT_SECONDS`
-or `GROUNDLINE_MODEL_MAX_ATTEMPTS` overrides: deployed checks use the default
-120-second timeout and up to three attempts per model call.
+`make aws-up` uses the defaults: a 5 MiB request body, 200,000 characters each
+for source and summary, a 120-second check timeout and up to three attempts per
+model call. Local `.env` settings and exported overrides do not change these
+values on AWS.
 
 You can try custom limits locally with `make dev` or Docker Compose;
 see the commands in [request size limits](../DEVELOPMENT.md#request-size-limits).
