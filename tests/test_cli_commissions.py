@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner, Result
 
-from groundline import cli
+from groundline_core import cli
 from tests.commissions_helpers import (
     DOSE,
     DOSE_ISSUE,

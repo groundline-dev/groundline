@@ -10,10 +10,10 @@ from anthropic import DefaultAsyncHttpxClient
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from groundline.api import common, errors
-from groundline.api.errors import safe_traceback
-from groundline.app import app
-from groundline.clients.anthropic import AnthropicClient
+from groundline_core.api import common, errors
+from groundline_core.api.errors import safe_traceback
+from groundline_core.app import app
+from groundline_core.clients.anthropic import AnthropicClient
 from tests.anthropic_helpers import api_error
 from tests.auth_helpers import SECRET as API_KEY
 from tests.auth_helpers import Endpoint, FakeKeys

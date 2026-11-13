@@ -1,0 +1,3 @@
+# groundline is published as groundline-core
+
+The PyPI name `groundline` belongs to an unrelated project that also installs a `groundline` import package and a `groundline` command, so installing both in one environment would overwrite each other's files. We therefore publish as `groundline-core`, import as `groundline_core` and run the `groundline-core` command, and rename before the first release because renaming afterwards would break every user's code. Everything else keeps the product name, since none of it clashes with the other project: the environment variables, the logger names, the cache folder, the Docker image, the Compose services and the database.

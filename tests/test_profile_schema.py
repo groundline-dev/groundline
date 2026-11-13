@@ -5,8 +5,8 @@ import json
 import yaml
 from jsonschema import Draft202012Validator
 
-from groundline.profiles import BUILTIN_DIR, builtin_profiles
-from groundline.profiles.schema import SCHEMA_PATH, profile_schema
+from groundline_core.profiles import BUILTIN_DIR, builtin_profiles
+from groundline_core.profiles.schema import SCHEMA_PATH, profile_schema
 
 
 def test_the_committed_schema_matches_the_profile_model():
@@ -14,7 +14,7 @@ def test_the_committed_schema_matches_the_profile_model():
 
     assert committed == profile_schema(), (
         "profile.schema.json is out of date: run "
-        "`uv run python -m groundline.profiles.schema`"
+        "`uv run python -m groundline_core.profiles.schema`"
     )
 
 

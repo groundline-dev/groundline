@@ -13,11 +13,11 @@ produced well-formed output, not which facts were found.
 import pytest
 from fastapi.testclient import TestClient
 
-from groundline import DEFAULT_COMMISSIONS_PRESET, evaluate_sync, load_preset
-from groundline.app import app
-from groundline.evaluators.commissions.models import CommissionsCheckOutput
-from groundline.evaluators.models import AlarmOutput
-from groundline.evaluators.omissions.models import (
+from groundline_core import DEFAULT_COMMISSIONS_PRESET, evaluate_sync, load_preset
+from groundline_core.app import app
+from groundline_core.evaluators.commissions.models import CommissionsCheckOutput
+from groundline_core.evaluators.models import AlarmOutput
+from groundline_core.evaluators.omissions.models import (
     CheckOutput,
     RankOutput,
     ScoreOutput,

@@ -11,10 +11,10 @@ from sqlalchemy import Engine, event, func, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine
 from typer.testing import CliRunner
 
-from groundline import app as app_module
-from groundline.cli import app as cli
-from groundline.db import api_keys
-from groundline.db.connection import make_engine
+from groundline_core import app as app_module
+from groundline_core.cli import app as cli
+from groundline_core.db import api_keys
+from groundline_core.db.connection import make_engine
 from tests.auth_helpers import protected_app
 
 pytestmark = pytest.mark.db

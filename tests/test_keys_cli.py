@@ -10,8 +10,8 @@ from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine
 from typer.testing import CliRunner
 
-from groundline import cli, keys_cli
-from groundline.api_keys import (
+from groundline_core import cli, keys_cli
+from groundline_core.api_keys import (
     APIKeyInfo,
     APIKeyNotFoundError,
     APIKeys,
@@ -19,7 +19,7 @@ from groundline.api_keys import (
     CreatedAPIKey,
     RevokedAPIKey,
 )
-from groundline.db.connection import make_engine
+from groundline_core.db.connection import make_engine
 
 runner = CliRunner()
 IDENTIFIER = UUID("00000000-0000-7000-8000-000000000001")

@@ -2,7 +2,7 @@ import json
 
 import pytest
 
-from groundline.evaluators.omissions.models import CheckOutput, RefuteOutput
+from groundline_core.evaluators.omissions.models import CheckOutput, RefuteOutput
 from tests.omission_helpers import (
     CHECK,
     EXTRACT,
