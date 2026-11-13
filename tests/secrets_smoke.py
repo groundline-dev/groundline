@@ -64,6 +64,36 @@ class SecretChecks(unittest.TestCase):
         self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
         return result.stdout + result.stderr
 
+    def commit_token(self, name: str, line: str) -> str:
+        """Commit `line`, holding the synthetic token, as file `name`."""
+        (self.repo / name).write_text(line.format(token=SYNTHETIC_TOKEN) + "\n")
+        self.git("add", name)
+        self.git("commit", "-qm", f"test: synthetic secret in {name}")
+        return self.git("rev-parse", "HEAD")
+
+    def exempt(self, commit: str, name: str) -> None:
+        (self.repo / ".betterleaksignore").write_text(f"{commit}:{name}:github-pat:1\n")
+
+    def test_exception_does_not_cover_other_files(self) -> None:
+        commit = self.commit_token("a.txt", "token: {token}")
+        self.scan("history", 1)
+        self.exempt(commit, "a.txt")
+        self.scan("history", 0)
+        self.scan("tracked", 1)  # A historical exception doesn't permit the copy.
+        self.commit_token("b.txt", "token: {token}")
+        output = self.scan("history", 1)
+        self.assertIn("b.txt", output)
+        self.assertNotIn(SYNTHETIC_TOKEN, output)
+
+    def test_exception_does_not_cover_later_commits_to_the_same_line(self) -> None:
+        commit = self.commit_token("a.txt", "token: {token}")
+        self.exempt(commit, "a.txt")
+        self.scan("history", 0)
+        later = self.commit_token("a.txt", "github token: {token}")
+        output = self.scan("history", 1)
+        self.assertIn(later, output)
+        self.assertNotIn(SYNTHETIC_TOKEN, output)
+
     def test_empty_file_rename_and_deleted_history(self) -> None:
         (self.repo / "prod.env").touch()
         self.git("add", "prod.env")

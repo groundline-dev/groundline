@@ -186,7 +186,7 @@ uv run pre-commit run secrets-smoke --hook-stage manual --all-files
 uv run pre-commit run secrets-history --hook-stage manual --all-files
 ```
 
-**False positives.** For a harmless dummy value, add `betterleaks:allow` in a comment on that line and explain why it is harmless. For a confirmed historical false positive, add its fingerprint to `.betterleaksignore` with an explanation; do not copy the secret or source line. Both are narrower than excluding a file, rule or commit. Neither bypasses the filename check: rename templates to `.env.example`.
+**False positives.** For a harmless dummy value, add `betterleaks:allow` in a comment on that line and explain why it is harmless. For a confirmed historical false positive, add its fingerprint, which starts with the commit, to `.betterleaksignore` with an explanation; do not copy the secret or source line. Both are narrower than excluding a file, rule or commit. Neither bypasses the filename check: rename templates to `.env.example`.
 
 **If a real secret reaches GitHub**, revoke and replace it first, then tell the team without sharing its value. Deleting it or rewriting history does not invalidate it. Coordinate cleanup with the team; see GitHub's [sensitive-data removal guide](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository).
 

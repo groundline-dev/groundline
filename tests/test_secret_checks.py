@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -10,7 +11,7 @@ from typing import Any
 
 import pytest
 
-from tests.secrets_smoke import CHECK, git, init_repo
+from tests.secrets_smoke import CHECK, ROOT, git, init_repo
 
 BLOCKED_NAMES = [
     ".env",
@@ -110,6 +111,16 @@ def test_examples_are_allowed_at_all_depths(repo: Path):
         git(repo, "add", "--", name)
     assert scan(repo, "staged").returncode == 0
     assert scan(repo, "tracked").returncode == 0
+
+
+def test_every_exception_names_one_commit():
+    # Betterleaks also accepts PATH:RULE:LINE without a commit, which exempts that
+    # line in every commit, including future ones. Allow only COMMIT:PATH:RULE:LINE.
+    text = (ROOT / ".betterleaksignore").read_text()
+    entries = [line for line in text.splitlines() if line and not line.startswith("#")]
+    assert entries
+    for entry in entries:
+        assert re.fullmatch(r"[0-9a-f]{40}:[^:]+:[a-z0-9-]+:\d+", entry), entry
 
 
 def test_staged_check_uses_index_names(repo: Path):
