@@ -1,5 +1,5 @@
-.PHONY: setup dev db test-fast test-api test-db test-live check fix docker-build docker-run docker-smoke \
-	infra-check aws-up aws-project aws-deploy aws-smoke aws-smoke-live aws-key aws-status aws-reset-deadline aws-destroy
+.PHONY: setup dev db test-fast test-api test-db test-live check fix core-check docker-build docker-run docker-smoke https-smoke \
+	aws-https-smoke infra-check aws-up aws-project aws-deploy aws-smoke aws-smoke-live aws-key aws-status aws-reset-deadline aws-destroy
 
 setup:
 	uv sync
@@ -30,7 +30,7 @@ test-live:
 	uv run pytest -m live -s
 
 # Read-only: lint, types, the large-file check and the tests that need nothing
-# running. CI also runs test-db, docker-smoke and infra-check.
+# running. CI also runs test-db, docker-smoke, core-check and infra-check.
 check:
 	uv run pre-commit run --all-files
 	uv run pytest
@@ -38,6 +38,11 @@ check:
 fix:
 	uv run ruff check --fix
 	uv run ruff format
+
+# Install groundline-core with no extras, with pip and with uv pip, and check that
+# the library loads without the server or CLI packages. Builds the wheel; CI runs it.
+core-check:
+	scripts/core-install-check
 
 # The app image, built from the Dockerfile (see DEVELOPMENT.md).
 IMAGE ?= groundline:dev
@@ -52,6 +57,10 @@ docker-run:
 # Build the image, then start the Compose stack and smoke-test it.
 docker-smoke: docker-build
 	scripts/docker-smoke-test
+
+# Real local ACME issuance/renewal/recovery; no AWS or public CA calls.
+https-smoke:
+	scripts/https-smoke-test
 
 # Formatting, validation and tests of the Terraform in infra/, against a mock AWS
 # provider: no AWS credentials, nothing created. Needs Terraform; CI runs it.
@@ -78,6 +87,10 @@ aws-deploy:
 # Checks the server from here without calling Claude.
 aws-smoke:
 	scripts/aws-smoke-test
+
+# Existing HTTPS deployment; RESTART=caddy or host opts into confirmed interruptions.
+aws-https-smoke:
+	scripts/aws-https-smoke-test $(if $(RESTART),--restart "$(RESTART)")
 
 # Also sends one real commission check, which costs under a cent.
 aws-smoke-live:

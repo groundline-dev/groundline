@@ -12,7 +12,7 @@ kind. These tests read the files instead:
 - Terraform creates or reads the Anthropic parameter, so the API key lands in
   Terraform state.
 - The server's role gets an AWS managed policy, which can read every parameter.
-- A second inbound rule opens the server to more than the tester's app port.
+- A second inbound rule exposes ports besides HTTPS.
 - A resource isn't tagged with its deployment, so developers sharing an AWS
   project can't tell whose it is.
 - Terraform state or a contributor's settings can be committed.
@@ -123,7 +123,7 @@ def test_only_the_server_decrypts_the_anthropic_parameter():
 
 
 def test_the_security_group_has_one_inbound_rule():
-    """infra/tests/network.tftest.hcl checks that rule: TCP 8001 from tester_cidr."""
+    """Public TCP 443 allows TLS validation; Caddy restricts application access."""
     assert len(blocks("resource", "aws_vpc_security_group_ingress_rule")) == 1
     assert not blocks("resource", "aws_security_group_rule")
     assert not re.search(r"^\s*ingress\s*\{", all_terraform(), re.MULTILINE)
@@ -196,7 +196,7 @@ def test_the_deploying_guide_documents_every_command_and_setting():
         "/groundline/<deployment_name>/anthropic-api-key",
         "terraform.tfvars",
         "Region",
-        "groundline keys create",
+        "groundline-core keys create",
     ]:
         assert mention in text, f"docs/deploying-to-aws.md doesn't mention {mention}"
 

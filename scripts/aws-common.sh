@@ -94,7 +94,7 @@ ask() {
   local suffix=""
   [ -n "${2:-}" ] && suffix=" [$2]"
   echo
-  read -rp "  $1$suffix: " answer || fail "cancelled: no answer to \"$1\""
+  read -rp "  $1$suffix: " answer || fail "canceled: no answer to \"$1\""
   answer="${answer:-${2:-}}"
 }
 
@@ -171,7 +171,7 @@ choose_project() {
   bullet "No project yet? Create one at https://settings.aws.com > Project >"
   echo "    Create project, then sign in to it."
   echo
-  read -rp "  Press Enter once you're signed in to the project in your browser: " _ || fail "cancelled: no project chosen"
+  read -rp "  Press Enter once you're signed in to the project in your browser: " _ || fail "canceled: no project chosen"
   echo
   echo "Each project has its own Region. To copy it, in the console go to"
   echo "Manage projects > Overview > Additional Info > Region, and use its Copy button."
@@ -185,7 +185,7 @@ choose_project() {
   echo "Next, your browser opens to give these scripts access to the project."
   bullet "Choose the session of the project you just signed in to."
   echo
-  read -rp "  Press Enter to open the browser and choose the project's session: " _ || fail "cancelled: no project chosen"
+  read -rp "  Press Enter to open the browser and choose the project's session: " _ || fail "canceled: no project chosen"
   aws_login
 }
 
@@ -223,6 +223,98 @@ deployment_name() {
   [ -f infra/terraform.tfvars ] || return 0
   sed -n 's/^[[:space:]]*deployment_name[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' \
     infra/terraform.tfvars 2>/dev/null | tail -n 1
+}
+
+# Read one supported literal mode. Status 1 means absent; 2 means invalid.
+# This reader never changes settings or prints an interactive prompt.
+read_access_mode() {
+  local setting
+  setting="$(sed -n '/^[[:space:]]*access_mode[[:space:]]*=/p' infra/terraform.tfvars)"
+  [ -n "$setting" ] || return 1
+  if [[ "$setting" =~ ^[[:space:]]*access_mode[[:space:]]*=[[:space:]]*\"(restricted|unrestricted)\"[[:space:]]*(#.*)?$ ]]; then
+    echo "${BASH_REMATCH[1]}"
+  else
+    return 2
+  fi
+}
+
+save_access_mode() {
+  local mode="$1" temporary
+  case "$mode" in restricted | unrestricted) ;; *) fail "unsupported access mode: $mode" ;; esac
+  temporary="$(mktemp infra/terraform.tfvars.XXXXXX)"
+  if ! awk -v mode="$mode" '
+    /^[[:space:]]*access_mode[[:space:]]*=/ {
+      comment=""
+      if (match($0, /"[[:space:]]*#/)) comment=" " substr($0, RSTART + 1)
+      if (!written) print "access_mode = \"" mode "\"" comment
+      written=1; next
+    }
+    { print }
+    END { if (!written) print "access_mode = \"" mode "\"" }
+  ' infra/terraform.tfvars >"$temporary" || ! mv "$temporary" infra/terraform.tfvars; then
+    rm -f "$temporary"
+    fail "could not save access_mode in infra/terraform.tfvars"
+  fi
+}
+
+# configured_access_mode [fail|ask]: print only the supported mode on stdout.
+# Missing settings default to restricted. Only the wizard asks about invalid
+# settings; prompts and notices go to stderr so callers can capture the mode.
+configured_access_mode() {
+  local on_invalid="${1:-fail}" mode status=0 notice=warn access_mode
+  case "$on_invalid" in
+    fail) ;;
+    ask) notice=answer_warn ;;
+    *) fail "unsupported invalid access-mode action: $on_invalid" ;;
+  esac
+  mode="$(read_access_mode)" || status=$?
+  case "$status" in
+    0) echo "$mode" ;;
+    1)
+      save_access_mode restricted
+      "$notice" 'No access_mode set. Saved the IP-restricted HTTPS default.'
+      echo restricted
+      ;;
+    *)
+      [ "$on_invalid" = ask ] || fail 'Unrecognized access_mode. Run make aws-up to choose restricted or unrestricted, or correct infra/terraform.tfvars.'
+      answer_warn "the saved access_mode is unrecognized; choose a supported HTTPS access mode"
+      choose_access_mode >&2
+      save_access_mode "$access_mode"
+      answer_ok "saved $access_mode HTTPS access" >&2
+      echo "$access_mode"
+      ;;
+  esac
+}
+
+choose_access_mode() {
+  echo "  1) IP-restricted HTTPS for testing from this computer (recommended)"
+  echo "  2) Unrestricted HTTPS for callers from any IP"
+  bullet "Both use automatic certificates; protected API endpoints require API keys."
+  choose "Who may access the HTTPS application? (1 IP-restricted, 2 unrestricted)" 2 1
+  access_mode=restricted
+  [ "$answer" = 1 ] || access_mode=unrestricted
+}
+
+public_ipv4() {
+  local ip octet
+  local octets
+  ip="$(curl --disable --fail --silent --show-error --max-time 10 https://checkip.amazonaws.com | tr -d '[:space:]')" || ip=""
+  [[ "$ip" =~ ^[0-9]{1,3}(\.[0-9]{1,3}){3}$ ]] || fail "couldn't find this computer's public IPv4 address"
+  IFS=. read -r -a octets <<<"$ip"
+  for octet in "${octets[@]}"; do
+    ((10#$octet <= 255)) || fail "invalid public IPv4 address"
+  done
+  echo "$ip"
+}
+
+# Outputs describe the actual deployed access, independently of local defaults.
+deployed_access_mode() {
+  local mode
+  mode="$(output access_mode)" || return 1
+  case "$mode" in
+    restricted | unrestricted) echo "$mode" ;;
+    *) fail "unsupported deployed access mode: $mode; deploy a supported HTTPS revision" ;;
+  esac
 }
 
 # anthropic_parameter NAME: the Parameter Store name for deployment NAME's
@@ -322,6 +414,11 @@ require_running() {
 # on_server COMMAND: run COMMAND on the server as root with SSM Run Command and
 # print its output. If it fails, also print its error output, and fail.
 on_server() {
+  # Restart checks need short, bounded probes while SSM may be offline.
+  if [ -n "${2:-}" ]; then
+    on_server_bounded "$1" "$2"
+    return
+  fi
   local escaped="${1//\\/\\\\}"
   escaped="${escaped//\"/\\\"}"
   local id
@@ -341,6 +438,42 @@ on_server() {
   return "$wait_status"
 }
 
+# on_server_bounded COMMAND SECONDS: no unbounded AWS waiter during recovery.
+# Each AWS request is bounded too; delivery and remote execution have limits.
+on_server_bounded() {
+  local command="$1" seconds="$2" id response status remaining
+  local until=$((SECONDS + seconds))
+  local parameters
+  parameters="$(jq -cn --arg command "$command" --arg timeout "$seconds" \
+    '{commands:[$command],executionTimeout:[$timeout]}')"
+  id="$(aws ssm send-command --region "$region" --instance-ids "$instance" \
+    --cli-connect-timeout 3 --cli-read-timeout 5 --timeout-seconds 30 \
+    --document-name AWS-RunShellScript --parameters "$parameters" \
+    --query Command.CommandId --output text)" || return 1
+  while [ "$SECONDS" -lt "$until" ]; do
+    remaining=$((until - SECONDS))
+    [ "$remaining" -le 5 ] || remaining=5
+    if response="$(aws ssm get-command-invocation --region "$region" --command-id "$id" \
+      --instance-id "$instance" --cli-connect-timeout 3 --cli-read-timeout "$remaining" \
+      --output json 2>&1)"; then
+      status="$(jq -r .Status <<<"$response")" || return 1
+      case "$status" in
+        Success) jq -r '.StandardOutputContent' <<<"$response"; return ;;
+        Pending | InProgress | Delayed) ;;
+        *) jq -r '.Status, .StandardErrorContent' <<<"$response" >&2; return 1 ;;
+      esac
+    else
+      case "$response" in
+        *InvocationDoesNotExist*) ;;
+        *) echo "$response" >&2; return 1 ;;
+      esac
+    fi
+    sleep 2
+  done
+  echo "SSM command $id did not complete within $seconds seconds" >&2
+  return 1
+}
+
 # what_next [DEADLINE]: what you can do with your running server. Each command
 # that leaves the server running ends with it, so it's still in view after you
 # run one of them, followed by a blank line before your shell prompt. A script
@@ -349,7 +482,7 @@ on_server() {
 # time or "none", when the command has read it; reading it takes a call to the
 # server, so the other commands leave it out.
 what_next() {
-  local app_url deadline="${1:-}" hours
+  local app_url deadline="${1:-}" hours mode
   top_level || return 0
   app_url="$(terraform -chdir=infra output -raw app_url 2>/dev/null)" || return 0
   [ -n "$app_url" ] || return 0
@@ -357,7 +490,12 @@ what_next() {
   echo "To try your server, at $app_url:"
   bullet "make aws-key creates an API key, for trying requests at $app_url/docs."
   bullet "make aws-smoke-live sends one real commission check, which costs under a cent."
-  bullet "To call it from your app on this computer, use $app_url as the base URL"
+  mode="$(terraform -chdir=infra output -raw access_mode 2>/dev/null || true)"
+  case "$mode" in
+    restricted) bullet "IP-restricted HTTPS: only the configured tester IP can access application routes, including health and docs." ;;
+    unrestricted) bullet "Unrestricted HTTPS: any caller IP can reach health/docs; protected endpoints require an API key." ;;
+  esac
+  bullet "To call it from your app's backend, use $app_url as the base URL"
   echo "    and an API key from make aws-key. See docs/deploying-to-aws.md, \"Calling it from your app\"."
   echo
   echo "Your server is still running and costing money."
@@ -423,7 +561,7 @@ describe_plan() {
     limit="    It terminates itself, with its data, $hours hours after it starts.
     You can also delete it manually with make aws-destroy."
   fi
-  while IFS='|' read -r type actions id old_cidr new_cidr; do
+  while IFS='|' read -r type actions id old_cidr new_cidr old_port new_port; do
     case "$type:$actions" in
       aws_instance:create)
         if [ -n "${previous_instance:-}" ]; then
@@ -436,14 +574,14 @@ describe_plan() {
         ;;
       aws_instance:delete+create | aws_instance:create+delete)
         echo "  · replace your server ($id) with a new one running $short."
-        echo "    This deletes the old server and its data: Terraform shows \"Destroying...\""
+        echo "    This deletes the old server, database and API keys: Terraform shows \"Destroying...\""
         echo "    for a minute or two while it does. The new server costs about \$0.024 an hour."
         echo "$limit"
         ;;
       aws_instance:update) echo "  · update your server ($id) in place. It keeps its data." ;;
       aws_instance:delete) echo "  · delete your server ($id) and its data." ;;
       aws_vpc_security_group_ingress_rule:update | aws_vpc_security_group_ingress_rule:delete+create)
-        echo "  · let requests from ${new_cidr%/32} reach the server, in place of ${old_cidr%/32}."
+        echo "  · let requests from ${new_cidr%/32} reach the server on TCP $new_port, in place of ${old_cidr%/32} on TCP $old_port."
         ;;
       *:create) created+="$(friendly_name "$type")"$'\n' ;;
       *:update) updated+="$(friendly_name "$type")"$'\n' ;;
@@ -452,7 +590,7 @@ describe_plan() {
     esac
   done < <(jq -r '.resource_changes[]
     | select(.mode == "managed" and .change.actions != ["no-op"])
-    | [.type, (.change.actions | join("+")), (.change.before.id // ""), (.change.before.cidr_ipv4 // ""), (.change.after.cidr_ipv4 // "")]
+    | [.type, (.change.actions | join("+")), (.change.before.id // ""), (.change.before.cidr_ipv4 // ""), (.change.after.cidr_ipv4 // ""), (.change.before.from_port // ""), (.change.after.from_port // "")]
     | join("|")' <<<"$1")
   # Everything here except the server is free; update this if that changes.
   [ -z "$created" ] || echo "  · create its $(printf %s "$created" | join_names), which are free."
@@ -530,8 +668,22 @@ plan_and_apply() {
     choose "Make the changes above? (1 make them, 2 cancel)" 2
     [ "$answer" = 1 ] || answer=3
   fi
-  [ "$answer" = 1 ] || fail "cancelled: nothing changed"
+  [ "$answer" = 1 ] || fail "canceled: nothing changed"
   plan_changed=yes
   doing "Making the changes"
   terraform -chdir=infra apply -input=false "$plan"
+}
+
+# Read a required output; Terraform can succeed with an empty value.
+output() {
+  local value
+  value="$(terraform -chdir=infra output -raw "$1")" && [ -n "$value" ] \
+    || fail "no $1 in the Terraform state for $(project_label): run make aws-up first"
+  printf '%s' "$value"
+}
+
+# Format successful checker output without changing machine-readable Python output.
+check_results() {
+  local result
+  while IFS= read -r result; do check_ok "$result"; done
 }

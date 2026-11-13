@@ -8,14 +8,14 @@ import httpx2
 import pytest
 from fastapi.testclient import TestClient
 
-from groundline.api import common
+from groundline_core.api import common
 
 # The route's module, imported as `api` because the tests patch the names it looks up
 # (evaluate, load_preset and the response models) there, not in `common`.
-from groundline.api import omissions as api
-from groundline.app import app
-from groundline.core import APIKeyRejectedError
-from groundline.evaluate import DEFAULT_PRESET
+from groundline_core.api import omissions as api
+from groundline_core.app import app
+from groundline_core.core import APIKeyRejectedError
+from groundline_core.evaluate import DEFAULT_PRESET
 from tests.auth_helpers import SECRET as API_KEY
 from tests.auth_helpers import FakeKeys
 from tests.fakes import FakeClient

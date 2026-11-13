@@ -17,7 +17,9 @@ scripts' AWS calls are right.
 
 import json
 import os
+import shutil
 import subprocess
+import sys
 import threading
 import time
 from collections.abc import Iterator
@@ -50,7 +52,7 @@ KEYS_CREATE_OUTPUT = (
     "Copy the API key now; it cannot be retrieved later.\n"
     f"API key: {KEY}\n"
 )
-"""What `groundline keys create` prints (src/groundline/keys_cli.py)."""
+"""What `groundline-core keys create` prints (src/groundline_core/keys_cli.py)."""
 
 
 @dataclass
@@ -62,6 +64,7 @@ class FakeApp:
     statuses: dict[str, int] = field(default_factory=lambda: {KEY: 422, "default": 401})
     requests: list[tuple[str, str]] = field(default_factory=lambda: [])
     url: str = ""
+    health_status: int = 200
 
 
 @pytest.fixture
@@ -79,7 +82,7 @@ def app() -> Iterator[FakeApp]:
 
         def do_GET(self) -> None:
             fake.requests.append(("GET", self.path))
-            self.answer(200 if self.path == "/health" else 404)
+            self.answer(fake.health_status if self.path == "/health" else 404)
 
         def do_POST(self) -> None:
             length = int(self.headers.get("Content-Length") or 0)
@@ -122,6 +125,13 @@ def run(
 ) -> Run:
     """Run the script against the stand-ins, typing answer at its prompts."""
     assert script.is_file(), f"{script.relative_to(ROOT)} is missing"
+    # Scripts cd to their checkout and inspect its Terraform workspaces. Keep
+    # real deployment state out of these offline tests, as in the wizard tests.
+    checkout = tmp_path / "checkout"
+    shutil.copytree(ROOT / "scripts", checkout / "scripts", dirs_exist_ok=True)
+    (checkout / "infra").mkdir(exist_ok=True)
+    if world.get("saved_settings"):
+        (checkout / "infra/terraform.tfvars").write_text(world["saved_settings"])
     world_path = tmp_path / "world.json"
     world_path.write_text(json.dumps(world))
     env = {
@@ -131,12 +141,32 @@ def run(
         # Set, so the scripts don't read the profile make aws-up saved here.
         "AWS_PROFILE": "test",
     }
+    if "smoke_app_url" in world:
+        # Stand in for the public TLS boundary in these shell/auth-cleanup
+        # tests only. The separate real Caddy/ACME harness verifies TLS and IP
+        # access; production curl commands must still require HTTPS.
+        real_curl = shutil.which("curl")
+        assert real_curl
+        (tmp_path / "bin/uv").write_text("#!/bin/sh\nexit 0\n")
+        (tmp_path / "bin/uv").chmod(0o755)
+        curl_source = f"""#!{sys.executable}
+import subprocess, sys
+args = sys.argv[1:]
+assert '--insecure' not in args and '-k' not in args
+assert args[args.index('--proto') + 1] == '=https'
+local_url = {world["smoke_app_url"]!r}
+args = ['=http' if arg == '=https' else
+        arg.replace('https://1.1.1.1', local_url) for arg in args]
+raise SystemExit(subprocess.run([{real_curl!r}, *args]).returncode)
+"""
+        (tmp_path / "bin/curl").write_text(curl_source)
+        (tmp_path / "bin/curl").chmod(0o755)
     env.pop("AWS_REGION", None)
     # Unset, so the script counts as the one you ran and prints what_next.
     env.pop("GROUNDLINE_AWS_SCRIPT", None)
     finished = subprocess.run(
-        [str(script), *args],
-        cwd=ROOT,
+        [str(checkout / "scripts" / script.name), *args],
+        cwd=checkout,
         env=env,
         input=answer,
         # One stream, so the output is in the order a terminal shows it.
@@ -158,9 +188,13 @@ def smoke_world(app: FakeApp, **fields: Any) -> dict[str, Any]:
         outputs={
             "instance_id": INSTANCE,
             "region": "eu-north-1",
-            "app_url": app.url,
+            "app_url": "https://1.1.1.1",
+            "public_ip": "1.1.1.1",
+            "access_mode": "restricted",
+            "allowed_cidr": "203.0.113.7/32",
             "anthropic_parameter_name": PARAMETER,
         },
+        smoke_app_url=app.url,
         ssm_replies=[
             {"when": "keys create", "stdout": KEYS_CREATE_OUTPUT},
             {"when": "keys revoke", "stdout": f"Revoked: {KEY_ID} (aws-smoke-test)\n"},
@@ -248,7 +282,8 @@ def deadline_world(state: str, deadline: str, **fields: Any) -> dict[str, Any]:
         outputs={
             "instance_id": INSTANCE,
             "region": "eu-north-1",
-            "app_url": "http://203.0.113.7:8000",
+            "app_url": "https://203.0.113.7",
+            "access_mode": "restricted",
             "auto_terminate_hours": "8",
         },
         existing={INSTANCE: state},
@@ -401,13 +436,13 @@ def test_an_expired_sign_in_says_to_run_make_aws_project(tmp_path: Path):
     assert "aws login" not in result.output
 
 
-def test_destroy_deletes_nothing_when_cancelled(tmp_path: Path):
+def test_destroy_deletes_nothing_when_canceled(tmp_path: Path):
     world = aws_fakes.new_world(outputs=DESTROY_OUTPUTS)
 
     result = run(DESTROY, tmp_path, world, answer="3\n")
 
     assert result.returncode != 0, result.output
-    assert "cancelled: nothing changed" in result.output
+    assert "canceled: nothing changed" in result.output
     assert not result.world["destroyed"]
     assert deleted_parameters(result) == []
 
@@ -555,7 +590,7 @@ def test_a_passing_smoke_test_ends_with_what_next(app: FakeApp, tmp_path: Path):
             aws_fakes.new_world(outputs=DESTROY_OUTPUTS),
             (),
             "3\n",
-            id="destroy-cancelled",
+            id="destroy-canceled",
         ),
         pytest.param(
             DESTROY,
@@ -576,3 +611,82 @@ def test_every_run_ends_with_a_blank_line(
     result = run(script, tmp_path, world, *args, answer=answer)
 
     assert result.output.endswith("\n\n"), result.output[-300:]
+
+
+@pytest.mark.parametrize(
+    "mode,url",
+    [
+        ("restricted", "http://1.1.1.1:8001"),
+        ("unrestricted", "https://example.com"),
+        ("restricted", "https://2.2.2.2"),
+        ("unrestricted", "https://1.1.1.1/"),
+    ],
+)
+def test_smoke_rejects_mode_url_mismatch_before_requests(
+    tmp_path: Path, mode: str, url: str
+):
+    world = aws_fakes.new_world(
+        outputs={
+            "instance_id": INSTANCE,
+            "app_url": url,
+            "access_mode": mode,
+            "allowed_cidr": "203.0.113.7/32" if mode == "restricted" else "0.0.0.0/0",
+            "public_ip": "1.1.1.1",
+        }
+    )
+    result = run(SMOKE_TEST, tmp_path, world)
+    assert result.returncode != 0, result.output
+    assert "invalid HTTPS endpoint in Terraform state" in result.output
+    assert "HTTPS check failed:" in result.output
+    assert not result.sent_commands()
+
+
+def test_failed_key_cleanup_makes_the_smoke_test_fail(app: FakeApp, tmp_path: Path):
+    world = smoke_world(app)
+    world["ssm_replies"][1]["status"] = "Failed"
+    result = run(SMOKE_TEST, tmp_path, world)
+    assert result.returncode != 0
+    assert "couldn't revoke" in result.output
+    assert "all checks passed" not in result.output
+    assert KEY not in result.output
+
+
+def test_restricted_health_403_fails_promptly_without_creating_a_key(
+    app: FakeApp, tmp_path: Path
+):
+    app.health_status = 403
+    started = time.monotonic()
+    result = run(SMOKE_TEST, tmp_path, smoke_world(app))
+    assert result.returncode != 0
+    assert "restricted HTTPS denied this source IP (403)" in result.output
+    assert "make aws-deploy" in result.output
+    assert "Waiting for the server" not in result.output
+    assert not result.sent_commands()
+    assert time.monotonic() - started < 15
+
+
+@pytest.mark.parametrize("mode", ["tester_http", "public_http"])
+def test_smoke_rejects_unsupported_deployed_mode(tmp_path: Path, mode: str):
+    world = aws_fakes.new_world(
+        outputs={
+            "instance_id": INSTANCE,
+            "app_url": "https://1.1.1.1",
+            "access_mode": mode,
+        }
+    )
+    result = run(SMOKE_TEST, tmp_path, world)
+    assert result.returncode != 0
+    assert "unsupported deployed access mode" in result.output
+    assert not result.sent_commands()
+
+
+@pytest.mark.parametrize("saved_mode", [None, "tester_http", "https"])
+def test_destroy_uses_unrestricted_validation_without_a_tester_placeholder(
+    tmp_path: Path, saved_mode: str | None
+):
+    saved = f'access_mode = "{saved_mode}"\n' if saved_mode else ""
+    result = run(DESTROY, tmp_path, aws_fakes.new_world(saved_settings=saved))
+    assert result.returncode == 0, result.output
+    plan = next(call for call in result.world["calls"] if "plan" in call)
+    assert "access_mode=unrestricted" in plan
+    assert not any(str(arg).startswith("tester_cidr=") for arg in plan)

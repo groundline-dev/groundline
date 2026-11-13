@@ -1,19 +1,26 @@
 # infra
 
-This folder holds the Terraform for groundline's AWS test deployments, which are for internal testing by groundline's developers only: one EC2 instance per developer that runs the Compose stack at a chosen commit. It's for whoever maintains the deployment. To deploy a server, follow [docs/deploying-to-aws.md](../docs/deploying-to-aws.md) instead.
+This folder holds Terraform for disposable groundline deployments on one EC2 instance. Both access modes use public-IP HTTPS; restricted mode limits application requests to the developer's public IP, while unrestricted mode admits any caller IP. To deploy a server, follow [docs/deploying-to-aws.md](../docs/deploying-to-aws.md).
 
 - [main.tf](main.tf): the server, its security group and its IAM role
 - [budget.tf](budget.tf): the monthly budget alert
 - [bootstrap.sh.tftpl](bootstrap.sh.tftpl): the startup script the server runs on its first boot
 - [variables.tf](variables.tf), [outputs.tf](outputs.tf) and [versions.tf](versions.tf): the inputs, the values `scripts/aws-*` read, and the pinned versions
+- [https/](https/): Caddy configuration and host IMDSv2 address renderer
 - [tests/](tests/): the Terraform tests
 
 ## Why each setting is what it is
 
-A test deployment holds only test data ([ADR 0006](../docs/adr/0006-no-real-patient-data-before-production.md)) and is meant to be thrown away. Most settings below keep it cheap, reachable only by its developer, and unable to leak the Anthropic API key.
+A disposable deployment holds only synthetic test data ([ADR 0006](../docs/adr/0006-no-real-patient-data-before-production.md)) and is meant to be thrown away. Both access modes preserve the disposable lifecycle and existing secret boundaries.
 
 - **The default VPC:** every new AWS project has one, so a developer doesn't need to create or pay for a network. If someone deleted theirs, `aws ec2 create-default-vpc` brings it back.
-- **The security group admits one `/32` on port 8001:** the app speaks plain HTTP until ALL-90 adds HTTPS, so only the developer's own IP can reach it. The variable's validation rejects wider ranges, and there's no inbound rule for SSH.
+- **One explicit access mode:** `restricted` (default) and `unrestricted` both expose only TCP 443 to IPv4 callers. TLS-ALPN validation stays publicly reachable in both modes. Caddy's `remote_ip` matcher restricts every application request in restricted mode, including health and docs, using the socket peer rather than supplied forwarded headers. Protected API endpoints need API keys in either mode. Missing settings use restricted HTTPS. The wizard asks the operator to select a supported mode for an unrecognized value; direct deployments reject that value with instructions. Terraform itself validates supported values.
+- **Native public IP TLS:** `compose.https.yaml` removes app and database port publications with `!reset` (Compose 2.24.4+). Caddy 2.11.9 is pinned by multi-platform image digest. The explicit Let's Encrypt issuer, `shortlived` profile, disabled HTTP challenge/redirects, and `default_sni` are required: a bare IP with Caddy defaults can otherwise use its internal CA. h1/h2 use TCP 443; no UDP or IPv6 ingress is added.
+- **Consistent Compose configuration:** bootstrap saves `COMPOSE_FILE` in the root-only `.env`, so SSM commands for API keys and diagnostics use the same override.
+- **Host address reconciliation:** `docker.service.d/groundline-https.conf` invokes `https/refresh-address` before Docker starts. The helper uses host IMDSv2, validates IPv4 and the access-mode and allowed-CIDR tags, and atomically renders a directory-mounted Caddyfile. Instance metadata tags are enabled for these non-secret settings. Failure blocks Docker startup.
+- **Access updates:** changing only the developer's public IP updates the allowed-IP tag and reloads Caddy through SSM without changing user data. A mode change alters bootstrap data and replaces the server, deleting its database and API keys after confirmation.
+- **Separate certificate storage:** ACME accounts and certificates stay in their own named volume; the proxy gets no app secrets.
+- **Disposable resources:** deployments do not allocate an Elastic IP, retain disks after replacement or configure custom domains.
 - **SSM Run Command instead of SSH:** the scripts reach the server through SSM, so there's no key pair to manage and no open port 22.
 - **The IAM role's policy is written out instead of attaching `AmazonSSMManagedInstanceCore`:** that managed policy also grants `ssm:GetParameter` and `ssm:GetParameters` on every parameter in the project. Our copy keeps the SSM agent's actions and allows reading only the deployment's own Anthropic API key, `/groundline/<deployment_name>/anthropic-api-key`.
 - **Each deployment has its own Anthropic API key, kept in Parameter Store:** only the server reads it, when it starts. `make aws-up` stores it with the AWS CLI and `make aws-destroy` deletes it, and Terraform and the other scripts only check that it exists, so the Anthropic API key never lands in Terraform state or on a developer's screen. Everyone with access to the AWS project can still read it, which is why the docs recommend a project of your own, or in a shared project, a key from an Anthropic Console workspace with a low spend limit.
@@ -32,6 +39,7 @@ The server costs about $0.024 an hour in us-east-1, about $17 a month: $0.0168 f
 
 ## What needs updating
 
+- **Caddy:** review updates to its digest in `compose.https.yaml` and run `make https-smoke` before accepting them. Test fixture Pebble/Python digests live in `tests/https_smoke.py`; update them deliberately with the same lifecycle test.
 - **Compose and buildx:** `bootstrap.sh.tftpl` downloads both at pinned versions and checks each file's sha256, since Amazon Linux doesn't package them. To update one, change its URL and its sha256 in the `install_plugin` call, taking the new one from the release's checksums file.
 - **Terraform and the AWS provider:** `versions.tf` pins both with `~>`. Raise the pin, run `terraform -chdir=infra init -upgrade`, then `make infra-check`, and commit the updated `.terraform.lock.hcl`.
 - **The SSM agent's actions:** our policy copies `AmazonSSMManagedInstanceCore` by hand. If AWS adds actions to that policy and Run Command stops working, compare the two.
@@ -40,20 +48,28 @@ The server costs about $0.024 an hour in us-east-1, about $17 a month: $0.0168 f
 
 ## State
 
-Terraform state stays in this folder (`terraform.tfstate`, which git ignores). There's no backend and no locking, since each deployment has one owner and is disposable. As a result, only the clone that created a server can update or destroy it. If test deployments ever need a second owner, such as a shared staging server, we can move state to S3 with a backend block and `terraform init -migrate-state`. `tests/test_infra.py` fails on a backend block, so that test changes too.
+Terraform state stays in this folder (`terraform.tfstate`, which git ignores). There's no backend and no locking, since each deployment has one owner and is disposable. As a result, only the clone that created a server can update or destroy it. If deployments ever need a second owner, such as a shared staging server, we can move state to S3 with a backend block and `terraform init -migrate-state`. `tests/test_infra.py` fails on a backend block, so that test changes too.
 
 ## Tests
 
 `make infra-check` runs `terraform fmt`, `validate` and `test`. The tests plan and apply against a mock AWS provider, so they need Terraform but no AWS credentials, and CI runs them. Each file covers one part:
 
-- `network.tftest.hcl`: the one inbound rule and the `tester_cidr` validation
+- `network.tftest.hcl`: public TCP 443, `tester_cidr` validation and access metadata independent of replacement-triggering bootstrap data
 - `iam.tftest.hcl`: the role's trust policy, its names, and that it can read only the Anthropic parameter
 - `instance.tftest.hcl`: IMDSv2 and the hop limit, CPU credits, the disk, the time limit, the `deployment_name` validation, the startup script and the outputs
 - `budget.tftest.hcl`: the amount, the thresholds and leaving out credits
 
 The mock provider doesn't apply `default_tags` and can't list every resource of a kind, so [tests/test_infra.py](../tests/test_infra.py), which `make check` runs, reads the files instead. Among other things, it checks that every resource is tagged, that no Region or backend is written in, that the role gets no managed policy, that the security group has one inbound rule, and that only the startup script reads the Anthropic API key.
 
-None of these tests reach AWS. `make aws-smoke` checks a real server.
+`make https-smoke` first checks actual Compose app-first network allocation with production address relationships translated onto a Docker-reserved test subnet of the same size, then runs real Caddy and Pebble in isolated Docker containers: TLS-ALPN IP issuance from a CA outside the application allowlist, NAT and no-SNI selection, trust and identity rejection, allowed and denied callers and forwarded-header spoofing, retained certificates and restrictions on restart, automatic renewal under restriction with a changed served fingerprint, a response after 125 seconds of silence, and expiry and recovery during a CA outage. Only the fixture trusts its test root; it never contacts a public CA. It removes its containers, network and volume on completion. CI runs it separately. This proves the lifecycle, not public trust: `make aws-smoke` must still pass against a fresh EC2 endpoint with ordinary trust stores.
+
+`tests/test_https_bootstrap.py` executes the renderer against fake IMDS responses. `tests/test_aws_access_modes.py` exercises first setup, remembered and missing modes, selection for unrecognized settings and rejected direct deployments, cancellation and keeping an existing server. These tests reach no AWS services.
+
+### Repeatable HTTPS lifecycle checks
+
+Use `make aws-https-smoke` on an existing HTTPS deployment. `RESTART=caddy` adds a confirmed proxy restart; `RESTART=host` additionally reboots EC2. The orchestration lives in `scripts/aws-https-smoke-test`, reuses `aws-smoke-test`, and obtains structured TLS evidence through `scripts/https_check.py --json`. Its bounded SSM path is in `scripts/aws-common.sh`. The child smoke check also runs `https_check.py --source-filter` inside the app container: it connects to Caddy at the configured trusted proxy address while verifying the public IP certificate, spoofs the allowed source in forwarded headers and requires 403 in restricted mode or 200 in unrestricted mode. `tests/test_aws_https_smoke.py` covers target and preflight failures, cancellation, recovery, boot identity, certificate storage and expiry without reaching AWS. See the [operator guide](../docs/deploying-to-aws.md#testing-https-restart-recovery) for interruption and timeout behavior.
+
+The command records the certificate fingerprint and the named certificate volume's identity and creation time. It checks recovery for up to five minutes after restarting Caddy, or ten minutes after requesting an EC2 reboot. SSM probes and individual network calls have their own limits, so a final in-flight probe can finish just after that recovery window. The host check requires a changed boot ID, successful public-IP discovery before Docker startup, unchanged expiry, matching access mode and allowed CIDR and retained certificate storage. Full smoke checks run again after each recovery, with shorter timeouts for readiness checks and requests and without calling the model. Temporary-key revocation failure makes the run fail.
 
 ### Testing `make aws-up`
 
@@ -94,4 +110,8 @@ After changing the wizard or the scripts it runs, test it as a new developer wou
    make aws-destroy
    ```
 
-[tests/test_aws_scripts.py](../tests/test_aws_scripts.py) runs the smoke test, status, reset-deadline and destroy scripts against stand-in `aws` and `terraform` commands, but not the wizard, `aws-deploy` or `aws-key`, and only this run shows what a person sees.
+[tests/test_aws_scripts.py](../tests/test_aws_scripts.py) runs the smoke test, status, reset-deadline and destroy scripts against stand-in `aws` and `terraform` commands, with additional wizard and deploy coverage in `tests/test_aws_access_modes.py`; `aws-key` still needs a live check, and only this run shows what a person sees.
+
+The public-IP endpoint decision is recorded in [ADR 0014](../docs/adr/0014-public-ip-https-endpoints.md); [ADR 0015](../docs/adr/0015-https-only-aws-access-modes.md) records HTTPS-only access and the restricted default. Restart recovery, boot-time IP discovery and local certificate lifecycle checks validate that HTTPS remains usable across routine restarts and certificate expiry; the server and its data still follow the disposable expiry and replacement rules.
+
+HTTPS uses a dedicated Docker proxy subnet, `172.30.254.0/29`, with Caddy at `172.30.254.2` and the app at `172.30.254.3`. Both addresses are explicit so app-first startup cannot dynamically allocate Caddy's trusted address to the app. The app trusts forwarded headers only from Caddy. If this subnet conflicts with host routing, change the subnet, both container addresses and trusted address together before deploying. Other app/database traffic remains on the default Compose network.

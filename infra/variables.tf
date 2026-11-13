@@ -37,13 +37,26 @@ variable "budget_alert_email" {
 variable "tester_cidr" {
   description = "The one IPv4 address allowed to reach the app, as a /32, such as 203.0.113.7/32."
   type        = string
+  default     = null
 
   validation {
     condition = (
+      var.tester_cidr == null ? var.access_mode == "unrestricted" :
       can(regex("^(\\d{1,3}\\.){3}\\d{1,3}/32$", var.tester_cidr))
       && can(cidrhost(var.tester_cidr, 0))
     )
     error_message = "tester_cidr should be a single IPv4 address with /32, such as 203.0.113.7/32."
+  }
+}
+
+variable "access_mode" {
+  description = "Application access over HTTPS: restricted allows tester_cidr only; unrestricted allows any caller IP. TCP 443 stays public for certificate validation in both modes."
+  type        = string
+  default     = "restricted"
+
+  validation {
+    condition     = contains(["restricted", "unrestricted"], var.access_mode)
+    error_message = "access_mode must be restricted or unrestricted; both use HTTPS."
   }
 }
 

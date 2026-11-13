@@ -8,12 +8,12 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from openapi_spec_validator import validate
 
-from groundline.api.commissions import CommissionsRequest, CommissionsResponse
-from groundline.api.common import ApiModel, ErrorBody, InvalidRequestBody
-from groundline.api.omissions import OmissionsRequest, OmissionsResponse
-from groundline.app import app
-from groundline.evaluate import DEFAULT_COMMISSIONS_PRESET, DEFAULT_PRESET
-from groundline.presets import load_preset
+from groundline_core.api.commissions import CommissionsRequest, CommissionsResponse
+from groundline_core.api.common import ApiModel, ErrorBody, InvalidRequestBody
+from groundline_core.api.omissions import OmissionsRequest, OmissionsResponse
+from groundline_core.app import app
+from groundline_core.evaluate import DEFAULT_COMMISSIONS_PRESET, DEFAULT_PRESET
+from groundline_core.presets import load_preset
 from tests.auth_helpers import ENDPOINTS, HEADERS, FakeKeys
 
 http = TestClient(app)  # no API key: the docs are public
@@ -35,7 +35,7 @@ def test_api_serves_the_interactive_docs_without_a_key():
 
 
 def test_the_docs_show_groundlines_release_and_label_the_api_version():
-    assert schema["info"]["version"] == version("groundline")
+    assert schema["info"]["version"] == version("groundline-core")
     assert "`/v1`" in schema["info"]["description"]
     assert "`/v2`" in schema["info"]["description"]
     assert [tag["name"] for tag in schema["tags"]] == ["v1"]

@@ -7,10 +7,10 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from fastapi.testclient import TestClient
 
-from groundline.api import common
-from groundline.api.common import MAX_CHARS
-from groundline.api_keys import APIKeyStorageError
-from groundline.app import app
+from groundline_core.api import common
+from groundline_core.api.common import MAX_CHARS
+from groundline_core.api_keys import APIKeyStorageError
+from groundline_core.app import app
 from tests.auth_helpers import BODY, HEADERS, SECRET, Endpoint, FakeKeys
 from tests.auth_helpers import endpoint as endpoint
 from tests.auth_helpers import evaluation as evaluation

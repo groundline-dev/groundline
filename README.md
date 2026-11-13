@@ -48,10 +48,10 @@ Model calls need an Anthropic API key. Copy `.env.example` to `.env` and add you
 These are groundline API keys for callers of protected HTTP endpoints, separate from the Anthropic API key used for model calls. Set `DATABASE_URL` and complete the [database setup](DEVELOPMENT.md#getting-started) first; these commands access PostgreSQL directly and do not require the API server to be running or an Anthropic API key.
 
 ```sh
-uv run groundline keys create
-uv run groundline keys create --name "Avi's laptop" --expires-in 90d
-uv run groundline keys list
-uv run groundline keys revoke <key-id>
+uv run groundline-core keys create
+uv run groundline-core keys create --name "Avi's laptop" --expires-in 90d
+uv run groundline-core keys list
+uv run groundline-core keys revoke <key-id>
 ```
 
 Creation prints the name, full UUID identifier, expiry, and plaintext API key **once, after the database commit succeeds**. Copy the secret then: only its SHA-256 hash, a short display prefix, and metadata are stored. If terminal output fails after creation, the API key may already exist; use the identifier in the error to revoke it and create a replacement.
@@ -67,7 +67,7 @@ Callers send `Authorization: Bearer <api-key>` to a protected route. Authenticat
 ## Checking for omissions
 
 ```sh
-uv run groundline omissions transcript.txt note.txt
+uv run groundline-core omissions transcript.txt note.txt
 ```
 
 Example report:
@@ -95,7 +95,7 @@ Cost             $0.29 · 4 calls · 31,620 input / 8,140 output tokens · 48.3 
 
 - `0`: checked, not flagged.
 - `1`: checked and flagged.
-- `2`: couldn't check: bad arguments or files, an invalid pipeline or profile, a missing or rejected Anthropic API key, a failed stage, an unwritable `--json` path, or an unexpected error. The command prints a one-line `error:` message, and if a stage failed after making model calls, what those calls cost.
+- `2`: couldn't check: bad arguments or files, an invalid pipeline or profile, a missing or rejected Anthropic API key, a failed stage, an unwritable `--json` path, or an unexpected error. The command prints a one-line `error:` message, and if a stage failed after making model calls, what those calls cost. If the command can't load at all, it also exits 2: without the `cli` extra it prints which extra to install, and otherwise the error's traceback.
 
 ### Options
 
@@ -109,7 +109,7 @@ Cost             $0.29 · 4 calls · 31,620 input / 8,140 output tokens · 48.3 
 ## Checking for commissions
 
 ```sh
-uv run groundline commissions transcript.txt note.txt
+uv run groundline-core commissions transcript.txt note.txt
 ```
 
 Example report:
@@ -133,10 +133,20 @@ The [exit codes](#exit-codes) and [options](#options) are the same as for omissi
 
 ## Using it from Python
 
+To use groundline inside your own app, install the `groundline-core` package. It isn't on PyPI yet, so install it from a clone of this repository. A plain install brings only what the checks need: `anthropic`, `pydantic-settings` and `pyyaml`. Add an extra for the rest:
+
+```sh
+pip install path/to/groundline                 # the library only
+pip install "path/to/groundline[cli]"          # plus the groundline-core command and key management
+pip install "path/to/groundline[server]"       # plus the API
+```
+
+`uv pip install` takes the same arguments, and `uv add` adds it to a uv project. The package is installed as `groundline-core`, imported as `groundline_core` and run as `groundline-core`, because an unrelated project already uses the name `groundline` on PyPI ([ADR 0016](docs/adr/0016-published-as-groundline-core.md)). Without the `cli` extra, the `groundline-core` command says which extra to install, and so does importing `groundline_core.app` without the `server` extra.
+
 ```python
-from groundline import evaluate_sync
-from groundline.evaluators.models import AlarmOutput
-from groundline.evaluators.omissions.models import ScoreOutput
+from groundline_core import evaluate_sync
+from groundline_core.evaluators.models import AlarmOutput
+from groundline_core.evaluators.omissions.models import ScoreOutput
 
 result = evaluate_sync(transcript_text, note_text)
 
@@ -151,9 +161,9 @@ print(result.run.usage.cost_usd)
 For the commission check, pass its preset as the `spec`:
 
 ```python
-from groundline import DEFAULT_COMMISSIONS_PRESET, evaluate_sync, load_preset
-from groundline.evaluators.commissions.models import CommissionsRefuteOutput
-from groundline.evaluators.models import AlarmOutput
+from groundline_core import DEFAULT_COMMISSIONS_PRESET, evaluate_sync, load_preset
+from groundline_core.evaluators.commissions.models import CommissionsRefuteOutput
+from groundline_core.evaluators.models import AlarmOutput
 
 result = evaluate_sync(
     transcript_text, note_text, spec=load_preset(DEFAULT_COMMISSIONS_PRESET)
@@ -176,7 +186,7 @@ Set up [PostgreSQL](DEVELOPMENT.md#getting-started) and configure `ANTHROPIC_API
 Runs the validated omission preset on one summary. Create a groundline API key, copy the secret printed once, and send it as a Bearer credential. This is separate from the Anthropic API key the server uses for model calls:
 
 ```sh
-uv run groundline keys create --name "local-api"
+uv run groundline-core keys create --name "local-api"
 export GROUNDLINE_API_KEY='<API key printed by keys create>'
 
 curl -s http://127.0.0.1:8000/v1/omissions \
@@ -289,7 +299,7 @@ Every error answers with JSON: `{"detail": ...}`. Error responses and the server
 
 ## Deploying to AWS
 
-A test deployment runs groundline's API and Postgres, at a commit you choose, on an EC2 server in your AWS project. Only your computer's IP can reach it, so it's for internal testing with test data only, and it deletes itself, with its data, after 8 hours. You need an AWS project, an Anthropic API key, Terraform, the AWS CLI, `jq`, Git and `make`, but not Docker, since the server builds the image itself.
+A disposable deployment runs the Compose stack on one EC2 server in your AWS project. Both access modes use HTTPS on the server's IPv4, with automatic publicly trusted certificates and no domain required. The default restricts application access to your public IP; unrestricted mode allows callers from any IP. Protected API endpoints require API keys in both modes. Both modes use synthetic test data only and delete the server and its data after eight hours by default. The tools are Terraform, the AWS CLI, `jq`, `uv`, Git and `make`; Docker is installed on the server.
 
 ```sh
 make aws-up        # choose the project and the code, deploy, and check the server
@@ -301,14 +311,14 @@ make aws-destroy   # when you're done
 ## Pipelines, presets and profiles
 
 - **A pipeline spec** says how to check: which steps run, which implementation does each (for example `check.llm_batch`), whether each step is on, and each step's settings, such as model, effort and thresholds. Specs are YAML or JSON. Every spec is validated before any model call, and the validation reports every problem at once.
-- **A preset** is a validated spec that ships with groundline. [`omission_all_opus`](src/groundline/presets/omission_all_opus.yaml) is the default. To try a variation, copy it, change it, and pass it with `--pipeline`. The report then says it isn't the validated preset, and warns if it still uses the preset's alarm thresholds, since those were calibrated only for the preset.
+- **A preset** is a validated spec that ships with groundline. [`omission_all_opus`](src/groundline_core/presets/omission_all_opus.yaml) is the default. To try a variation, copy it, change it, and pass it with `--pipeline`. The report then says it isn't the validated preset, and warns if it still uses the preset's alarm thresholds, since those were calibrated only for the preset.
 
   Editors with YAML schema support, such as VS Code with Red Hat's YAML extension, can check a spec as you write it and suggest each implementation's settings. The preset's first line does this; in your own copy, point it at the published schema:
 
   ```yaml
-  # yaml-language-server: $schema=https://raw.githubusercontent.com/groundline-dev/groundline/main/src/groundline/presets/pipeline.schema.json
+  # yaml-language-server: $schema=https://raw.githubusercontent.com/groundline-dev/groundline/main/src/groundline_core/presets/pipeline.schema.json
   ```
-- **A domain profile** says what matters in a domain: the prompts for each step and the severity rubric, in a folder with a `profile.yaml`. [`clinical`](src/groundline/profiles/clinical/) is built in. A new domain, such as finance, needs a new profile folder, not code changes.
+- **A domain profile** says what matters in a domain: the prompts for each step and the severity rubric, in a folder with a `profile.yaml`. [`clinical`](src/groundline_core/profiles/clinical/) is built in. A new domain, such as finance, needs a new profile folder, not code changes.
 
 ## Caching and sensitive data
 

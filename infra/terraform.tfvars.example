@@ -7,6 +7,13 @@ deployment_name = "alice"
 
 budget_alert_email = "you@example.com"
 
+# Both modes use HTTPS on the server's public IP; no domain needed.
+# restricted: only this computer's public IP may access application routes.
+# unrestricted: any caller IP may access them; protected routes need API keys.
+# TCP/TLS 443 stays public for certificate validation in both modes.
+# Switching modes replaces the server, deleting its database and API keys.
+access_mode = "restricted"
+
 # Optional: hours after its first boot until the server terminates itself,
 # deleting its data. It's also the most make aws-reset-deadline can give it
 # from the time you run it. 0 keeps it running.

@@ -3,14 +3,14 @@ from pathlib import Path
 
 import pytest
 
-from groundline import (
+from groundline_core import (
     EvaluationResult,
     builtin_presets,
     evaluate,
     evaluate_sync,
     load_preset,
 )
-from groundline.core import (
+from groundline_core.core import (
     DomainProfile,
     PipelineSpec,
     SpecError,
@@ -18,10 +18,10 @@ from groundline.core import (
     load_spec,
     with_settings,
 )
-from groundline.evaluators.models import AlarmOutput
-from groundline.evaluators.omissions.models import ScoreOutput
-from groundline.profiles import load_builtin_profile
-from groundline.settings import MissingAPIKeyError, UnreadableSettingsError
+from groundline_core.evaluators.models import AlarmOutput
+from groundline_core.evaluators.omissions.models import ScoreOutput
+from groundline_core.profiles import load_builtin_profile
+from groundline_core.settings import MissingAPIKeyError, UnreadableSettingsError
 from tests.core_fakes import make_registry
 from tests.fakes import FakeClient
 from tests.omission_helpers import (

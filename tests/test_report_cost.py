@@ -1,6 +1,6 @@
 import pytest
 
-from groundline.evaluators.report import format_cost
+from groundline_core.evaluators.report import format_cost
 
 
 @pytest.mark.parametrize(

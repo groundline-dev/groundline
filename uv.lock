@@ -529,23 +529,33 @@ wheels = [
 ]
 
 [[package]]
-name = "groundline"
+name = "groundline-core"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
-    { name = "alembic" },
     { name = "anthropic" },
-    { name = "fastapi", extra = ["standard"] },
-    { name = "platformdirs" },
-    { name = "psycopg", extra = ["binary"] },
     { name = "pydantic-settings" },
     { name = "pyyaml" },
+]
+
+[package.optional-dependencies]
+cli = [
+    { name = "alembic" },
+    { name = "platformdirs" },
+    { name = "psycopg", extra = ["binary"] },
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "typer" },
+]
+server = [
+    { name = "alembic" },
+    { name = "fastapi", extra = ["standard"] },
+    { name = "psycopg", extra = ["binary"] },
+    { name = "sqlalchemy", extra = ["asyncio"] },
 ]
 
 [package.dev-dependencies]
 dev = [
+    { name = "groundline-core", extra = ["cli", "server"] },
     { name = "jsonschema" },
     { name = "openapi-spec-validator" },
     { name = "pre-commit" },
@@ -558,19 +568,24 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "alembic", specifier = ">=1.20.1" },
+    { name = "alembic", marker = "extra == 'cli'", specifier = ">=1.20.1" },
+    { name = "alembic", marker = "extra == 'server'", specifier = ">=1.20.1" },
     { name = "anthropic", specifier = ">=2.3.0" },
-    { name = "fastapi", extras = ["standard"], specifier = ">=0.162.0" },
-    { name = "platformdirs", specifier = ">=4.14.3" },
-    { name = "psycopg", extras = ["binary"], specifier = ">=3.3.7" },
+    { name = "fastapi", extras = ["standard"], marker = "extra == 'server'", specifier = ">=0.162.0" },
+    { name = "platformdirs", marker = "extra == 'cli'", specifier = ">=4.14.3" },
+    { name = "psycopg", extras = ["binary"], marker = "extra == 'cli'", specifier = ">=3.3.7" },
+    { name = "psycopg", extras = ["binary"], marker = "extra == 'server'", specifier = ">=3.3.7" },
     { name = "pydantic-settings", specifier = ">=2.16.2" },
     { name = "pyyaml", specifier = ">=6.0.3" },
-    { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.1.6" },
-    { name = "typer", specifier = ">=0.27.3" },
+    { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'cli'", specifier = ">=2.1.6" },
+    { name = "sqlalchemy", extras = ["asyncio"], marker = "extra == 'server'", specifier = ">=2.1.6" },
+    { name = "typer", marker = "extra == 'cli'", specifier = ">=0.27.3" },
 ]
+provides-extras = ["server", "cli"]
 
 [package.metadata.requires-dev]
 dev = [
+    { name = "groundline-core", extras = ["server", "cli"] },
     { name = "jsonschema", specifier = ">=4.26.0" },
     { name = "openapi-spec-validator", specifier = ">=0.9.0" },
     { name = "pre-commit", specifier = ">=4.7.0" },
