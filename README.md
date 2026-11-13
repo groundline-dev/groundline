@@ -133,6 +133,16 @@ The [exit codes](#exit-codes) and [options](#options) are the same as for omissi
 
 ## Using it from Python
 
+To use groundline inside your own app, install the `groundline-core` package. It isn't on PyPI yet, so install it from a clone of this repository. A plain install brings only what the checks need: `anthropic`, `pydantic-settings` and `pyyaml`. Add an extra for the rest:
+
+```sh
+pip install path/to/groundline                 # the library only
+pip install "path/to/groundline[cli]"          # plus the groundline-core command and key management
+pip install "path/to/groundline[server]"       # plus the API
+```
+
+`uv pip install` takes the same arguments, and `uv add` adds it to a uv project. The package is installed as `groundline-core`, imported as `groundline_core` and run as `groundline-core`, because an unrelated project already uses the name `groundline` on PyPI ([ADR 0016](docs/adr/0016-published-as-groundline-core.md)). Without the `cli` extra, the `groundline-core` command says which extra to install, and so does importing `groundline_core.app` without the `server` extra.
+
 ```python
 from groundline_core import evaluate_sync
 from groundline_core.evaluators.models import AlarmOutput

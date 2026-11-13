@@ -1,4 +1,4 @@
-.PHONY: setup dev db test-fast test-api test-db test-live check fix docker-build docker-run docker-smoke \
+.PHONY: setup dev db test-fast test-api test-db test-live check fix core-check docker-build docker-run docker-smoke \
 	infra-check aws-up aws-project aws-deploy aws-smoke aws-smoke-live aws-key aws-status aws-reset-deadline aws-destroy
 
 setup:
@@ -30,7 +30,7 @@ test-live:
 	uv run pytest -m live -s
 
 # Read-only: lint, types, the large-file check and the tests that need nothing
-# running. CI also runs test-db, docker-smoke and infra-check.
+# running. CI also runs test-db, docker-smoke, core-check and infra-check.
 check:
 	uv run pre-commit run --all-files
 	uv run pytest
@@ -38,6 +38,11 @@ check:
 fix:
 	uv run ruff check --fix
 	uv run ruff format
+
+# Install groundline-core with no extras, with pip and with uv pip, and check that
+# the library loads without the server or CLI packages. Builds the wheel; CI runs it.
+core-check:
+	scripts/core-install-check
 
 # The app image, built from the Dockerfile (see DEVELOPMENT.md).
 IMAGE ?= groundline:dev

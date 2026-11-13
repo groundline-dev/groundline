@@ -3,17 +3,26 @@ from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from importlib.metadata import version
 
-from fastapi import APIRouter, FastAPI, HTTPException, Request
-from fastapi.openapi.docs import get_swagger_ui_html
-from fastapi.responses import HTMLResponse
-from sqlalchemy.ext.asyncio import AsyncEngine
+from groundline_core.extras import SERVER_MESSAGE, SERVER_PACKAGES, is_missing_one_of
 
-from groundline_core.api import commissions, errors, omissions
-from groundline_core.api_keys import APIKeys
-from groundline_core.core.errors import SetupError
-from groundline_core.db import check_connection
-from groundline_core.db.connection import make_engine
-from groundline_core.settings import UnreadableSettingsError, read_settings
+# Without the server extra, say which extra to install rather than only which
+# package is missing.
+try:
+    from fastapi import APIRouter, FastAPI, HTTPException, Request
+    from fastapi.openapi.docs import get_swagger_ui_html
+    from fastapi.responses import HTMLResponse
+    from sqlalchemy.ext.asyncio import AsyncEngine
+
+    from groundline_core.api import commissions, errors, omissions
+    from groundline_core.api_keys import APIKeys
+    from groundline_core.core.errors import SetupError
+    from groundline_core.db import check_connection
+    from groundline_core.db.connection import make_engine
+    from groundline_core.settings import UnreadableSettingsError, read_settings
+except ModuleNotFoundError as error:
+    if is_missing_one_of(error, SERVER_PACKAGES):
+        raise ModuleNotFoundError(SERVER_MESSAGE, name=error.name) from error
+    raise
 
 logger = logging.getLogger("groundline")
 api_logger = logging.getLogger("groundline.api")

@@ -140,6 +140,8 @@ There are three test suites. They differ in what they use for Postgres and Claud
 
 None of them starts the Docker stack, runs `terraform test` or touches AWS: `make docker-smoke`, `make infra-check` and `make aws-smoke` do that.
 
+`make core-check` builds the package and installs it with no extras, once with pip and once with uv pip, then checks that the library loads without the server or CLI packages and that the command and the API say which extra to install. Run it when you change the dependencies in `pyproject.toml` or what `groundline_core` imports when it loads. CI runs it on every PR.
+
 CI runs the fast and database tests on every PR, but never the live tests.
 
 If you change a prompt, the rubric or a step's logic, expect `tests/test_parity.py` and `tests/test_parity_commissions.py` to fail. They replay recorded runs of the measured presets, so a failure means `omission_all_opus` or `commission_quick` no longer matches its measured results.
@@ -202,10 +204,13 @@ src/groundline_core/
   evaluate.py              evaluate(): the entry point the CLI and API share
   api_keys.py              API-key creation, revocation and authentication
   auth.py                  the Bearer authentication dependency
-  cli.py, keys_cli.py      the groundline command and its keys subgroup
+  command.py               where the groundline-core command starts: checks for the cli extra
+  cli.py, keys_cli.py      the groundline-core command and its keys subgroup
+  extras.py                what to say when the server or cli extra isn't installed
   api/, app.py             the API's endpoints and the FastAPI app
 infra/                     Terraform for AWS test deployments, the startup script, and their tests
-scripts/                   db-setup, the stack check behind make docker-smoke, and the AWS
+scripts/                   db-setup, the stack check behind make docker-smoke, the install check
+                           behind make core-check, and the AWS
                            scripts behind make aws-deploy, aws-smoke, aws-smoke-live and aws-destroy
 tests/                     the tests
 ```

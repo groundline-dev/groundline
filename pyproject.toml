@@ -12,27 +12,43 @@ authors = [
     { name = "Deborah (YY) Chang", email = "yydchang@gmail.com" },
 ]
 requires-python = ">=3.13"
+# Only what the pipelines need, so the library can sit inside another app
+# without bringing a web server, database tools or a CLI framework with it.
 dependencies = [
-    "alembic>=1.20.1",
     "anthropic>=2.3.0",
-    "fastapi[standard]>=0.162.0",
-    "platformdirs>=4.14.3",
-    "psycopg[binary]>=3.3.7",
     "pydantic-settings>=2.16.2",
     "pyyaml>=6.0.3",
+]
+
+# Both extras need the database: the API checks API keys against it, and the
+# command manages them. tests/test_packaging.py checks these lists.
+[project.optional-dependencies]
+server = [
+    "alembic>=1.20.1",
+    "fastapi[standard]>=0.162.0",
+    "psycopg[binary]>=3.3.7",
+    "sqlalchemy[asyncio]>=2.1.6",
+]
+cli = [
+    "alembic>=1.20.1",
+    "platformdirs>=4.14.3",
+    "psycopg[binary]>=3.3.7",
     "sqlalchemy[asyncio]>=2.1.6",
     "typer>=0.27.3",
 ]
 
 [project.scripts]
-groundline-core = "groundline_core.cli:app"
+groundline-core = "groundline_core.command:main"
 
 [build-system]
 requires = ["uv_build>=0.13.6,<0.14.0"]
 build-backend = "uv_build"
 
 [dependency-groups]
+# The dev group, which uv sync installs by default, pulls in both extras, so a
+# plain `uv sync` still sets up everything for development.
 dev = [
+    "groundline-core[server,cli]",
     "pre-commit>=4.7.0",
     "jsonschema>=4.26.0",
     "pyright>=1.1.414",
