@@ -3,12 +3,14 @@
 import logging
 import re
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 from fastapi.testclient import TestClient
 from psycopg import OperationalError
 from sqlalchemy import Engine, event, func, select, update
 from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.pool import AsyncAdaptedQueuePool
 from typer.testing import CliRunner
 
 from groundline import app as app_module
@@ -126,3 +128,147 @@ def test_cli_revocation_and_expiry_are_seen_by_running_api_instances(
         assert unknown.headers["www-authenticate"] == "Bearer"
     with db_engine.connect() as connection:
         assert connection.scalar(select(api_keys.c.last_used_at)) is None
+
+
+def test_exhausted_pool_is_bounded_and_recovers(
+    db_url: str, db_engine: Engine, monkeypatch: pytest.MonkeyPatch
+):
+    import asyncio
+
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from groundline.api_keys import APIKeys, APIKeyStorageError
+    from groundline.db import connection as connection_module
+
+    monkeypatch.setenv("GROUNDLINE_DB_POOL_TIMEOUT_SECONDS", "0.3")
+
+    def factory(*args: Any, **kwargs: Any):
+        return create_async_engine(*args, **kwargs, pool_size=1, max_overflow=0)
+
+    monkeypatch.setattr(connection_module, "create_async_engine", factory)
+
+    async def run():
+        engine = make_engine(db_url)
+        try:
+            keys = APIKeys(engine)
+            created = await keys.create(name="pool-test")
+            async with engine.connect():
+                task = asyncio.create_task(
+                    keys.authenticate(created.secret.get_secret_value())
+                )
+                done, _ = await asyncio.wait({task}, timeout=3)
+                if not done:
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
+                assert done, "pool checkout must use its configured finite allowance"
+                assert isinstance(task.exception(), APIKeyStorageError)
+            assert (
+                await keys.authenticate(created.secret.get_secret_value()) is not None
+            )
+            assert cast(AsyncAdaptedQueuePool, engine.pool).checkedout() == 0
+        finally:
+            await engine.dispose()
+
+    asyncio.run(run())
+
+
+def test_timed_out_query_releases_connection_for_next_authentication(
+    db_url: str, db_engine: Engine, monkeypatch: pytest.MonkeyPatch
+):
+    import asyncio
+
+    from groundline.api_keys import APIKeys, APIKeyStorageError
+
+    monkeypatch.setenv("GROUNDLINE_DB_QUERY_TIMEOUT_SECONDS", "0.3")
+
+    async def run():
+        engine = make_engine(db_url)
+        keys = APIKeys(engine)
+        try:
+            created = await keys.create(name="timeout-test")
+            statements: list[str] = []
+
+            def slow_query(
+                connection: Any,
+                cursor: Any,
+                statement: str,
+                parameters: Any,
+                context: Any,
+                many: bool,
+            ):
+                statements.append(statement)
+                return "SELECT pg_sleep(10)", ()
+
+            event.listen(
+                engine.sync_engine, "before_cursor_execute", slow_query, retval=True
+            )
+            try:
+                task = asyncio.create_task(
+                    keys.authenticate(created.secret.get_secret_value())
+                )
+                done, _ = await asyncio.wait({task}, timeout=3)
+                if not done:
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
+                assert done, "statement timeout must interrupt a hung database query"
+                assert isinstance(task.exception(), APIKeyStorageError)
+                assert len(statements) == 1
+            finally:
+                event.remove(engine.sync_engine, "before_cursor_execute", slow_query)
+            assert (
+                await keys.authenticate(created.secret.get_secret_value()) is not None
+            )
+            assert cast(AsyncAdaptedQueuePool, engine.pool).checkedout() == 0
+        finally:
+            await engine.dispose()
+
+    asyncio.run(run())
+
+
+def test_write_lock_wait_times_out_once_and_pool_recovers(
+    db_url: str, db_engine: Engine, monkeypatch: pytest.MonkeyPatch
+):
+    import asyncio
+
+    from sqlalchemy import text
+
+    from groundline.api_keys import APIKeys, APIKeyStorageError
+
+    monkeypatch.setenv("GROUNDLINE_DB_QUERY_TIMEOUT_SECONDS", "0.3")
+
+    async def run():
+        engine = make_engine(db_url)
+        keys = APIKeys(engine)
+        try:
+            created = await keys.create(name="lock-test")
+            updates: list[str] = []
+
+            def capture(
+                connection: Any,
+                cursor: Any,
+                statement: str,
+                parameters: Any,
+                context: Any,
+                many: bool,
+            ):
+                if statement.lstrip().upper().startswith("UPDATE"):
+                    updates.append(statement)
+
+            event.listen(engine.sync_engine, "before_cursor_execute", capture)
+            with db_engine.begin() as blocker:
+                blocker.execute(text("SELECT id FROM api_keys FOR UPDATE"))
+                task = asyncio.create_task(keys.revoke(created.info.id))
+                done, _ = await asyncio.wait({task}, timeout=3)
+                if not done:
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
+                assert done, "statement timeout must include lock waits"
+                assert isinstance(task.exception(), APIKeyStorageError)
+                assert len(updates) == 1
+            info = await keys.authenticate(created.secret.get_secret_value())
+            assert info is not None and info.status == "active"
+            assert cast(AsyncAdaptedQueuePool, engine.pool).checkedout() == 0
+        finally:
+            await engine.dispose()
+
+    asyncio.run(run())

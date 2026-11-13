@@ -8,6 +8,8 @@ from groundline.settings import MissingAPIKeyError, Settings
 @pytest.fixture(autouse=True)
 def isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Keep the developer's real key and .env out of these tests."""
+    for name in TIME_SETTINGS:
+        monkeypatch.delenv("GROUNDLINE_" + name.upper(), raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     for name in (
         "DATABASE_URL",
@@ -144,3 +146,58 @@ def test_a_dotenv_url_follows_the_postgres_port(port_line: str, port: str):
 
     assert url is not None
     assert f"@localhost:{port}/" in url.get_secret_value()
+
+
+# ALL-134 R2/R3/R4/R5: finite, independently configurable allowances.
+TIME_SETTINGS = {
+    "check_timeout_seconds": 120,
+    "db_auth_timeout_seconds": 5,
+    "db_connect_timeout_seconds": 5,
+    "db_pool_timeout_seconds": 5,
+    "db_query_timeout_seconds": 5,
+    "db_check_timeout_seconds": 5,
+    "db_readiness_timeout_seconds": 5,
+    "model_timeout_seconds": 60,
+    "model_connect_timeout_seconds": 5,
+    "model_retry_timeout_seconds": 120,
+    "model_retry_base_seconds": 1,
+    "model_retry_cap_seconds": 8,
+    "model_max_attempts": 3,
+}
+
+
+@pytest.mark.parametrize("name,default", TIME_SETTINGS.items())
+def test_retry_and_timeout_defaults(
+    name: str, default: float, monkeypatch: pytest.MonkeyPatch
+):
+    for field in TIME_SETTINGS:
+        monkeypatch.delenv("GROUNDLINE_" + field.upper(), raising=False)
+    assert getattr(Settings(), name, None) == default
+
+
+@pytest.mark.parametrize("name", TIME_SETTINGS)
+def test_retry_and_timeout_settings_can_be_overridden(
+    name: str, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("GROUNDLINE_" + name.upper(), "2")
+    assert getattr(Settings(), name, None) == 2
+
+
+@pytest.mark.parametrize("name", TIME_SETTINGS)
+@pytest.mark.parametrize("value", ["0", "-1", "nan", "inf", "nonsense"])
+def test_retry_and_timeout_settings_reject_unbounded_or_invalid_values(
+    name: str, value: str, monkeypatch: pytest.MonkeyPatch
+):
+    from pydantic import ValidationError
+
+    monkeypatch.setenv("GROUNDLINE_" + name.upper(), value)
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+def test_attempt_count_must_be_an_integer(monkeypatch: pytest.MonkeyPatch):
+    from pydantic import ValidationError
+
+    monkeypatch.setenv("GROUNDLINE_MODEL_MAX_ATTEMPTS", "2.5")
+    with pytest.raises(ValidationError):
+        Settings()

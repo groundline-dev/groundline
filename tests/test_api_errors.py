@@ -171,3 +171,111 @@ def test_a_safe_traceback_has_each_type_and_frame_but_no_message():
     assert text.index("ValueError") < text.index("KeyError")
     assert "test_a_safe_traceback" in text
     assert SECRET not in text
+
+
+@pytest.mark.parametrize("route", ["/v1/omissions", "/v1/commissions"])
+@pytest.mark.parametrize(
+    "outcome,expected",
+    [
+        ("timeout", 504),
+        ("hung-transport", 504),
+        ("retry-after-check-too-short", 502),
+        ("timeout-then-error", 502),
+        ("error-then-timeout", 504),
+        ("error", 502),
+        ("retry-after-too-long", 502),
+    ],
+)
+def test_final_model_stopping_reason_controls_http_status(
+    route: str,
+    outcome: str,
+    expected: int,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+):
+    import asyncio
+
+    monkeypatch.chdir(tmp_path)
+    for name, value in {
+        "GROUNDLINE_CHECK_TIMEOUT_SECONDS": "0.5"
+        if outcome == "retry-after-check-too-short"
+        else "3",
+        "GROUNDLINE_MODEL_TIMEOUT_SECONDS": "0.3",
+        "GROUNDLINE_MODEL_MAX_ATTEMPTS": "2",
+        "GROUNDLINE_MODEL_RETRY_TIMEOUT_SECONDS": "5",
+        "GROUNDLINE_MODEL_RETRY_BASE_SECONDS": "0.001",
+        "GROUNDLINE_MODEL_RETRY_CAP_SECONDS": "0.002",
+    }.items():
+        monkeypatch.setenv(name, value)
+    calls: list[httpx2.Request] = []
+
+    cancelled: list[bool] = []
+
+    async def handler(request: httpx2.Request):
+        calls.append(request)
+        if outcome == "hung-transport":
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.append(True)
+        timeout = (
+            outcome == "timeout"
+            or (outcome == "timeout-then-error" and len(calls) == 1)
+            or (outcome == "error-then-timeout" and len(calls) >= 2)
+        )
+        if timeout:
+            raise httpx2.ReadTimeout(PRIVATE + SECRET, request=request)
+        return httpx2.Response(
+            529,
+            headers=(
+                {"Retry-After": "100"}
+                if outcome == "retry-after-too-long"
+                else {"Retry-After": "1"}
+                if outcome == "retry-after-check-too-short"
+                else {}
+            ),
+            json=api_error("overloaded_error", PRIVATE + SECRET),
+        )
+
+    async def run():
+        model = AnthropicClient(
+            SECRET,
+            http_client=DefaultAsyncHttpxClient(
+                transport=httpx2.MockTransport(handler)
+            ),
+        )
+        app.dependency_overrides[common.model_client] = lambda: model
+        try:
+            async with httpx2.AsyncClient(
+                transport=httpx2.ASGITransport(app=app, raise_app_exceptions=False),
+                base_url="http://test",
+            ) as client:
+                started = asyncio.get_running_loop().time()
+                task = asyncio.create_task(
+                    client.post(
+                        route,
+                        json={"source": PRIVATE, "summary": PRIVATE},
+                        headers={"Authorization": f"Bearer {API_KEY}"},
+                    )
+                )
+                done, _ = await asyncio.wait({task}, timeout=5)
+                if not done:
+                    task.cancel()
+                    await asyncio.gather(task, return_exceptions=True)
+                assert done, "provider failures must stop within configured allowances"
+                response = task.result()
+                if outcome == "retry-after-check-too-short":
+                    assert asyncio.get_running_loop().time() - started < 0.5, (
+                        "a wait that cannot fit must be rejected before check expiry"
+                    )
+                assert response.status_code == expected
+                assert len(calls) == (1 if outcome.startswith("retry-after") else 2)
+                if outcome == "hung-transport":
+                    assert len(cancelled) == 2
+                for secret in (SECRET, PRIVATE, API_KEY):
+                    assert secret not in response.text + caplog.text
+        finally:
+            await model.close()
+
+    asyncio.run(run())

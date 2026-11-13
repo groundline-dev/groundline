@@ -114,3 +114,61 @@ def test_a_driver_that_isnt_installed_is_logged_not_raised(
     assert f"the {driver} driver isn't installed" in caplog.text
     assert "postgresql+psycopg://" in caplog.text  # how to fix it
     assert "pw-secret" not in caplog.text
+
+
+@pytest.mark.parametrize("borrowed", [False, True])
+@pytest.mark.parametrize("hang_at", ["connect", "query"])
+def test_readiness_bounds_both_owned_and_borrowed_engines(
+    borrowed: bool, hang_at: str, monkeypatch: pytest.MonkeyPatch
+):
+    from contextlib import asynccontextmanager
+    from typing import Any, cast
+
+    async def run():
+        cancelled: list[str] = []
+        disposed: list[bool] = []
+
+        async def hang():
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.append(hang_at)
+
+        class Connection:
+            async def execute(self, statement: object):
+                if hang_at == "query":
+                    await hang()
+
+        class Engine:
+            @asynccontextmanager
+            async def connect(self):
+                if hang_at == "connect":
+                    await hang()
+                yield Connection()
+
+            async def dispose(self):
+                disposed.append(True)
+
+        engine = Engine()
+
+        def factory(*args: Any, **kwargs: Any):
+            return engine
+
+        monkeypatch.setattr(connection_module, "create_async_engine", factory)
+        task = asyncio.create_task(
+            check_connection(
+                UNREACHABLE,
+                timeout=1,
+                engine=cast(AsyncEngine, engine) if borrowed else None,
+            )
+        )
+        done, _ = await asyncio.wait({task}, timeout=2)
+        if not done:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+        assert done, f"readiness must bound {hang_at} even with a supplied engine"
+        assert task.result() is False
+        assert cancelled == [hang_at]
+        assert disposed == ([] if borrowed else [True])
+
+    asyncio.run(run())

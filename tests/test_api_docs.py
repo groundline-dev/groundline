@@ -150,3 +150,15 @@ def test_the_503_example_names_the_stages_needing_the_anthropic_key(path: str):
 
     assert "  Needed by: " in detail and "(claude-" in detail
     assert "(no price" not in str(schema["paths"][path]["post"]["responses"]["502"])
+
+
+@pytest.mark.parametrize("route", ["/v1/omissions", "/v1/commissions"])
+def test_check_documents_gateway_timeout_with_a_safe_example(route: str):
+    from groundline.app import app
+
+    responses = app.openapi()["paths"][route]["post"]["responses"]
+    assert "504" in responses
+    examples = responses["504"]["content"]["application/json"]["examples"]
+    assert examples
+    for example in examples.values():
+        assert isinstance(example["value"]["detail"], str)

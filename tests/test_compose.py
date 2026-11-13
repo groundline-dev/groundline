@@ -167,3 +167,30 @@ def test_the_example_urls_follow_the_postgres_port(name: str):
 
     assert line, f".env.example has no {name}"
     assert "@localhost:${POSTGRES_HOST_PORT:-5433}/" in line[1]
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "GROUNDLINE_CHECK_TIMEOUT_SECONDS",
+        "GROUNDLINE_DB_AUTH_TIMEOUT_SECONDS",
+        "GROUNDLINE_DB_CONNECT_TIMEOUT_SECONDS",
+        "GROUNDLINE_DB_POOL_TIMEOUT_SECONDS",
+        "GROUNDLINE_DB_QUERY_TIMEOUT_SECONDS",
+        "GROUNDLINE_DB_CHECK_TIMEOUT_SECONDS",
+        "GROUNDLINE_DB_READINESS_TIMEOUT_SECONDS",
+        "GROUNDLINE_MODEL_TIMEOUT_SECONDS",
+        "GROUNDLINE_MODEL_CONNECT_TIMEOUT_SECONDS",
+        "GROUNDLINE_MODEL_RETRY_TIMEOUT_SECONDS",
+        "GROUNDLINE_MODEL_RETRY_BASE_SECONDS",
+        "GROUNDLINE_MODEL_RETRY_CAP_SECONDS",
+        "GROUNDLINE_MODEL_MAX_ATTEMPTS",
+    ],
+)
+def test_deadline_and_retry_settings_reach_the_container(
+    services: dict[str, Any], name: str
+):
+    environment = services["app"].get("environment", {})
+    assert name in environment, f"app must forward {name} explicitly"
+    assert f"${{{name}" in str(environment[name])
+    assert re.search(rf"^{name}=", ENV_EXAMPLE.read_text(), re.MULTILINE)
