@@ -27,12 +27,17 @@ def endpoint(url: str, public_ip: str) -> str:
     return str(address)
 
 
-def check(address: str) -> dict[str, Any]:
-    # Don't implicitly trust a development CA through environment overrides.
+def public_context() -> ssl.SSLContext:
+    """Use ordinary system trust consistently across every public TLS probe."""
     for variable in ("SSL_CERT_FILE", "SSL_CERT_DIR"):
         os.environ.pop(variable, None)
     context = ssl.create_default_context()
     context.minimum_version = ssl.TLSVersion.TLSv1_2
+    return context
+
+
+def check(address: str) -> dict[str, Any]:
+    context = public_context()
     # Python omits SNI for an IP literal while still checking the IP SAN.
     with socket.create_connection((address, 443), timeout=10) as connection:
         with context.wrap_socket(connection, server_hostname=address) as tls:
@@ -119,10 +124,7 @@ def check_source_filter(address: str, mode: str, allowed_cidr: str) -> None:
     """
     claimed_source = access_policy(mode, allowed_cidr)
     proxy = str(ipaddress.IPv4Address(os.environ.get("FORWARDED_ALLOW_IPS", "")))
-    for variable in ("SSL_CERT_FILE", "SSL_CERT_DIR"):
-        os.environ.pop(variable, None)
-    context = ssl.create_default_context()
-    context.minimum_version = ssl.TLSVersion.TLSv1_2
+    context = public_context()
     with socket.create_connection((proxy, 443), timeout=10) as connection:
         with context.wrap_socket(connection, server_hostname=address) as tls:
             tls.sendall(

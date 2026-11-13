@@ -64,7 +64,7 @@ jobs:
         run: |
           if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
             echo "run=true" >> "$GITHUB_OUTPUT"
-          elif git diff --name-only "$BASE_SHA" HEAD | grep -E '^(infra/https/|compose[^/]*\.yaml$|tests/https_smoke\.py$|scripts/https-smoke-test$|Dockerfile$|Makefile$|\.github/workflows/ci\.yml$)' > /dev/null; then
+          elif git diff --name-only "$BASE_SHA" HEAD | grep -E '^(infra/https/|compose[^/]*\.yaml$|tests/https_smoke\.py$|scripts/https-smoke-test$|scripts/https_check\.py$|Dockerfile$|Makefile$|\.github/workflows/ci\.yml$)' > /dev/null; then
             echo "run=true" >> "$GITHUB_OUTPUT"
           fi
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3

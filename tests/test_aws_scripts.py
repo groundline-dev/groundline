@@ -616,8 +616,8 @@ def test_every_run_ends_with_a_blank_line(
     [
         ("restricted", "http://1.1.1.1:8001"),
         ("unrestricted", "https://example.com"),
-        ("tester_http", "https://1.1.1.1"),
-        ("public_http", "http://1.1.1.1:8001"),
+        ("restricted", "https://2.2.2.2"),
+        ("unrestricted", "https://1.1.1.1/"),
     ],
 )
 def test_smoke_rejects_mode_url_mismatch_before_requests(
@@ -628,11 +628,14 @@ def test_smoke_rejects_mode_url_mismatch_before_requests(
             "instance_id": INSTANCE,
             "app_url": url,
             "access_mode": mode,
+            "allowed_cidr": "203.0.113.7/32" if mode == "restricted" else "0.0.0.0/0",
             "public_ip": "1.1.1.1",
         }
     )
     result = run(SMOKE_TEST, tmp_path, world)
     assert result.returncode != 0, result.output
+    assert "invalid HTTPS endpoint in Terraform state" in result.output
+    assert "HTTPS check failed:" in result.output
     assert not result.sent_commands()
 
 
@@ -658,3 +661,18 @@ def test_restricted_health_403_fails_promptly_without_creating_a_key(
     assert "Waiting for the server" not in result.output
     assert not result.sent_commands()
     assert time.monotonic() - started < 15
+
+
+@pytest.mark.parametrize("mode", ["tester_http", "public_http"])
+def test_smoke_rejects_unsupported_deployed_mode(tmp_path: Path, mode: str):
+    world = aws_fakes.new_world(
+        outputs={
+            "instance_id": INSTANCE,
+            "app_url": "https://1.1.1.1",
+            "access_mode": mode,
+        }
+    )
+    result = run(SMOKE_TEST, tmp_path, world)
+    assert result.returncode != 0
+    assert "unsupported deployed access mode" in result.output
+    assert not result.sent_commands()

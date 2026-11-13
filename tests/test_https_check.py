@@ -252,3 +252,18 @@ def test_live_source_policy_checks_the_response_and_public_identity(
         assert context.minimum_version == ssl.TLSVersion.TLSv1_2
         assert b"X-Forwarded-For:" in tls.sendall.call_args.args[0]
         response.return_value.close.assert_called_once()
+
+
+def test_public_context_ignores_development_overrides(monkeypatch: pytest.MonkeyPatch):
+    from scripts.https_check import public_context
+
+    monkeypatch.setenv("SSL_CERT_FILE", "/nonexistent/development-root.pem")
+    monkeypatch.setenv("SSL_CERT_DIR", "/nonexistent/development-roots")
+    context = public_context()
+    import os
+
+    assert "SSL_CERT_FILE" not in os.environ
+    assert "SSL_CERT_DIR" not in os.environ
+    assert context.minimum_version == ssl.TLSVersion.TLSv1_2
+    assert context.verify_mode == ssl.CERT_REQUIRED
+    assert context.check_hostname
