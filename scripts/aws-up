@@ -153,12 +153,12 @@ if [ -n "$instance" ] \
     choose "Review deployment changes? (1 review, 2 cancel)" 2
     [ "$answer" = 1 ] || fail "cancelled: running server unchanged"
   else
-    if [ "$running_mode" = restricted ] && [ -n "$running_ref" ]; then
-      current_ip="$(public_ipv4)"
-      allowed_cidr="$(output allowed_cidr)"
-      [ "$current_ip/32" = "$allowed_cidr" ] || fail "this server allows $allowed_cidr, but your current public IP is $current_ip. To update access without replacing the server, run REF=$running_ref make aws-deploy, then make aws-smoke."
-    fi
     if [ -n "$running_ref" ] && confirm "Keep your running server and check it?"; then
+      if [ "$running_mode" = restricted ]; then
+        current_ip="$(public_ipv4)"
+        allowed_cidr="$(output allowed_cidr)"
+        [ "$current_ip/32" = "$allowed_cidr" ] || fail "this server allows $allowed_cidr, but your current public IP is $current_ip. To update access without replacing the server, run REF=$running_ref make aws-deploy, then make aws-smoke."
+      fi
       keep=yes
       REF="$running_ref" REF_NAME=""
       answer_ok "keeping $instance, running ${running_ref:0:7} in $running_mode HTTPS mode"

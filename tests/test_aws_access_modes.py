@@ -248,7 +248,9 @@ def test_invalid_wizard_eof_preserves_settings_and_does_not_deploy(checkout: Pat
 
 
 @pytest.mark.parametrize("allowed", ["198.51.100.19/32", "unavailable"])
-def test_changed_or_undiscoverable_ip_stops_before_keep(checkout: Path, allowed: str):
+def test_changed_or_undiscoverable_ip_stops_after_choosing_keep(
+    checkout: Path, allowed: str
+):
     settings(checkout, "restricted")
     stub_children(checkout)
     world = aws_fakes.new_world(
@@ -265,7 +267,6 @@ def test_changed_or_undiscoverable_ip_stops_before_keep(checkout: Path, allowed:
         world["tester_ip"] = "unavailable"
     result, world = invoke(checkout, "aws-up", world, "\n\n")
     assert result.returncode != 0
-    assert "Keep your running server" not in result.stdout
     assert not (checkout / "aws-deploy-called").exists()
     assert not (checkout / "aws-smoke-test-called").exists()
     assert not world["commands"]
@@ -273,6 +274,32 @@ def test_changed_or_undiscoverable_ip_stops_before_keep(checkout: Path, allowed:
         assert "couldn't find" in result.stderr
     else:
         assert "REF=" + "a" * 40 + " make aws-deploy" in result.stderr
+
+
+def test_changed_ip_can_decline_keep_and_deploy_new_code(checkout: Path):
+    settings(checkout, "restricted")
+    (checkout / "scripts/aws-smoke-test").write_text(
+        f'#!/bin/sh\ntouch "{checkout}/aws-smoke-test-called"\n'
+    )
+    world = aws_fakes.new_world(
+        outputs={
+            "instance_id": "i-test",
+            "git_ref": "b" * 40,
+            "access_mode": "restricted",
+            "allowed_cidr": "198.51.100.19/32",
+            "auto_terminate_hours": "0",
+        },
+        existing={"i-test": "running"},
+    )
+    # Confirm the project, decline keeping the server, and keep the stored key.
+    result, world = invoke(checkout, "aws-up", world, "\nn\n\n")
+    assert result.returncode == 0, result.stdout + result.stderr
+    plans = [call for call in world["calls"] if "plan" in call]
+    assert len(plans) == 1
+    assert "git_ref=" + "a" * 40 in plans[0]
+    assert "tester_cidr=198.51.100.20/32" in plans[0]
+    assert "access_mode=restricted" in plans[0]
+    assert (checkout / "aws-smoke-test-called").exists()
 
 
 def test_unrestricted_keep_does_not_discover_tester_ip(checkout: Path):
