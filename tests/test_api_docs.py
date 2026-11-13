@@ -56,17 +56,26 @@ def _resolve(ref: dict[str, Any]) -> dict[str, Any]:
 def test_each_check_has_a_valid_example_request_and_response(
     path: str, request_model: type[ApiModel], response_model: type[ApiModel]
 ):
-    # The docs must show an example. FastAPI drops nulls from the docs' copy, which a
-    # model that requires a nullable field (a commission's `summary_evidence`) can't
-    # validate, so the validated copy is the model's own.
     operation = schema["paths"][path]["post"]
     request = operation["requestBody"]["content"]["application/json"]["schema"]
     response = operation["responses"]["200"]["content"]["application/json"]["schema"]
 
     for model, ref in [(request_model, request), (response_model, response)]:
-        assert _resolve(ref)["examples"]
-        for example in model.model_json_schema()["examples"]:
+        examples = _resolve(ref)["examples"]
+        assert examples
+        for example in examples:
             model.model_validate(example)
+
+
+def test_the_served_examples_keep_the_nulls_a_real_response_has():
+    # FastAPI strips every null from the schema it builds, so the docs would show
+    # a commissions response without `counts` and `summary_evidence`.
+    served = http.get("/openapi.json").json()
+    example = served["components"]["schemas"]["CommissionsResponse"]["examples"][0]
+
+    assert "counts" in example and example["counts"] is None
+    finding = example["findings"][0]
+    assert "summary_evidence" in finding and finding["summary_evidence"] is None
 
 
 @pytest.mark.parametrize(

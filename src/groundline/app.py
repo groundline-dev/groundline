@@ -2,6 +2,7 @@ import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from importlib.metadata import version
+from typing import Any
 
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.openapi.docs import get_swagger_ui_html
@@ -150,6 +151,25 @@ v1 = APIRouter(prefix="/v1", tags=["v1"])
 v1.include_router(omissions.router)
 v1.include_router(commissions.router)
 app.include_router(v1)
+
+_RESPONSE_MODELS = (omissions.OmissionsResponse, commissions.CommissionsResponse)
+_fastapi_openapi = app.openapi
+
+
+def _openapi() -> dict[str, Any]:
+    """FastAPI's schema, with each response example as written.
+
+    FastAPI strips every null from the schema it builds. An example would then
+    leave out the fields that are null in it, such as a commission's
+    `summary_evidence` and `counts`, and look unlike a real response."""
+    schema = _fastapi_openapi()
+    schemas = schema["components"]["schemas"]
+    for model in _RESPONSE_MODELS:
+        schemas[model.__name__]["examples"] = model.model_json_schema()["examples"]
+    return schema
+
+
+app.openapi = _openapi
 
 
 @app.get("/api", include_in_schema=False)
