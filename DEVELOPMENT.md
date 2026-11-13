@@ -257,7 +257,7 @@ If you change a prompt, the rubric or a step's logic, expect `tests/test_parity.
 
 ### API behavior suite
 
-`make test-api` runs the focused API tests with a named pass/fail result for each endpoint and scenario. It checks authentication, validation, evaluator responses, settings/SDK integration, documentation and safe errors. No running server, database, real API key or network access is needed.
+`make test-api` runs the focused API tests with a named pass/fail result for each endpoint and scenario. It checks authentication, validation, evaluator responses, settings/SDK integration, documentation and safe errors. No pre-existing server, database, real API key or internet access is needed. The upload test starts a temporary uvicorn server and requires loopback networking.
 
 Optionally save a JUnit XML report:
 
