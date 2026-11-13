@@ -2,6 +2,7 @@ import logging
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 from importlib.metadata import version
+from typing import Any
 
 from groundline_core.extras import SERVER_MESSAGE, SERVER_PACKAGES, is_missing_one_of
 
@@ -119,7 +120,7 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
 DESCRIPTION = """
 groundline checks an AI-written summary, such as a clinical note, against the
 source it was written from, such as a consultation transcript. It reports the
-facts the summary leaves out (omissions) and the statements in it the source
+facts the summary leaves out (omissions) and the claims in it the source
 doesn't support (commissions). It is research code, **not for clinical use**,
 and must not be used with real patient data yet.
 
@@ -131,12 +132,14 @@ Create one with `groundline-core keys create`, then use **Authorize** below.
 
 ### Versions
 
-Both checks are under `/v1`. Within v1, a change only adds:
-new endpoints, or new fields in a response. A change that could break a
-caller, such as removing or renaming a field or changing a status code, gets a
-new prefix, `/v2`. groundline is still pre-1.0, so it doesn't yet promise how
-long an old version stays available after a new one ships. The version next to
-the title is groundline's release, not the API version.
+Both checks are under `/v1`. groundline isn't public yet, so v1 can still
+change in ways that break a caller, such as removing or renaming a field. Once
+the API is public, v1 will only add: new endpoints, or new fields in a
+response. A change that could break a caller, such as removing or renaming a
+field or changing a status code, will then get a new prefix, `/v2`. groundline
+is still pre-1.0, so it doesn't yet promise how long an old version stays
+available after a new one ships. The version next to the title is groundline's
+release, not the API version.
 
 See the [README](https://github.com/groundline-dev/groundline#using-the-api)
 for more, including what each status means.
@@ -157,6 +160,25 @@ v1 = APIRouter(prefix="/v1", tags=["v1"])
 v1.include_router(omissions.router)
 v1.include_router(commissions.router)
 app.include_router(v1)
+
+_RESPONSE_MODELS = (omissions.OmissionsResponse, commissions.CommissionsResponse)
+_fastapi_openapi = app.openapi
+
+
+def _openapi() -> dict[str, Any]:
+    """FastAPI's schema, with each response example as written.
+
+    FastAPI strips every null from the schema it builds. An example would then
+    leave out the fields that are null in it, such as a commission's
+    `summary_evidence` and `counts`, and look unlike a real response."""
+    schema = _fastapi_openapi()
+    schemas = schema["components"]["schemas"]
+    for model in _RESPONSE_MODELS:
+        schemas[model.__name__]["examples"] = model.model_json_schema()["examples"]
+    return schema
+
+
+app.openapi = _openapi
 
 
 @app.get("/api", include_in_schema=False)

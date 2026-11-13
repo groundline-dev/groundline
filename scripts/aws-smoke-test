@@ -5,7 +5,7 @@
 #     key, and 422 with one created on the server through SSM Run Command. The
 #     server checks the API key before the body, so 422 shows the key was
 #     accepted, which needs the app, Postgres and its migrations. The empty body
-#     is rejected before any Claude call.
+#     is rejected before any model call.
 #   - with --live, one real commission check answers 200 (under a cent)
 #
 # Usage: scripts/aws-smoke-test          (make aws-smoke)
@@ -17,7 +17,11 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/aws-common.sh
 
-wait_minutes=15
+# Internal callers can bound recovery checks without changing ordinary smoke defaults.
+wait_seconds="${GROUNDLINE_SMOKE_WAIT_SECONDS:-900}"
+request_timeout="${GROUNDLINE_SMOKE_REQUEST_TIMEOUT:-300}"
+[[ "$wait_seconds" =~ ^[1-9][0-9]*$ ]] && [[ "$request_timeout" =~ ^[1-9][0-9]*$ ]] \
+  || fail "smoke timeouts must be positive whole seconds"
 
 live=false
 case "${1:-}" in
@@ -27,16 +31,17 @@ case "${1:-}" in
 esac
 
 use_project
-# With nothing deployed, terraform output exits 0 and prints nothing, so an empty
-# value counts as missing too.
-output() {
-  local value
-  value="$(terraform -chdir=infra output -raw "$1")" && [ -n "$value" ] \
-    || fail "no $1 in the Terraform state for $(project_label): run make aws-up first"
-  printf '%s' "$value"
-}
 instance="$(output instance_id)"
 app_url="$(output app_url)"
+access_mode="$(deployed_access_mode)"
+allowed_cidr="$(output allowed_cidr)"
+public_ip="$(output public_ip)"
+uv run --no-project --quiet python scripts/https_check.py "$app_url" "$public_ip" --validate-only --source-filter "$access_mode" --allowed-cidr "$allowed_cidr" \
+  || fail "invalid HTTPS endpoint in Terraform state"
+unset CURL_CA_BUNDLE SSL_CERT_FILE SSL_CERT_DIR
+
+tls_errors="$(mktemp)"
+trap 'rm -f "$tls_errors"' EXIT
 
 # A server that terminated itself fails here, with the aws-destroy reminder,
 # instead of after waiting for /health.
@@ -56,7 +61,8 @@ fi
 
 # health: the status GET /health returns, or 000 if the server doesn't answer.
 health() {
-  curl --silent --max-time 10 --output /dev/null --write-out '%{http_code}' "$app_url/health" || true
+  curl --disable --proto '=https' --silent --show-error --max-time 10 \
+    --output /dev/null --write-out '%{http_code}' "$app_url/health" 2>"$tls_errors" || true
 }
 
 # Until the server answers, it's asked again every 10 seconds, in the
@@ -64,13 +70,20 @@ health() {
 # waits up to 10 seconds for an answer. In a terminal, one line shows the time,
 # rewritten each second. Elsewhere, such as in a log, a line a minute says it's
 # still waiting.
-if [ "$(health)" = 200 ]; then
+check_access_response() {
+  if [ "$access_mode" = restricted ] && [ "$1" = 403 ]; then
+    fail "restricted HTTPS denied this source IP (403). Review allowed_cidr and your current network; update the allowed IP with make aws-deploy using the deployed commit, then rerun make aws-smoke."
+  fi
+}
+health_status="$(health)"
+check_access_response "$health_status"
+if [ "$health_status" = 200 ]; then
   echo
   ok "the server has already started"
 else
   echo
   started=$SECONDS
-  deadline=$((SECONDS + wait_minutes * 60))
+  deadline=$((SECONDS + wait_seconds))
   next_check=$((SECONDS + 10))
   last_minute=-1
   checking=""
@@ -84,7 +97,12 @@ else
     if [ -n "$checking" ] && ! kill -0 "$checking" 2>/dev/null; then
       wait "$checking" || true
       checking=""
-      [ "$(cat "$health_file")" = 200 ] && break
+      health_status="$(cat "$health_file")"
+      if [ "$health_status" = 403 ] && [ "$access_mode" = restricted ]; then
+        rm -f "$health_file"
+        check_access_response "$health_status"
+      fi
+      [ "$health_status" = 200 ] && break
     fi
     elapsed=$((SECONDS - started))
     if [ -t 1 ]; then
@@ -97,9 +115,10 @@ else
       [ -t 1 ] && echo
       rm -f "$health_file"
       require_running
+      cat "$tls_errors" >&2
       echo "--- the server's startup log ---" >&2
       on_server "tail -n 80 /var/log/groundline-bootstrap.log; cd /opt/groundline && docker compose ps --all && docker compose logs --tail 40" >&2 || true
-      fail "the server didn't start within $wait_minutes minutes: $app_url/health never answered 200"
+      fail "the server didn't start within $wait_seconds seconds: $app_url/health never answered 200"
     fi
     sleep 1
   done
@@ -109,11 +128,17 @@ else
 fi
 
 if $live; then
-  doing "Checking the server, with one call to Claude that costs under a cent"
+  doing "Checking the server, with one call to the model that costs under a cent"
 else
-  doing "Checking the server, without calling Claude"
+  doing "Checking the server, without calling the model"
 fi
 check_ok "the server answers (GET /health returned 200)"
+https_output="$(uv run --no-project --quiet python scripts/https_check.py "$app_url" "$public_ip")" \
+    || fail "HTTPS trust, IP identity, no-SNI or port-isolation check failed: $https_output"
+check_results <<<"$https_output"
+access_output="$(on_server "cd /opt/groundline && docker compose exec -T app python - '$app_url' '$public_ip' --source-filter '$access_mode' --allowed-cidr '$allowed_cidr' < scripts/https_check.py")" \
+  || fail "live HTTPS source-IP policy check failed: $access_output"
+check_results <<<"$access_output"
 
 keys_create_output="$(on_server "cd /opt/groundline && docker compose exec -T app groundline-core keys create --name aws-smoke-test")" \
   || fail "groundline-core keys create failed on the server: $keys_create_output"
@@ -126,9 +151,10 @@ revoke() {
     check_ok "revoked the test API key"
   else
     check_warn "couldn't revoke the test API key; revoke it with make aws-key REVOKE=$api_key_id"
+    return 1
   fi
 }
-trap revoke EXIT
+trap 'status=$?; revoke || status=1; rm -f "$tls_errors"; exit "$status"' EXIT
 check_ok "created a test API key on the server"
 
 # expect STATUS SHOWS FAILURE METHOD PATH [curl arguments...]: send the request,
@@ -137,7 +163,7 @@ expect() {
   local want="$1" shows="$2" failure="$3" method="$4" path="$5"
   shift 5
   local got
-  got="$(curl --silent --max-time 120 --output /dev/null --write-out '%{http_code}' \
+  got="$(curl --disable --proto '=https' --silent --show-error --max-time "$request_timeout" --output /dev/null --write-out '%{http_code}' \
     --request "$method" "$@" "$app_url$path" || true)"
   [ "$got" = "$want" ] || fail "$failure ($method $path returned ${got:-nothing}, expected $want)"
   check_ok "$shows"
@@ -155,7 +181,7 @@ expect 422 "the test API key is accepted: the empty request got past the key che
 
 if $live; then
   # The shortest test input: a short transcript and a note with one changed dose.
-  body="$(uv run --quiet python -c '
+  body="$(uv run --no-project --quiet python -c '
 import json
 from tests.commissions_helpers import SUMMARY
 from tests.omission_helpers import SOURCE
@@ -169,8 +195,9 @@ fi
 # Every check passed. Revoke the API key now instead of on exit, so the
 # reminder is the last thing printed. A failed check exits before this line,
 # and the exit trap revokes the key then.
-trap - EXIT
 revoke
+trap - EXIT
+rm -f "$tls_errors"
 echo
 ok "all checks passed"
 what_next

@@ -1,0 +1,46 @@
+# HTTPS for both EC2 access modes. The host renders its public IP before startup.
+# COMPOSE_FILE=compose.yaml:compose.https.yaml keeps later Compose commands on
+# the same stack. Requires Compose 2.24.4+ for !reset (AWS installs a pinned version).
+services:
+  app:
+    ports: !reset []
+    environment:
+      # Only Caddy's address is trusted. Caddy overwrites
+      # client-supplied forwarded headers; trust its scheme for HTTPS redirects.
+      FORWARDED_ALLOW_IPS: "172.30.254.2"
+    networks:
+      default:
+      proxy:
+        # The app starts before Caddy. Without its own address Docker may
+        # dynamically give it .2, preventing Caddy from starting.
+        ipv4_address: 172.30.254.3
+  postgres:
+    ports: !reset []
+  caddy:
+    image: caddy:2.11.9-alpine@sha256:0bbb055bda6793c999bde78b1b5ce3e89f829fb031af2cf50056ea1246559fee
+    networks:
+      proxy:
+        ipv4_address: 172.30.254.2
+    ports:
+      - "443:443"
+    volumes:
+      # Rendered by infra/https/refresh-address before Docker starts. Mount the
+      # directory so atomic file replacement is visible after a restart.
+      - ./infra/https/runtime:/etc/caddy:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  caddy-data:
+  caddy-config:
+
+# Dedicated proxy network gives Uvicorn one stable trusted peer.
+networks:
+  proxy:
+    ipam:
+      config:
+        - subnet: 172.30.254.0/29

@@ -58,7 +58,7 @@ def test_cli_revocation_stops_the_next_check(
         assert response.status_code == 200
         body = response.json()
         assert body["flagged"] is False
-        assert body["usage"]["calls"] == endpoint.calls
+        assert body["metadata"]["usage"]["calls"] == endpoint.calls
         assert len(model.requests) == endpoint.calls
         assert credential not in response.text
 

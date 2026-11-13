@@ -1,6 +1,6 @@
 # groundline
 
-groundline checks an AI-written summary against its source. Its **omission check** reports which important facts the summary leaves out, how much each one matters, and whether the summary should be flagged. Its **commission check** (often called hallucination detection) reports which statements in the summary the source doesn't support, either because it contradicts them or doesn't mention them. Its first domain is clinical notes checked against the consultation transcript.
+groundline checks an AI-written summary against its source. Its **omission check** reports which important facts the summary leaves out, how much each one matters, and whether the summary should be flagged. Its **commission check** (often called hallucination detection) reports which claims in the summary the source doesn't support, either because it contradicts them or doesn't mention them. Its first domain is clinical notes checked against the consultation transcript.
 
 **Status:** early development. It is research code, **not for clinical use**, and must not be used with real patient data yet (see [Caching and sensitive data](#caching-and-sensitive-data)).
 
@@ -199,21 +199,26 @@ curl -s http://127.0.0.1:8000/v1/omissions \
 
 ```json
 {
+  "evaluation_type": "omissions",
   "flagged": true,
-  "omission_score": 0.15,
-  "alarm": {"score": 0.97, "threshold": 0.9, "level": "strict"},
-  "omissions": [
-    {"fact": "Allergic to penicillin. No other drug allergies.", "severity": "critical",
-     "verdict": "absent", "missing_confidence": 0.97, "quote": null}
+  "score": 0.15,
+  "findings": [
+    {"type": "omission", "severity": "critical", "verdict": "absent", "confidence": 0.97,
+     "statement": "Allergic to penicillin. No other drug allergies.",
+     "source_evidence": "penicillin, it gives me a rash",
+     "summary_evidence": null, "evidence_found": true,
+     "explanation": "The summary does not record this fact."}
   ],
   "counts": {"total": 35, "present": 29, "partial": 3, "absent": 3},
-  "pipeline": "omission_all_opus",
-  "validated_preset": "omission_all_opus",
-  "usage": {"calls": 4, "input_tokens": 31620, "output_tokens": 8140, "cost_usd": 0.29}
+  "metadata": {
+    "pipeline": "omission_all_opus",
+    "alarm": {"score": 0.97, "threshold": 0.9, "level": "strict"},
+    "usage": {"calls": 4, "input_tokens": 31620, "output_tokens": 8140, "cost_usd": 0.29}
+  }
 }
 ```
 
-`omissions` lists the facts not fully recorded, most important first.
+`findings` lists the facts not fully recorded, most important first. The example is shortened: `counts` implies six findings, and it shows one. Every response has the same shape; see [Findings](#findings).
 
 ### `POST /v1/commissions`
 
@@ -228,27 +233,50 @@ curl -s http://127.0.0.1:8000/v1/commissions \
 
 ```json
 {
+  "evaluation_type": "commissions",
   "flagged": true,
-  "commission_score": 0.1667,
-  "alarm": {"score": 0.95, "threshold": 0.85, "level": "default"},
-  "commissions": [
-    {"claim": "Motrin 800 mg every 6 hours for a week", "severity": "critical",
-     "support_verdict": "contradicted", "unsupported_confidence": 0.95,
-     "evidence": "take motrin 600 mg every 6 hours for a week", "evidence_found": true}
+  "score": 0.1667,
+  "findings": [
+    {"type": "commission", "severity": "critical", "verdict": "contradicted", "confidence": 0.95,
+     "statement": "Motrin 800 mg every 6 hours for a week",
+     "source_evidence": "Take Motrin 600 mg every 6 hours",
+     "summary_evidence": null, "evidence_found": true,
+     "explanation": "The source says something different."}
   ],
-  "pipeline": "commission_quick",
-  "validated_preset": "commission_quick",
-  "usage": {"calls": 1, "input_tokens": 9800, "output_tokens": 420, "cost_usd": 0.0012}
+  "counts": null,
+  "metadata": {
+    "pipeline": "commission_quick",
+    "alarm": {"score": 0.95, "threshold": 0.85, "level": "default"},
+    "usage": {"calls": 1, "input_tokens": 9800, "output_tokens": 420, "cost_usd": 0.0012}
+  }
 }
 ```
 
-`commissions` lists the claims in the summary that the source doesn't support, most important first. `support_verdict` is `contradicted` (the source says otherwise) or `unsupported` (the source doesn't mention it). For a contradicted claim, `evidence` is the passage of the source the model quoted; it is `null` for an unsupported one. `evidence_found` says whether that passage appears in the source word for word, ignoring case, punctuation and spacing. `true` means verified. `false` only means it couldn't be matched, which a reworded quote or markup in the source, such as a scribe's `<UNSURE>` tags, can cause, so check it by eye rather than assuming it was invented.
+`findings` lists the claims in the summary that the source doesn't support, most important first. The commissions response has the same fields as the omissions one, except that `counts` is `null`.
+
+### Findings
+
+Both endpoints return `evaluation_type` (`omissions` or `commissions`), `flagged`, `score`, `findings`, `counts` and `metadata`. A finding is one omission or one commission, with the same fields for either kind, so a future check that finds both can return them in one list:
+
+| Field | Meaning |
+|---|---|
+| `type` | `omission` (a fact from the source that the summary leaves out or only partly records) or `commission` (a claim in the summary that the source doesn't support). |
+| `severity` | `critical`, `supporting` or `peripheral`: how much it would matter if the fact were left out or the claim were wrong. `null` when the check didn't grade it. |
+| `verdict` | For an omission, `partial` or `absent`. For a commission, `unsupported` (the source doesn't mention the claim) or `contradicted` (the source says otherwise). |
+| `confidence` | From 0 to 1: how sure the check is that the fact is missing, or that the source doesn't support the claim. `null` when the check gave none. |
+| `statement` | The fact from the source, or the words in the summary that make the claim, word for word. |
+| `source_evidence` | The passage of the source behind the finding: for an omission, where the fact came from; for a contradicted commission, the passage the model quoted. `null` for an unsupported commission. |
+| `summary_evidence` | For a partial omission, the words in the summary that partly record the fact. `null` otherwise. |
+| `evidence_found` | Whether `source_evidence` appears in the source word for word, ignoring case, punctuation and spacing. `true` means verified. `false` only means it couldn't be matched, which a reworded quote or markup in the source, such as a scribe's `<UNSURE>` tags, can cause, so check it by eye rather than assuming it was invented. `null` when there is no evidence. |
+| `explanation` | A fixed sentence for each type and verdict, with no text from the source or summary in it. Use the other fields for the details. |
+
+`counts` is the facts found in the source and how many were present, partial or absent; it is `null` for a check that doesn't count facts, such as the commission check. `metadata` is how the check ran: `pipeline` is the validated preset, `alarm` is the alarm score, threshold and level behind the flag, and `usage` is the model calls the check made and what they cost.
 
 ### Scores
 
-`omission_score` and `commission_score` run from 0 to 1, and higher is better. A summary is flagged exactly when its score is below 0.5, and passes at 0.5 or above, so tools such as DeepEval can use their default cut of 0.5. The alarm still decides the flag: the score is the alarm score turned around and rescaled around the alarm's threshold. The CLI report shows the same score, and `--json` and Python results have it as the alarm's `rescaled_score`.
+`score` runs from 0 to 1, and higher is better, for both checks. A summary is flagged exactly when its score is below 0.5, and passes at 0.5 or above, so tools such as DeepEval can use their default cut of 0.5. The alarm still decides the flag: the score is the alarm score turned around and rescaled around the alarm's threshold. The CLI report shows the same score, and `--json` and Python results have it as the alarm's `rescaled_score`.
 
-A score shows whether a critical problem was found, not how good the summary is overall, and it belongs to the preset that produced it. A commission flag means a statement wasn't found in the source, for a reviewer to check. When nothing critical is found the score is 1. That includes a source with no facts, where `counts.total` is 0 and only the extract call is charged.
+A score shows whether a critical problem was found, not how good the summary is overall, and it belongs to the preset that produced it. A commission flag means a claim wasn't found in the source, for a reviewer to check. When nothing critical is found the score is 1. That includes a source with no facts, where `counts.total` is 0 and only the extract call is charged.
 
 ### Statuses and errors
 
@@ -271,7 +299,7 @@ Every error answers with JSON: `{"detail": ...}`. Error responses and the server
 
 ## Deploying to AWS
 
-A test deployment runs groundline's API and Postgres, at a commit you choose, on an EC2 server in your AWS project. Only your computer's IP can reach it, so it's for internal testing with test data only, and it deletes itself, with its data, after 8 hours. You need an AWS project, an Anthropic API key, Terraform, the AWS CLI, `jq`, Git and `make`, but not Docker, since the server builds the image itself.
+A disposable deployment runs the Compose stack on one EC2 server in your AWS project. Both access modes use HTTPS on the server's IPv4, with automatic publicly trusted certificates and no domain required. The default restricts application access to your public IP; unrestricted mode allows callers from any IP. Protected API endpoints require API keys in both modes. Both modes use synthetic test data only and delete the server and its data after eight hours by default. The tools are Terraform, the AWS CLI, `jq`, `uv`, Git and `make`; Docker is installed on the server.
 
 ```sh
 make aws-up        # choose the project and the code, deploy, and check the server

@@ -60,6 +60,29 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - run: make core-check
 
+  https:
+    # Local test CA only. AWS acceptance remains a separate manual check.
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - name: Detect HTTPS inputs
+        id: changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          if ! git cat-file -e "$BASE_SHA^{commit}" 2>/dev/null; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          elif git diff --name-only "$BASE_SHA" HEAD | grep -E '^(infra/https/|compose[^/]*\.yaml$|tests/https_smoke\.py$|scripts/https-smoke-test$|scripts/https_check\.py$|Dockerfile$|Makefile$|\.github/workflows/ci\.yml$)' > /dev/null; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        if: steps.changes.outputs.run == 'true'
+      - run: make https-smoke
+        if: steps.changes.outputs.run == 'true'
+
   terraform:
     # The Terraform for AWS test deployments (infra/): formatting, validation and
     # its tests, which plan against a mock AWS provider. No AWS credentials, so
