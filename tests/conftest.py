@@ -11,9 +11,9 @@ from collections.abc import Iterator
 import pytest
 from sqlalchemy import Engine, create_engine, make_url
 
-from groundline.db import api_keys
-from groundline.db.setup import drop_database, setup_database
-from groundline.settings import Settings
+from groundline_core.db import api_keys
+from groundline_core.db.setup import drop_database, setup_database
+from groundline_core.settings import Settings
 
 
 @pytest.fixture(scope="session")

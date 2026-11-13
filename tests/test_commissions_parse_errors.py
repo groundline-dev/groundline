@@ -6,9 +6,9 @@ from typing import Any
 
 import pytest
 
-from groundline.core import ParseError
-from groundline.evaluators.commissions.stages.check import parse_commissions
-from groundline.evaluators.commissions.stages.refute import parse_support
+from groundline_core.core import ParseError
+from groundline_core.evaluators.commissions.stages.check import parse_commissions
+from groundline_core.evaluators.commissions.stages.refute import parse_support
 from tests.commissions_helpers import DOSE, DOSE_SOURCE, SUMMARY, issue
 from tests.omission_helpers import SOURCE
 

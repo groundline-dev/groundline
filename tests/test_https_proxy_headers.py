@@ -16,7 +16,7 @@ def test_private_proxy_scheme_controls_application_redirects(
         monkeypatch.setenv("FORWARDED_ALLOW_IPS", "172.30.254.2")
     else:
         monkeypatch.delenv("FORWARDED_ALLOW_IPS", raising=False)
-    config = Config("groundline.app:app", log_config=None)
+    config = Config("groundline_core.app:app", log_config=None)
     config.load()
     # No lifespan is needed for the public docs route. The remote IP models
     # Caddy on Docker's bridge, outside Uvicorn's default loopback trust.

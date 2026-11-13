@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from groundline.app import app
+from groundline_core.app import app
 from tests.auth_helpers import HEADERS, FakeKeys
 
 ANTHROPIC_KEY = "smoke-anthropic-key"

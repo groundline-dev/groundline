@@ -7,7 +7,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from groundline.core import (
+from groundline_core.core import (
     Effort,
     FileCache,
     Inputs,
@@ -19,7 +19,7 @@ from groundline.core import (
     build_pipeline,
     run_pipeline,
 )
-from groundline.profiles import load_builtin_profile
+from groundline_core.profiles import load_builtin_profile
 
 CLINICAL = load_builtin_profile("clinical")
 

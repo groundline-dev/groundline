@@ -9,10 +9,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncEngine
 
-from groundline.app import app
-from groundline.db import check_connection
-from groundline.db import connection as connection_module
-from groundline.db.connection import make_engine
+from groundline_core.app import app
+from groundline_core.db import check_connection
+from groundline_core.db import connection as connection_module
+from groundline_core.db.connection import make_engine
 from tests.async_helpers import finish_before_watchdog
 
 UNREACHABLE = "postgresql+psycopg://groundline:pw-secret@127.0.0.1:1/groundline"

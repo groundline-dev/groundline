@@ -34,7 +34,7 @@ services:
   setup:
     build: .
     image: groundline:dev
-    command: ["python", "-m", "groundline.db.setup"]
+    command: ["python", "-m", "groundline_core.db.setup"]
     environment:
       DATABASE_URL: postgresql+psycopg://groundline:${GROUNDLINE_DB_PASSWORD:?set GROUNDLINE_DB_PASSWORD in .env (see .env.example)}@postgres:5432/groundline
       DATABASE_ADMIN_URL: postgresql+psycopg://postgres:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env (see .env.example)}@postgres:5432/postgres

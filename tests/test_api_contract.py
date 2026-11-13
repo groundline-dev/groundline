@@ -16,7 +16,7 @@ import pytest
 from anthropic import DefaultAsyncHttpxClient
 from fastapi.testclient import TestClient
 
-from groundline.clients import AnthropicClient
+from groundline_core.clients import AnthropicClient
 from tests.anthropic_helpers import api_error, message
 from tests.api_integration_helpers import ANTHROPIC_KEY
 from tests.api_integration_helpers import http as http
@@ -147,7 +147,7 @@ def wire(endpoint: Endpoint, monkeypatch: pytest.MonkeyPatch) -> Wire:
 
     # The package exports an `evaluate` function that hides its namesake module.
     monkeypatch.setattr(
-        importlib.import_module("groundline.evaluate"), "AnthropicClient", client
+        importlib.import_module("groundline_core.evaluate"), "AnthropicClient", client
     )
     return wire
 

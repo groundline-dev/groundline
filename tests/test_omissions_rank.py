@@ -1,7 +1,7 @@
 import pytest
 
-from groundline.core import StageError
-from groundline.evaluators.omissions.models import RankOutput
+from groundline_core.core import StageError
+from groundline_core.evaluators.omissions.models import RankOutput
 from tests.omission_helpers import (
     EXTRACT,
     EXTRACTED,

@@ -5,8 +5,8 @@ from collections.abc import Awaitable, Callable
 
 import pytest
 
-from groundline.clients.retry import retry_call
-from groundline.core.errors import ModelTimeoutError
+from groundline_core.clients.retry import retry_call
+from groundline_core.core.errors import ModelTimeoutError
 from tests.async_helpers import finish_before_watchdog
 
 
