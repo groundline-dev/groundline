@@ -162,9 +162,38 @@ Anthropic SDK DEBUG logging includes raw prompts. Privacy assertions capture gro
 
 ## Lint, format and type checks
 
-`make check` runs ruff, pyright in strict mode, the large-file check and the tests, without changing files. CI runs it too, along with the database tests (`make test-db`), the Docker stack check (`make docker-smoke`), the Terraform checks (`make infra-check`) and the local certificate lifecycle checks (`make https-smoke`). `make infra-check` needs Terraform, but no AWS credentials: its tests plan against a mock AWS provider. Run it when you change `infra/`. `make fix` applies ruff's fixes and formatting. Pyright errors need fixing by hand.
+`make check` runs ruff, pyright in strict mode, the large-file check, secret checks and the tests, without changing files. CI runs it too, along with the database tests (`make test-db`), the Docker stack check (`make docker-smoke`), the Terraform checks (`make infra-check`) and the local certificate lifecycle checks (`make https-smoke`). `make infra-check` needs Terraform, but no AWS credentials: its tests plan against a mock AWS provider. Run it when you change `infra/`. `make fix` applies ruff's fixes and formatting. Pyright errors need fixing by hand.
 
-The `pre-commit` hook runs the same checks on staged files. If ruff fails, run `make fix` and stage the result.
+The `pre-commit` hook runs lint, format, type, large-file and secret checks on staged changes; it does not run pytest. If ruff fails, run `make fix` and stage the result.
+
+### Secret checks
+
+`make setup` enables the commit hook. Its first run downloads and builds the pinned Gitleaks release through pre-commit, which can take longer than later checks. Gitleaks scans staged changes for known credential formats and other likely secrets. It cannot identify every password, so a separate filename check also blocks files whose names start with `.env` or end with `.env`, in any directory. This includes empty files, renamed files and ignored files added with `git add -f`.
+
+Use `.env.example` for a template containing placeholders. That exact filename is allowed, but Gitleaks still scans its contents. Local environment files stay ignored by Git.
+
+`make check` additionally scans the current contents of all tracked files, including unstaged edits. It excludes untracked files, local environment files and caches. To run just that scan:
+
+```sh
+uv run pre-commit run gitleaks-tracked --hook-stage manual --all-files
+```
+
+The `secrets` CI job scans all fetched Git history, including secrets removed by later commits. It uses the Gitleaks CLI without a license key or repository secret. Findings are redacted in the output. A failed CI check happens after a push: it does not prevent public exposure, and bypassing a local hook can publish a secret before CI reports it.
+
+For an intentional dummy value that Gitleaks flags, add `gitleaks:allow` in a comment on that line and explain why the value is harmless. For an existing historical false positive, copy only its fingerprint into `.gitleaksignore`, with a comment explaining the review. A fingerprint identifies a finding; do not copy the credential or matched source line. Prefer these narrow exceptions over excluding a file, rule or commit. A comment does not bypass the filename check: rename templates to `.env.example`. Historical filename findings use `COMMIT:PATH:env-file:0` fingerprints and can be exempted after confirming the file was harmless.
+
+If a real secret reaches GitHub, revoke and replace it first, then tell the team without sharing its value. Deleting the file, closing a PR or rewriting history does not invalidate an exposed credential. Coordinate any history cleanup with the team; GitHub's [sensitive-data removal guide](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository) explains the remaining copies and cleanup steps.
+
+When updating Gitleaks, update both the commit SHA and release comment in `.pre-commit-config.yaml` and `GITLEAKS_VERSION` in `.github/workflows/ci.yml`. The CI download verifies the archive against the release's checksum file. Dependabot updates the hook pin; review the matching CLI version in the same change.
+
+`tests/test_secret_checks.py` exercises the helper with a stand-in scanner as part of `make test-fast`. The executable integration harness, `tests/secrets_smoke.py`, checks the actual scanner against disposable repositories. CI runs it before the history scan. To reproduce those checks locally with the matching Gitleaks release on `PATH`:
+
+```sh
+python3 tests/secrets_smoke.py
+python3 scripts/check_secrets.py history
+```
+
+The [history audit record](docs/security-audit.md) states the scanned scope and findings.
 
 ## Editor schemas
 
