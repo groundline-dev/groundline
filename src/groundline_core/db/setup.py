@@ -23,7 +23,7 @@ from sqlalchemy.exc import ArgumentError, SQLAlchemyError
 from groundline_core.core.errors import SetupError
 from groundline_core.db.config import DRIVERS
 from groundline_core.db.connection import scrub
-from groundline_core.settings import Settings
+from groundline_core.settings import ENV_FILE, read_settings
 
 EXAMPLE_PASSWORD = "CHANGE_ME"
 CONNECT_TIMEOUT_SECONDS = 5
@@ -172,7 +172,10 @@ def _exists(
 
 
 def main() -> None:
-    settings = Settings()
+    try:
+        settings = read_settings(ENV_FILE)
+    except SetupError as error:
+        sys.exit(f"error: {error}")
     if settings.database_url is None:
         sys.exit(
             "error: DATABASE_URL is not set.\n"

@@ -163,7 +163,7 @@ def test_unreadable_settings_are_a_setup_error_without_their_text(
     (tmp_path / ".env").write_bytes(b"ANTHROPIC_API_KEY=\xffsk-ant-secret")
 
     with pytest.raises(UnreadableSettingsError) as error:
-        asyncio.run(evaluate(SOURCE, SUMMARY))
+        asyncio.run(evaluate(SOURCE, SUMMARY, env_file=".env"))
 
     message = str(error.value)
     assert message.startswith("can't read the settings (UnicodeDecodeError).")

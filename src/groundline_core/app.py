@@ -19,7 +19,11 @@ try:
     from groundline_core.core.errors import SetupError
     from groundline_core.db import check_connection
     from groundline_core.db.connection import make_engine
-    from groundline_core.settings import UnreadableSettingsError, read_settings
+    from groundline_core.settings import (
+        ENV_FILE,
+        UnreadableSettingsError,
+        read_settings,
+    )
 except ModuleNotFoundError as error:
     if is_missing_one_of(error, SERVER_PACKAGES):
         raise ModuleNotFoundError(SERVER_MESSAGE, name=error.name) from error
@@ -72,7 +76,7 @@ def _database_url() -> str | None:
     """The database URL from the settings, warning about anything missing that
     leaves checks or API-key storage unavailable."""
     try:
-        settings = read_settings()
+        settings = read_settings(ENV_FILE)
     except UnreadableSettingsError as error:
         api_logger.warning("%s\nChecks will answer 503 until it's fixed.", error)
         return None

@@ -39,7 +39,7 @@ make setup
 
 `make` targets sync automatically; run `uv sync` after a pull if your editor shows missing imports. Use `uv run <command>` to run anything else inside the environment without activating it.
 
-Model calls need an Anthropic API key. Copy `.env.example` to `.env` and add your key, or export `ANTHROPIC_API_KEY`. groundline stores its own API-key hashes and metadata in PostgreSQL. HTTP checks require PostgreSQL for authentication; CLI and Python checks do not. [DEVELOPMENT.md](DEVELOPMENT.md#getting-started) explains how to set it up. `.env` is git-ignored; never commit a key. groundline reads `.env` from the folder you run it in, so run commands from the repo root. A missing or rejected Anthropic API key produces an error saying where groundline looked and how to fix it, before any paid call.
+Model calls need an Anthropic API key. Copy `.env.example` to `.env` and add your key, or export `ANTHROPIC_API_KEY`. groundline stores its own API-key hashes and metadata in PostgreSQL. HTTP checks require PostgreSQL for authentication; CLI and Python checks do not. [DEVELOPMENT.md](DEVELOPMENT.md#getting-started) explains how to set it up. `.env` is git-ignored; never commit a key. The CLI and the API read `.env` from the folder you run them in, so run commands from the repo root. The Python library reads a `.env` file only if you name one (see [The Anthropic API key in your code](#the-anthropic-api-key-in-your-code)). A missing or rejected Anthropic API key produces an error saying where groundline looked and how to fix it, before any paid call.
 
 **Live calls cost money.** A typical clinical note costs about $0.28 for the omission check and about $0.002 for the commission check. Agree a budget with your team before running anything at scale.
 
@@ -143,6 +143,19 @@ pip install "path/to/groundline[server]"       # plus the API
 
 `uv pip install` takes the same arguments, and `uv add` adds it to a uv project. The package is installed as `groundline-core`, imported as `groundline_core` and run as `groundline-core`, because an unrelated project already uses the name `groundline` on PyPI ([ADR 0016](docs/adr/0016-published-as-groundline-core.md)). Without the `cli` extra, the `groundline-core` command says which extra to install, and so does importing `groundline_core.app` without the `server` extra.
 
+### The Anthropic API key in your code
+
+The library takes the Anthropic API key from the `anthropic_api_key` argument, or else from `ANTHROPIC_API_KEY` in the environment. It reads a `.env` file only when you name one with `env_file`, so it doesn't matter which folder your app runs from:
+
+```python
+result = evaluate_sync(transcript_text, note_text, anthropic_api_key=my_key)
+result = evaluate_sync(transcript_text, note_text, env_file="config/groundline.env")
+```
+
+The argument wins over the environment, and the environment wins over `env_file`. A blank argument raises an error; it doesn't fall back to the environment or `env_file`. With no key, `evaluate_sync` raises `MissingAPIKeyError` before any paid call; unless you named an `env_file`, the message names no file paths. The key never appears in logs, errors or the result.
+
+### Running a check
+
 ```python
 from groundline_core import evaluate_sync
 from groundline_core.evaluators.models import AlarmOutput
@@ -175,7 +188,7 @@ for c in refute.commissions:
     print(c.severity, c.support_verdict, c.unsupported_confidence, c.quote)
 ```
 
-`evaluate()` is the async version, for FastAPI or other async code. Both accept a `spec`, `profile`, `cache`, `client` or `registry` to override the defaults.
+`evaluate()` is the async version, for FastAPI or other async code. Both accept a `spec`, `profile`, `cache`, `client` or `registry` to override the defaults, and `anthropic_api_key` or `env_file` for the key. Pass `client` or `anthropic_api_key`, not both: a `client` brings its own key.
 
 ## Using the API
 

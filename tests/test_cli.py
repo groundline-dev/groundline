@@ -7,6 +7,7 @@ import pytest
 from typer.testing import CliRunner, Result
 
 from groundline_core import cli
+from tests.anthropic_helpers import fake_anthropic, keys_sent
 from tests.fakes import FakeClient
 from tests.omission_helpers import (
     SOURCE,
@@ -98,6 +99,20 @@ def test_threshold_is_no_longer_an_option(
     assert result.exit_code == 2
     assert "No such option" in result.stderr
     assert client.requests == []
+
+
+def test_the_key_comes_from_the_dotenv_in_the_current_folder(
+    files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+):
+    use_client(monkeypatch, None)  # the real Anthropic client, on a fake transport
+    sent = fake_anthropic(monkeypatch, not_flagged_script())
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    Path(".env").write_text("ANTHROPIC_API_KEY=sk-dotenv\n")
+
+    result = omissions(files)
+
+    assert result.exit_code == 0, result.output
+    assert keys_sent(sent) == {"sk-dotenv"}
 
 
 def test_a_missing_key_exits_with_2_and_a_clear_message(
