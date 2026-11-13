@@ -58,6 +58,69 @@ You need [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13 (0.1
    make check
    ```
 
+## Timeouts and outage retries
+
+By default, groundline allows 120 seconds to complete a check and up to three
+attempts for each model call. You can change either setting in `.env`.
+
+### Overall check limit
+
+The 120-second limit covers the entire check, including authentication, model
+calls and retries. It applies to the API, CLI and Python evaluations.
+
+To change the limit, add this line to `.env`:
+
+```dotenv
+GROUNDLINE_CHECK_TIMEOUT_SECONDS=180
+```
+
+If you call the API, configure your application to wait longer than the check
+limit for a response.
+
+### Model retries
+
+Groundline retries temporary model failures, such as rate limits, connection
+errors and timeouts. Each model call allows up to three attempts, including the
+first request. Groundline does not retry permanent errors or database operations.
+
+To disable outage retries, add this line to `.env`:
+
+```dotenv
+GROUNDLINE_MODEL_MAX_ATTEMPTS=1
+```
+
+If the model answers in the wrong format, groundline asks it to answer again
+in the required format. This can happen even with `GROUNDLINE_MODEL_MAX_ATTEMPTS=1`:
+that setting controls retries after temporary failures, not requests to fix
+the format of an answer.
+
+A higher attempt limit allows more retries, but does not extend the overall check
+limit. Failed or interrupted model calls may still incur charges. Reported costs
+include only usage returned by the provider.
+
+#### Why groundline owns retries
+
+Groundline disables the Anthropic SDK's automatic retries so it can keep all model
+attempts and waits within one check deadline. Separate retry layers or a fresh
+timeout for each stage could make a check take much longer than intended.
+
+### Other limits
+
+Each model attempt has a 60-second limit. One model call, including all its
+attempts and retry waits, has a 120-second limit. Increasing the overall check
+limit does not increase either limit. A model call stops sooner if the overall
+check runs out of time.
+
+Database operations also have their own time limits. The model and database
+limits are defined on the `Settings` class in
+[`src/groundline_core/settings.py`](src/groundline_core/settings.py).
+
+The two environment settings for checks are `GROUNDLINE_CHECK_TIMEOUT_SECONDS`
+and `GROUNDLINE_MODEL_MAX_ATTEMPTS`. Set them in `.env` or in the shell;
+shell values take precedence.
+
+See [API statuses and errors](README.md#statuses-and-errors) for response codes.
+
 ## Running the whole stack in Docker
 
 To run Postgres, the database setup and the app together, as they'll run on a server, start the stack at http://127.0.0.1:8001. Stop it with Ctrl+C:

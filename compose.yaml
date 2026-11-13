@@ -51,6 +51,10 @@ services:
     # (ADR 0013). Add each new setting here.
     environment:
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # Key-only entries forward supplied overrides; unset values stay absent.
+      # The application supplies timeout/retry defaults.
+      GROUNDLINE_CHECK_TIMEOUT_SECONDS:
+      GROUNDLINE_MODEL_MAX_ATTEMPTS:
       DATABASE_URL: postgresql+psycopg://groundline:${GROUNDLINE_DB_PASSWORD:?set GROUNDLINE_DB_PASSWORD in .env (see .env.example)}@postgres:5432/groundline
     ports:
       # Local development uses loopback port 8001 alongside `make dev` on 8000.

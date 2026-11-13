@@ -7,7 +7,7 @@ written to be safe, or left to `groundline_core.api.errors`, which never repeats
 """
 
 import logging
-from collections.abc import Generator
+from collections.abc import AsyncGenerator, Generator
 from contextlib import contextmanager
 from typing import Annotated, Any, Literal
 
@@ -31,12 +31,14 @@ from groundline_core.core import (
     build_pipeline,
     summarize_usage,
 )
+from groundline_core.core.deadline import check_deadline
+from groundline_core.core.errors import ModelTimeoutError
 from groundline_core.evaluate import default_registry, model_users
 from groundline_core.evaluators.models import AlarmOutput, Severity
 from groundline_core.evaluators.report import usage_text
 from groundline_core.profiles import load_builtin_profile
 from groundline_core.result import EvaluationResult
-from groundline_core.settings import MissingAPIKeyError
+from groundline_core.settings import MissingAPIKeyError, read_settings
 
 logger = logging.getLogger("groundline.api")
 
@@ -44,11 +46,14 @@ MAX_CHARS = 200_000
 """The longest source or summary accepted, far longer than any consultation, so
 one request can't spend dollars on a huge input."""
 
-# Stage failures caused by the model or Anthropic's API, which answer 502. Our
-# own two are written to be safe to show; the SDK's can quote the request, so
-# only its type is shown. Any other failure is a bug of ours, and its message
-# may quote the source or summary.
-UPSTREAM_CAUSES = (ReplyError, ModelError, anthropic.APIError)
+# A stage can fail because the model timed out (504) or because the model or
+# Anthropic's API failed in another way (502). These exceptions cover both cases.
+# Unexpected stage failures are handled by the app and return 500.
+#
+# Groundline's model error messages are safe to include in the response.
+# Anthropic SDK messages may contain source or summary text, so the response
+# includes only the SDK error's type and HTTP status, when available.
+UPSTREAM_CAUSES = (ReplyError, ModelError, ModelTimeoutError, anthropic.APIError)
 
 
 class ApiModel(BaseModel):
@@ -131,10 +136,10 @@ FAILURE_RESPONSES: dict[int | str, dict[str, Any]] = {
         unexpected=("Unexpected error", {"detail": UNEXPECTED}),
     ),
 }
-"""The statuses any check can answer besides 200, 502 and 503, with examples. FastAPI's
-own 422 entry is replaced, since groundline's 422 leaves out the rejected value.
+"""The statuses any check can answer besides 200, 502, 503 and 504, with examples.
+FastAPI's 422 entry is replaced to leave out the rejected value.
 Check routes use `check_responses`, which adds authentication's 401 and the
-502 and 503, whose examples depend on the route's pipeline."""
+502, 503 and 504 responses, with examples."""
 
 PROTECTED_RESPONSES: dict[int | str, dict[str, Any]] = {
     **FAILURE_RESPONSES,
@@ -156,10 +161,16 @@ PROTECTED_RESPONSES: dict[int | str, dict[str, Any]] = {
 
 
 def check_responses(spec: PipelineSpec) -> dict[int | str, dict[str, Any]]:
-    """Every error status a check route can answer, for its `responses`:
-    `PROTECTED_RESPONSES`, a 502 whose examples fail in the pipeline's first
-    model call, priced at its model, and a 503 that names the stages needing
-    the Anthropic API key, as the real one does."""
+    """Describe the errors a check endpoint can return in the API docs.
+
+    Start with the request and authentication errors in `PROTECTED_RESPONSES`.
+    Add 502 for model or provider failures, 503 for configuration or
+    authentication problems, and 504 when a time limit expires.
+
+    Tailor the examples to this pipeline: use its first model stage and pricing
+    for the 502 examples, and name the stages that need an Anthropic API key
+    in the missing-key 503 example.
+    """
     profile = load_builtin_profile(spec.profile) if spec.profile else None
     pipeline = build_pipeline(spec, default_registry(), profile)
     stage = next(s for s in pipeline.stages if s.enabled and s.implementation.models())
@@ -176,12 +187,15 @@ def check_responses(spec: PipelineSpec) -> dict[int | str, dict[str, Any]]:
     failed = f"stage '{stage.step}' failed"
     upstream = _error(
         ErrorBody,
-        "The model or Anthropic's API failed. Retrying later may work.",
+        "The model returned an error or unusable output after the permitted "
+        "outage retries or correction request. A Retry-After that cannot fit "
+        "the remaining allowance also stops with 502 before deadline expiry.",
         unusable_reply=(
             "Unusable reply",
             {
-                "detail": f"{failed}: unusable reply after 1 retry: no JSON object "
-                f"in the reply (the reply was 8 characters). Cost before stopping: "
+                "detail": f"{failed}: The model’s reply remained unusable "
+                f"after a request for correction: no JSON object in the reply "
+                f"(the reply was 8 characters). Recorded cost before stopping: "
                 f"{cost}"
             },
         ),
@@ -207,7 +221,16 @@ def check_responses(spec: PipelineSpec) -> dict[int | str, dict[str, Any]]:
             },
         ),
     )
-    return PROTECTED_RESPONSES | {502: upstream, 503: unavailable}
+    timeout = _error(
+        ErrorBody,
+        "The check, model attempt, or outage retry allowance expired. "
+        "Recorded usage may exclude charges for interrupted provider requests.",
+        model_timeout=(
+            "Model time limit",
+            {"detail": "time limit expired while waiting for the model"},
+        ),
+    )
+    return PROTECTED_RESPONSES | {502: upstream, 503: unavailable, 504: timeout}
 
 
 _EXAMPLE_SOURCE = (
@@ -351,6 +374,13 @@ class CheckResponse[E: str, M: ApiModel](ApiModel):
     """How the check ran: the pipeline, the alarm behind the flag, and the usage."""
 
 
+async def begin_check() -> AsyncGenerator[None]:
+    with check_failures():
+        seconds = read_settings().check_timeout_seconds
+    with check_deadline(seconds):
+        yield
+
+
 def model_client() -> ModelClient | None:
     """The model client to use; None means the default Anthropic client.
     Tests override this dependency with a scripted fake."""
@@ -376,20 +406,40 @@ def usage_of(result: EvaluationResult) -> Usage:
 def check_failures() -> Generator[None]:
     """Turn what stops a check into the HTTP error it deserves: 503 when the
     Anthropic API key is missing or rejected or the settings can't be read, and
-    502 when the model or Anthropic's API fails. Anything else is a bug of ours:
+    502 when the model or Anthropic's API fails, and 504 for owned model/check
+    time limits. Anything else is a bug of ours:
     it passes through, and the app-wide handler answers 500."""
     try:
         yield
     except SetupError as error:
-        logger.warning("can't check: %s", error)
+        logger.warning("can't check: %s", error.api_message())
         raise HTTPException(503, detail=error.api_message()) from error
+    except ModelTimeoutError as error:
+        spent = _spent(error)
+        logger.warning("check timed out (reason=%s)%s", error.reason, spent)
+        raise HTTPException(504, detail=f"{error}{spent}") from None
     except StageError as error:
         spent = _spent(error)
-        cause = type(error.__cause__).__name__
-        logger.warning("stage '%s' failed (%s)%s", error.step, cause, spent)
+        cause = error.__cause__
+        if isinstance(cause, (ModelTimeoutError, anthropic.APITimeoutError)):
+            reason = cause.reason if isinstance(cause, ModelTimeoutError) else "attempt"
+            logger.warning(
+                "stage '%s' timed out (reason=%s)%s", error.step, reason, spent
+            )
+        else:
+            logger.warning(
+                "stage '%s' failed (%s)%s", error.step, type(cause).__name__, spent
+            )
         if not isinstance(error.__cause__, UPSTREAM_CAUSES):
             raise
-        raise HTTPException(502, detail=f"{_failure(error)}{spent}") from error
+        status = (
+            504
+            if isinstance(
+                error.__cause__, (ModelTimeoutError, anthropic.APITimeoutError)
+            )
+            else 502
+        )
+        raise HTTPException(status, detail=f"{_failure(error)}{spent}") from error
 
 
 def _failure(error: StageError) -> str:
@@ -405,8 +455,10 @@ def _failure(error: StageError) -> str:
     return f"stage '{error.step}' failed: the Anthropic API {what} ({name})"
 
 
-def _spent(error: StageError) -> str:
+def _spent(error: StageError | ModelTimeoutError) -> str:
     """What a failed check had cost, if it made any calls."""
     if not error.calls:
         return ""
-    return f". Cost before stopping: {usage_text(summarize_usage(error.calls))}"
+    return (
+        f". Recorded cost before stopping: {usage_text(summarize_usage(error.calls))}"
+    )

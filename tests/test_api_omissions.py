@@ -198,8 +198,11 @@ def test_an_unusable_reply_is_a_502_naming_the_stage_and_cost():
 
     assert response.status_code == 502
     detail = response.json()["detail"]
-    assert detail.startswith("stage 'extract' failed: unusable reply after 1 retry")
-    assert "Cost before stopping: $0." in detail and "· 2 calls" in detail
+    assert detail.startswith(
+        "stage 'extract' failed: The model’s reply remained unusable "
+        "after a request for correction"
+    )
+    assert "Recorded cost before stopping: $0." in detail and "· 2 calls" in detail
 
 
 def _api_request() -> httpx2.Request:
@@ -261,7 +264,7 @@ def test_an_anthropic_api_error_after_some_calls_says_what_they_cost():
     detail = response.json()["detail"]
     assert detail.startswith(
         "stage 'rank' failed: the Anthropic API answered 500 (InternalServerError)"
-        ". Cost before stopping: $0."
+        ". Recorded cost before stopping: $0."
     )
     assert re.search(r"· 1 calls · [\d,]+ input / [\d,]+ output tokens$", detail)
     assert "tenofovir" not in detail

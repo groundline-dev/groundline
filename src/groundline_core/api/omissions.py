@@ -22,6 +22,7 @@ from groundline_core.api.common import (
     Finding,
     Metadata,
     alarm_of,
+    begin_check,
     check_failures,
     check_responses,
     model_client,
@@ -106,7 +107,7 @@ class OmissionsResponse(CheckResponse[Literal["omissions"], OmissionsMetadata]):
 
 @router.post(
     "/omissions",
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(begin_check), Depends(require_api_key)],
     responses=check_responses(load_preset(DEFAULT_PRESET)),
 )
 async def omissions(
@@ -115,9 +116,10 @@ async def omissions(
 ) -> OmissionsResponse:
     """Find the facts a summary leaves out, and whether to flag it.
 
-    Runs the validated all-Opus omission check, which takes about 30-60 seconds
-    and costs about $0.28 for a typical clinical note, so use a long client
-    timeout. Answers 200 for every finished check, flagged or not."""
+    Runs the validated all-Opus omission check. Set the client timeout
+    above the configured whole-check limit, which defaults to 120 seconds, to
+    allow time for request and response transfer. Answers 200 for every finished
+    check, flagged or not."""
     spec = load_preset(DEFAULT_PRESET)
     started = time.perf_counter()
     with check_failures():

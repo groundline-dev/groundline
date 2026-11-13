@@ -22,6 +22,7 @@ hash. Bad input, unknown identifiers and storage failures each raise their own
 exception type, with a message that is safe to show.
 """
 
+import asyncio
 import hashlib
 import re
 import secrets
@@ -37,7 +38,9 @@ from sqlalchemy import func, insert, or_, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
+from groundline_core.core.deadline import raise_if_cancelling, remaining
 from groundline_core.db import api_keys
+from groundline_core.settings import read_settings
 
 _ADJECTIVES = ("bright", "calm", "gentle", "nimble", "quiet", "swift", "warm", "wise")
 _NOUNS = (
@@ -162,11 +165,39 @@ class APIKeys:
         self._engine = engine
 
     @asynccontextmanager
-    async def _transaction(self) -> AsyncGenerator[AsyncConnection]:
+    async def _transaction(
+        self, *, seconds: float | None = None
+    ) -> AsyncGenerator[AsyncConnection]:
+        settings = read_settings()
+        total_end = (
+            asyncio.get_running_loop().time() + seconds
+            if seconds is not None
+            else float("inf")
+        )
         try:
-            async with self._engine.begin() as connection:
-                yield connection
+            # Acquisition includes pool wait, connection setup and pre-ping. The
+            # database's statement_timeout separately bounds each query/lock wait.
+            acquisition = asyncio.timeout(
+                min(
+                    remaining(),
+                    settings.db_connect_timeout_seconds,
+                    settings.db_check_timeout_seconds,
+                    settings.db_pool_timeout_seconds,
+                    total_end - asyncio.get_running_loop().time(),
+                )
+            )
+            async with acquisition:
+                async with self._engine.begin() as connection:
+                    acquisition.reschedule(
+                        min(
+                            total_end,
+                            asyncio.get_running_loop().time()
+                            + min(remaining(), settings.db_query_timeout_seconds),
+                        )
+                    )
+                    yield connection
         except (SQLAlchemyError, OSError):
+            raise_if_cancelling()
             # Driver messages can contain SQL parameters or database passwords.
             raise APIKeyStorageError("API-key storage is unavailable") from None
 
@@ -244,7 +275,9 @@ class APIKeys:
         if not valid_api_key_format(credential):
             return None
         digest = _digest(credential)
-        async with self._transaction() as connection:
+        async with self._transaction(
+            seconds=read_settings().db_auth_timeout_seconds
+        ) as connection:
             result = await connection.execute(
                 select(*_PUBLIC_COLUMNS).where(
                     api_keys.c.key_hash == digest,

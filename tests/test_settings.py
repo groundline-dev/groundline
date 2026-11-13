@@ -8,6 +8,8 @@ from groundline_core.settings import MissingAPIKeyError, Settings
 @pytest.fixture(autouse=True)
 def isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     """Keep the developer's real key and .env out of these tests."""
+    for name in (*OPERATOR_DEFAULTS, *INTERNAL_LIMITS):
+        monkeypatch.delenv("GROUNDLINE_" + name.upper(), raising=False)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     for name in (
         "DATABASE_URL",
@@ -144,3 +146,86 @@ def test_a_dotenv_url_follows_the_postgres_port(port_line: str, port: str):
 
     assert url is not None
     assert f"@localhost:{port}/" in url.get_secret_value()
+
+
+OPERATOR_DEFAULTS = {"check_timeout_seconds": 120, "model_max_attempts": 3}
+INTERNAL_LIMITS = (
+    "db_auth_timeout_seconds",
+    "db_connect_timeout_seconds",
+    "db_pool_timeout_seconds",
+    "db_query_timeout_seconds",
+    "db_check_timeout_seconds",
+    "db_readiness_timeout_seconds",
+    "model_timeout_seconds",
+    "model_connect_timeout_seconds",
+    "model_retry_timeout_seconds",
+    "model_retry_base_seconds",
+    "model_retry_cap_seconds",
+)
+
+
+def test_retry_and_timeout_defaults():
+    settings = Settings()
+    for name, default in OPERATOR_DEFAULTS.items():
+        assert getattr(settings, name) == default
+
+
+@pytest.mark.parametrize("name", ["check_timeout_seconds", "model_max_attempts"])
+def test_retry_and_timeout_settings_can_be_overridden(
+    name: str, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv("GROUNDLINE_" + name.upper(), "2")
+    assert getattr(Settings(), name, None) == 2
+
+
+@pytest.mark.parametrize("name", ["check_timeout_seconds", "model_max_attempts"])
+@pytest.mark.parametrize("value", ["0", "-1", "nan", "inf", "nonsense"])
+def test_retry_and_timeout_settings_reject_unbounded_or_invalid_values(
+    name: str, value: str, monkeypatch: pytest.MonkeyPatch
+):
+    from pydantic import ValidationError
+
+    monkeypatch.setenv("GROUNDLINE_" + name.upper(), value)
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+def test_attempt_count_must_be_an_integer(monkeypatch: pytest.MonkeyPatch):
+    from pydantic import ValidationError
+
+    monkeypatch.setenv("GROUNDLINE_MODEL_MAX_ATTEMPTS", "2.5")
+    with pytest.raises(ValidationError):
+        Settings()
+
+
+def test_copying_env_example_preserves_application_timeout_defaults():
+    example = Path(__file__).resolve().parents[1] / ".env.example"
+    Path(".env").write_text(example.read_text())
+    settings = Settings()
+    for name, default in OPERATOR_DEFAULTS.items():
+        assert getattr(settings, name) == default
+
+
+def test_timeout_override_can_use_dotenv_or_environment(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    Path(".env").write_text("GROUNDLINE_CHECK_TIMEOUT_SECONDS=30\n")
+    assert Settings().check_timeout_seconds == 30
+    monkeypatch.setenv("GROUNDLINE_CHECK_TIMEOUT_SECONDS", "60")
+    assert Settings().check_timeout_seconds == 60
+
+
+def test_internal_limits_ignore_environment_and_dotenv(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    defaults = {name: getattr(Settings(), name) for name in INTERNAL_LIMITS}
+    Path(".env").write_text(
+        "\n".join(f"GROUNDLINE_{name.upper()}=nonsense" for name in INTERNAL_LIMITS)
+    )
+    for name, default in defaults.items():
+        assert getattr(Settings(), name) == default
+        monkeypatch.setenv("GROUNDLINE_" + name.upper(), "0.001")
+    settings = Settings()
+    for name, default in defaults.items():
+        assert getattr(settings, name) == default
+        assert name not in Settings.model_fields

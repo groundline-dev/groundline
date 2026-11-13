@@ -1,15 +1,24 @@
+import asyncio
 import logging
+from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import cast
 from unittest.mock import AsyncMock
 
 import pytest
+from fastapi import HTTPException, Request
+from fastapi.security import HTTPAuthorizationCredentials
 from fastapi.testclient import TestClient
 from sqlalchemy import event
-from sqlalchemy.ext.asyncio import AsyncEngine
+from sqlalchemy.exc import SQLAlchemyError
+from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from groundline_core import app as app_module
-from groundline_core.api_keys import APIKeys, APIKeyStorageError
+from groundline_core.api_keys import APIKeyInfo, APIKeys, APIKeyStorageError
+from groundline_core.auth import require_api_key
 from groundline_core.db.connection import make_engine
+from groundline_core.settings import Settings
 from tests.auth_helpers import SECRET, FakeKeys, protected_app
 
 
@@ -197,3 +206,157 @@ def test_openapi_advertises_bearer_security():
     schema = protected_app().openapi()
     assert schema["paths"]["/protected"]["get"]["security"] == [{"HTTPBearer": []}]
     assert "security" not in schema["paths"]["/health"]["get"]
+
+
+@pytest.mark.parametrize("boundary", ["transaction", "authentication"])
+def test_cleanup_error_does_not_replace_external_cancellation(
+    boundary: str, monkeypatch: pytest.MonkeyPatch
+):
+    """Cleanup failures are synthetic; this does not simulate a lost commit."""
+    for name in ("AUTH", "CONNECT", "CHECK", "POOL", "QUERY"):
+        monkeypatch.setattr(Settings, f"db_{name.lower()}_timeout_seconds", 5)
+
+    async def run():
+        entered = asyncio.Event()
+        attempts = 0
+
+        async def hang():
+            nonlocal attempts
+            attempts += 1
+            entered.set()
+            await asyncio.Event().wait()
+
+        class Connection:
+            async def execute(self, statement: object):
+                await hang()
+
+        class Engine:
+            @asynccontextmanager
+            async def begin(self) -> AsyncGenerator[AsyncConnection]:
+                try:
+                    yield cast(AsyncConnection, Connection())
+                finally:
+                    raise SQLAlchemyError("private rollback failure")
+
+        class NoisyKeys(FakeKeys):
+            async def authenticate(self, credential: str) -> APIKeyInfo | None:
+                try:
+                    await hang()
+                finally:
+                    raise RuntimeError("private cleanup failure")
+
+        if boundary == "transaction":
+            keys = APIKeys(cast(AsyncEngine, Engine()))
+            task = asyncio.create_task(keys.authenticate(SECRET))
+        else:
+            app = protected_app(with_lifespan=False)
+            app.state.api_keys = NoisyKeys()
+            task = asyncio.create_task(
+                require_api_key(
+                    Request({"type": "http", "app": app}),
+                    HTTPAuthorizationCredentials(scheme="Bearer", credentials=SECRET),
+                )
+            )
+        try:
+            await asyncio.wait_for(entered.wait(), 3)
+            task.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await task
+            assert task.cancelled()
+            assert attempts == 1
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("limit", ["authentication", "query_http", "query_direct"])
+def test_internal_timeout_with_cleanup_failure_keeps_its_safe_error(
+    limit: str,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+):
+    """Synthetic cleanup errors verify timeout mapping, not actual DB rollback."""
+    for name in ("AUTH", "CONNECT", "CHECK", "POOL", "QUERY"):
+        monkeypatch.setattr(Settings, f"db_{name.lower()}_timeout_seconds", 5)
+    setting = "AUTH" if limit == "authentication" else "QUERY"
+    monkeypatch.setattr(Settings, f"db_{setting.lower()}_timeout_seconds", 0.3)
+
+    async def run():
+        attempts = 0
+        cancellations = 0
+        cleanups = 0
+
+        async def hang():
+            nonlocal attempts, cancellations
+            attempts += 1
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancellations += 1
+
+        class Connection:
+            async def execute(self, statement: object):
+                await hang()
+
+        class Engine:
+            @asynccontextmanager
+            async def begin(self) -> AsyncGenerator[AsyncConnection]:
+                nonlocal cleanups
+                try:
+                    yield cast(AsyncConnection, Connection())
+                finally:
+                    cleanups += 1
+                    raise SQLAlchemyError("private rollback failure")
+
+        class NoisyKeys(FakeKeys):
+            async def authenticate(self, credential: str) -> APIKeyInfo | None:
+                nonlocal cleanups
+                try:
+                    await hang()
+                finally:
+                    cleanups += 1
+                    raise SQLAlchemyError("private rollback failure")
+
+        # The auth-only fake has no nested limit: auth.py must stop it. Query
+        # cases run the real APIKeys transaction with a shorter query allowance.
+        keys = (
+            NoisyKeys()
+            if limit == "authentication"
+            else APIKeys(cast(AsyncEngine, Engine()))
+        )
+
+        async def operation():
+            if limit == "query_direct":
+                return await keys.authenticate(SECRET)
+            app = protected_app(with_lifespan=False)
+            app.state.api_keys = keys
+            return await require_api_key(
+                Request({"type": "http", "app": app}),
+                HTTPAuthorizationCredentials(scheme="Bearer", credentials=SECRET),
+            )
+
+        task = asyncio.create_task(operation())
+        try:
+            done, _ = await asyncio.wait({task}, timeout=3)
+            assert done, "the application limit must beat the independent watchdog"
+            assert not task.cancelled()
+            assert task.cancelling() == 0
+            if limit == "query_direct":
+                with pytest.raises(APIKeyStorageError) as stored:
+                    task.result()
+                assert str(stored.value) == "API-key storage is unavailable"
+            else:
+                with pytest.raises(HTTPException) as response:
+                    task.result()
+                assert response.value.status_code == 503
+                assert response.value.detail == "Authentication is unavailable"
+            assert attempts == cancellations == cleanups == 1
+            assert "private rollback failure" not in caplog.text
+            assert SECRET not in caplog.text
+        finally:
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+    asyncio.run(run())

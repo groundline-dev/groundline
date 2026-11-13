@@ -72,7 +72,9 @@ def test_severity_case_is_normalized():
     ],
 )
 def test_invalid_replies_retry_once_then_fail(bad: str):
-    with pytest.raises(StageError, match="stage 'rank'.*after 1 retry"):
+    with pytest.raises(
+        StageError, match="stage 'rank'.*after a request for correction"
+    ):
         ranked([bad, bad])
 
 

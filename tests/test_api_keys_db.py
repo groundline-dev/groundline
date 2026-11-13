@@ -247,3 +247,66 @@ def test_commit_failure_does_not_return_a_secret_or_leave_a_row(
         with db_engine.begin() as connection:
             connection.execute(text("DROP TRIGGER reject_created_key ON api_keys"))
             connection.execute(text("DROP FUNCTION reject_created_key()"))
+
+
+@pytest.mark.parametrize(
+    "operation,sqlstate", [("create", "40P01"), ("revoke", "57014")]
+)
+def test_failed_write_rolls_back_without_replay(
+    db_url: str, db_engine: Engine, sqlstate: str, operation: str
+):
+    # A nontransactional sequence counts even rolled-back attempts. The trigger raises
+    # representative SQLSTATE errors on a live connection. This does not simulate
+    # disconnection during commit or establish the outcome of an uncertain commit.
+    async def run():
+        async with service(db_url) as keys:
+            created = await keys.create(name="existing")
+            with db_engine.begin() as connection:
+                connection.execute(text("CREATE SEQUENCE failed_write_attempts"))
+                connection.execute(
+                    text(
+                        "CREATE FUNCTION reject_write() RETURNS trigger "
+                        "LANGUAGE plpgsql AS $$ "
+                        "BEGIN PERFORM nextval('failed_write_attempts'); "
+                        "RAISE EXCEPTION 'private SQL credential detail' "
+                        f"USING ERRCODE = '{sqlstate}'; "
+                        "END $$"
+                    )
+                )
+                connection.execute(
+                    text(
+                        "CREATE TRIGGER reject_write BEFORE INSERT OR UPDATE "
+                        "ON api_keys FOR EACH ROW EXECUTE FUNCTION reject_write()"
+                    )
+                )
+            try:
+                with pytest.raises(APIKeyStorageError) as error:
+                    if operation == "create":
+                        await keys.create(name="never stored")
+                    else:
+                        await keys.revoke(created.info.id)
+                assert str(error.value) == "API-key storage is unavailable"
+                with db_engine.connect() as connection:
+                    assert (
+                        connection.scalar(
+                            text("SELECT last_value FROM failed_write_attempts")
+                        )
+                        == 1
+                    )
+                    assert (
+                        connection.scalar(select(func.count()).select_from(api_keys))
+                        == 1
+                    )
+                    assert connection.scalar(select(api_keys.c.status)) == "active"
+                # A successful read on the same pool proves cleanup recovered.
+                assert (
+                    await keys.authenticate(created.secret.get_secret_value())
+                    is not None
+                )
+            finally:
+                with db_engine.begin() as connection:
+                    connection.execute(text("DROP TRIGGER reject_write ON api_keys"))
+                    connection.execute(text("DROP FUNCTION reject_write()"))
+                    connection.execute(text("DROP SEQUENCE failed_write_attempts"))
+
+    asyncio.run(run())

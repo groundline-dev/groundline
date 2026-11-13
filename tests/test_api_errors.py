@@ -2,7 +2,7 @@
 
 import logging
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import httpx2
 import pytest
@@ -14,7 +14,11 @@ from groundline_core.api import common, errors
 from groundline_core.api.errors import safe_traceback
 from groundline_core.app import app
 from groundline_core.clients.anthropic import AnthropicClient
+from groundline_core.core import CallRecord, StageError
+from groundline_core.core.errors import ModelTimeoutError
+from groundline_core.settings import Settings
 from tests.anthropic_helpers import api_error
+from tests.async_helpers import finish_before_watchdog
 from tests.auth_helpers import SECRET as API_KEY
 from tests.auth_helpers import Endpoint, FakeKeys
 from tests.auth_helpers import endpoint as endpoint
@@ -171,3 +175,157 @@ def test_a_safe_traceback_has_each_type_and_frame_but_no_message():
     assert text.index("ValueError") < text.index("KeyError")
     assert "test_a_safe_traceback" in text
     assert SECRET not in text
+
+
+# Exercise the shared error handling through commissions; omissions also checks
+# both statuses without repeating every provider sequence.
+@pytest.mark.parametrize(
+    "route,outcome,expected",
+    [
+        ("/v1/commissions", "timeout", 504),
+        ("/v1/commissions", "hung-transport", 504),
+        ("/v1/commissions", "retry-after-check-too-short", 502),
+        ("/v1/commissions", "timeout-then-error", 502),
+        ("/v1/commissions", "error-then-timeout", 504),
+        ("/v1/commissions", "error", 502),
+        ("/v1/commissions", "retry-after-too-long", 502),
+        ("/v1/omissions", "timeout", 504),
+        ("/v1/omissions", "error", 502),
+    ],
+)
+def test_final_model_stopping_reason_controls_http_status(
+    route: str,
+    outcome: str,
+    expected: int,
+    monkeypatch: pytest.MonkeyPatch,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
+):
+    import asyncio
+
+    monkeypatch.chdir(tmp_path)
+    for name, value in {
+        "GROUNDLINE_CHECK_TIMEOUT_SECONDS": "0.5"
+        if outcome == "retry-after-check-too-short"
+        else "3",
+        "model_timeout_seconds": "0.3",
+        "GROUNDLINE_MODEL_MAX_ATTEMPTS": "2",
+        "model_retry_timeout_seconds": "5",
+        "model_retry_base_seconds": "0.001",
+        "model_retry_cap_seconds": "0.002",
+    }.items():
+        if not name.startswith("GROUNDLINE_"):
+            monkeypatch.setattr(Settings, name, float(value))
+        else:
+            monkeypatch.setenv(name, value)
+    calls: list[httpx2.Request] = []
+
+    cancelled: list[bool] = []
+
+    async def handler(request: httpx2.Request):
+        calls.append(request)
+        if outcome == "hung-transport":
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.append(True)
+        timeout = (
+            outcome == "timeout"
+            or (outcome == "timeout-then-error" and len(calls) == 1)
+            or (outcome == "error-then-timeout" and len(calls) >= 2)
+        )
+        if timeout:
+            raise httpx2.ReadTimeout(PRIVATE + SECRET, request=request)
+        return httpx2.Response(
+            529,
+            headers=(
+                {"Retry-After": "100"}
+                if outcome == "retry-after-too-long"
+                else {"Retry-After": "1"}
+                if outcome == "retry-after-check-too-short"
+                else {}
+            ),
+            json=api_error("overloaded_error", PRIVATE + SECRET),
+        )
+
+    async def run():
+        model = AnthropicClient(
+            SECRET,
+            http_client=DefaultAsyncHttpxClient(
+                transport=httpx2.MockTransport(handler)
+            ),
+        )
+        app.dependency_overrides[common.model_client] = lambda: model
+        try:
+            async with httpx2.AsyncClient(
+                transport=httpx2.ASGITransport(app=app, raise_app_exceptions=False),
+                base_url="http://test",
+            ) as client:
+                started = asyncio.get_running_loop().time()
+                response = await finish_before_watchdog(
+                    client.post(
+                        route,
+                        json={"source": PRIVATE, "summary": PRIVATE},
+                        headers={"Authorization": f"Bearer {API_KEY}"},
+                    ),
+                    seconds=5,
+                )
+                if outcome == "retry-after-check-too-short":
+                    assert asyncio.get_running_loop().time() - started < 0.5, (
+                        "a wait that cannot fit must be rejected before check expiry"
+                    )
+                assert response.status_code == expected
+                assert len(calls) == (1 if outcome.startswith("retry-after") else 2)
+                if outcome == "hung-transport":
+                    assert len(cancelled) == 2
+                for secret in (SECRET, PRIVATE, API_KEY):
+                    assert secret not in response.text + caplog.text
+        finally:
+            await model.close()
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("reason", ["check", "attempt", "retry"])
+@pytest.mark.parametrize("stage_wrapped", [False, True])
+def test_timeout_logging_names_reason_and_recorded_usage(
+    reason: Literal["check", "attempt", "retry"],
+    stage_wrapped: bool,
+    caplog: pytest.LogCaptureFixture,
+):
+    """Exercise log/HTTP mapping; real deadline enforcement is tested separately."""
+    timeout = ModelTimeoutError(reason)
+    calls = (
+        CallRecord(
+            step="extract",
+            model="claude-opus-5-5",
+            input_tokens=12345,
+            output_tokens=300,
+            seconds=0.3,
+        ),
+    )
+    failure: Exception = timeout
+    if stage_wrapped:
+        stage_error = StageError("extract", str(timeout))
+        stage_error.__cause__ = timeout
+        stage_error.calls = calls
+        failure = stage_error
+    else:
+        timeout.calls = calls
+
+    with caplog.at_level(logging.WARNING, logger="groundline.api"):
+        with pytest.raises(HTTPException) as response:
+            with common.check_failures():
+                raise failure
+    assert response.value.status_code == 504
+    records = [r for r in caplog.records if r.name == "groundline.api"]
+    assert len(records) == 1
+    logged = records[0].getMessage()
+    assert f"reason={reason}" in logged
+    assert "Recorded cost before stopping:" in logged
+    assert "12,345 input / 300 output tokens" in logged
+    if stage_wrapped:
+        assert "stage 'extract'" in logged
+    for secret in (SECRET, API_KEY, PRIVATE):
+        assert secret not in logged + str(response.value.detail)
+    assert records[0].exc_info is None

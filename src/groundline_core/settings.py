@@ -1,14 +1,15 @@
 """Secrets and environment settings, read from the environment or a `.env` file.
 
-Values already in the environment win over `.env`. The `.env` file is read from
-the current folder. Keys are held as `SecretStr` so they never appear when
-settings are printed or logged.
+Environment variables take precedence over `.env` in the current working
+directory. Credentials use `SecretStr`, which masks their values in standard
+representations. Calling `get_secret_value()` exposes the original value.
 """
 
 import os
 from pathlib import Path
+from typing import ClassVar
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from groundline_core.core.errors import SetupError
@@ -33,7 +34,7 @@ class UnreadableSettingsError(SetupError):
 
 
 def dotenv_path() -> Path:
-    """The `.env` file settings are read from: in the current folder."""
+    """Return the `.env` path in the current working directory."""
     return Path.cwd() / ENV_FILE
 
 
@@ -51,6 +52,38 @@ class Settings(BaseSettings):
     database_admin_url: SecretStr | None = None
     """The Postgres admin login, which only setup and the database tests use to
     create the app's login and database. The app itself never gets it (ADR 0013)."""
+
+    check_timeout_seconds: float = Field(
+        default=120,
+        gt=0,
+        allow_inf_nan=False,
+        validation_alias="GROUNDLINE_CHECK_TIMEOUT_SECONDS",
+    )
+    """Seconds allowed for a check: authentication, model calls and retries."""
+    model_max_attempts: int = Field(
+        default=3, gt=0, validation_alias="GROUNDLINE_MODEL_MAX_ATTEMPTS"
+    )
+    """Attempts per model call, including the first request; 1 disables outage
+    retries. If the model answers in the wrong format, groundline can still
+    ask it to answer again in the required format."""
+
+    # Time limits below are in seconds. Each operation stops at its own limit
+    # or when the overall check runs out of time, whichever comes first.
+    db_auth_timeout_seconds: ClassVar[float] = 5
+    db_connect_timeout_seconds: ClassVar[float] = 5
+    db_pool_timeout_seconds: ClassVar[float] = 5
+    db_query_timeout_seconds: ClassVar[float] = 5
+    db_check_timeout_seconds: ClassVar[float] = 5
+    """Time to acquire a database connection and check that it works."""
+    db_readiness_timeout_seconds: ClassVar[float] = 5
+    """Time for the entire database startup or readiness probe."""
+    model_timeout_seconds: ClassVar[float] = 60
+    """Time for one model attempt."""
+    model_connect_timeout_seconds: ClassVar[float] = 5
+    model_retry_timeout_seconds: ClassVar[float] = 120
+    """Total time for one model call, including attempts and retry waits."""
+    model_retry_base_seconds: ClassVar[float] = 1
+    model_retry_cap_seconds: ClassVar[float] = 8
 
     def require_database_url(self) -> str:
         """Require storage only when an operation actually uses it."""
@@ -81,8 +114,10 @@ class Settings(BaseSettings):
 
 
 def read_settings() -> Settings:
-    """The settings, or an error naming only the problem's type and the file to
-    check: a settings error can quote the value it rejected, such as a key."""
+    """Load settings and report failures without exposing rejected values.
+
+    Validation errors can contain credentials, so retain only the error type.
+    """
     try:
         return Settings()
     except Exception as error:
