@@ -36,7 +36,7 @@ from groundline_core.evaluators.models import AlarmOutput, Severity
 from groundline_core.evaluators.report import usage_text
 from groundline_core.profiles import load_builtin_profile
 from groundline_core.result import EvaluationResult
-from groundline_core.settings import MissingAPIKeyError
+from groundline_core.settings import ENV_FILE, MissingAPIKeyError
 
 logger = logging.getLogger("groundline.api")
 
@@ -202,7 +202,7 @@ def check_responses(spec: PipelineSpec) -> dict[int | str, dict[str, Any]]:
             "Anthropic API key not set",
             {
                 "detail": MissingAPIKeyError(
-                    "ANTHROPIC_API_KEY", model_users(pipeline)
+                    model_users(pipeline), ENV_FILE
                 ).api_message()
             },
         ),

@@ -37,6 +37,7 @@ from groundline_core.evaluators.models import ALARM_STEP, AlarmOutput
 from groundline_core.evaluators.report import cost_line, result_line
 from groundline_core.presets import load_preset
 from groundline_core.result import EvaluationResult
+from groundline_core.settings import ENV_FILE
 
 logger = logging.getLogger("groundline.api")
 
@@ -126,7 +127,7 @@ async def commissions(
     started = time.perf_counter()
     with check_failures():
         result = await evaluate(
-            request.source, request.summary, spec=spec, client=client
+            request.source, request.summary, spec=spec, client=client, env_file=ENV_FILE
         )
     response = _response(result)
     logger.info(

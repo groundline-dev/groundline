@@ -135,10 +135,11 @@ class Wire:
 def wire(endpoint: Endpoint, monkeypatch: pytest.MonkeyPatch) -> Wire:
     wire = Wire(endpoint.not_flagged())
 
-    def client(api_key: str, *, key_source: str) -> AnthropicClient:
+    def client(api_key: str, *, key_source: str, key_name: str) -> AnthropicClient:
         return AnthropicClient(
             api_key,
             key_source=key_source,
+            key_name=key_name,
             max_retries=0,  # SDK backoff is covered separately; keep failures instant.
             http_client=DefaultAsyncHttpxClient(
                 transport=httpx2.MockTransport(wire.respond), trust_env=False

@@ -5,6 +5,8 @@ The CLI, the API and evaluator adapters all call this, so they behave the same.
 
 import asyncio
 
+from pydantic import SecretStr
+
 from groundline_core.clients import AnthropicClient
 from groundline_core.core import (
     Cache,
@@ -22,7 +24,7 @@ from groundline_core.evaluators.builtin import default_registry
 from groundline_core.presets import builtin_presets, load_preset
 from groundline_core.profiles import load_builtin_profile
 from groundline_core.result import EvaluationResult
-from groundline_core.settings import read_settings
+from groundline_core.settings import EnvFile, anthropic_key
 
 DEFAULT_PRESET = "omission_all_opus"
 DEFAULT_COMMISSIONS_PRESET = "commission_quick"
@@ -46,13 +48,19 @@ async def evaluate(
     cache: Cache | None = None,
     client: ModelClient | None = None,
     registry: Registry | None = None,
+    anthropic_api_key: str | SecretStr | None = None,
+    env_file: EnvFile = None,
 ) -> EvaluationResult:
     """Run a pipeline (by default the all-Opus omission preset) on one summary.
 
     `profile` defaults to the built-in profile the spec names. `client` defaults
-    to an Anthropic client using ANTHROPIC_API_KEY. The spec is checked and the
-    key looked up before any model call, so mistakes cost nothing.
+    to an Anthropic client using `anthropic_api_key`, or else ANTHROPIC_API_KEY
+    from the environment, or else from `env_file` if one is named: no `.env` is
+    read otherwise. The spec is checked and the key looked up before any model
+    call, so mistakes cost nothing.
     """
+    if client is not None and anthropic_api_key is not None:
+        raise ValueError("pass client or anthropic_api_key, not both")
     spec = spec or load_preset(DEFAULT_PRESET)
     registry = registry or default_registry()
     if profile is None and spec.profile is not None:
@@ -63,10 +71,9 @@ async def evaluate(
     own_client = None
     needed_by = model_users(pipeline)
     if client is None and needed_by:
-        settings = read_settings()
+        key = anthropic_key(anthropic_api_key, env_file=env_file, needed_by=needed_by)
         client = own_client = AnthropicClient(
-            settings.anthropic_key(needed_by=needed_by),
-            key_source=settings.anthropic_key_source(),
+            key.value.get_secret_value(), key_name=key.name, key_source=key.source
         )
     try:
         run = await run_pipeline(
@@ -97,6 +104,8 @@ def evaluate_sync(
     cache: Cache | None = None,
     client: ModelClient | None = None,
     registry: Registry | None = None,
+    anthropic_api_key: str | SecretStr | None = None,
+    env_file: EnvFile = None,
 ) -> EvaluationResult:
     """`evaluate` for code that isn't async, such as scripts."""
     return asyncio.run(
@@ -108,6 +117,8 @@ def evaluate_sync(
             cache=cache,
             client=client,
             registry=registry,
+            anthropic_api_key=anthropic_api_key,
+            env_file=env_file,
         )
     )
 

@@ -19,7 +19,7 @@ from tests.anthropic_helpers import api_error, message
 
 
 def complete(
-    reply: dict[str, Any], status: int = 200
+    reply: dict[str, Any], status: int = 200, **options: Any
 ) -> tuple[ModelReply, httpx2.Request]:
     sent: list[httpx2.Request] = []
 
@@ -31,6 +31,7 @@ def complete(
         client = AnthropicClient(
             "sk-test",
             key_source="/repo/.env",
+            **options,
             http_client=DefaultAsyncHttpxClient(
                 transport=httpx2.MockTransport(handler)
             ),
@@ -109,6 +110,19 @@ def test_a_rejected_key_gets_a_clear_message():
     assert message.startswith("ANTHROPIC_API_KEY was rejected by the Anthropic API")
     assert "invalid x-api-key" in message
     assert "Key from: /repo/.env" in message
+
+
+def test_a_rejected_key_is_named_as_the_caller_says():
+    with pytest.raises(APIKeyRejectedError) as error:
+        complete(
+            api_error("authentication_error", "invalid x-api-key"),
+            status=401,
+            key_name="The Anthropic API key",
+        )
+
+    assert str(error.value).startswith(
+        "The Anthropic API key was rejected by the Anthropic API"
+    )
 
 
 def test_a_key_without_access_to_the_model_gets_a_clear_message():
