@@ -39,7 +39,8 @@ from groundline_core.evaluators.commissions.models import (
 from groundline_core.evaluators.commissions.stages.refute import entries_by_id
 from groundline_core.evaluators.models import SEVERITIES
 
-LABELS = ("supported", *SUPPORT_VERDICTS)
+VERDICTS = ("supported", *SUPPORT_VERDICTS)
+"""The verdicts the model may give: the reply calls them labels."""
 
 
 class CommissionsCheckLLMSupport(PromptImplementation):
@@ -78,15 +79,15 @@ def parse_support_check(
         item = entries[claim.id]
         where = claim.id
 
-        label = choice(item, "label", {label: label for label in LABELS})
-        if label is None:
-            raise ParseError(f"{where}: label is not one of {', '.join(LABELS)}")
+        verdict = choice(item, "label", {v: v for v in VERDICTS})
+        if verdict is None:
+            raise ParseError(f"{where}: label is not one of {', '.join(VERDICTS)}")
 
         evidence = stripped(item.get("evidence"))
-        if label == "supported":
+        if verdict == "supported":
             if evidence and not evidence_in(evidence, source):
                 evidence = None
-        elif label == "contradicted" and (
+        elif verdict == "contradicted" and (
             evidence is None or not evidence_in(evidence, source)
         ):
             raise ParseError(
@@ -102,13 +103,13 @@ def parse_support_check(
                 f"{where}: importance is not one of {', '.join(SEVERITIES)}"
             )
 
-        if label == "supported":
+        if verdict == "supported":
             continue
         commissions.append(
             Commission(
                 id=claim.id,
                 quote=claim.quote,
-                support_verdict=SUPPORT_VERDICTS[label],
+                support_verdict=SUPPORT_VERDICTS[verdict],
                 unsupported_confidence=confidence,
                 severity=severity,
                 evidence=evidence,

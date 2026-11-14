@@ -23,8 +23,7 @@ REFUTE_FLAGGED = {
     "step": "commissions_refute",
     "implementation": "commissions_refute.llm_flagged",
 }
-LEAN_STAGES = [CLAIMS, SUPPORT, REFUTE_FLAGGED, ALARM]
-"""The lean preset's stages."""
+
 
 # SOURCE says Motrin 600 mg and never mentions an examination.
 SUMMARY = (
@@ -129,14 +128,14 @@ CLAIMS_REPLY = claims_reply(
 )
 
 
-def judgement(
+def verdict_entry(
     claim_id: str,
     label: str = "supported",
     confidence: Any = 5,
     importance: str = "supporting",
     evidence: str | None = None,
 ) -> dict[str, Any]:
-    """One entry of the lean support check's reply."""
+    """One claim's verdict, as an entry of the lean support check's reply."""
     return {
         "id": claim_id,
         "label": label,
@@ -146,11 +145,11 @@ def judgement(
     }
 
 
-def judgements_reply(*entries: dict[str, Any]) -> str:
+def verdicts_reply(*entries: dict[str, Any]) -> str:
     return json.dumps({"claims": list(entries)})
 
 
-SKIING_SUPPORTED = judgement("c1", "supported", 5, "peripheral")
-EXAM_UNSUPPORTED = judgement("c2", "unsupported", 70, "supporting")
-DOSE_CONTRADICTED = judgement("c3", "contradicted", 95, "critical", DOSE_SOURCE)
-JUDGEMENTS = judgements_reply(SKIING_SUPPORTED, EXAM_UNSUPPORTED, DOSE_CONTRADICTED)
+SKIING_SUPPORTED = verdict_entry("c1", "supported", 5, "peripheral")
+EXAM_UNSUPPORTED = verdict_entry("c2", "unsupported", 70, "supporting")
+DOSE_CONTRADICTED = verdict_entry("c3", "contradicted", 95, "critical", DOSE_SOURCE)
+VERDICTS_REPLY = verdicts_reply(SKIING_SUPPORTED, EXAM_UNSUPPORTED, DOSE_CONTRADICTED)

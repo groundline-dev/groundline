@@ -59,25 +59,39 @@ class CommissionsRefuteLLM(PromptImplementation):
             return CommissionsRefuteOutput(commissions=found, cleared=[])
 
         # The model sees its own numbering, q1, q2, ... over the critical commissions.
-        ids = {f"q{n}": c for n, c in enumerate(critical, 1)}
+        return await self.refute(
+            ctx, found, {f"q{n}": (c, c.quote) for n, c in enumerate(critical, 1)}
+        )
+
+    async def refute(
+        self,
+        ctx: StageContext,
+        found: list[Commission],
+        sent: dict[str, tuple[Commission, str]],
+    ) -> CommissionsRefuteOutput:
+        """Send the commissions in `sent` (by the id the model sees: the commission
+        and the claim text to show for it) in one call, and clear the ones the
+        model finds support for."""
         block = json.dumps(
             [
                 {
-                    "id": qid,
-                    "claim": c.quote,
+                    "id": sent_id,
+                    "claim": claim_text,
                     "note_quote": c.quote,
                     "label": c.support_verdict,
                 }
-                for qid, c in ids.items()
+                for sent_id, (c, claim_text) in sent.items()
             ]
         )
         prompt = ctx.fill(ctx.text(self.prompt), flagged_claims=block)
         support = await self.ask(
             ctx,
             prompt,
-            lambda reply: parse_support(reply, list(ids), source=ctx.source),
+            lambda reply: parse_support(reply, list(sent), source=ctx.source),
         )
-        return apply_support(found, ids, support)
+        return apply_support(
+            found, {sent_id: c for sent_id, (c, _) in sent.items()}, support
+        )
 
     def passthrough(self, ctx: StageContext) -> CommissionsRefuteOutput:
         found = ctx.output("commissions_check", CommissionsCheckOutput).commissions
@@ -102,29 +116,13 @@ class CommissionsRefuteLLMFlagged(CommissionsRefuteLLM):
         if not found:
             return CommissionsRefuteOutput(commissions=found, cleared=[])
 
-        statements = {
+        claim_texts = {
             c.id: c.text
             for c in ctx.output("commissions_claims", CommissionsClaimsOutput).claims
         }
-        ids = {c.id: c for c in found}
-        block = json.dumps(
-            [
-                {
-                    "id": c.id,
-                    "claim": statements[c.id],
-                    "note_quote": c.quote,
-                    "label": c.support_verdict,
-                }
-                for c in found
-            ]
+        return await self.refute(
+            ctx, found, {c.id: (c, claim_texts[c.id]) for c in found}
         )
-        prompt = ctx.fill(ctx.text(self.prompt), flagged_claims=block)
-        support = await self.ask(
-            ctx,
-            prompt,
-            lambda reply: parse_support(reply, list(ids), source=ctx.source),
-        )
-        return apply_support(found, ids, support)
 
 
 def parse_support(reply: str, ids: list[str], *, source: str) -> dict[str, str | None]:

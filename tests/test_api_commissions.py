@@ -1,13 +1,14 @@
 import logging
 from collections.abc import Callable, Iterator
 from pathlib import Path
+from typing import get_args
 
 import anthropic
 import httpx2
 import pytest
 from fastapi.testclient import TestClient
 
-from groundline_core import load_preset
+from groundline_core import builtin_presets, load_preset
 
 # The route's module, imported as `api` because the tests patch the names it looks up
 # (evaluate, load_preset and the response models) there, not in `common`.
@@ -32,8 +33,8 @@ from tests.commissions_helpers import (
     Script,
     issue,
     issues_reply,
-    judgements_reply,
     support_reply,
+    verdicts_reply,
 )
 from tests.fakes import FakeClient
 from tests.omission_helpers import SOURCE
@@ -398,7 +399,7 @@ LEAN = "commission_reverse_lean"
 def lean_script(dose_confidence: int = 95) -> Script:
     return Script(
         commissions_claims=CLAIMS_REPLY,
-        commissions_check=judgements_reply(
+        commissions_check=verdicts_reply(
             SKIING_SUPPORTED,
             EXAM_UNSUPPORTED,
             {**DOSE_CONTRADICTED, "not_supported_confidence": dose_confidence},
@@ -490,3 +491,9 @@ def test_an_unknown_preset_is_a_422_listing_the_allowed_values(preset: object):
     assert "'commission_quick'" in problem["msg"]
     assert "'commission_reverse_lean'" in problem["msg"]
     assert "tenofovir" not in response.text
+
+
+def test_the_choosable_presets_are_exactly_the_built_in_commission_presets():
+    choosable = set(get_args(api.CommissionPreset))
+
+    assert choosable == {p for p in builtin_presets() if p.startswith("commission_")}

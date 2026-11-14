@@ -15,17 +15,17 @@ from tests.commissions_helpers import (
     EXAM,
     EXAM_CLAIM,
     EXAM_UNSUPPORTED,
-    JUDGEMENTS,
     SKIING,
     SKIING_CLAIM,
     SKIING_SUPPORTED,
     SUMMARY,
     SUPPORT,
+    VERDICTS_REPLY,
     Script,
     claims_reply,
-    judgement,
-    judgements_reply,
     run,
+    verdict_entry,
+    verdicts_reply,
 )
 from tests.omission_helpers import SOURCE
 
@@ -39,7 +39,7 @@ def support(
 
 
 def test_one_call_sees_the_source_and_every_claim_in_omission_pipelines_format():
-    _, script = support(JUDGEMENTS)
+    _, script = support(VERDICTS_REPLY)
 
     (prompt,) = script.prompts["commissions_check"]
     assert SOURCE in prompt
@@ -53,7 +53,7 @@ def test_one_call_sees_the_source_and_every_claim_in_omission_pipelines_format()
 
 
 def test_calls_opus_at_low_effort():
-    script = Script(commissions_claims=CLAIMS_REPLY, commissions_check=JUDGEMENTS)
+    script = Script(commissions_claims=CLAIMS_REPLY, commissions_check=VERDICTS_REPLY)
     _, client = run([CLAIMS, SUPPORT], script)
 
     assert [(r.model, r.effort, r.max_tokens) for r in client.requests] == [
@@ -63,7 +63,7 @@ def test_calls_opus_at_low_effort():
 
 
 def test_only_the_claims_the_source_does_not_support_are_commissions():
-    out, _ = support(JUDGEMENTS)
+    out, _ = support(VERDICTS_REPLY)
 
     exam, dose = out.commissions
     assert (exam.id, exam.quote) == ("c2", EXAM)
@@ -83,7 +83,7 @@ def test_only_the_claims_the_source_does_not_support_are_commissions():
 
 def test_an_unsupported_claim_needs_no_quote():
     out, _ = support(
-        judgements_reply(SKIING_SUPPORTED, EXAM_UNSUPPORTED, DOSE_CONTRADICTED)
+        verdicts_reply(SKIING_SUPPORTED, EXAM_UNSUPPORTED, DOSE_CONTRADICTED)
     )
 
     exam = out.commissions[0]
@@ -92,15 +92,17 @@ def test_an_unsupported_claim_needs_no_quote():
 
 def test_a_supported_claim_with_a_quote_not_in_the_source_is_kept_without_it():
     # Lean: a supported claim needs no quote, so a bad one is dropped, not retried.
-    skiing = judgement("c1", "supported", 5, "peripheral", "words not in the source")
-    out, script = support(judgements_reply(skiing, EXAM_UNSUPPORTED, DOSE_CONTRADICTED))
+    skiing = verdict_entry(
+        "c1", "supported", 5, "peripheral", "words not in the source"
+    )
+    out, script = support(verdicts_reply(skiing, EXAM_UNSUPPORTED, DOSE_CONTRADICTED))
 
     assert len(script.prompts["commissions_check"]) == 1
     assert [c.id for c in out.commissions] == ["c2", "c3"]
 
 
 def test_with_no_claims_there_is_no_call():
-    out, script = support(JUDGEMENTS, claims=claims_reply())
+    out, script = support(VERDICTS_REPLY, claims=claims_reply())
 
     assert "commissions_check" not in script.prompts
     assert out.commissions == []
@@ -109,35 +111,35 @@ def test_with_no_claims_there_is_no_call():
 @pytest.mark.parametrize(
     "bad",
     [
-        judgements_reply(
+        verdicts_reply(
             SKIING_SUPPORTED,
             EXAM_UNSUPPORTED,
             {**DOSE_CONTRADICTED, "evidence": "words not in the source"},
         ),
-        judgements_reply(
+        verdicts_reply(
             SKIING_SUPPORTED, EXAM_UNSUPPORTED, {**DOSE_CONTRADICTED, "evidence": None}
         ),
-        judgements_reply(SKIING_SUPPORTED, EXAM_UNSUPPORTED),
-        judgements_reply(
+        verdicts_reply(SKIING_SUPPORTED, EXAM_UNSUPPORTED),
+        verdicts_reply(
             SKIING_SUPPORTED, EXAM_UNSUPPORTED, DOSE_CONTRADICTED, SKIING_SUPPORTED
         ),
-        judgements_reply(
+        verdicts_reply(
             SKIING_SUPPORTED, EXAM_UNSUPPORTED, {**DOSE_CONTRADICTED, "id": "c9"}
         ),
-        judgements_reply(
+        verdicts_reply(
             SKIING_SUPPORTED, EXAM_UNSUPPORTED, {**DOSE_CONTRADICTED, "label": "maybe"}
         ),
-        judgements_reply(
+        verdicts_reply(
             SKIING_SUPPORTED,
             EXAM_UNSUPPORTED,
             {**DOSE_CONTRADICTED, "not_supported_confidence": 101},
         ),
-        judgements_reply(
+        verdicts_reply(
             SKIING_SUPPORTED,
             EXAM_UNSUPPORTED,
             {**DOSE_CONTRADICTED, "not_supported_confidence": True},
         ),
-        judgements_reply(
+        verdicts_reply(
             SKIING_SUPPORTED,
             EXAM_UNSUPPORTED,
             {**DOSE_CONTRADICTED, "importance": "huge"},
@@ -158,7 +160,7 @@ def test_with_no_claims_there_is_no_call():
     ],
 )
 def test_an_unusable_reply_is_asked_again(bad: str):
-    out, script = support([bad, JUDGEMENTS])
+    out, script = support([bad, VERDICTS_REPLY])
 
     assert len(script.prompts["commissions_check"]) == 2
     assert [c.id for c in out.commissions] == ["c2", "c3"]

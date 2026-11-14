@@ -14,8 +14,8 @@ from groundline_core.evaluators.models import AlarmOutput
 from tests.commissions_helpers import (
     CLAIMS_REPLY,
     ISSUES,
-    JUDGEMENTS,
     SUMMARY,
+    VERDICTS_REPLY,
     Script,
     support_reply,
 )
@@ -138,13 +138,13 @@ def test_evaluators_can_be_registered_in_any_order_or_alone(order: str):
 
 # --- the lean preset -------------------------------------------------------------
 
-LEAN = load_preset("commission_reverse_lean")
+LEAN_PRESET = load_preset("commission_reverse_lean")
 
 
-def evaluate_lean(spec: PipelineSpec = LEAN):
+def evaluate_lean(spec: PipelineSpec = LEAN_PRESET):
     script = Script(
         commissions_claims=CLAIMS_REPLY,
-        commissions_check=JUDGEMENTS,
+        commissions_check=VERDICTS_REPLY,
         commissions_refute=support_reply(("c2", False, None), ("c3", False, None)),
     )
     return asyncio.run(evaluate(SOURCE, SUMMARY, spec=spec, client=FakeClient(script)))
@@ -152,8 +152,8 @@ def evaluate_lean(spec: PipelineSpec = LEAN):
 
 def test_the_lean_preset_is_built_in_with_its_three_stages_and_alarm():
     assert "commission_reverse_lean" in builtin_presets()
-    assert LEAN.profile == "clinical"
-    assert [(s.step, s.implementation, s.enabled) for s in LEAN.stages] == [
+    assert LEAN_PRESET.profile == "clinical"
+    assert [(s.step, s.implementation, s.enabled) for s in LEAN_PRESET.stages] == [
         ("commissions_claims", "commissions_claims.llm", True),
         ("commissions_check", "commissions_check.llm_support", True),
         ("commissions_refute", "commissions_refute.llm_flagged", True),
@@ -162,13 +162,13 @@ def test_the_lean_preset_is_built_in_with_its_three_stages_and_alarm():
 
 
 def test_the_lean_preset_uses_only_opus():
-    models = [s.settings["model"] for s in LEAN.stages if "model" in s.settings]
+    models = [s.settings["model"] for s in LEAN_PRESET.stages if "model" in s.settings]
 
     assert models == ["claude-opus-5-5"] * 3
 
 
 def test_the_lean_preset_has_its_own_threshold_not_quicks():
-    alarm = next(s for s in LEAN.stages if s.step == "alarm")
+    alarm = next(s for s in LEAN_PRESET.stages if s.step == "alarm")
 
     assert alarm.settings == {"thresholds": {"default": 0.80}, "level": "default"}
 
@@ -184,4 +184,4 @@ def test_an_unchanged_lean_run_is_its_validated_preset():
 
 def test_the_two_commission_presets_do_not_match_each_other():
     assert evaluate_lean().validated_preset != PRESET.name
-    assert evaluate_with().validated_preset != LEAN.name
+    assert evaluate_with().validated_preset != LEAN_PRESET.name

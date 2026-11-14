@@ -16,18 +16,18 @@ from tests.commissions_helpers import (
     EXAM_CLAIM,
     EXAM_ISSUE,
     ISSUES,
-    JUDGEMENTS,
     REFUTE,
     REFUTE_FLAGGED,
     SKIING_SUPPORTED,
     SUPPORT,
+    VERDICTS_REPLY,
     Script,
     issue,
     issues_reply,
-    judgement,
-    judgements_reply,
     run,
     support_reply,
+    verdict_entry,
+    verdicts_reply,
 )
 from tests.fakes import FakeClient
 from tests.omission_helpers import SOURCE
@@ -143,11 +143,11 @@ LEAN_CLEAR_DOSE = support_reply(("c2", False, None), ("c3", True, DOSE_SOURCE))
 
 
 def refute_flagged(
-    reply: str | list[str], judgements: str = JUDGEMENTS
+    reply: str | list[str], verdicts: str = VERDICTS_REPLY
 ) -> tuple[CommissionsRefuteOutput, Script, FakeClient]:
     script = Script(
         commissions_claims=CLAIMS_REPLY,
-        commissions_check=judgements,
+        commissions_check=verdicts,
         commissions_refute=reply,
     )
     result, client = run([CLAIMS, SUPPORT, REFUTE_FLAGGED], script)
@@ -212,8 +212,10 @@ def test_flagged_refute_asks_again_when_a_clearing_quote_is_not_in_the_source():
 
 
 def test_flagged_refute_makes_no_call_with_nothing_flagged():
-    all_supported = judgements_reply(
-        SKIING_SUPPORTED, judgement("c2"), judgement("c3", importance="critical")
+    all_supported = verdicts_reply(
+        SKIING_SUPPORTED,
+        verdict_entry("c2"),
+        verdict_entry("c3", importance="critical"),
     )
     out, script, _ = refute_flagged(LEAN_KEEP, all_supported)
 

@@ -7,7 +7,8 @@
 #
 # Claude Opus 5.5 lists every claim the summary makes; one Opus call judges each
 # against the source, quoting the source only for a contradicted claim; Opus
-# refute re-checks every flagged claim and clears one only with a verified quote.
+# refute takes a second look at every flagged claim and clears one only with a
+# verified quote.
 # The one threshold level was fixed for this pipeline, not taken from quick
 # (ADR 0004).
 #
