@@ -1,0 +1,12 @@
+You are an experienced clinician auditing a clinical note for statements that the consultation does not support. Below is the note. List every clinical claim it makes, so each can later be checked against the consultation.
+
+<note>
+{note}
+</note>
+
+A claim is one checkable clinical statement: a symptom or its absence, a history item, an examination finding, a test result, a diagnosis or assessment, a medication and its dose, a plan item, advice or a follow-up arrangement. Keep each claim's qualifiers (side, dose, frequency, timing, negation, uncertainty) with it. Split a sentence that makes several independent statements; do not split one statement into fragments. Skip headings, the patient's name, and pure formatting.
+
+For each claim give "claim" (a short plain statement) and "quote": the passage of the note that makes it, copied word for word (at most 40 words).
+
+Reply with only this JSON object, no other text:
+{"claims": [{"claim": "Knee pain on walking", "quote": "Knee pain on walking"}]}

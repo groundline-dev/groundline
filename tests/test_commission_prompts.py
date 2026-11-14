@@ -1,13 +1,14 @@
 """The commission prompts are the ones omission-pipeline measured, unchanged.
 
-The parity test replays the quick check's prompt, but the refute prompt is off in
-the preset, so nothing else would notice it change. These hashes are of the
-prompt files in omission-pipeline (commit 567908c), prompts/quick_check_v1.txt and
-prompts/support_refute_v1.txt.
+The parity tests replay the prompts each preset sends, but the quick preset's
+refute is off, so these hashes also hold every prompt still to the files
+omission-pipeline measured. quick_check_v1 and support_refute_v1 are hashed from
+omission-pipeline commit 567908c; note_claims_v1 and support_check_lean_v1 from
+commit e8a4008, the last to change them.
 
 If you change a prompt on purpose, the measured results no longer apply to the
-`commission_quick` preset (see ADR 0002 and 0004): update the hash, and say so in
-the README.
+preset that uses it, `commission_quick` or `commission_reverse_lean` (see ADR 0002
+and 0004): update the hash, and say so in the README.
 """
 
 import hashlib
@@ -24,6 +25,12 @@ PROMPT_HASHES = {
     "support_refute_v1": (
         "02954f2ac0e5f646cbb1149f908d7347aaee0a2906ccbbc450f0d9fdadfed0bf"
     ),
+    "note_claims_v1": (
+        "1ca35d07a22d9112a63da47a63a05c628e7e4631cbf564ad77086db92149d2b4"
+    ),
+    "support_check_lean_v1": (
+        "b17264afe344752d0bf8741fb5171f52d5d03e793242709a02762a7c614bb2bc"
+    ),
 }
 
 
@@ -33,7 +40,7 @@ def test_the_prompt_is_unchanged_from_omission_pipeline(name: str):
 
     assert hashlib.sha256(text.encode()).hexdigest() == PROMPT_HASHES[name], (
         f"the clinical profile's '{name}' prompt has changed since omission-pipeline "
-        "measured it, so the commission_quick results no longer apply to it"
+        "measured it, so the measured results no longer apply to its preset"
     )
 
 

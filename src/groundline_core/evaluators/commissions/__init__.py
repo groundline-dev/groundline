@@ -1,6 +1,8 @@
 """The commission check: which claims in a summary the source doesn't support.
 
-Steps, in order: commissions_check → commissions_refute → alarm. The alarm step
+Steps, in order: commissions_claims → commissions_check → commissions_refute →
+alarm. Only the lean preset uses commissions_claims: its support check judges the
+listed claims, where the quick check finds commissions in one call. The alarm step
 is shared with the omission check; this check supplies its own implementation.
 """
 
@@ -10,15 +12,20 @@ from groundline_core.core import Implementation, Registry
 from groundline_core.evaluators import define_shared_steps
 from groundline_core.evaluators.commissions.models import (
     CommissionsCheckOutput,
+    CommissionsClaimsOutput,
     CommissionsRefuteOutput,
 )
 from groundline_core.evaluators.commissions.stages import (
     AlarmCriticalUnsupportedMax,
     CommissionsCheckLLMQuick,
+    CommissionsCheckLLMSupport,
+    CommissionsClaimsLLM,
     CommissionsRefuteLLM,
+    CommissionsRefuteLLMFlagged,
 )
 
 STEPS: dict[str, type[BaseModel]] = {
+    "commissions_claims": CommissionsClaimsOutput,
     "commissions_check": CommissionsCheckOutput,
     "commissions_refute": CommissionsRefuteOutput,
 }
@@ -26,8 +33,11 @@ STEPS: dict[str, type[BaseModel]] = {
 `define_shared_steps` defines it."""
 
 IMPLEMENTATIONS: list[type[Implementation]] = [
+    CommissionsClaimsLLM,
     CommissionsCheckLLMQuick,
+    CommissionsCheckLLMSupport,
     CommissionsRefuteLLM,
+    CommissionsRefuteLLMFlagged,
     AlarmCriticalUnsupportedMax,
 ]
 

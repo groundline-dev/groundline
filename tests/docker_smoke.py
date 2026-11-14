@@ -17,30 +17,50 @@ from groundline_core.presets import load_preset
 ANTHROPIC_KEY = "smoke-anthropic-key"
 SOURCE = "Take the medicine once daily."
 SUMMARY = "Take the medicine twice daily."
-PRESETS = {"omissions": "omission_all_opus", "commissions": "commission_quick"}
+
+
+def call_name(preset: str, step: str) -> str:
+    """How the mock counts a call: both commission presets have a
+    commissions_check and a commissions_refute step."""
+    return f"{preset} {step}"
+
+
+LEAN = "commission_reverse_lean"
+CHECKS: list[tuple[str, str, dict[str, str]]] = [
+    ("omissions", "omission_all_opus", {}),
+    ("commissions", "commission_quick", {}),
+    ("commissions", LEAN, {"preset": LEAN}),
+]
+"""Each request the smoke test sends: the endpoint, the preset that should run,
+and anything the body adds to the source and summary."""
 # One request per enabled model stage for this single-finding fixture.
 MODEL_SETTINGS = {
-    endpoint: {
+    preset: {
         stage.step: stage.settings
         for stage in load_preset(preset).stages
         if stage.enabled and "model" in stage.settings
     }
-    for endpoint, preset in PRESETS.items()
+    for _, preset, _ in CHECKS
 }
-EXPECTED_CALLS = {step: 1 for stages in MODEL_SETTINGS.values() for step in stages}
+EXPECTED_CALLS = {
+    call_name(preset, step): 1
+    for preset, stages in MODEL_SETTINGS.items()
+    for step in stages
+}
 APP_URL = "http://127.0.0.1:8000"
 
 
 def scripted_reply(model: str, prompt: str) -> tuple[str, dict[str, Any]]:
-    """Recognize the real profile's stage prompts; reject unknown requests."""
+    """Recognize the real profile's stage prompts; reject unknown requests.
+    Returns the call's name, as `call_name` gives it, and the reply."""
     if "<flagged_facts>" in prompt:
-        step = "refute"
+        preset, step = "omission_all_opus", "refute"
         reply = {"facts": [{"id": "f1", "found": "no", "quote": None}]}
     elif "<rubric>" in prompt:
-        step = "rank"
+        preset, step = "omission_all_opus", "rank"
         reply = {"facts": [{"id": "f1", "severity": "critical", "why": "Frequency"}]}
     elif "<note>" in prompt and "<facts>" in prompt:
-        step = "check"
+        preset, step = "omission_all_opus", "check"
         reply = {
             "facts": [
                 {
@@ -51,8 +71,24 @@ def scripted_reply(model: str, prompt: str) -> tuple[str, dict[str, Any]]:
                 }
             ]
         }
+    elif "<flagged_claims>" in prompt:
+        preset, step = LEAN, "commissions_refute"
+        reply = {"claims": [{"id": "c1", "supported": False, "evidence": None}]}
+    elif "<claims>" in prompt:
+        preset, step = LEAN, "commissions_check"
+        reply = {
+            "claims": [
+                {
+                    "id": "c1",
+                    "label": "contradicted",
+                    "evidence": SOURCE,
+                    "not_supported_confidence": 100,
+                    "importance": "critical",
+                }
+            ]
+        }
     elif "<transcript>" in prompt and "<note>" in prompt:
-        step = "commissions_check"
+        preset, step = "commission_quick", "commissions_check"
         reply = {
             "issues": [
                 {
@@ -65,18 +101,21 @@ def scripted_reply(model: str, prompt: str) -> tuple[str, dict[str, Any]]:
             ]
         }
     elif "<transcript>" in prompt:
-        step = "extract"
+        preset, step = "omission_all_opus", "extract"
         reply = {"facts": [{"id": "f1", "fact": SOURCE, "evidence": SOURCE}]}
+    elif "<note>" in prompt:
+        preset, step = LEAN, "commissions_claims"
+        reply = {"claims": [{"claim": SUMMARY, "quote": SUMMARY}]}
     else:
         raise ValueError("unrecognized stage prompt")
-    endpoint = "commissions" if step == "commissions_check" else "omissions"
-    expected_model = MODEL_SETTINGS[endpoint][step]["model"]
-    if model != expected_model:
-        raise ValueError(f"unexpected model for {step}")
-    expected_text = SUMMARY if step in {"check", "refute"} else SOURCE
+    name = call_name(preset, step)
+    if model != MODEL_SETTINGS[preset][step]["model"]:
+        raise ValueError(f"unexpected model for {name}")
+    reads_summary = {"check", "refute", "commissions_claims"}
+    expected_text = SUMMARY if step in reads_summary else SOURCE
     if expected_text not in prompt:
-        raise ValueError(f"fixture input missing from {step} prompt")
-    return step, reply
+        raise ValueError(f"fixture input missing from {name} prompt")
+    return name, reply
 
 
 class MockAnthropic(HTTPServer):
@@ -114,10 +153,10 @@ class Handler(BaseHTTPRequestHandler):
             body = json.loads(
                 self.rfile.read(int(self.headers.get("Content-Length", "0")))
             )
-            step, reply = scripted_reply(body["model"], body["messages"][0]["content"])
-            server.calls[step] += 1
-            if server.calls[step] > EXPECTED_CALLS[step]:
-                raise ValueError(f"unexpected extra call to {step}")
+            name, reply = scripted_reply(body["model"], body["messages"][0]["content"])
+            server.calls[name] += 1
+            if server.calls[name] > EXPECTED_CALLS[name]:
+                raise ValueError(f"unexpected extra call to {name}")
         except (ValueError, KeyError, IndexError, TypeError) as error:
             server.errors.append(str(error))
             # 400 is terminal to the SDK: fixture mistakes must fail promptly.
@@ -132,7 +171,7 @@ class Handler(BaseHTTPRequestHandler):
         self.send_json(
             200,
             {
-                "id": f"msg_smoke_{step}",
+                "id": f"msg_smoke_{len(server.calls)}",
                 "type": "message",
                 "role": "assistant",
                 "model": body["model"],
@@ -166,11 +205,11 @@ def request(
         return response.code, parsed
 
 
-def verify_evaluation(endpoint: str, body: dict[str, Any]) -> None:
-    calls = sum(EXPECTED_CALLS[step] for step in MODEL_SETTINGS[endpoint])
+def verify_evaluation(endpoint: str, preset: str, body: dict[str, Any]) -> None:
+    calls = len(MODEL_SETTINGS[preset])
     assert body["flagged"] is True, body
     assert body["evaluation_type"] == endpoint, body
-    assert body["metadata"]["pipeline"] == PRESETS[endpoint], body
+    assert body["metadata"]["pipeline"] == preset, body
     assert body["findings"], body
     usage = body["metadata"]["usage"]
     assert usage["calls"] == calls, body
@@ -196,16 +235,16 @@ def main() -> None:
             "Authorization": f"Bearer {args.api_key}",
             "Content-Type": "application/json",
         }
-        for endpoint in ("omissions", "commissions"):
+        for endpoint, preset, extra in CHECKS:
             status, body = request(
                 "POST",
                 f"{APP_URL}/v1/{endpoint}",
                 headers,
-                json.dumps({"source": SOURCE, "summary": SUMMARY}),
+                json.dumps({"source": SOURCE, "summary": SUMMARY, **extra}),
             )
-            assert status == 200, f"{endpoint}: expected 200, got {status}: {body}"
-            verify_evaluation(endpoint, body)
-            print(f"ok: /v1/{endpoint} returned expected findings, preset and usage")
+            assert status == 200, f"{preset}: expected 200, got {status}: {body}"
+            verify_evaluation(endpoint, preset, body)
+            print(f"ok: /v1/{endpoint} ran {preset}: expected findings and usage")
         status, body = request("GET", "http://anthropic-mock:8080/requests", {}, None)
         assert status == 200 and body == {"calls": EXPECTED_CALLS, "errors": []}, body
         print(

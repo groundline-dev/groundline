@@ -157,3 +157,18 @@ def test_the_503_example_names_the_stages_needing_the_anthropic_key(path: str):
 
     assert "  Needed by: " in detail and "(claude-" in detail
     assert "(no price" not in str(schema["paths"][path]["post"]["responses"]["502"])
+
+
+def test_the_commissions_docs_offer_both_presets_with_quick_as_the_default():
+    operation = schema["paths"]["/v1/commissions"]["post"]
+    body = _resolve(operation["requestBody"]["content"]["application/json"]["schema"])
+    preset = body["properties"]["preset"]
+
+    assert preset["enum"] == ["commission_quick", "commission_reverse_lean"]
+    assert preset["default"] == DEFAULT_COMMISSIONS_PRESET
+    assert "preset" not in body.get("required", [])
+    # The lean preset isn't confirmed to its pre-registered standard (ADR 0017),
+    # and the docs say so where a caller chooses it.
+    assert "isn't confirmed to that standard" in preset["description"]
+    for name in preset["enum"]:
+        assert name in operation["description"]

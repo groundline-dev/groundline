@@ -14,6 +14,18 @@ ALARM = {"step": "alarm", "implementation": "alarm.critical_unsupported_max"}
 ALL_STAGES = [CHECK, {**REFUTE, "enabled": False}, ALARM]
 """The quick preset's stages: refute is switched off."""
 
+CLAIMS = {"step": "commissions_claims", "implementation": "commissions_claims.llm"}
+SUPPORT = {
+    "step": "commissions_check",
+    "implementation": "commissions_check.llm_support",
+}
+REFUTE_FLAGGED = {
+    "step": "commissions_refute",
+    "implementation": "commissions_refute.llm_flagged",
+}
+LEAN_STAGES = [CLAIMS, SUPPORT, REFUTE_FLAGGED, ALARM]
+"""The lean preset's stages."""
+
 # SOURCE says Motrin 600 mg and never mentions an examination.
 SUMMARY = (
     "HPI: She was skiing and hyperextended her right index finger.\n"
@@ -27,8 +39,13 @@ DOSE_SOURCE = "take motrin 600 mg every 6 hours for a week"
 
 
 def step_of(prompt: str) -> str:
-    """Which step a clinical prompt belongs to, from its section tags."""
-    return "commissions_refute" if "<flagged_claims>" in prompt else "commissions_check"
+    """Which step a clinical prompt belongs to, from its section tags. The quick
+    check and the lean support check both fill the commissions_check step."""
+    if "<flagged_claims>" in prompt:
+        return "commissions_refute"
+    if "<transcript>" not in prompt:
+        return "commissions_claims"  # the claims prompt sees only the note
+    return "commissions_check"
 
 
 class Script(ScriptedReplies):
@@ -92,3 +109,48 @@ def support_reply(*rows: tuple[str, bool, str | None]) -> str:
     return json.dumps(
         {"claims": [{"id": i, "supported": s, "evidence": e} for i, s, e in rows]}
     )
+
+
+# --- the lean preset's replies, in its prompts' own words -----------------------
+
+SKIING = "She was skiing"
+SKIING_CLAIM = "The patient was skiing"
+EXAM_CLAIM = "Neurovascular examination was intact"
+DOSE_CLAIM = "Motrin 800 mg every 6 hours for a week"
+
+
+def claims_reply(*rows: tuple[str, str]) -> str:
+    """The claims step's reply: (claim, quote) pairs, numbered c1, c2, ..."""
+    return json.dumps({"claims": [{"claim": c, "quote": q} for c, q in rows]})
+
+
+CLAIMS_REPLY = claims_reply(
+    (SKIING_CLAIM, SKIING), (EXAM_CLAIM, EXAM), (DOSE_CLAIM, DOSE)
+)
+
+
+def judgement(
+    claim_id: str,
+    label: str = "supported",
+    confidence: Any = 5,
+    importance: str = "supporting",
+    evidence: str | None = None,
+) -> dict[str, Any]:
+    """One entry of the lean support check's reply."""
+    return {
+        "id": claim_id,
+        "label": label,
+        "evidence": evidence,
+        "not_supported_confidence": confidence,
+        "importance": importance,
+    }
+
+
+def judgements_reply(*entries: dict[str, Any]) -> str:
+    return json.dumps({"claims": list(entries)})
+
+
+SKIING_SUPPORTED = judgement("c1", "supported", 5, "peripheral")
+EXAM_UNSUPPORTED = judgement("c2", "unsupported", 70, "supporting")
+DOSE_CONTRADICTED = judgement("c3", "contradicted", 95, "critical", DOSE_SOURCE)
+JUDGEMENTS = judgements_reply(SKIING_SUPPORTED, EXAM_UNSUPPORTED, DOSE_CONTRADICTED)

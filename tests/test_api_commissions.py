@@ -18,16 +18,22 @@ from groundline_core.core import APIKeyRejectedError
 from groundline_core.evaluate import DEFAULT_COMMISSIONS_PRESET
 from tests.auth_helpers import HEADERS, FakeKeys
 from tests.commissions_helpers import (
+    CLAIMS_REPLY,
     DOSE,
+    DOSE_CONTRADICTED,
     DOSE_ISSUE,
     DOSE_SOURCE,
     EXAM,
     EXAM_ISSUE,
+    EXAM_UNSUPPORTED,
     ISSUES,
+    SKIING_SUPPORTED,
     SUMMARY,
     Script,
     issue,
     issues_reply,
+    judgements_reply,
+    support_reply,
 )
 from tests.fakes import FakeClient
 from tests.omission_helpers import SOURCE
@@ -382,3 +388,105 @@ def test_a_finished_check_is_logged_without_its_input(
     assert "· 2 commissions · $0." in line and "1 calls" in line
     assert "Motrin" not in line
     assert "tenofovir" not in caplog.text  # at any level, from any logger
+
+
+# --- choosing a preset -----------------------------------------------------------
+
+LEAN = "commission_reverse_lean"
+
+
+def lean_script(dose_confidence: int = 95) -> Script:
+    return Script(
+        commissions_claims=CLAIMS_REPLY,
+        commissions_check=judgements_reply(
+            SKIING_SUPPORTED,
+            EXAM_UNSUPPORTED,
+            {**DOSE_CONTRADICTED, "not_supported_confidence": dose_confidence},
+        ),
+        commissions_refute=support_reply(("c2", False, None), ("c3", False, None)),
+    )
+
+
+def test_choosing_quick_by_name_is_the_same_as_leaving_preset_out():
+    use_client(Script(commissions_check=ISSUES))
+    left_out = http.post("/v1/commissions", json=check()).json()
+    use_client(Script(commissions_check=ISSUES))
+    named = http.post("/v1/commissions", json=check(preset="commission_quick")).json()
+
+    assert named == left_out
+    assert named["metadata"]["pipeline"] == "commission_quick"
+
+
+def test_the_lean_preset_answers_in_the_same_shape_with_its_own_metadata():
+    client = use_client(lean_script())
+
+    response = http.post("/v1/commissions", json=check(preset=LEAN))
+
+    assert response.status_code == 200
+    body = response.json()
+    assert set(body) == {
+        "evaluation_type",
+        "flagged",
+        "score",
+        "findings",
+        "counts",
+        "metadata",
+    }
+    assert (body["evaluation_type"], body["flagged"], body["counts"]) == (
+        "commissions",
+        True,
+        None,
+    )
+    metadata = body["metadata"]
+    assert set(metadata) == {"pipeline", "alarm", "usage"}
+    assert metadata["pipeline"] == LEAN
+    assert metadata["alarm"] == {"score": 0.95, "threshold": 0.8, "level": "default"}
+    assert metadata["usage"]["calls"] == 3
+    assert client is not None
+    assert {r.model for r in client.requests} == {"claude-opus-5-5"}
+    # A finding's statement is the summary's own words, as with quick.
+    assert [(f["statement"], f["verdict"]) for f in body["findings"]] == [
+        (DOSE, "contradicted"),
+        (EXAM, "unsupported"),
+    ]
+    assert body["findings"][0]["source_evidence"] == DOSE_SOURCE
+
+
+@pytest.mark.parametrize(
+    ("preset", "flagged", "score"),
+    [("commission_quick", False, 0.5176), (LEAN, True, 0.45)],
+)
+def test_the_score_is_rescaled_around_the_presets_own_threshold(
+    preset: str, flagged: bool, score: float
+):
+    # The same 0.82 alarm score passes quick's 0.85 but reaches lean's 0.80.
+    if preset == LEAN:
+        use_client(lean_script(dose_confidence=82))
+    else:
+        dose = issue(DOSE, "contradicted", 82, "critical", DOSE_SOURCE)
+        use_client(Script(commissions_check=issues_reply(dose)))
+
+    body = http.post("/v1/commissions", json=check(preset=preset)).json()
+
+    assert body["metadata"]["alarm"]["score"] == 0.82
+    assert body["flagged"] is flagged
+    assert body["score"] == pytest.approx(score, abs=1e-4)
+
+
+@pytest.mark.parametrize(
+    "preset",
+    [SECRET, "commission_exact", None, 1],
+    ids=["unknown", "a preset left out", "null", "not text"],
+)
+def test_an_unknown_preset_is_a_422_listing_the_allowed_values(preset: object):
+    client = use_client(lambda prompt: "unused")
+
+    response = http.post("/v1/commissions", json=check(preset=preset))
+
+    assert response.status_code == 422
+    assert client is not None and client.requests == []
+    (problem,) = response.json()["detail"]
+    assert problem["loc"] == ["body", "preset"]
+    assert "'commission_quick'" in problem["msg"]
+    assert "'commission_reverse_lean'" in problem["msg"]
+    assert "tenofovir" not in response.text

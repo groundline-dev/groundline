@@ -1,4 +1,5 @@
-"""`POST /v1/commissions`: run the validated quick commission preset on one summary.
+"""`POST /v1/commissions`: run a validated commission preset on one summary: the
+quick one unless the caller chooses the lean one.
 
 The request and response are models of their own, not the pipeline's, so the
 API's contract doesn't change when the internals do. Every finished check
@@ -43,8 +44,19 @@ logger = logging.getLogger("groundline.api")
 router = APIRouter()
 
 
+CommissionPreset = Literal["commission_quick", "commission_reverse_lean"]
+"""The commission presets a caller can choose."""
+
+
 class CommissionsRequest(CheckRequest):
-    pass
+    preset: CommissionPreset = DEFAULT_COMMISSIONS_PRESET
+    """Which validated preset to run. `commission_quick` (the default) is one
+    Claude Haiku 5.5 call, about $0.002 per note; measured on 172 commission pairs
+    it caught 151, with 1 of 110 clean notes flagged, confirmed to its
+    pre-registered standard. `commission_reverse_lean` is three Claude Opus 5.5
+    calls, about $0.28 per note: it caught 166, with 0 of 110 clean notes
+    flagged. It matched the exact preset's catches, but missed its pre-registered
+    margin by less than two pairs, so it isn't confirmed to that standard."""
 
 
 class CommissionsAlarm(Alarm):
@@ -118,11 +130,17 @@ async def commissions(
     """Find the claims a summary makes that its source doesn't support, and
     whether to flag it.
 
-    Runs the validated quick commission check (often called hallucination
-    detection): one Claude Haiku 5.5 call that costs about $0.002 for a typical
-    clinical note. A claim is a commission if the source contradicts it or
-    never mentions it. Answers 200 for every finished check, flagged or not."""
-    spec = load_preset(DEFAULT_COMMISSIONS_PRESET)
+    Runs a validated commission check (often called hallucination detection),
+    chosen with `preset`. `commission_quick`, the default, is one Claude Haiku 5.5
+    call that costs about $0.002 for a typical clinical note.
+    `commission_reverse_lean` lists the summary's claims and checks each against
+    the source with Claude Opus 5.5, for about $0.28 and 20 seconds a note; it
+    caught more commissions when measured, but isn't confirmed to its
+    pre-registered standard. Each preset flags at its own threshold, and both
+    answer in the same shape. A claim is a commission if the source contradicts
+    it or never mentions it. Answers 200 for every finished check, flagged or
+    not."""
+    spec = load_preset(request.preset)
     started = time.perf_counter()
     with check_failures():
         result = await evaluate(
@@ -139,7 +157,7 @@ async def commissions(
 
 
 def _response(result: EvaluationResult) -> CommissionsResponse:
-    # Refute is off in the quick preset, so this holds the check's commissions.
+    # The commissions still flagged after refute; quick switches refute off.
     found = result.run.output("commissions_refute", CommissionsRefuteOutput)
     alarm = result.run.output(ALARM_STEP, AlarmOutput)
     return CommissionsResponse(

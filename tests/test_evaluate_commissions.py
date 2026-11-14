@@ -11,7 +11,14 @@ from groundline_core import (
 )
 from groundline_core.core import PipelineSpec, with_settings
 from groundline_core.evaluators.models import AlarmOutput
-from tests.commissions_helpers import ISSUES, SUMMARY, Script
+from tests.commissions_helpers import (
+    CLAIMS_REPLY,
+    ISSUES,
+    JUDGEMENTS,
+    SUMMARY,
+    Script,
+    support_reply,
+)
 from tests.fakes import FakeClient
 from tests.omission_helpers import SOURCE
 
@@ -54,10 +61,15 @@ def test_the_registry_has_both_evaluators_and_one_shared_alarm_step():
         "alarm.critical_max",
         "alarm.critical_unsupported_max",
     ]
+    assert registry.implementations("commissions_claims") == ["commissions_claims.llm"]
     assert registry.implementations("commissions_check") == [
-        "commissions_check.llm_quick"
+        "commissions_check.llm_quick",
+        "commissions_check.llm_support",
     ]
-    assert registry.implementations("commissions_refute") == ["commissions_refute.llm"]
+    assert registry.implementations("commissions_refute") == [
+        "commissions_refute.llm",
+        "commissions_refute.llm_flagged",
+    ]
 
 
 def test_an_unchanged_run_is_the_validated_preset():
@@ -122,3 +134,54 @@ def test_evaluators_can_be_registered_in_any_order_or_alone(order: str):
 
     assert registry.steps().count("alarm") == 1
     assert "alarm.critical_unsupported_max" in registry.implementations("alarm")
+
+
+# --- the lean preset -------------------------------------------------------------
+
+LEAN = load_preset("commission_reverse_lean")
+
+
+def evaluate_lean(spec: PipelineSpec = LEAN):
+    script = Script(
+        commissions_claims=CLAIMS_REPLY,
+        commissions_check=JUDGEMENTS,
+        commissions_refute=support_reply(("c2", False, None), ("c3", False, None)),
+    )
+    return asyncio.run(evaluate(SOURCE, SUMMARY, spec=spec, client=FakeClient(script)))
+
+
+def test_the_lean_preset_is_built_in_with_its_three_stages_and_alarm():
+    assert "commission_reverse_lean" in builtin_presets()
+    assert LEAN.profile == "clinical"
+    assert [(s.step, s.implementation, s.enabled) for s in LEAN.stages] == [
+        ("commissions_claims", "commissions_claims.llm", True),
+        ("commissions_check", "commissions_check.llm_support", True),
+        ("commissions_refute", "commissions_refute.llm_flagged", True),
+        ("alarm", "alarm.critical_unsupported_max", True),
+    ]
+
+
+def test_the_lean_preset_uses_only_opus():
+    models = [s.settings["model"] for s in LEAN.stages if "model" in s.settings]
+
+    assert models == ["claude-opus-5-5"] * 3
+
+
+def test_the_lean_preset_has_its_own_threshold_not_quicks():
+    alarm = next(s for s in LEAN.stages if s.step == "alarm")
+
+    assert alarm.settings == {"thresholds": {"default": 0.80}, "level": "default"}
+
+
+def test_an_unchanged_lean_run_is_its_validated_preset():
+    result = evaluate_lean()
+
+    assert result.validated_preset == "commission_reverse_lean"
+    assert result.warnings == []
+    alarm = result.run.output("alarm", AlarmOutput)
+    assert (alarm.score, alarm.threshold, alarm.flagged) == (0.95, 0.80, True)
+
+
+def test_the_two_commission_presets_do_not_match_each_other():
+    assert evaluate_lean().validated_preset != PRESET.name
+    assert evaluate_with().validated_preset != LEAN.name

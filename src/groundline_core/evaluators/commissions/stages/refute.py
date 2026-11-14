@@ -1,14 +1,19 @@
-"""Commissions refute: a second look at the critical flags, which can only clear one.
+"""Commissions refute: a second look at the flags, which can only clear one.
 
-The critical commissions the check found go, in one call, to a model asked to find
-support for each in the source. A commission is cleared only when the model says the
-source supports the claim and quotes a passage that really is in the source.
-Nothing is ever made worse. Commissions that aren't critical are left alone, since
-only critical ones move the alarm. With no critical commission there is no call.
+The commissions go, in one call, to a model asked to find support for each in the
+source. A commission is cleared only when the model says the source supports the
+claim and quotes a passage that really is in the source. Nothing is ever made
+worse. With nothing to send there is no call.
+
+`commissions_refute.llm` (the quick preset's, switched off there) sends only the
+critical commissions, renumbered q1, q2, ...: the others are left alone, since only
+critical ones move the alarm. `commissions_refute.llm_flagged` (the lean preset's)
+sends every commission under the id and statement the claims step gave it, as
+omission-pipeline's reverse pipeline does.
 """
 
 import json
-from typing import ClassVar
+from typing import Any, ClassVar
 
 from groundline_core.core import (
     Effort,
@@ -25,6 +30,7 @@ from groundline_core.evaluators.commissions.models import (
     ClearedCommission,
     Commission,
     CommissionsCheckOutput,
+    CommissionsClaimsOutput,
     CommissionsRefuteOutput,
 )
 
@@ -78,15 +84,54 @@ class CommissionsRefuteLLM(PromptImplementation):
         return CommissionsRefuteOutput(commissions=found, cleared=[])
 
 
+class CommissionsRefuteLLMFlagged(CommissionsRefuteLLM):
+    """Refute as the lean preset measured it: every commission the check found,
+    whatever its severity, goes to the model under the id and plain statement the
+    claims step gave it, so it reads that step too. Clearing works as above."""
+
+    name: ClassVar[str] = "commissions_refute.llm_flagged"
+    reads: ClassVar[tuple[str, ...]] = ("commissions_claims", "commissions_check")
+
+    model: str = "claude-opus-5-5"
+    """The model to call."""
+    effort: Effort = "high"
+    """How much effort the model spends: low, medium, high, xhigh or max."""
+
+    async def run(self, ctx: StageContext) -> CommissionsRefuteOutput:
+        found = ctx.output("commissions_check", CommissionsCheckOutput).commissions
+        if not found:
+            return CommissionsRefuteOutput(commissions=found, cleared=[])
+
+        statements = {
+            c.id: c.text
+            for c in ctx.output("commissions_claims", CommissionsClaimsOutput).claims
+        }
+        ids = {c.id: c for c in found}
+        block = json.dumps(
+            [
+                {
+                    "id": c.id,
+                    "claim": statements[c.id],
+                    "note_quote": c.quote,
+                    "label": c.support_verdict,
+                }
+                for c in found
+            ]
+        )
+        prompt = ctx.fill(ctx.text(self.prompt), flagged_claims=block)
+        support = await self.ask(
+            ctx,
+            prompt,
+            lambda reply: parse_support(reply, list(ids), source=ctx.source),
+        )
+        return apply_support(found, ids, support)
+
+
 def parse_support(reply: str, ids: list[str], *, source: str) -> dict[str, str | None]:
     """For each flagged id, the source passage that supports the claim, or None
     if the flag stands."""
     found: dict[str, str | None] = {}
-    for raw in reply_list(reply, "claims"):
-        item = as_object(raw)
-        if item is None or item.get("id") not in ids or item["id"] in found:
-            raise ParseError("an entry has an unknown, missing or repeated id")
-        qid: str = item["id"]
+    for qid, item in entries_by_id(reply, ids).items():
         if item.get("supported") is True:
             evidence = stripped(item.get("evidence"))
             if evidence is None or not evidence_in(evidence, source):
@@ -97,6 +142,18 @@ def parse_support(reply: str, ids: list[str], *, source: str) -> dict[str, str |
             found[qid] = evidence
         else:
             found[qid] = None
+    return found
+
+
+def entries_by_id(reply: str, ids: list[str]) -> dict[str, dict[str, Any]]:
+    """The reply's `claims` entries by id: exactly one for each of `ids`, or a
+    parse error."""
+    found: dict[str, dict[str, Any]] = {}
+    for raw in reply_list(reply, "claims"):
+        item = as_object(raw)
+        if item is None or item.get("id") not in ids or item["id"] in found:
+            raise ParseError("an entry has an unknown, missing or repeated id")
+        found[item["id"]] = item
     missing = [i for i in ids if i not in found]
     if missing:
         raise ParseError(f"no entry for {', '.join(missing)}")

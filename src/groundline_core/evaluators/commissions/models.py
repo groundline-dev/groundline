@@ -32,6 +32,16 @@ class Commission(Frozen):
     quote was given."""
 
 
+class Claim(Frozen):
+    """A single checkable point the summary makes."""
+
+    id: str
+    text: str
+    """The claim in a short plain statement."""
+    quote: str
+    """The words in the summary that make the claim, word for word."""
+
+
 class ClearedCommission(Frozen):
     """A flagged claim that refute found support for."""
 
@@ -41,6 +51,11 @@ class ClearedCommission(Frozen):
 
 
 # --- step outputs -----------------------------------------------------------
+
+
+class CommissionsClaimsOutput(Frozen):
+    claims: list[Claim]
+    """Every claim the summary makes, in the order the model listed them."""
 
 
 class CommissionsCheckOutput(Frozen):

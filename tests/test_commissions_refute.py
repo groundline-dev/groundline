@@ -6,19 +6,30 @@ from groundline_core.evaluators.commissions.models import (
 )
 from tests.commissions_helpers import (
     CHECK,
+    CLAIMS,
+    CLAIMS_REPLY,
     DOSE,
+    DOSE_CLAIM,
     DOSE_ISSUE,
     DOSE_SOURCE,
     EXAM,
+    EXAM_CLAIM,
     EXAM_ISSUE,
     ISSUES,
+    JUDGEMENTS,
     REFUTE,
+    REFUTE_FLAGGED,
+    SKIING_SUPPORTED,
+    SUPPORT,
     Script,
     issue,
     issues_reply,
+    judgement,
+    judgements_reply,
     run,
     support_reply,
 )
+from tests.fakes import FakeClient
 from tests.omission_helpers import SOURCE
 
 KEEP_FLAG = support_reply(("q1", False, None))
@@ -123,3 +134,88 @@ def test_the_prompt_block_is_json_the_model_can_read():
         {"id": "q1", "claim": DOSE, "note_quote": DOSE, "label": "contradicted"}
     ]
     assert DOSE_SOURCE not in block  # refute is never shown the check's evidence
+
+
+# --- the lean preset's refute: every flagged claim, by its own id ----------------
+
+LEAN_KEEP = support_reply(("c2", False, None), ("c3", False, None))
+LEAN_CLEAR_DOSE = support_reply(("c2", False, None), ("c3", True, DOSE_SOURCE))
+
+
+def refute_flagged(
+    reply: str | list[str], judgements: str = JUDGEMENTS
+) -> tuple[CommissionsRefuteOutput, Script, FakeClient]:
+    script = Script(
+        commissions_claims=CLAIMS_REPLY,
+        commissions_check=judgements,
+        commissions_refute=reply,
+    )
+    result, client = run([CLAIMS, SUPPORT, REFUTE_FLAGGED], script)
+    return result.output("commissions_refute", CommissionsRefuteOutput), script, client
+
+
+def test_flagged_refute_sends_every_flagged_claim_by_its_own_id_and_statement():
+    _, script, _ = refute_flagged(LEAN_KEEP)
+
+    (prompt,) = script.prompts["commissions_refute"]
+    assert SOURCE in prompt
+    block = prompt.split("<flagged_claims>\n")[1].split("\n</flagged_claims>")[0]
+    # The supporting exam claim is sent too, and the json is omission-pipeline's.
+    assert block == json.dumps(
+        [
+            {
+                "id": "c2",
+                "claim": EXAM_CLAIM,
+                "note_quote": EXAM,
+                "label": "unsupported",
+            },
+            {
+                "id": "c3",
+                "claim": DOSE_CLAIM,
+                "note_quote": DOSE,
+                "label": "contradicted",
+            },
+        ]
+    )
+
+
+def test_flagged_refute_calls_opus_at_high_effort():
+    _, _, client = refute_flagged(LEAN_KEEP)
+
+    assert (client.requests[-1].model, client.requests[-1].effort) == (
+        "claude-opus-5-5",
+        "high",
+    )
+
+
+def test_flagged_refute_keeps_flags_that_stand():
+    out, _, _ = refute_flagged(LEAN_KEEP)
+
+    assert [c.id for c in out.commissions] == ["c2", "c3"]
+    assert out.cleared == []
+
+
+def test_flagged_refute_clears_a_flag_with_a_quote_from_the_source():
+    out, _, _ = refute_flagged(LEAN_CLEAR_DOSE)
+
+    assert [c.id for c in out.commissions] == ["c2"]
+    (cleared,) = out.cleared
+    assert (cleared.commission.id, cleared.evidence) == ("c3", DOSE_SOURCE)
+
+
+def test_flagged_refute_asks_again_when_a_clearing_quote_is_not_in_the_source():
+    bad = support_reply(("c2", False, None), ("c3", True, "words not in the source"))
+    out, script, _ = refute_flagged([bad, LEAN_KEEP])
+
+    assert len(script.prompts["commissions_refute"]) == 2
+    assert out.cleared == []
+
+
+def test_flagged_refute_makes_no_call_with_nothing_flagged():
+    all_supported = judgements_reply(
+        SKIING_SUPPORTED, judgement("c2"), judgement("c3", importance="critical")
+    )
+    out, script, _ = refute_flagged(LEAN_KEEP, all_supported)
+
+    assert "commissions_refute" not in script.prompts
+    assert out.commissions == [] and out.cleared == []
