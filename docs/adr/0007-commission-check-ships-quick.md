@@ -6,4 +6,4 @@ The commission pipeline groundline was ported from has three presets: an exact o
 
 - It catches fewer commissions than the other two (151 against 166 of 172).
 - It uses Haiku, not Opus. Anthropic's BAA is understood to cover services and features rather than specific models, so Haiku should be covered, but confirm that before production (see ADR 0006).
-- The exact and lean presets, and the quick check's opt-in `repeats` and `kinds` settings, are left out for now.
+- The exact preset, and the quick check's opt-in `repeats` and `kinds` settings, are left out for now. The lean preset is now offered alongside quick (ADR 0017).

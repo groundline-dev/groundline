@@ -9,10 +9,10 @@ from the source or summary; see `groundline_core.api.common`.
 
 import logging
 import time
-from typing import Annotated, Literal
+from typing import Annotated, Literal, get_args
 
 from fastapi import APIRouter, Depends
-from pydantic import ConfigDict
+from pydantic import ConfigDict, Field
 
 from groundline_core.api.common import (
     Alarm,
@@ -48,15 +48,20 @@ CommissionPreset = Literal["commission_quick", "commission_reverse_lean"]
 """The commission presets a caller can choose."""
 
 
+def _preset_choices() -> str:
+    """What each choosable preset runs and how it was measured, from the presets'
+    own descriptions, so the docs can't drift from them."""
+    lines = ["Which validated preset to run."]
+    for name in get_args(CommissionPreset):
+        default = " (the default)" if name == DEFAULT_COMMISSIONS_PRESET else ""
+        lines.append(f"`{name}`{default}: {load_preset(name).description}")
+    return "\n\n".join(lines)
+
+
 class CommissionsRequest(CheckRequest):
-    preset: CommissionPreset = DEFAULT_COMMISSIONS_PRESET
-    """Which validated preset to run. `commission_quick` (the default) is one
-    Claude Haiku 5.5 call, about $0.002 per note; measured on 172 commission pairs
-    it caught 151, with 1 of 110 clean notes flagged, confirmed to its
-    pre-registered standard. `commission_reverse_lean` is three Claude Opus 5.5
-    calls, about $0.28 per note: it caught 166, with 0 of 110 clean notes
-    flagged. It matched the exact preset's catches, but missed its pre-registered
-    margin by less than two pairs, so it isn't confirmed to that standard."""
+    preset: CommissionPreset = Field(
+        default=DEFAULT_COMMISSIONS_PRESET, description=_preset_choices()
+    )
 
 
 class CommissionsAlarm(Alarm):
@@ -131,15 +136,13 @@ async def commissions(
     whether to flag it.
 
     Runs a validated commission check (often called hallucination detection),
-    chosen with `preset`. `commission_quick`, the default, is one Claude Haiku 5.5
-    call that costs about $0.002 for a typical clinical note.
-    `commission_reverse_lean` lists the summary's claims and checks each against
-    the source with Claude Opus 5.5, for about $0.28 and 20 seconds a note; it
-    caught more commissions when measured, but isn't confirmed to its
-    pre-registered standard. Each preset flags at its own threshold, and both
-    answer in the same shape. A claim is a commission if the source contradicts
-    it or never mentions it. Answers 200 for every finished check, flagged or
-    not."""
+    chosen with `preset`: `commission_quick` by default, or
+    `commission_reverse_lean`, which caught more commissions when measured but
+    costs far more and isn't confirmed to its pre-registered standard. The
+    `preset` field says what each runs, how it was measured and what it costs.
+    Each preset flags at its own threshold, and both answer in the same shape. A
+    claim is a commission if the source contradicts it or never mentions it.
+    Answers 200 for every finished check, flagged or not."""
     spec = load_preset(request.preset)
     started = time.perf_counter()
     with check_failures():
