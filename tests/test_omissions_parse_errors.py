@@ -6,11 +6,11 @@ from typing import Any
 
 import pytest
 
-from groundline.core import ParseError
-from groundline.evaluators.omissions.models import Fact, RankedFact
-from groundline.evaluators.omissions.stages.check import parse_batch_verdicts
-from groundline.evaluators.omissions.stages.rank import parse_ranking
-from groundline.evaluators.omissions.stages.refute import parse_refute
+from groundline_core.core import ParseError
+from groundline_core.evaluators.omissions.models import Fact, RankedFact
+from groundline_core.evaluators.omissions.stages.check import parse_batch_verdicts
+from groundline_core.evaluators.omissions.stages.rank import parse_ranking
+from groundline_core.evaluators.omissions.stages.refute import parse_refute
 
 SECRET = "patient is HIV positive and takes tenofovir"
 FACT = Fact(id="f1", fact="A fact.", evidence="Some evidence.")

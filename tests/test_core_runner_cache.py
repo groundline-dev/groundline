@@ -5,7 +5,7 @@ from typing import Any
 
 import pytest
 
-from groundline.core import (
+from groundline_core.core import (
     FileCache,
     Inputs,
     PipelineSpec,

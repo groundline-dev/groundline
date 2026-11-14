@@ -1,0 +1,76 @@
+#!/usr/bin/env bash
+# Install groundline-core with no extras, as a user of the library would, and
+# check that:
+#   - `from groundline_core import evaluate, evaluate_sync, load_preset` works
+#   - none of the server or CLI packages came with it
+#   - the groundline-core command says to install the cli extra, and exits 2
+#   - importing the API says to install the server extra
+#
+# It builds the wheel, then installs it into two new, empty environments: one
+# with pip and one with uv pip, since users may install with either.
+#
+# Usage: scripts/core-install-check   (or make core-check)
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
+fail() {
+  echo "core-install-check: $*" >&2
+  exit 1
+}
+
+cli_message='The groundline-core command needs the cli extra: pip install "groundline-core[cli]"'
+server_message='groundline_core.app needs the server extra: pip install "groundline-core[server]"'
+
+uv build --wheel --out-dir "$work/dist" --quiet
+wheels=("$work"/dist/groundline_core-*.whl)
+[ -f "${wheels[0]}" ] || fail "uv build made no groundline_core wheel: $(ls "$work/dist")"
+wheel="${wheels[0]}"
+
+check() {
+  local installer="$1" env="$2"
+  local python="$env/bin/python" unwanted command_output import_output status
+
+  "$python" -I -c 'from groundline_core import evaluate, evaluate_sync, load_preset' \
+    || fail "$installer: the library doesn't load without extras"
+
+  unwanted="$("$python" -I - <<'EOF'
+from importlib.metadata import PackageNotFoundError, version
+
+from groundline_core.extras import CLI_PACKAGES, SERVER_PACKAGES
+
+found = []
+for name in sorted(SERVER_PACKAGES | CLI_PACKAGES):
+    try:
+        version(name)
+    except PackageNotFoundError:
+        continue
+    found.append(name)
+print(" ".join(found))
+EOF
+)"
+  [ -z "$unwanted" ] || fail "$installer: installed without being asked for: $unwanted"
+
+  status=0
+  command_output="$("$env/bin/groundline-core" omissions source.txt summary.txt 2>&1)" || status=$?
+  [ "$status" = 2 ] || fail "$installer: groundline-core without the cli extra exited $status, not 2: $command_output"
+  [ "$command_output" = "$cli_message" ] || fail "$installer: groundline-core without the cli extra printed: $command_output"
+
+  status=0
+  import_output="$("$python" -I -c 'import groundline_core.app' 2>&1)" || status=$?
+  [ "$status" != 0 ] || fail "$installer: groundline_core.app imported without the server extra"
+  [[ "$import_output" == *"$server_message"* ]] \
+    || fail "$installer: importing groundline_core.app without the server extra printed: $import_output"
+
+  echo "ok: $installer installs groundline-core without extras"
+}
+
+uv venv --seed --quiet "$work/pip"
+"$work/pip/bin/python" -m pip install --quiet --disable-pip-version-check "$wheel"
+check pip "$work/pip"
+
+uv venv --quiet "$work/uv"
+uv pip install --quiet --python "$work/uv/bin/python" "$wheel"
+check "uv pip" "$work/uv"

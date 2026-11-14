@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from groundline.settings import MissingAPIKeyError, Settings
+from groundline_core.settings import MissingAPIKeyError, Settings
 
 
 @pytest.fixture(autouse=True)

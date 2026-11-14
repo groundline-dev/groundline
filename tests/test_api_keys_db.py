@@ -11,8 +11,8 @@ import pytest
 from sqlalchemy import Connection, Engine, event, func, select, text, update
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from groundline.api_keys import APIKeyNotFoundError, APIKeys, APIKeyStorageError
-from groundline.db import api_keys
+from groundline_core.api_keys import APIKeyNotFoundError, APIKeys, APIKeyStorageError
+from groundline_core.db import api_keys
 
 pytestmark = pytest.mark.db
 

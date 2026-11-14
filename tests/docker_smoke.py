@@ -12,7 +12,7 @@ from typing import Any, cast
 from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
-from groundline.presets import load_preset
+from groundline_core.presets import load_preset
 
 ANTHROPIC_KEY = "smoke-anthropic-key"
 SOURCE = "Take the medicine once daily."

@@ -14,8 +14,8 @@ from pathlib import Path
 
 import pytest
 
-from groundline.db import setup
-from groundline.db.setup import DatabaseSetupError, setup_database
+from groundline_core.db import setup
+from groundline_core.db.setup import DatabaseSetupError, setup_database
 
 APP = "postgresql+psycopg://groundline:app-secret@localhost:5433/groundline"
 ADMIN = "postgresql+psycopg://postgres:admin-secret@127.0.0.1:1/postgres"

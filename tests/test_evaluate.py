@@ -3,14 +3,14 @@ from pathlib import Path
 
 import pytest
 
-from groundline import (
+from groundline_core import (
     EvaluationResult,
     builtin_presets,
     evaluate,
     evaluate_sync,
     load_preset,
 )
-from groundline.core import (
+from groundline_core.core import (
     DomainProfile,
     PipelineSpec,
     SpecError,
@@ -18,10 +18,11 @@ from groundline.core import (
     load_spec,
     with_settings,
 )
-from groundline.evaluators.models import AlarmOutput
-from groundline.evaluators.omissions.models import ScoreOutput
-from groundline.profiles import load_builtin_profile
-from groundline.settings import MissingAPIKeyError, UnreadableSettingsError
+from groundline_core.core.deadline import check_deadline
+from groundline_core.evaluators.models import AlarmOutput
+from groundline_core.evaluators.omissions.models import ScoreOutput
+from groundline_core.profiles import load_builtin_profile
+from groundline_core.settings import MissingAPIKeyError, UnreadableSettingsError
 from tests.core_fakes import make_registry
 from tests.fakes import FakeClient
 from tests.omission_helpers import (
@@ -190,6 +191,7 @@ def test_a_pipeline_that_calls_no_model_needs_no_key(
 ):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GROUNDLINE_MODEL_MAX_ATTEMPTS", "invalid-unused-policy")
     spec = PipelineSpec(
         name="no-models",
         stages=[StageSpec(step="upper", implementation="upper.basic")],
@@ -198,6 +200,49 @@ def test_a_pipeline_that_calls_no_model_needs_no_key(
     result = asyncio.run(evaluate(SOURCE, SUMMARY, spec=spec, registry=make_registry()))
 
     assert result.run.stages["upper"].status == "ran"
+
+
+def test_injected_client_ignores_invalid_model_configuration(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GROUNDLINE_CHECK_TIMEOUT_SECONDS", "120")
+    monkeypatch.setenv("GROUNDLINE_MODEL_MAX_ATTEMPTS", "invalid-unused-policy")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+
+    result = run()
+
+    assert result.run.usage.calls == 4
+
+
+def test_injected_client_rejects_invalid_check_timeout_before_model_work(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setenv("GROUNDLINE_CHECK_TIMEOUT_SECONDS", "invalid-private-value")
+    client = FakeClient(script())
+
+    with pytest.raises(UnreadableSettingsError) as error:
+        asyncio.run(evaluate(SOURCE, SUMMARY, client=client))
+
+    assert "invalid-private-value" not in str(error.value)
+    assert client.requests == []
+
+
+def test_inherited_deadline_does_not_reload_environment_configuration(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    monkeypatch.chdir(tmp_path)
+    # The enclosing caller already established a valid deadline. evaluate()
+    # must use it rather than reading changed or unrelated environment values.
+    monkeypatch.setenv("GROUNDLINE_CHECK_TIMEOUT_SECONDS", "invalid-unused-timeout")
+    monkeypatch.setenv("GROUNDLINE_MODEL_MAX_ATTEMPTS", "invalid-unused-policy")
+
+    async def run_with_deadline():
+        with check_deadline(120):
+            return await evaluate(SOURCE, SUMMARY, client=FakeClient(script()))
+
+    assert asyncio.run(run_with_deadline()).run.usage.calls == 4
 
 
 def test_evaluate_sync_blocks_until_done():

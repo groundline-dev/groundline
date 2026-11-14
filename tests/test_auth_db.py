@@ -13,11 +13,11 @@ from sqlalchemy.ext.asyncio import AsyncEngine
 from sqlalchemy.pool import AsyncAdaptedQueuePool
 from typer.testing import CliRunner
 
-from groundline import app as app_module
-from groundline.cli import app as cli
-from groundline.db import api_keys
-from groundline.db.connection import make_engine
-from groundline.settings import Settings
+from groundline_core import app as app_module
+from groundline_core.cli import app as cli
+from groundline_core.db import api_keys
+from groundline_core.db.connection import make_engine
+from groundline_core.settings import Settings
 from tests.async_helpers import finish_before_watchdog
 from tests.auth_helpers import protected_app
 
@@ -139,8 +139,8 @@ def test_exhausted_pool_is_bounded_and_recovers(
 
     from sqlalchemy.ext.asyncio import create_async_engine
 
-    from groundline.api_keys import APIKeys, APIKeyStorageError
-    from groundline.db import connection as connection_module
+    from groundline_core.api_keys import APIKeys, APIKeyStorageError
+    from groundline_core.db import connection as connection_module
 
     monkeypatch.setattr(Settings, "db_pool_timeout_seconds", 0.3)
 
@@ -174,7 +174,7 @@ def test_timed_out_query_releases_connection_for_next_authentication(
 ):
     import asyncio
 
-    from groundline.api_keys import APIKeys, APIKeyStorageError
+    from groundline_core.api_keys import APIKeys, APIKeyStorageError
 
     monkeypatch.setattr(Settings, "db_query_timeout_seconds", 0.3)
 
@@ -224,7 +224,7 @@ def test_write_lock_wait_times_out_once_and_pool_recovers(
 
     from sqlalchemy import text
 
-    from groundline.api_keys import APIKeys, APIKeyStorageError
+    from groundline_core.api_keys import APIKeys, APIKeyStorageError
 
     monkeypatch.setattr(Settings, "db_query_timeout_seconds", 0.3)
 

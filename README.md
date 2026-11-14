@@ -48,10 +48,10 @@ Copy `.env.example` to `.env` and add your Anthropic API key. Run commands from 
 These are groundline API keys for callers of protected HTTP endpoints, separate from the Anthropic API key used for model calls. Complete the [database setup](DEVELOPMENT.md#getting-started) first; these commands access PostgreSQL directly and do not require the API server to be running or an Anthropic API key.
 
 ```sh
-uv run groundline keys create
-uv run groundline keys create --name "Avi's laptop" --expires-in 90d
-uv run groundline keys list
-uv run groundline keys revoke <key-id>
+uv run groundline-core keys create
+uv run groundline-core keys create --name "Avi's laptop" --expires-in 90d
+uv run groundline-core keys list
+uv run groundline-core keys revoke <key-id>
 ```
 
 Creation prints the name, full UUID identifier, expiry, and plaintext API key **once, after the database commit succeeds**. Copy the secret then: only its SHA-256 hash, a short display prefix, and metadata are stored. If terminal output fails after creation, the API key may already exist; use the identifier in the error to revoke it and create a replacement.
@@ -64,10 +64,15 @@ Creation prints the name, full UUID identifier, expiry, and plaintext API key **
 
 Callers send `Authorization: Bearer <api-key>` to a protected route. Authentication checks the primary database on every request, so revocation affects subsequent checks across workers and app instances; requests already authorized may finish. Invalid, revoked, or expired API keys receive 401; unavailable authentication storage produces 503. `/health` and `/ready` remain public. The reusable dependency is available as described in [DEVELOPMENT.md](DEVELOPMENT.md#protecting-an-endpoint). `POST /v1/omissions` and `POST /v1/commissions` use this dependency. Missing API keys also receive 401; all credential rejections use `{"detail": "Invalid or missing API key"}` and `WWW-Authenticate: Bearer`.
 
+A connection error or timeout during commit does not prove the change failed. The database may have saved it before the connection dropped. Groundline does not automatically repeat the operation.
+
+- **If you were creating a key:** run `uv run groundline-core keys list`. Newest entries appear first. Look for an entry matching the name you supplied, if any, but remember that names can repeat. If you can identify the new key and never received its secret, revoke it using `uv run groundline-core keys revoke <key-id>`, then create a replacement. The secret cannot be retrieved later. If you cannot tell which entry is yours, investigate with the database operator before revoking anything or repeating creation.
+- **If you were revoking a key:** run `uv run groundline-core keys list` and find that key by its full ID. If it is revoked, the operation succeeded. If it is still active, you can repeat the revocation. If you cannot confirm its status, investigate before repeating the operation.
+
 ## Checking for omissions
 
 ```sh
-uv run groundline omissions transcript.txt note.txt
+uv run groundline-core omissions transcript.txt note.txt
 ```
 
 Example report:
@@ -95,7 +100,7 @@ Cost             $0.29 · 4 calls · 31,620 input / 8,140 output tokens · 48.3 
 
 - `0`: checked, not flagged.
 - `1`: checked and flagged.
-- `2`: couldn't check: bad arguments or files, an invalid pipeline or profile, a missing or rejected Anthropic API key, a failed stage, an unwritable `--json` path, or an unexpected error. The command prints a one-line `error:` message, and if a stage failed after making model calls, what those calls cost.
+- `2`: couldn't check: bad arguments or files, an invalid pipeline or profile, a missing or rejected Anthropic API key, a failed stage, an unwritable `--json` path, or an unexpected error. The command prints a one-line `error:` message, and if a stage failed after making model calls, what those calls cost. If the command can't load at all, it also exits 2: without the `cli` extra it prints which extra to install, and otherwise the error's traceback.
 
 ### Options
 
@@ -109,7 +114,7 @@ Cost             $0.29 · 4 calls · 31,620 input / 8,140 output tokens · 48.3 
 ## Checking for commissions
 
 ```sh
-uv run groundline commissions transcript.txt note.txt
+uv run groundline-core commissions transcript.txt note.txt
 ```
 
 Example report:
@@ -133,10 +138,20 @@ The [exit codes](#exit-codes) and [options](#options) are the same as for omissi
 
 ## Using it from Python
 
+To use groundline inside your own app, install the `groundline-core` package. It isn't on PyPI yet, so install it from a clone of this repository. A plain install brings only what the checks need: `anthropic`, `pydantic-settings` and `pyyaml`. Add an extra for the rest:
+
+```sh
+pip install path/to/groundline                 # the library only
+pip install "path/to/groundline[cli]"          # plus the groundline-core command and key management
+pip install "path/to/groundline[server]"       # plus the API
+```
+
+`uv pip install` takes the same arguments, and `uv add` adds it to a uv project. The package is installed as `groundline-core`, imported as `groundline_core` and run as `groundline-core`, because an unrelated project already uses the name `groundline` on PyPI ([ADR 0016](docs/adr/0016-published-as-groundline-core.md)). Without the `cli` extra, the `groundline-core` command says which extra to install, and so does importing `groundline_core.app` without the `server` extra.
+
 ```python
-from groundline import evaluate_sync
-from groundline.evaluators.models import AlarmOutput
-from groundline.evaluators.omissions.models import ScoreOutput
+from groundline_core import evaluate_sync
+from groundline_core.evaluators.models import AlarmOutput
+from groundline_core.evaluators.omissions.models import ScoreOutput
 
 result = evaluate_sync(transcript_text, note_text)
 
@@ -151,9 +166,9 @@ print(result.run.usage.cost_usd)
 For the commission check, pass its preset as the `spec`:
 
 ```python
-from groundline import DEFAULT_COMMISSIONS_PRESET, evaluate_sync, load_preset
-from groundline.evaluators.commissions.models import CommissionsRefuteOutput
-from groundline.evaluators.models import AlarmOutput
+from groundline_core import DEFAULT_COMMISSIONS_PRESET, evaluate_sync, load_preset
+from groundline_core.evaluators.commissions.models import CommissionsRefuteOutput
+from groundline_core.evaluators.models import AlarmOutput
 
 result = evaluate_sync(
     transcript_text, note_text, spec=load_preset(DEFAULT_COMMISSIONS_PRESET)
@@ -182,7 +197,7 @@ By default, the server allows 120 seconds to complete either check, including au
 Runs the validated omission preset on one summary. Create a groundline API key, copy the secret printed once, and send it as a Bearer credential. This is separate from the Anthropic API key the server uses for model calls:
 
 ```sh
-uv run groundline keys create --name "local-api"
+uv run groundline-core keys create --name "local-api"
 export GROUNDLINE_API_KEY='<API key printed by keys create>'
 
 curl -s http://127.0.0.1:8000/v1/omissions \
@@ -280,20 +295,20 @@ Both check endpoints use the following statuses. Every error response is JSON wi
 
 | Status | Meaning |
 |---|---|
-| 400 Bad Request | The server could not decode the request body. Send JSON encoded as UTF-8. |
-| 401 Unauthorized | The groundline API key is missing or invalid. Provide a valid, unexpired key in the `Authorization: Bearer ...` header. Revoked keys are not accepted. The response includes `WWW-Authenticate: Bearer`. |
-| 404 Not Found | The route does not exist. The error names the method and path you requested; `/docs` lists the available routes. |
-| 405 Method Not Allowed | The route exists, but does not accept the requested HTTP method. For example, checks require `POST`, not `GET`. |
+| 400 | The server could not decode the request body. Send JSON encoded as UTF-8. |
+| 401 | The groundline API key is missing or invalid. Provide a valid, unexpired key in the `Authorization: Bearer ...` header. Revoked keys are not accepted. The response includes `WWW-Authenticate: Bearer`. |
+| 404 | The route does not exist. The error names the method and path you requested; `/docs` lists the available routes. |
+| 405 | The route exists, but does not accept the requested HTTP method. For example, checks require `POST`, not `GET`. |
 | 413 Content Too Large | The request body exceeds the server's byte allowance, including JSON structure and escaping. The allowance applies to every HTTP path and method. Reduce its size; a declared oversized body can return this before authentication, 404 Not Found or 405 Method Not Allowed. |
-| 422 Unprocessable Content | The request is invalid. Check the JSON syntax, required fields, text length and any extra fields. The body must be a JSON object, and the source and summary must not be blank. |
-| 500 Internal Server Error | An unexpected error occurred in groundline. Details are recorded in the server log. |
-| 502 Bad Gateway | The model or Anthropic's API failed, refused the request, or returned a response groundline could not use. Retrying later may help. |
-| 503 Service Unavailable | The service is unavailable because of a model configuration or authentication database problem. The service operator should check the configuration and database availability. |
-| 504 Gateway Timeout | The check exceeded a time limit. This can happen during a model attempt, while retrying model calls, or when the overall check reaches its deadline. |
+| 422 | The request is invalid. Check the JSON syntax, required fields, text length and any extra fields. The body must be a JSON object, and the source and summary must not be blank. |
+| 500 | An unexpected error occurred in groundline. Details are recorded in the server log. |
+| 502 | The model or Anthropic's API failed, refused the request, or returned a response groundline could not use. Retrying later may help. |
+| 503 | Model configuration or database authentication is unavailable. Expiry during authentication returns 503, whether the authentication limit or whole-check deadline fires first; no model work starts. |
+| 504 | A model attempt or retry allowance expired, or the whole-check deadline expired after successful authentication. |
 
 For **502 Bad Gateway** responses, `detail` identifies the step that failed and any usage recorded before it stopped. Anthropic API errors include the provider's status and error type. If a retry ends in a model error, the response is 502 even if an earlier attempt timed out.
 
-For **503 Service Unavailable** responses, `detail` provides configuration guidance or reports that authentication is unavailable. See [development setup](DEVELOPMENT.md#getting-started) and the [timeout reference](DEVELOPMENT.md#model-retries) for troubleshooting.
+For **503** responses, `detail` provides configuration guidance or reports that authentication is unavailable. The operator should check the [service configuration and database](DEVELOPMENT.md#getting-started).
 
 **Failed checks may still incur model charges.** Interrupted model requests can incur charges without returning usage, so costs reported in errors cover only recorded usage. The provider's bill may be higher. A retry near the deadline can also use the remaining time and incur charges without producing a result.
 
@@ -315,14 +330,14 @@ make aws-destroy   # when you're done
 ## Pipelines, presets and profiles
 
 - **A pipeline spec** says how to check: which steps run, which implementation does each (for example `check.llm_batch`), whether each step is on, and each step's settings, such as model, effort and thresholds. Specs are YAML or JSON. Every spec is validated before any model call, and the validation reports every problem at once.
-- **A preset** is a validated spec that ships with groundline. [`omission_all_opus`](src/groundline/presets/omission_all_opus.yaml) is the default. To try a variation, copy it, change it, and pass it with `--pipeline`. The report then says it isn't the validated preset, and warns if it still uses the preset's alarm thresholds, since those were calibrated only for the preset.
+- **A preset** is a validated spec that ships with groundline. [`omission_all_opus`](src/groundline_core/presets/omission_all_opus.yaml) is the default. To try a variation, copy it, change it, and pass it with `--pipeline`. The report then says it isn't the validated preset, and warns if it still uses the preset's alarm thresholds, since those were calibrated only for the preset.
 
   Editors with YAML schema support, such as VS Code with Red Hat's YAML extension, can check a spec as you write it and suggest each implementation's settings. The preset's first line does this; in your own copy, point it at the published schema:
 
   ```yaml
-  # yaml-language-server: $schema=https://raw.githubusercontent.com/groundline-dev/groundline/main/src/groundline/presets/pipeline.schema.json
+  # yaml-language-server: $schema=https://raw.githubusercontent.com/groundline-dev/groundline/main/src/groundline_core/presets/pipeline.schema.json
   ```
-- **A domain profile** says what matters in a domain: the prompts for each step and the severity rubric, in a folder with a `profile.yaml`. [`clinical`](src/groundline/profiles/clinical/) is built in. A new domain, such as finance, needs a new profile folder, not code changes.
+- **A domain profile** says what matters in a domain: the prompts for each step and the severity rubric, in a folder with a `profile.yaml`. [`clinical`](src/groundline_core/profiles/clinical/) is built in. A new domain, such as finance, needs a new profile folder, not code changes.
 
 ## Caching and sensitive data
 

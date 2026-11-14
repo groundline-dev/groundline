@@ -11,12 +11,12 @@ from typing import Any
 import httpx2
 import pytest
 
-from groundline import evaluate, evaluate_sync, load_preset
-from groundline.api import common
-from groundline.app import app
-from groundline.core import ModelReply
-from groundline.core.errors import ModelTimeoutError
-from groundline.settings import Settings
+from groundline_core import evaluate, evaluate_sync, load_preset
+from groundline_core.api import common
+from groundline_core.app import app
+from groundline_core.core import ModelReply
+from groundline_core.core.errors import ModelTimeoutError
+from groundline_core.settings import Settings
 from tests.async_helpers import finish_before_watchdog
 from tests.auth_helpers import BODY, HEADERS, FakeKeys
 from tests.fakes import FakeClient
@@ -155,7 +155,17 @@ def test_independent_evaluations_do_not_inherit_an_expired_deadline():
 
 
 @pytest.mark.parametrize("route", ["/v1/omissions", "/v1/commissions"])
-def test_authentication_timeout_is_503_without_model_work(route: str):
+@pytest.mark.parametrize("limit", ["authentication", "check"])
+def test_authentication_timeout_is_503_without_model_work(
+    route: str, limit: str, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv(
+        "GROUNDLINE_CHECK_TIMEOUT_SECONDS", "0.3" if limit == "check" else "5"
+    )
+    monkeypatch.setattr(
+        Settings, "db_auth_timeout_seconds", 0.3 if limit == "authentication" else 5
+    )
+
     class HungKeys(FakeKeys):
         cancelled = False
 
@@ -179,6 +189,7 @@ def test_authentication_timeout_is_503_without_model_work(route: str):
                 http.post(route, headers=HEADERS, json=BODY)
             )
             assert response.status_code == 503
+            assert response.json() == {"detail": "Authentication is unavailable"}
             assert keys.cancelled
             assert len(keys.calls) == 1
             assert model.started == 0

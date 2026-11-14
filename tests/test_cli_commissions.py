@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner, Result
 
-from groundline import cli
+from groundline_core import cli
 from tests.commissions_helpers import (
     DOSE,
     DOSE_ISSUE,
@@ -389,7 +389,7 @@ def test_cli_reports_check_deadline_with_exit_code_2(
     import asyncio
     from typing import Any
 
-    from groundline.core import ModelReply
+    from groundline_core.core import ModelReply
 
     monkeypatch.setenv("GROUNDLINE_CHECK_TIMEOUT_SECONDS", "0.5")
     cancelled: list[bool] = []

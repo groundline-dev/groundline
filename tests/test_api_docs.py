@@ -4,14 +4,17 @@ from importlib.metadata import version
 from typing import Any
 
 import pytest
+from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
+from openapi_spec_validator import validate
 
-from groundline.api.commissions import CommissionsRequest, CommissionsResponse
-from groundline.api.common import ApiModel, ErrorBody, InvalidRequestBody
-from groundline.api.omissions import OmissionsRequest, OmissionsResponse
-from groundline.app import app
-from groundline.evaluate import DEFAULT_COMMISSIONS_PRESET, DEFAULT_PRESET
-from groundline.presets import load_preset
+from groundline_core.api.commissions import CommissionsRequest, CommissionsResponse
+from groundline_core.api.common import ApiModel, ErrorBody, InvalidRequestBody
+from groundline_core.api.errors import DATABASE_UNAVAILABLE
+from groundline_core.api.omissions import OmissionsRequest, OmissionsResponse
+from groundline_core.app import app
+from groundline_core.evaluate import DEFAULT_COMMISSIONS_PRESET, DEFAULT_PRESET
+from groundline_core.presets import load_preset
 from tests.auth_helpers import ENDPOINTS, HEADERS, FakeKeys
 
 http = TestClient(app)  # no API key: the docs are public
@@ -33,7 +36,7 @@ def test_api_serves_the_interactive_docs_without_a_key():
 
 
 def test_the_docs_show_groundlines_release_and_label_the_api_version():
-    assert schema["info"]["version"] == version("groundline")
+    assert schema["info"]["version"] == version("groundline-core")
     assert "`/v1`" in schema["info"]["description"]
     assert "`/v2`" in schema["info"]["description"]
     assert [tag["name"] for tag in schema["tags"]] == ["v1"]
@@ -186,7 +189,7 @@ def test_the_503_example_names_the_stages_needing_the_anthropic_key(path: str):
 
 @pytest.mark.parametrize("route", ["/v1/omissions", "/v1/commissions"])
 def test_check_documents_gateway_timeout_with_a_safe_example(route: str):
-    from groundline.app import app
+    from groundline_core.app import app
 
     responses = app.openapi()["paths"][route]["post"]["responses"]
     assert "504" in responses
@@ -194,3 +197,57 @@ def test_check_documents_gateway_timeout_with_a_safe_example(route: str):
     assert examples
     for example in examples.values():
         assert isinstance(example["value"]["detail"], str)
+
+
+OPERATION_IDS = {
+    ("post", "/v1/omissions"): "evaluate_omissions",
+    ("post", "/v1/commissions"): "evaluate_commissions",
+    ("get", "/health"): "get_health",
+    ("get", "/ready"): "get_ready",
+}
+"""Each operation ID becomes a method name in the generated SDK, so changing
+one is a breaking change for its users."""
+
+
+def _operations() -> dict[tuple[str, str], dict[str, Any]]:
+    return {
+        (method, path): operation
+        for path, methods in schema["paths"].items()
+        for method, operation in methods.items()
+    }
+
+
+def test_every_route_has_an_explicit_operation_id():
+    """FastAPI invents an ID from the URL when a route sets none, such as
+    omissions_v1_omissions_post. Each ID becomes an SDK method name, so an
+    invented one would change whenever the URL or the function name did."""
+    routes = [
+        route
+        for route in app.routes
+        if isinstance(route, APIRoute) and route.include_in_schema
+    ]
+
+    assert routes
+    for route in routes:
+        assert route.operation_id, f"{route.path} has no operation_id"
+
+
+def test_operation_ids_are_the_documented_names_and_unique():
+    ids = {key: operation["operationId"] for key, operation in _operations().items()}
+
+    assert ids == OPERATION_IDS
+    assert len(set(ids.values())) == len(ids)
+
+
+def test_ready_documents_its_503_with_the_error_body_and_an_example():
+    response = schema["paths"]["/ready"]["get"]["responses"]["503"]
+    content = response["content"]["application/json"]
+    example = next(iter(content["examples"].values()))
+
+    assert response["description"]
+    assert _resolve(content["schema"])["title"] == "ErrorBody"
+    assert example["value"] == {"detail": DATABASE_UNAVAILABLE}
+
+
+def test_the_openapi_file_is_valid():
+    validate(schema)

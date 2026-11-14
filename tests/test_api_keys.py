@@ -1,13 +1,129 @@
 import asyncio
 import re
-from datetime import timedelta
-from typing import get_type_hints
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime, timedelta
+from pathlib import Path
+from typing import cast, get_type_hints
+from unittest.mock import MagicMock
+from uuid import UUID
 
 import pytest
-from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
-from groundline import api_keys
-from groundline.api_keys import APIKeys, APIKeyStorageError
+from groundline_core import api_keys
+from groundline_core.api_keys import APIKeys, APIKeyStorageError
+from groundline_core.core.deadline import check_deadline
+from groundline_core.settings import Settings
+from tests.async_helpers import finish_before_watchdog
+
+
+@pytest.fixture
+def transaction_limits(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
+    monkeypatch.chdir(tmp_path)
+    for name in ("connect", "check", "pool", "query"):
+        monkeypatch.setattr(Settings, f"db_{name}_timeout_seconds", 0.5)
+
+
+def test_query_limit_is_per_statement_and_commit(
+    transaction_limits: None,
+):
+    """Synthetic waits exercise the client boundaries, not PostgreSQL rollback."""
+    created_at = datetime(2026, 11, 4, tzinfo=UTC)
+    row = {
+        "id": UUID("00000000-0000-7000-8000-000000000001"),
+        "name": "test",
+        "prefix": "gl_test",
+        "status": "active",
+        "created_at": created_at,
+        "expires_at": created_at + timedelta(days=1),
+        "revoked_at": None,
+    }
+
+    async def run():
+        steps: list[str] = []
+
+        class Connection:
+            async def scalar(self, statement: object):
+                await asyncio.sleep(0.2)
+                steps.append("scalar")
+                return created_at
+
+            async def execute(self, statement: object):
+                await asyncio.sleep(0.2)
+                steps.append("insert")
+                result = MagicMock()
+                result.mappings.return_value.one.return_value = row
+                return result
+
+        class Engine:
+            @asynccontextmanager
+            async def begin(self):
+                yield Connection()
+                await asyncio.sleep(0.2)
+                steps.append("commit")
+
+        created = await finish_before_watchdog(
+            APIKeys(cast(AsyncEngine, Engine())).create(
+                name="test", expires_in=timedelta(days=1)
+            )
+        )
+        assert created.info.id == row["id"]
+        assert steps == ["scalar", "insert", "commit"]
+
+    asyncio.run(run())
+
+
+@pytest.mark.parametrize("hang_at", ["acquire", "query", "commit", "deadline"])
+def test_transaction_timeouts_are_identified_without_replay(
+    hang_at: str, transaction_limits: None, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setattr(Settings, "db_query_timeout_seconds", 0.3)
+
+    async def run():
+        attempts = 0
+        cancelled: list[str] = []
+        cleanups = 0
+
+        async def hang(where: str):
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.append(where)
+
+        class Connection:
+            async def execute(self, statement: object):
+                if hang_at in ("query", "deadline"):
+                    await hang(hang_at)
+                result = MagicMock()
+                result.mappings.return_value.__iter__.return_value = []
+                return result
+
+        class Engine:
+            @asynccontextmanager
+            async def begin(self):
+                nonlocal attempts, cleanups
+                attempts += 1
+                try:
+                    if hang_at == "acquire":
+                        await hang(hang_at)
+                    yield Connection()
+                    if hang_at == "commit":
+                        await hang(hang_at)
+                finally:
+                    cleanups += 1
+
+        async def operation():
+            with check_deadline(0.1 if hang_at == "deadline" else 120):
+                return await APIKeys(cast(AsyncEngine, Engine())).list_all()
+
+        with pytest.raises(APIKeyStorageError) as error:
+            await finish_before_watchdog(operation())
+        assert str(error.value) == "API-key operation timed out"
+        assert error.value.__suppress_context__
+        assert attempts == cleanups == 1
+        assert cancelled == [hang_at]
+
+    asyncio.run(run())
 
 
 def test_listing_return_annotation_can_be_evaluated():

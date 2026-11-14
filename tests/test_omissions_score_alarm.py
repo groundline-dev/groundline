@@ -2,15 +2,15 @@ import json
 
 import pytest
 
-from groundline.core import SpecError
-from groundline.evaluators.models import AlarmOutput, Severity
-from groundline.evaluators.omissions.models import (
+from groundline_core.core import SpecError
+from groundline_core.evaluators.models import AlarmOutput, Severity
+from groundline_core.evaluators.omissions.models import (
     RankedFact,
     ScoreOutput,
     Verdict,
 )
-from groundline.evaluators.omissions.stages.alarm import alarm_score
-from groundline.evaluators.omissions.stages.score import score_verdicts
+from groundline_core.evaluators.omissions.stages.alarm import alarm_score
+from groundline_core.evaluators.omissions.stages.score import score_verdicts
 from tests.omission_helpers import (
     ALARM,
     ALL_STAGES,

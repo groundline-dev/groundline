@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from groundline.core import FileCache, stable_hash
+from groundline_core.core import FileCache, stable_hash
 
 
 def test_stores_and_returns_entries(tmp_path: Path):
@@ -50,7 +50,7 @@ def test_a_failed_write_leaves_the_old_entry_and_no_temporary_files(
     def fail(*args: object, **kwargs: object) -> None:
         raise OSError("disk full")
 
-    monkeypatch.setattr("groundline.core.cache.os.replace", fail)
+    monkeypatch.setattr("groundline_core.core.cache.os.replace", fail)
     with pytest.raises(OSError, match="disk full"):
         cache.put("extract", "abc", {"output": {"facts": ["new"]}, "calls": []})
 

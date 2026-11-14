@@ -3,8 +3,8 @@ from pathlib import Path
 
 import pytest
 
-from groundline.core import FileCache, StageError
-from groundline.evaluators.omissions.models import ExtractOutput, Fact
+from groundline_core.core import FileCache, StageError
+from groundline_core.evaluators.omissions.models import ExtractOutput, Fact
 from tests.fakes import CLINICAL
 from tests.omission_helpers import (
     EXTRACT,

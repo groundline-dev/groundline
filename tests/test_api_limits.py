@@ -20,11 +20,11 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 from starlette.types import ASGIApp, Message, Scope
 
-from groundline import settings
-from groundline.api import common
-from groundline.api.limits import BodyLimitMiddleware
-from groundline.app import app
-from groundline.settings import APILimitsSettings
+from groundline_core import settings
+from groundline_core.api import common
+from groundline_core.api.limits import BodyLimitMiddleware
+from groundline_core.app import app
+from groundline_core.settings import APILimitsSettings
 from tests.auth_helpers import ENDPOINTS, HEADERS, SECRET, Endpoint, FakeKeys
 from tests.fakes import FakeClient
 
@@ -151,7 +151,7 @@ def test_invalid_limit_values_are_rejected(value: str, monkeypatch: pytest.Monke
 
 def test_invalid_limit_stops_startup_without_leaking_values(tmp_path: Path):
     name, value = "GROUNDLINE_MAX_BODY_BYTES", "invalid-private-value"
-    result = probe("import groundline.app", tmp_path, {name: value})
+    result = probe("import groundline_core.app", tmp_path, {name: value})
     assert result.returncode != 0, "API import accepted an invalid body limit"
     assert name in result.stderr
     for private in (

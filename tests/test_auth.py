@@ -14,11 +14,11 @@ from sqlalchemy import event
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
-from groundline import app as app_module
-from groundline.api_keys import APIKeyInfo, APIKeys, APIKeyStorageError
-from groundline.auth import require_api_key
-from groundline.db.connection import make_engine
-from groundline.settings import Settings
+from groundline_core import app as app_module
+from groundline_core.api_keys import APIKeyInfo, APIKeys, APIKeyStorageError
+from groundline_core.auth import require_api_key
+from groundline_core.db.connection import make_engine
+from groundline_core.settings import Settings
 from tests.auth_helpers import SECRET, FakeKeys, protected_app
 
 
@@ -346,7 +346,7 @@ def test_internal_timeout_with_cleanup_failure_keeps_its_safe_error(
             if limit == "query_direct":
                 with pytest.raises(APIKeyStorageError) as stored:
                     task.result()
-                assert str(stored.value) == "API-key storage is unavailable"
+                assert str(stored.value) == "API-key operation timed out"
             else:
                 with pytest.raises(HTTPException) as response:
                     task.result()

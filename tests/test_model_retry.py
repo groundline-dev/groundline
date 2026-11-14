@@ -5,8 +5,8 @@ from collections.abc import Awaitable, Callable
 
 import pytest
 
-from groundline.clients.retry import retry_call
-from groundline.core.errors import ModelTimeoutError
+from groundline_core.clients.retry import retry_call
+from groundline_core.core.errors import ModelTimeoutError
 from tests.async_helpers import finish_before_watchdog
 
 
@@ -105,30 +105,33 @@ def test_attempt_limit_includes_original(attempts: int):
 
 
 @pytest.mark.parametrize("check_remaining,retry_budget", [(0.5, 10), (10, 0.5)])
-def test_minimum_wait_must_fit_both_allowances(
-    check_remaining: float, retry_budget: float
+@pytest.mark.parametrize("minimum,fraction", [(1, 0), (0, 1)])
+def test_retry_after_and_jitter_must_fit_both_allowances(
+    check_remaining: float, retry_budget: float, minimum: float, fraction: float
 ):
     clock = Clock()
     calls = 0
+    failure = TemporaryFailure()
 
     async def operation():
         nonlocal calls
         calls += 1
-        raise TemporaryFailure()
+        raise failure
 
-    with pytest.raises(TemporaryFailure):
+    with pytest.raises(TemporaryFailure) as error:
         asyncio.run(
             scheduled(
                 operation,
                 clock,
                 budget=retry_budget,
                 remaining=check_remaining,
-                minimum=1,
-                fraction=0,
+                minimum=minimum,
+                fraction=fraction,
             )
         )
     assert calls == 1
     assert clock.waits == []
+    assert error.value is failure
 
 
 def test_call_time_consumes_retry_budget():
@@ -145,6 +148,41 @@ def test_call_time_consumes_retry_budget():
         asyncio.run(
             scheduled(operation, clock, attempts=5, budget=1, minimum=1, fraction=0)
         )
+    assert calls == 1
+    assert clock.waits == []
+
+
+@pytest.mark.parametrize("retryable,attempts", [(False, 3), (True, 1)])
+def test_final_error_is_preserved_when_it_arrives_at_budget_expiry(
+    retryable: bool, attempts: int
+):
+    clock = Clock()
+    failure = TemporaryFailure()
+    calls = 0
+
+    async def operation():
+        nonlocal calls
+        calls += 1
+        # Advance only the injected clock: the operation returns an actual error
+        # before asyncio's cancellation, despite the elapsed retry allowance.
+        clock.now = 1
+        raise failure
+
+    with pytest.raises(TemporaryFailure) as error:
+        asyncio.run(
+            retry_call(
+                operation,
+                decide=lambda error: (retryable, None),
+                max_attempts=attempts,
+                budget_seconds=1,
+                base_seconds=1,
+                cap_seconds=8,
+                clock=clock.read,
+                remaining=lambda: 120,
+                sleep=clock.sleep,
+            )
+        )
+    assert error.value is failure
     assert calls == 1
     assert clock.waits == []
 

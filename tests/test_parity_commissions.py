@@ -23,14 +23,14 @@ from typing import Any
 
 import pytest
 
-from groundline import (
+from groundline_core import (
     DEFAULT_COMMISSIONS_PRESET,
     EvaluationResult,
     evaluate,
     load_preset,
 )
-from groundline.evaluators.commissions.models import CommissionsRefuteOutput
-from groundline.evaluators.models import AlarmOutput
+from groundline_core.evaluators.commissions.models import CommissionsRefuteOutput
+from groundline_core.evaluators.models import AlarmOutput
 from tests.fakes import FakeClient
 
 FIXTURE = (

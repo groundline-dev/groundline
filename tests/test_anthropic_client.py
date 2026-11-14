@@ -12,10 +12,15 @@ import httpx2
 import pytest
 from anthropic import DefaultAsyncHttpxClient
 
-from groundline.clients.anthropic import AnthropicClient
-from groundline.core import APIKeyRejectedError, ModelError, ModelRefusal, ModelReply
-from groundline.core.errors import ModelTimeoutError
-from groundline.settings import Settings
+from groundline_core.clients.anthropic import AnthropicClient
+from groundline_core.core import (
+    APIKeyRejectedError,
+    ModelError,
+    ModelRefusal,
+    ModelReply,
+)
+from groundline_core.core.errors import ModelTimeoutError
+from groundline_core.settings import ModelSettings, UnreadableSettingsError
 from tests.anthropic_helpers import api_error, message
 from tests.async_helpers import finish_before_watchdog
 
@@ -133,7 +138,7 @@ def outage_settings(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
         "GROUNDLINE_CHECK_TIMEOUT_SECONDS": "120",
     }.items():
         if not name.startswith("GROUNDLINE_"):
-            monkeypatch.setattr(Settings, name, float(value))
+            monkeypatch.setattr(ModelSettings, name, float(value))
         else:
             monkeypatch.setenv(name, value)
 
@@ -194,15 +199,17 @@ def test_permanent_errors_ignore_retry_true(status: int):
     assert len(calls) == 1
 
 
-@pytest.mark.parametrize("status", [408, 409, 429, 529])
-def test_provider_retry_false_vetoes_transient_status(status: int):
+@pytest.mark.parametrize(
+    "status,veto", [(408, "false"), (409, "False"), (429, "FALSE"), (529, " false ")]
+)
+def test_provider_retry_false_vetoes_transient_status(status: int, veto: str):
     calls: list[httpx2.Request] = []
 
     def handler(request: httpx2.Request):
         calls.append(request)
         return httpx2.Response(
             status,
-            headers={"x-should-retry": "false"},
+            headers={"x-should-retry": veto},
             json=api_error("api_error", "private-body"),
         )
 
@@ -225,6 +232,61 @@ def test_attempt_setting_counts_original_attempt(
     with pytest.raises(anthropic.APIStatusError):
         run_outage_transport(handler)
     assert len(calls) == attempts
+
+
+def test_explicit_client_ignores_invalid_whole_check_configuration(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv("GROUNDLINE_CHECK_TIMEOUT_SECONDS", "invalid-unused-timeout")
+
+    reply, _ = complete(message())
+
+    assert reply.input_tokens == 1200
+
+
+def test_explicit_client_rejects_invalid_model_policy(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setenv("GROUNDLINE_MODEL_MAX_ATTEMPTS", "invalid-private-value")
+
+    with pytest.raises(UnreadableSettingsError) as error:
+        AnthropicClient("dummy-key")
+
+    assert "invalid-private-value" not in str(error.value)
+
+
+@pytest.mark.parametrize("max_retries", [0, 2])
+def test_explicit_max_retries_counts_retries_with_sdk_retries_disabled(
+    monkeypatch: pytest.MonkeyPatch, max_retries: int
+):
+    monkeypatch.setenv("GROUNDLINE_MODEL_MAX_ATTEMPTS", "7")
+    calls: list[httpx2.Request] = []
+
+    def handler(request: httpx2.Request):
+        calls.append(request)
+        return httpx2.Response(529, json=api_error("overloaded_error", "private-body"))
+
+    async def run():
+        client = AnthropicClient(
+            "dummy-key",
+            max_retries=max_retries,
+            http_client=DefaultAsyncHttpxClient(
+                transport=httpx2.MockTransport(handler)
+            ),
+        )
+        try:
+            with pytest.raises(anthropic.APIStatusError):
+                await client.complete(
+                    "a", model="claude-opus-5-5", effort="medium", max_tokens=100
+                )
+        finally:
+            await client.close()
+
+    asyncio.run(run())
+    assert len(calls) == max_retries + 1
+    assert all(
+        request.headers.get("x-stainless-retry-count", "0") == "0" for request in calls
+    )
 
 
 @pytest.mark.parametrize("failure", [httpx2.ConnectError, httpx2.ReadTimeout])
@@ -315,10 +377,10 @@ def test_retry_logs_have_metadata_without_private_content(
 def test_actual_hung_transport_is_cancelled_within_attempt_and_retry_budgets(
     budget: float, expected_attempts: int, monkeypatch: pytest.MonkeyPatch
 ):
-    monkeypatch.setattr(Settings, "model_timeout_seconds", 0.3)
-    monkeypatch.setattr(Settings, "model_retry_timeout_seconds", budget)
-    monkeypatch.setattr(Settings, "model_retry_base_seconds", 0.0001)
-    monkeypatch.setattr(Settings, "model_retry_cap_seconds", 0.0001)
+    monkeypatch.setattr(ModelSettings, "model_timeout_seconds", 0.3)
+    monkeypatch.setattr(ModelSettings, "model_retry_timeout_seconds", budget)
+    monkeypatch.setattr(ModelSettings, "model_retry_base_seconds", 0.0001)
+    monkeypatch.setattr(ModelSettings, "model_retry_cap_seconds", 0.0001)
 
     async def run():
         calls: list[httpx2.Request] = []
@@ -369,7 +431,7 @@ def test_actual_hung_transport_is_cancelled_within_attempt_and_retry_budgets(
 def test_header_translation_uses_explicit_wall_clock(
     headers: dict[str, str], minimum: float | None
 ):
-    from groundline.clients import anthropic as adapter
+    from groundline_core.clients import anthropic as adapter
 
     decide = getattr(adapter, "retry_decision", None)
     assert callable(decide), (
@@ -390,8 +452,8 @@ def test_header_translation_uses_explicit_wall_clock(
 def test_configured_connection_timeout_reaches_transport(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    monkeypatch.setattr(Settings, "model_connect_timeout_seconds", 0.7)
-    monkeypatch.setattr(Settings, "model_timeout_seconds", 2)
+    monkeypatch.setattr(ModelSettings, "model_connect_timeout_seconds", 0.7)
+    monkeypatch.setattr(ModelSettings, "model_timeout_seconds", 2)
     requests: list[httpx2.Request] = []
 
     def handler(request: httpx2.Request):

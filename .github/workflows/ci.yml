@@ -49,6 +49,17 @@ jobs:
           cache-to: type=gha,mode=max
       - run: scripts/docker-smoke-test
 
+  core-install:
+    # Install groundline-core with no extras, with pip and with uv pip, and check
+    # that the library loads without the server or CLI packages, and that the
+    # command and the API say which extra to install (scripts/core-install-check).
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - run: make core-check
+
   https:
     # Local test CA only. AWS acceptance remains a separate manual check.
     runs-on: ubuntu-latest

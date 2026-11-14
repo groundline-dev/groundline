@@ -3,7 +3,7 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from groundline.core import PipelineSpec, SpecError, StageSpec, build_pipeline
+from groundline_core.core import PipelineSpec, SpecError, StageSpec, build_pipeline
 from tests.core_fakes import Join, make_registry
 
 

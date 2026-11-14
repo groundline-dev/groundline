@@ -15,8 +15,8 @@ from alembic.migration import MigrationContext
 from sqlalchemy import Engine, insert, select, text
 from sqlalchemy.exc import IntegrityError, ProgrammingError
 
-from groundline.db import api_keys, metadata
-from groundline.db.setup import (
+from groundline_core.db import api_keys, metadata
+from groundline_core.db.setup import (
     DatabaseSetupError,
     migrate,
     setup_database,

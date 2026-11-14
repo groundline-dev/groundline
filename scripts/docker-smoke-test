@@ -3,7 +3,7 @@
 #   - /health and /ready answer 200
 #   - Postgres refuses a wrong password
 #   - the app container doesn't have the admin password
-#   - an API key created with `groundline keys create` still works after the
+#   - an API key created with `groundline-core keys create` still works after the
 #     containers are removed and started again
 #   - both evaluators run their packaged presets/prompts against a model double
 #
@@ -93,10 +93,10 @@ if "${compose[@]}" exec -T app env | grep --quiet --fixed-strings \
 fi
 echo "ok: the app container doesn't have the admin password"
 
-created="$("${compose[@]}" exec -T app groundline keys create --name smoke-test)" \
-  || fail "groundline keys create failed"
+created="$("${compose[@]}" exec -T app groundline-core keys create --name smoke-test)" \
+  || fail "groundline-core keys create failed"
 key="$(sed -n 's/^API key: \(gl_[A-Za-z0-9_-]*\)$/\1/p' <<<"$created")"
-[ -n "$key" ] || fail "groundline keys create printed no API key"
+[ -n "$key" ] || fail "groundline-core keys create printed no API key"
 echo "ok: created an API key"
 
 # Stop and remove the containers, keeping the volume, then start again.

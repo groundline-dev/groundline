@@ -1,6 +1,6 @@
 import pytest
 
-from groundline.core import CallRecord, summarize_usage
+from groundline_core.core import CallRecord, summarize_usage
 
 
 def call(model: str, input_tokens: int, output_tokens: int, cached: bool = False):

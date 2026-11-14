@@ -9,10 +9,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine, func, select, update
 from typer.testing import CliRunner
 
-from groundline.api import common
-from groundline.app import app
-from groundline.cli import app as cli
-from groundline.db import api_keys
+from groundline_core.api import common
+from groundline_core.app import app
+from groundline_core.cli import app as cli
+from groundline_core.db import api_keys
 from tests.auth_helpers import BODY, Endpoint
 from tests.auth_helpers import endpoint as endpoint
 from tests.auth_helpers import evaluation as evaluation

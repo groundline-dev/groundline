@@ -140,14 +140,14 @@ access_output="$(on_server "cd /opt/groundline && docker compose exec -T app pyt
   || fail "live HTTPS source-IP policy check failed: $access_output"
 check_results <<<"$access_output"
 
-keys_create_output="$(on_server "cd /opt/groundline && docker compose exec -T app groundline keys create --name aws-smoke-test")" \
-  || fail "groundline keys create failed on the server: $keys_create_output"
+keys_create_output="$(on_server "cd /opt/groundline && docker compose exec -T app groundline-core keys create --name aws-smoke-test")" \
+  || fail "groundline-core keys create failed on the server: $keys_create_output"
 api_key_id="$(sed -n 's/^ID: \([0-9a-f-]*\)$/\1/p' <<<"$keys_create_output")"
 api_key="$(sed -n 's/^API key: \(gl_[A-Za-z0-9_-]*\)$/\1/p' <<<"$keys_create_output")"
-[ -n "$api_key_id" ] && [ -n "$api_key" ] || fail "groundline keys create printed no API key"
+[ -n "$api_key_id" ] && [ -n "$api_key" ] || fail "groundline-core keys create printed no API key"
 
 revoke() {
-  if on_server "cd /opt/groundline && docker compose exec -T app groundline keys revoke $api_key_id" >/dev/null; then
+  if on_server "cd /opt/groundline && docker compose exec -T app groundline-core keys revoke $api_key_id" >/dev/null; then
     check_ok "revoked the test API key"
   else
     check_warn "couldn't revoke the test API key; revoke it with make aws-key REVOKE=$api_key_id"

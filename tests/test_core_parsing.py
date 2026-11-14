@@ -1,6 +1,6 @@
 import pytest
 
-from groundline.core import ParseError, evidence_in, parse_json_object
+from groundline_core.core import ParseError, evidence_in, parse_json_object
 
 SOURCE = (
     "[doctor] hi , ms. brooks . how are you ?\n"

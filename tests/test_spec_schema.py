@@ -7,8 +7,8 @@ import pytest
 import yaml
 from jsonschema import Draft202012Validator
 
-from groundline.presets import BUILTIN_DIR, builtin_presets
-from groundline.presets.schema import SCHEMA_PATH, spec_schema
+from groundline_core.presets import BUILTIN_DIR, builtin_presets
+from groundline_core.presets.schema import SCHEMA_PATH, spec_schema
 
 
 def preset(name: str = "omission_all_opus") -> dict[str, Any]:
@@ -34,7 +34,7 @@ def test_the_committed_schema_is_up_to_date():
 
     assert committed == spec_schema(), (
         "pipeline.schema.json is out of date: run "
-        "`uv run python -m groundline.presets.schema`"
+        "`uv run python -m groundline_core.presets.schema`"
     )
 
 

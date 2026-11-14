@@ -3,8 +3,8 @@
 import json
 from typing import Any
 
-from groundline.core import FileCache, RunResult
-from groundline.evaluators.omissions import register_omissions
+from groundline_core.core import FileCache, RunResult
+from groundline_core.evaluators.omissions import register_omissions
 from tests.fakes import FakeClient, ScriptedReplies, run_stages
 
 EXTRACT = {"step": "extract", "implementation": "extract.llm"}

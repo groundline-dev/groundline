@@ -15,7 +15,7 @@ from pathlib import Path
 
 import pytest
 
-from groundline.profiles import load_builtin_profile
+from groundline_core.profiles import load_builtin_profile
 
 PROMPT_HASHES = {
     "quick_check_v1": (
@@ -43,7 +43,7 @@ def test_the_prompt_files_are_read_byte_for_byte():
     folder = (
         Path(__file__).parent.parent
         / "src"
-        / "groundline"
+        / "groundline_core"
         / "profiles"
         / "clinical"
         / "prompts"

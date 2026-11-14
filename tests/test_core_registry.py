@@ -2,7 +2,7 @@ from typing import ClassVar
 
 import pytest
 
-from groundline.core import Implementation, Registry, StageContext
+from groundline_core.core import Implementation, Registry, StageContext
 from tests.core_fakes import Join, Text, Upper, make_registry
 
 

@@ -5,7 +5,7 @@ from typing import ClassVar
 
 from pydantic import BaseModel
 
-from groundline.core import (
+from groundline_core.core import (
     Implementation,
     InputName,
     Registry,

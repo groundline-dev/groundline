@@ -5,7 +5,7 @@ from typing import Any, ClassVar
 import pytest
 from pydantic import BaseModel
 
-from groundline.core import (
+from groundline_core.core import (
     DomainProfile,
     FileCache,
     Implementation,
@@ -24,7 +24,7 @@ from groundline.core import (
     load_profile,
     run_pipeline,
 )
-from groundline.profiles import builtin_profiles, load_builtin_profile
+from groundline_core.profiles import builtin_profiles, load_builtin_profile
 
 
 class Text(BaseModel):

@@ -196,7 +196,7 @@ def test_the_deploying_guide_documents_every_command_and_setting():
         "/groundline/<deployment_name>/anthropic-api-key",
         "terraform.tfvars",
         "Region",
-        "groundline keys create",
+        "groundline-core keys create",
     ]:
         assert mention in text, f"docs/deploying-to-aws.md doesn't mention {mention}"
 

@@ -60,10 +60,9 @@ You need [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13 (0.1
 
 ## Timeouts and outage retries
 
-By default, groundline allows 120 seconds to complete a check and up to three
-attempts for each model call. For local development or Docker Compose, you can
-change either setting in `.env`. The AWS launcher currently uses the defaults;
-it does not pass these overrides to the deployed server.
+Set the two optional overrides below in `.env` or the shell; shell values take
+precedence. Leave them unset to use the defaults in
+[`settings.py`](src/groundline_core/settings.py).
 
 ### Overall check limit
 
@@ -75,9 +74,6 @@ To change the limit, add this line to `.env`:
 ```dotenv
 GROUNDLINE_CHECK_TIMEOUT_SECONDS=180
 ```
-
-If you call the API, configure your application to wait longer than the check
-limit for a response.
 
 ### Model retries
 
@@ -97,14 +93,7 @@ that setting controls retries after temporary failures, not requests to fix
 the format of an answer.
 
 A higher attempt limit allows more retries, but does not extend the overall check
-limit. Failed or interrupted model calls may still incur charges. Reported costs
-include only usage returned by the provider.
-
-#### Why groundline owns retries
-
-Groundline disables the Anthropic SDK's automatic retries so it can keep all model
-attempts and waits within one check deadline. Separate retry layers or a fresh
-timeout for each stage could make a check take much longer than intended.
+limit.
 
 ### Other limits
 
@@ -115,13 +104,12 @@ check runs out of time.
 
 Database operations also have their own time limits. The model and database
 limits are defined on the `Settings` class in
-[`src/groundline/settings.py`](src/groundline/settings.py).
+[`src/groundline_core/settings.py`](src/groundline_core/settings.py).
 
-The two environment settings for checks are `GROUNDLINE_CHECK_TIMEOUT_SECONDS`
-and `GROUNDLINE_MODEL_MAX_ATTEMPTS`. Set them in `.env` or in the shell;
-shell values take precedence.
-
-See [API statuses and errors](README.md#statuses-and-errors) for response codes.
+See [API statuses and errors](README.md#statuses-and-errors) for response codes
+and the cost implications of failed checks. Python configuration behavior is
+documented on [`evaluate()`](src/groundline_core/evaluate.py) and
+[`AnthropicClient`](src/groundline_core/clients/anthropic.py).
 
 ## Request size limits
 
@@ -227,7 +215,7 @@ make aws-destroy   # when you're done
 
 ## Database
 
-To change a table, edit [src/groundline/db/tables.py](src/groundline/db/tables.py), then add a migration to match (a test fails until they agree). Don't store sources, summaries or results in the database.
+To change a table, edit [src/groundline_core/db/tables.py](src/groundline_core/db/tables.py), then add a migration to match (a test fails until they agree). Don't store sources, summaries or results in the database.
 
 ```sh
 uv run alembic revision -m "add api_keys.owner_id"   # then fill in upgrade() and downgrade()
@@ -265,10 +253,12 @@ A major Postgres upgrade, such as 18 to 19, uses the same commands: back up, che
 There are three test suites. They differ in what they use for Postgres and Claude, so run each one when your change calls for it:
 
 - **`make test-fast`** runs every test except the two groups below, with fakes in place of Postgres and Claude: a fake Claude returns recorded replies, and API keys are kept in memory. It covers the pipeline steps, the API's endpoints and errors, the CLI, the schemas, the replayed preset runs, and the checks of `compose.yaml`, the Terraform files and the AWS scripts. It needs nothing running and costs nothing. Run it before every push; `make check` runs it too.
-- **`make test-db`** starts Postgres, then runs the tests that need a real one: storing API keys and checking them on requests, the migrations and the schema, `/ready`, and `groundline keys`. Run it when you change the tables, migrations, API keys or authentication. Each run creates its own throwaway database and drops it afterwards.
+- **`make test-db`** starts Postgres, then runs the tests that need a real one: storing API keys and checking them on requests, the migrations and the schema, `/ready`, and `groundline-core keys`. Run it when you change the tables, migrations, API keys or authentication. Each run creates its own throwaway database and drops it afterwards.
 - **`make test-live`** runs the tests that call the real Anthropic API, for about $0.09 a run. Run it when you change what groundline sends to the model: a prompt, the rubric, a preset, model settings or the Anthropic client.
 
 None of them starts the Docker stack, runs `terraform test` or touches AWS: `make docker-smoke`, `make infra-check` and `make aws-smoke` do that.
+
+`make core-check` builds the package and installs it with no extras, once with pip and once with uv pip, then checks that the library loads without the server or CLI packages and that the command and the API say which extra to install. Run it when you change the dependencies in `pyproject.toml` or what `groundline_core` imports when it loads. CI runs it on every PR.
 
 CI runs the fast and database tests on every PR, but never the live tests.
 
@@ -299,17 +289,17 @@ The `pre-commit` hook runs the same checks on staged files. If ruff fails, run `
 The YAML profiles, pipeline specs and presets are checked against generated JSON schemas. After changing the profile model or a stage implementation's settings, regenerate them (a test fails until you do):
 
 ```sh
-uv run python -m groundline.profiles.schema
-uv run python -m groundline.presets.schema
+uv run python -m groundline_core.profiles.schema
+uv run python -m groundline_core.presets.schema
 ```
 
 ## API docs
 
-The docs page is generated from the request and response models in `src/groundline/api/`. Each model carries an example in `json_schema_extra`, and `tests/test_api_docs.py` checks that every example still fits its model. FastAPI leaves `null` values out of examples in the docs, so keep them out of the examples too. The app's `description` in `src/groundline/app.py` holds the versioning policy shown at the top of the page.
+The docs page is generated from the request and response models in `src/groundline_core/api/`. Each model carries an example in `json_schema_extra`, and `tests/test_api_docs.py` checks that every example still fits its model. FastAPI leaves `null` values out of examples in the docs, so keep them out of the examples too. The app's `description` in `src/groundline_core/app.py` holds the versioning policy shown at the top of the page.
 
 ## Protecting an endpoint
 
-To require an API key on a route, add `dependencies=[Depends(require_api_key)]` from `groundline.auth`, and `responses=PROTECTED_RESPONSES` from `groundline.api.common` to document the 401 and 503. `POST /v1/omissions` and `POST /v1/commissions` pass `responses=check_responses(...)` instead, which documents every error status a check can answer, with a labeled example of each. It builds the route's preset, so the 502 examples name the first stage that calls a model, at that model's price, and the 503 example lists the stages that need the Anthropic API key. To use the key's metadata in the handler, take it as a parameter instead: `api_key: Annotated[APIKeyInfo, Depends(require_api_key)]`.
+To require an API key on a route, add `dependencies=[Depends(require_api_key)]` from `groundline_core.auth`, and `responses=PROTECTED_RESPONSES` from `groundline_core.api.common` to document the 401 and 503. `POST /v1/omissions` and `POST /v1/commissions` pass `responses=check_responses(...)` instead, which documents every error status a check can answer, with a labeled example of each. It builds the route's preset, so the 502 examples name the first stage that calls a model, at that model's price, and the 503 example lists the stages that need the Anthropic API key. To use the key's metadata in the handler, take it as a parameter instead: `api_key: Annotated[APIKeyInfo, Depends(require_api_key)]`.
 
 Every route needs it except probes such as `/health` and `/ready` and the docs pages ([ADR 0012](docs/adr/0012-only-probes-and-docs-pages-are-public.md)). A test in `tests/test_api_auth.py` lists the public probes and fails if any other route lacks an API key.
 
@@ -320,7 +310,7 @@ Every route needs it except probes such as `/health` and `/ready` and the docs p
 .claude/skills/            links to .agents/skills/, so Claude Code finds the same skills
 Dockerfile                 the app image
 compose.yaml               the stack: Postgres, the setup service and the app
-src/groundline/
+src/groundline_core/
   core/                    the pipeline framework: steps, registry, specs, runner, cache, costs
   clients/                 the Anthropic client
   db/                      the database: tables, migrations, connection check, setup
@@ -332,10 +322,13 @@ src/groundline/
   evaluate.py              evaluate(): the entry point the CLI and API share
   api_keys.py              API-key creation, revocation and authentication
   auth.py                  the Bearer authentication dependency
-  cli.py, keys_cli.py      the groundline command and its keys subgroup
+  command.py               where the groundline-core command starts: checks for the cli extra
+  cli.py, keys_cli.py      the groundline-core command and its keys subgroup
+  extras.py                what to say when the server or cli extra isn't installed
   api/, app.py             the API's endpoints and the FastAPI app
 infra/                     Terraform for AWS test deployments, the startup script, and their tests
-scripts/                   db-setup, the stack check behind make docker-smoke, and the AWS
+scripts/                   db-setup, the stack check behind make docker-smoke, the install check
+                           behind make core-check, and the AWS
                            scripts behind make aws-deploy, aws-smoke, aws-smoke-live and aws-destroy
 tests/                     the tests
 ```

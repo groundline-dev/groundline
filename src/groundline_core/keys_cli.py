@@ -1,0 +1,176 @@
+"""The API-key management subgroup; database work stays in one event loop."""
+
+import asyncio
+import re
+import unicodedata
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime, timedelta
+from typing import Annotated
+from uuid import UUID
+
+import typer
+
+from groundline_core.api_keys import (
+    APIKeyInfo,
+    APIKeyInputError,
+    APIKeyNotFoundError,
+    APIKeys,
+    APIKeyStorageError,
+    api_key_name,
+)
+from groundline_core.command import EXIT_ERROR
+from groundline_core.core.errors import SetupError
+from groundline_core.db.connection import make_engine
+from groundline_core.settings import read_settings
+
+app = typer.Typer(
+    help="Create, list, and revoke groundline API keys.",
+    no_args_is_help=True,
+    pretty_exceptions_enable=False,
+)
+
+
+def _lifetime(value: str | None) -> timedelta | None:
+    if value is None:
+        return None
+    match = re.fullmatch(r"([1-9][0-9]*)([smhd])", value)
+    message = "--expires-in needs a positive duration such as 30m, 12h, or 90d"
+    if match is None:
+        raise APIKeyInputError(message)
+    try:
+        seconds = int(match[1]) * {"s": 1, "m": 60, "h": 3600, "d": 86400}[match[2]]
+        return timedelta(seconds=seconds)
+    except (ValueError, OverflowError):
+        raise APIKeyInputError("--expires-in is out of range") from None
+
+
+async def _run[T](operation: Callable[[APIKeys], Awaitable[T]]) -> T:
+    engine = make_engine(read_settings().require_database_url())
+    try:
+        return await operation(APIKeys(engine))
+    finally:
+        await engine.dispose()
+
+
+def _finish(action: Callable[[], None]) -> None:
+    try:
+        action()
+    except (
+        SetupError,
+        APIKeyStorageError,
+        APIKeyNotFoundError,
+        APIKeyInputError,
+    ) as error:
+        typer.echo(f"error: {error}", err=True)
+        raise typer.Exit(EXIT_ERROR) from None
+    except Exception:
+        # Do not reuse the evaluator's wrapper: arbitrary exception text can
+        # contain credentials, database passwords, or SQL parameters.
+        typer.echo("error: API-key operation failed", err=True)
+        raise typer.Exit(EXIT_ERROR) from None
+
+
+@app.command()
+def create(
+    name: Annotated[
+        str | None,
+        typer.Option(help="A label of at most 128 characters; generated if omitted."),
+    ] = None,
+    expires_in: Annotated[
+        str | None, typer.Option(help="Lifetime such as 90d; never expires if omitted.")
+    ] = None,
+) -> None:
+    """Create an API key and show its secret once, after saving its hash."""
+    _finish(lambda: _create(name, expires_in))
+
+
+def _create(name: str | None, expires_in: str | None) -> None:
+    # Validate arguments before requiring a URL or opening a connection.
+    label = api_key_name(name)
+    lifetime = _lifetime(expires_in)
+    created = asyncio.run(
+        _run(lambda keys: keys.create(name=label, expires_in=lifetime))
+    )
+    info = created.info
+    expiry = _expiry(info)
+    try:
+        typer.echo(
+            f"Name: {info.name}\nID: {info.id}\nExpires: {expiry}\n"
+            "Copy the API key now; it cannot be retrieved later.\n"
+            f"API key: {created.secret.get_secret_value()}"
+        )
+    except OSError:
+        message = (
+            f"API key {info.id} was created, but its output could not be written. "
+            "Revoke it and create a replacement."
+        )
+        raise SetupError(message, message) from None
+
+
+@app.command()
+def revoke(
+    identifier: Annotated[str, typer.Argument(help="The full API-key UUID.")],
+) -> None:
+    """Permanently revoke an API key; repeating this command is safe."""
+    _finish(lambda: _revoke(identifier))
+
+
+def _revoke(identifier: str) -> None:
+    try:
+        parsed = UUID(identifier)
+    except ValueError:
+        raise APIKeyInputError("API-key identifier must be a UUID") from None
+    result = asyncio.run(_run(lambda keys: keys.revoke(parsed)))
+    action = "Revoked" if result.changed else "Already revoked"
+    typer.echo(f"{action}: {result.info.id} ({result.info.name})")
+
+
+@app.command("list")
+def list_keys() -> None:
+    """List all API keys newest first, without revealing credentials or hashes."""
+    _finish(_list)
+
+
+def _list() -> None:
+    keys = asyncio.run(_run(lambda keys: keys.list_all()))
+    if not keys:
+        typer.echo("No API keys found.")
+        return
+    now = datetime.now(UTC)
+    rows = [["ID", "Name", "Prefix", "Status", "Expires (UTC)"]]
+    for info in keys:
+        status: str = info.status
+        if (
+            status == "active"
+            and info.expires_at is not None
+            and info.expires_at <= now
+        ):
+            status = "expired"
+        expiry = _expiry(info)
+        rows.append([str(info.id), info.name, info.prefix, status, expiry])
+    widths = [max(_column_width(cell) for cell in column) for column in zip(*rows)]
+    lines = [
+        "  ".join(
+            cell + " " * (width - _column_width(cell))
+            for cell, width in zip(row, widths)
+        ).rstrip()
+        for row in rows
+    ]
+    typer.echo("\n".join(lines))
+
+
+def _expiry(info: APIKeyInfo) -> str:
+    """The expiry in UTC, or "never"."""
+    return info.expires_at.astimezone(UTC).isoformat() if info.expires_at else "never"
+
+
+def _column_width(value: str) -> int:
+    """Account for combining marks and wide characters when padding columns."""
+    return sum(
+        0
+        if unicodedata.combining(char)
+        else 2
+        if unicodedata.east_asian_width(char) in {"W", "F"}
+        else 1
+        for char in value
+    )

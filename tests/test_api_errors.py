@@ -1,6 +1,7 @@
 """Error responses every route shares: structured JSON, and nothing from the request."""
 
 import logging
+from functools import partial
 from pathlib import Path
 from typing import Any, Literal
 
@@ -10,13 +11,14 @@ from anthropic import DefaultAsyncHttpxClient
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from groundline.api import common, errors
-from groundline.api.errors import safe_traceback
-from groundline.app import app
-from groundline.clients.anthropic import AnthropicClient
-from groundline.core import CallRecord, StageError
-from groundline.core.errors import ModelTimeoutError
-from groundline.settings import Settings
+from groundline_core.api import common, errors
+from groundline_core.api.errors import safe_traceback
+from groundline_core.app import app
+from groundline_core.clients import anthropic as adapter
+from groundline_core.clients.anthropic import AnthropicClient
+from groundline_core.core import CallRecord, StageError
+from groundline_core.core.errors import ModelTimeoutError
+from groundline_core.settings import ModelSettings
 from tests.anthropic_helpers import api_error
 from tests.async_helpers import finish_before_watchdog
 from tests.auth_helpers import SECRET as API_KEY
@@ -185,6 +187,7 @@ def test_a_safe_traceback_has_each_type_and_frame_but_no_message():
         ("/v1/commissions", "timeout", 504),
         ("/v1/commissions", "hung-transport", 504),
         ("/v1/commissions", "retry-after-check-too-short", 502),
+        ("/v1/commissions", "jitter-too-long", 502),
         ("/v1/commissions", "timeout-then-error", 502),
         ("/v1/commissions", "error-then-timeout", 504),
         ("/v1/commissions", "error", 502),
@@ -206,7 +209,7 @@ def test_final_model_stopping_reason_controls_http_status(
     monkeypatch.chdir(tmp_path)
     for name, value in {
         "GROUNDLINE_CHECK_TIMEOUT_SECONDS": "0.5"
-        if outcome == "retry-after-check-too-short"
+        if outcome in ("retry-after-check-too-short", "jitter-too-long")
         else "3",
         "model_timeout_seconds": "0.3",
         "GROUNDLINE_MODEL_MAX_ATTEMPTS": "2",
@@ -215,9 +218,15 @@ def test_final_model_stopping_reason_controls_http_status(
         "model_retry_cap_seconds": "0.002",
     }.items():
         if not name.startswith("GROUNDLINE_"):
-            monkeypatch.setattr(Settings, name, float(value))
+            monkeypatch.setattr(ModelSettings, name, float(value))
         else:
             monkeypatch.setenv(name, value)
+    if outcome == "jitter-too-long":
+        monkeypatch.setattr(ModelSettings, "model_retry_base_seconds", 1)
+        monkeypatch.setattr(ModelSettings, "model_retry_cap_seconds", 1)
+        monkeypatch.setattr(
+            adapter, "retry_call", partial(adapter.retry_call, random=lambda: 1)
+        )
     calls: list[httpx2.Request] = []
 
     cancelled: list[bool] = []
@@ -270,12 +279,15 @@ def test_final_model_stopping_reason_controls_http_status(
                     ),
                     seconds=5,
                 )
-                if outcome == "retry-after-check-too-short":
+                if outcome in ("retry-after-check-too-short", "jitter-too-long"):
                     assert asyncio.get_running_loop().time() - started < 0.5, (
                         "a wait that cannot fit must be rejected before check expiry"
                     )
                 assert response.status_code == expected
-                assert len(calls) == (1 if outcome.startswith("retry-after") else 2)
+                cannot_fit = (
+                    outcome.startswith("retry-after") or outcome == "jitter-too-long"
+                )
+                assert len(calls) == (1 if cannot_fit else 2)
                 if outcome == "hung-transport":
                     assert len(cancelled) == 2
                 for secret in (SECRET, PRIVATE, API_KEY):

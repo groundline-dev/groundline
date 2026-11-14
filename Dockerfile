@@ -16,17 +16,18 @@ ENV UV_COMPILE_BYTECODE=1 \
 WORKDIR /app
 
 # Dependencies first, in their own layer, so editing the source doesn't reinstall them.
+# The image runs the API and the groundline-core command, so it needs both extras.
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
-    uv sync --locked --no-dev --no-install-project
+    uv sync --locked --no-dev --extra server --extra cli --no-install-project
 
 # Then groundline itself, installed as a regular (non-editable) package, so the
 # runtime stage needs only the virtualenv, not the source tree.
 COPY pyproject.toml uv.lock README.md LICENSE NOTICE ./
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
-    uv sync --locked --no-dev --no-editable
+    uv sync --locked --no-dev --extra server --extra cli --no-editable
 
 
 # Runtime stage: the same Python and Debian as the build stage, without uv or build tools.
@@ -52,4 +53,4 @@ EXPOSE 8000
 # It stays owned by root: the app user can read and run it but not modify it.
 COPY --from=builder /app/.venv /app/.venv
 
-CMD ["uvicorn", "groundline.app:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uvicorn", "groundline_core.app:app", "--host", "0.0.0.0", "--port", "8000"]

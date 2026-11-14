@@ -4,7 +4,7 @@ from typing import Any, ClassVar
 import pytest
 from pydantic import BaseModel
 
-from groundline.core import (
+from groundline_core.core import (
     RETRY_NOTE,
     Effort,
     InputName,
@@ -133,7 +133,7 @@ def test_a_stage_that_calls_a_model_needs_a_client():
 
 
 def test_rejects_an_unknown_effort():
-    from groundline.core import SpecError
+    from groundline_core.core import SpecError
 
     with pytest.raises(SpecError, match="setting 'effort'"):
         run(FakeClient([]), {"effort": "extreme"})
