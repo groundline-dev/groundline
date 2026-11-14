@@ -23,6 +23,8 @@ INVALID_API_KEY = "Invalid or missing API key"
 """The 401's detail, the same whatever was wrong with the key."""
 AUTHENTICATION_UNAVAILABLE = "Authentication is unavailable"
 """The 503's detail when API-key storage can't be used."""
+DATABASE_UNAVAILABLE = "the database isn't available"
+"""The detail of /ready's 503, when the database isn't answering."""
 
 
 def install(app: FastAPI) -> None:

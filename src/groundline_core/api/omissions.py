@@ -107,6 +107,7 @@ class OmissionsResponse(CheckResponse[Literal["omissions"], OmissionsMetadata]):
 
 @router.post(
     "/omissions",
+    operation_id="evaluate_omissions",
     dependencies=[Depends(begin_check), Depends(require_api_key)],
     responses=check_responses(load_preset(DEFAULT_PRESET)),
 )
