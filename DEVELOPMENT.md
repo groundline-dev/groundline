@@ -146,6 +146,8 @@ None of them starts the Docker stack, runs `terraform test` or touches AWS: `mak
 
 CI runs the fast and database tests on every PR, but never the live tests.
 
+`tests/https_smoke.py` is an executable integration harness, invoked by `make https-smoke`, rather than a pytest suite. It lives beside the other Docker smoke harness and uses the runtime Python image pinned in `Dockerfile`.
+
 If you change a prompt, the rubric or a step's logic, expect `tests/test_parity.py` and `tests/test_parity_commissions.py` to fail. They replay recorded runs of the measured presets, so a failure means `omission_all_opus` or `commission_quick` no longer matches its measured results.
 
 ### API behavior suite
@@ -164,9 +166,31 @@ Anthropic SDK DEBUG logging includes raw prompts. Privacy assertions capture gro
 
 ## Lint, format and type checks
 
-`make check` runs ruff, pyright in strict mode, the large-file check and the tests, without changing files. CI runs it too, along with the database tests (`make test-db`), the Docker stack check (`make docker-smoke`), the Terraform checks (`make infra-check`) and the local certificate lifecycle checks (`make https-smoke`). `make infra-check` needs Terraform, but no AWS credentials: its tests plan against a mock AWS provider. Run it when you change `infra/`. `make fix` applies ruff's fixes and formatting. Pyright errors need fixing by hand.
+`make check` runs ruff, pyright in strict mode, the large-file check, secret checks and the tests, without changing files. CI runs it too, along with the database tests (`make test-db`), the Docker stack check (`make docker-smoke`), the Terraform checks (`make infra-check`) and the local certificate lifecycle checks (`make https-smoke`). `make infra-check` needs Terraform, but no AWS credentials: its tests plan against a mock AWS provider. Run it when you change `infra/`. `make fix` applies ruff's fixes and formatting. Pyright errors need fixing by hand.
 
-The `pre-commit` hook runs the same checks on staged files. If ruff fails, run `make fix` and stage the result.
+The `pre-commit` hook runs lint, format, type, large-file and secret checks on staged changes; it does not run pytest. If ruff fails, run `make fix` and stage the result.
+
+### Secret checks
+
+Secrets are checked in three places:
+
+- **Commit hook**, enabled by `make setup`: scans staged changes, and blocks filenames starting with `.env` or ending in `.env`, even if the file is empty or force-added. Use `.env.example` for templates; its filename is allowed, but its contents are still scanned. On its first run, pre-commit downloads and builds Betterleaks, so expect a delay.
+- **`make check`**: also scans the current contents of all tracked files, including unstaged edits, but not untracked files.
+- **CI** (`secrets` job): scans all fetched Git history, including secrets removed by later commits, and redacts findings. It runs after a push, so it can't stop a secret reaching the public repository; only the commit hook can.
+
+To run one check on its own: the tracked-files scan, CI's tests of the checks against the real scanner, or CI's history scan:
+
+```sh
+uv run pre-commit run secrets-tracked --hook-stage manual --all-files
+uv run pre-commit run secrets-smoke --hook-stage manual --all-files
+uv run pre-commit run secrets-history --hook-stage manual --all-files
+```
+
+**False positives.** For a harmless dummy value, add `betterleaks:allow` in a comment on that line and explain why it is harmless. For a confirmed historical false positive, add its fingerprint, which starts with the commit, to `.betterleaksignore` with an explanation; do not copy the secret or source line. Both are narrower than excluding a file, rule or commit. Neither bypasses the filename check: rename templates to `.env.example`.
+
+**If a real secret reaches GitHub**, revoke and replace it first, then tell the team without sharing its value. Deleting it or rewriting history does not invalidate it. Coordinate cleanup with the team; see GitHub's [sensitive-data removal guide](https://docs.github.com/en/authentication/keeping-your-account-and-data-secure/removing-sensitive-data-from-a-repository).
+
+**Updating Betterleaks.** The pin in `.pre-commit-config.yaml` is the only one; CI runs the same hooks. Dependabot updates it within v1. Moving to v2 is manual: it drops flags `scripts/check_secrets.py` uses and changes fingerprints.
 
 ## Editor schemas
 
