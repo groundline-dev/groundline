@@ -108,6 +108,7 @@ class CommissionsResponse(CheckResponse[Literal["commissions"], CommissionsMetad
 
 @router.post(
     "/commissions",
+    operation_id="evaluate_commissions",
     dependencies=[Depends(require_api_key)],
     responses=check_responses(load_preset(DEFAULT_COMMISSIONS_PRESET)),
 )
