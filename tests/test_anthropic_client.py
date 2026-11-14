@@ -199,15 +199,17 @@ def test_permanent_errors_ignore_retry_true(status: int):
     assert len(calls) == 1
 
 
-@pytest.mark.parametrize("status", [408, 409, 429, 529])
-def test_provider_retry_false_vetoes_transient_status(status: int):
+@pytest.mark.parametrize(
+    "status,veto", [(408, "false"), (409, "False"), (429, "FALSE"), (529, " false ")]
+)
+def test_provider_retry_false_vetoes_transient_status(status: int, veto: str):
     calls: list[httpx2.Request] = []
 
     def handler(request: httpx2.Request):
         calls.append(request)
         return httpx2.Response(
             status,
-            headers={"x-should-retry": "false"},
+            headers={"x-should-retry": veto},
             json=api_error("api_error", "private-body"),
         )
 

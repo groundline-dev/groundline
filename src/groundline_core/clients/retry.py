@@ -40,12 +40,14 @@ async def retry_call[T](
             async with boundary:
                 return await operation()
         except Exception as error:
-            if boundary.expired() or allowance() <= 0:
+            if boundary.expired():
                 raise ModelTimeoutError("retry") from None
             raise_if_cancelling()
             retryable, minimum = decide(error)
             if not retryable or attempt + 1 >= max_attempts:
                 raise
+            if allowance() <= 0:
+                raise ModelTimeoutError("retry") from None
             wait = max(random() * delay_cap, minimum or 0)
             if wait >= allowance():
                 raise

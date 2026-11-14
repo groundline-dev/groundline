@@ -149,6 +149,41 @@ def test_call_time_consumes_retry_budget():
     assert clock.waits == []
 
 
+@pytest.mark.parametrize("retryable,attempts", [(False, 3), (True, 1)])
+def test_final_error_is_preserved_when_it_arrives_at_budget_expiry(
+    retryable: bool, attempts: int
+):
+    clock = Clock()
+    failure = TemporaryFailure()
+    calls = 0
+
+    async def operation():
+        nonlocal calls
+        calls += 1
+        # Advance only the injected clock: the operation returns an actual error
+        # before asyncio's cancellation, despite the elapsed retry allowance.
+        clock.now = 1
+        raise failure
+
+    with pytest.raises(TemporaryFailure) as error:
+        asyncio.run(
+            retry_call(
+                operation,
+                decide=lambda error: (retryable, None),
+                max_attempts=attempts,
+                budget_seconds=1,
+                base_seconds=1,
+                cap_seconds=8,
+                clock=clock.read,
+                remaining=lambda: 120,
+                sleep=clock.sleep,
+            )
+        )
+    assert error.value is failure
+    assert calls == 1
+    assert clock.waits == []
+
+
 @pytest.mark.parametrize("where", ["call", "wait"])
 def test_cancellation_never_retries(where: str):
     async def run():

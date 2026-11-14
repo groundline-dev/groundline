@@ -158,6 +158,15 @@ def _digest(credential: str) -> str:
     return hashlib.sha256(credential.encode()).hexdigest()
 
 
+@asynccontextmanager
+async def _query() -> AsyncGenerator[None]:
+    """Bound one statement, including a driver that stalls before returning."""
+    async with asyncio.timeout(
+        min(remaining(), read_settings().db_query_timeout_seconds)
+    ):
+        yield
+
+
 class APIKeys:
     """API-key storage on an async engine the caller creates and closes."""
 
@@ -174,31 +183,53 @@ class APIKeys:
             if seconds is not None
             else float("inf")
         )
+        query_timed_out = False
+        acquisition = asyncio.timeout(
+            min(
+                remaining(),
+                settings.db_connect_timeout_seconds,
+                settings.db_check_timeout_seconds,
+                settings.db_pool_timeout_seconds,
+                total_end - asyncio.get_running_loop().time(),
+            )
+        )
         try:
             # Acquisition includes pool wait, connection setup and pre-ping. The
             # database's statement_timeout separately bounds each query/lock wait.
-            acquisition = asyncio.timeout(
-                min(
-                    remaining(),
-                    settings.db_connect_timeout_seconds,
-                    settings.db_check_timeout_seconds,
-                    settings.db_pool_timeout_seconds,
-                    total_end - asyncio.get_running_loop().time(),
-                )
-            )
             async with acquisition:
                 async with self._engine.begin() as connection:
-                    acquisition.reschedule(
-                        min(
-                            total_end,
-                            asyncio.get_running_loop().time()
-                            + min(remaining(), settings.db_query_timeout_seconds),
-                        )
+                    # Keep only the enclosing authentication/check deadline here.
+                    # Each statement gets its own query allowance in _query().
+                    end = min(
+                        total_end, asyncio.get_running_loop().time() + remaining()
                     )
-                    yield connection
-        except (SQLAlchemyError, OSError):
+                    acquisition.reschedule(None if end == float("inf") else end)
+                    try:
+                        yield connection
+                    except TimeoutError:
+                        query_timed_out = True
+                        raise
+                    finally:
+                        # Bound commit/rollback without giving the transaction a
+                        # fresh enclosing allowance. An expired timer cannot be
+                        # rescheduled while its cancellation is being handled.
+                        if not acquisition.expired():
+                            acquisition.reschedule(
+                                min(
+                                    end,
+                                    asyncio.get_running_loop().time()
+                                    + settings.db_query_timeout_seconds,
+                                )
+                            )
+        except (SQLAlchemyError, OSError) as error:
             raise_if_cancelling()
             # Driver messages can contain SQL parameters or database passwords.
+            if (
+                acquisition.expired()
+                or query_timed_out
+                or isinstance(error, TimeoutError)
+            ):
+                raise APIKeyStorageError("API-key operation timed out") from None
             raise APIKeyStorageError("API-key storage is unavailable") from None
 
     async def create(
@@ -223,22 +254,24 @@ class APIKeys:
             expires_at = None
             if expires_in is not None:
                 # now() also supplies created_at: one clock for both timestamps.
-                created_at = await connection.scalar(select(func.now()))
+                async with _query():
+                    created_at = await connection.scalar(select(func.now()))
                 assert isinstance(created_at, datetime)
                 try:
                     expires_at = created_at + expires_in
                 except OverflowError:
                     raise APIKeyInputError("API-key expiry is out of range") from None
-            result = await connection.execute(
-                insert(api_keys)
-                .values(
-                    key_hash=digest,
-                    prefix=credential[:11],
-                    name=label,
-                    expires_at=expires_at,
+            async with _query():
+                result = await connection.execute(
+                    insert(api_keys)
+                    .values(
+                        key_hash=digest,
+                        prefix=credential[:11],
+                        name=label,
+                        expires_at=expires_at,
+                    )
+                    .returning(*_PUBLIC_COLUMNS)
                 )
-                .returning(*_PUBLIC_COLUMNS)
-            )
             info = APIKeyInfo.model_validate(result.mappings().one())
         # Leaving the transaction successfully commits before exposing the secret.
         return CreatedAPIKey(info, secret)
@@ -246,20 +279,22 @@ class APIKeys:
     async def revoke(self, identifier: UUID) -> RevokedAPIKey:
         """Revoke the key with this ID; raise `APIKeyNotFoundError` if none."""
         async with self._transaction() as connection:
-            result = await connection.execute(
-                update(api_keys)
-                .where(api_keys.c.id == identifier, api_keys.c.status == "active")
-                .values(status="revoked", revoked_at=func.now())
-                .returning(*_PUBLIC_COLUMNS)
-            )
+            async with _query():
+                result = await connection.execute(
+                    update(api_keys)
+                    .where(api_keys.c.id == identifier, api_keys.c.status == "active")
+                    .values(status="revoked", revoked_at=func.now())
+                    .returning(*_PUBLIC_COLUMNS)
+                )
             row = result.mappings().one_or_none()
             changed = row is not None
             if row is None:
                 # A concurrent revoke may have won. Under READ COMMITTED this
                 # fresh statement sees it, without changing its original time.
-                result = await connection.execute(
-                    select(*_PUBLIC_COLUMNS).where(api_keys.c.id == identifier)
-                )
+                async with _query():
+                    result = await connection.execute(
+                        select(*_PUBLIC_COLUMNS).where(api_keys.c.id == identifier)
+                    )
                 row = result.mappings().one_or_none()
             if row is None:
                 raise APIKeyNotFoundError("API-key identifier was not found")
@@ -278,16 +313,17 @@ class APIKeys:
         async with self._transaction(
             seconds=read_settings().db_auth_timeout_seconds
         ) as connection:
-            result = await connection.execute(
-                select(*_PUBLIC_COLUMNS).where(
-                    api_keys.c.key_hash == digest,
-                    api_keys.c.status == "active",
-                    or_(
-                        api_keys.c.expires_at.is_(None),
-                        api_keys.c.expires_at > func.now(),
-                    ),
+            async with _query():
+                result = await connection.execute(
+                    select(*_PUBLIC_COLUMNS).where(
+                        api_keys.c.key_hash == digest,
+                        api_keys.c.status == "active",
+                        or_(
+                            api_keys.c.expires_at.is_(None),
+                            api_keys.c.expires_at > func.now(),
+                        ),
+                    )
                 )
-            )
             row = result.mappings().one_or_none()
             info = APIKeyInfo.model_validate(row) if row is not None else None
         return info
@@ -300,9 +336,10 @@ class APIKeys:
         limit for new keys are still returned in full.
         """
         async with self._transaction() as connection:
-            result = await connection.execute(
-                select(*_PUBLIC_COLUMNS).order_by(
-                    api_keys.c.created_at.desc(), api_keys.c.id.desc()
+            async with _query():
+                result = await connection.execute(
+                    select(*_PUBLIC_COLUMNS).order_by(
+                        api_keys.c.created_at.desc(), api_keys.c.id.desc()
+                    )
                 )
-            )
             return [APIKeyInfo.model_validate(row) for row in result.mappings()]

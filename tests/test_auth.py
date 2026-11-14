@@ -346,7 +346,7 @@ def test_internal_timeout_with_cleanup_failure_keeps_its_safe_error(
             if limit == "query_direct":
                 with pytest.raises(APIKeyStorageError) as stored:
                     task.result()
-                assert str(stored.value) == "API-key storage is unavailable"
+                assert str(stored.value) == "API-key operation timed out"
             else:
                 with pytest.raises(HTTPException) as response:
                     task.result()

@@ -50,7 +50,7 @@ def retry_decision(
         return False, None
     headers = error.response.headers
     transient = error.status_code in (408, 409, 429) or 500 <= error.status_code < 600
-    if not transient or headers.get("x-should-retry") == "false":
+    if not transient or headers.get("x-should-retry", "").strip().lower() == "false":
         return False, None
     minimum = _seconds(headers.get("retry-after-ms"), 1000)
     if minimum is None:
