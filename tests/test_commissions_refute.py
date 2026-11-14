@@ -7,7 +7,6 @@ from groundline_core.evaluators.commissions.models import (
 from tests.commissions_helpers import (
     CHECK,
     CLAIMS,
-    CLAIMS_REPLY,
     DOSE,
     DOSE_CLAIM,
     DOSE_ISSUE,
@@ -16,6 +15,7 @@ from tests.commissions_helpers import (
     EXAM_CLAIM,
     EXAM_ISSUE,
     ISSUES,
+    KEEP_LEAN_FLAGS,
     REFUTE,
     REFUTE_FLAGGED,
     SKIING_SUPPORTED,
@@ -24,6 +24,7 @@ from tests.commissions_helpers import (
     Script,
     issue,
     issues_reply,
+    lean_script,
     run,
     support_reply,
     verdict_entry,
@@ -138,24 +139,19 @@ def test_the_prompt_block_is_json_the_model_can_read():
 
 # --- the lean preset's refute: every flagged claim, by its own id ----------------
 
-LEAN_KEEP = support_reply(("c2", False, None), ("c3", False, None))
 LEAN_CLEAR_DOSE = support_reply(("c2", False, None), ("c3", True, DOSE_SOURCE))
 
 
 def refute_flagged(
     reply: str | list[str], verdicts: str = VERDICTS_REPLY
 ) -> tuple[CommissionsRefuteOutput, Script, FakeClient]:
-    script = Script(
-        commissions_claims=CLAIMS_REPLY,
-        commissions_check=verdicts,
-        commissions_refute=reply,
-    )
+    script = lean_script(verdicts, reply)
     result, client = run([CLAIMS, SUPPORT, REFUTE_FLAGGED], script)
     return result.output("commissions_refute", CommissionsRefuteOutput), script, client
 
 
 def test_flagged_refute_sends_every_flagged_claim_by_its_own_id_and_statement():
-    _, script, _ = refute_flagged(LEAN_KEEP)
+    _, script, _ = refute_flagged(KEEP_LEAN_FLAGS)
 
     (prompt,) = script.prompts["commissions_refute"]
     assert SOURCE in prompt
@@ -180,7 +176,7 @@ def test_flagged_refute_sends_every_flagged_claim_by_its_own_id_and_statement():
 
 
 def test_flagged_refute_calls_opus_at_high_effort():
-    _, _, client = refute_flagged(LEAN_KEEP)
+    _, _, client = refute_flagged(KEEP_LEAN_FLAGS)
 
     assert (client.requests[-1].model, client.requests[-1].effort) == (
         "claude-opus-5-5",
@@ -189,7 +185,7 @@ def test_flagged_refute_calls_opus_at_high_effort():
 
 
 def test_flagged_refute_keeps_flags_that_stand():
-    out, _, _ = refute_flagged(LEAN_KEEP)
+    out, _, _ = refute_flagged(KEEP_LEAN_FLAGS)
 
     assert [c.id for c in out.commissions] == ["c2", "c3"]
     assert out.cleared == []
@@ -205,7 +201,7 @@ def test_flagged_refute_clears_a_flag_with_a_quote_from_the_source():
 
 def test_flagged_refute_asks_again_when_a_clearing_quote_is_not_in_the_source():
     bad = support_reply(("c2", False, None), ("c3", True, "words not in the source"))
-    out, script, _ = refute_flagged([bad, LEAN_KEEP])
+    out, script, _ = refute_flagged([bad, KEEP_LEAN_FLAGS])
 
     assert len(script.prompts["commissions_refute"]) == 2
     assert out.cleared == []
@@ -217,7 +213,7 @@ def test_flagged_refute_makes_no_call_with_nothing_flagged():
         verdict_entry("c2"),
         verdict_entry("c3", importance="critical"),
     )
-    out, script, _ = refute_flagged(LEAN_KEEP, all_supported)
+    out, script, _ = refute_flagged(KEEP_LEAN_FLAGS, all_supported)
 
     assert "commissions_refute" not in script.prompts
     assert out.commissions == [] and out.cleared == []

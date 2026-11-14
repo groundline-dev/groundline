@@ -137,9 +137,9 @@ async def commissions(
 
     Runs a validated commission check (often called hallucination detection),
     chosen with `preset`: `commission_quick` by default, or
-    `commission_reverse_lean`, which caught more commissions when measured but
-    costs far more and isn't confirmed to its pre-registered standard. The
-    `preset` field says what each runs, how it was measured and what it costs.
+    `commission_reverse_lean`. The `preset` field says what each runs, how it was
+    measured, what it costs and whether it is confirmed to its pre-registered
+    standard.
     Each preset flags at its own threshold, and both answer in the same shape. A
     claim is a commission if the source contradicts it or never mentions it.
     Answers 200 for every finished check, flagged or not."""

@@ -153,3 +153,17 @@ SKIING_SUPPORTED = verdict_entry("c1", "supported", 5, "peripheral")
 EXAM_UNSUPPORTED = verdict_entry("c2", "unsupported", 70, "supporting")
 DOSE_CONTRADICTED = verdict_entry("c3", "contradicted", 95, "critical", DOSE_SOURCE)
 VERDICTS_REPLY = verdicts_reply(SKIING_SUPPORTED, EXAM_UNSUPPORTED, DOSE_CONTRADICTED)
+
+KEEP_LEAN_FLAGS = support_reply(("c2", False, None), ("c3", False, None))
+"""Refute's reply when it clears neither of the lean replies' flagged claims."""
+
+
+def lean_script(
+    verdicts: str = VERDICTS_REPLY, refute: str | list[str] = KEEP_LEAN_FLAGS
+) -> Script:
+    """Scripted replies for a whole lean run on SUMMARY."""
+    return Script(
+        commissions_claims=CLAIMS_REPLY,
+        commissions_check=verdicts,
+        commissions_refute=refute,
+    )

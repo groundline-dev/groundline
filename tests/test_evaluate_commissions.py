@@ -12,12 +12,10 @@ from groundline_core import (
 from groundline_core.core import PipelineSpec, with_settings
 from groundline_core.evaluators.models import AlarmOutput
 from tests.commissions_helpers import (
-    CLAIMS_REPLY,
     ISSUES,
     SUMMARY,
-    VERDICTS_REPLY,
     Script,
-    support_reply,
+    lean_script,
 )
 from tests.fakes import FakeClient
 from tests.omission_helpers import SOURCE
@@ -142,12 +140,8 @@ LEAN_PRESET = load_preset("commission_reverse_lean")
 
 
 def evaluate_lean(spec: PipelineSpec = LEAN_PRESET):
-    script = Script(
-        commissions_claims=CLAIMS_REPLY,
-        commissions_check=VERDICTS_REPLY,
-        commissions_refute=support_reply(("c2", False, None), ("c3", False, None)),
-    )
-    return asyncio.run(evaluate(SOURCE, SUMMARY, spec=spec, client=FakeClient(script)))
+    client = FakeClient(lean_script())
+    return asyncio.run(evaluate(SOURCE, SUMMARY, spec=spec, client=client))
 
 
 def test_the_lean_preset_is_built_in_with_its_three_stages_and_alarm():

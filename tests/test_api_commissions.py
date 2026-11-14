@@ -19,7 +19,6 @@ from groundline_core.core import APIKeyRejectedError
 from groundline_core.evaluate import DEFAULT_COMMISSIONS_PRESET
 from tests.auth_helpers import HEADERS, FakeKeys
 from tests.commissions_helpers import (
-    CLAIMS_REPLY,
     DOSE,
     DOSE_CONTRADICTED,
     DOSE_ISSUE,
@@ -33,7 +32,7 @@ from tests.commissions_helpers import (
     Script,
     issue,
     issues_reply,
-    support_reply,
+    lean_script,
     verdicts_reply,
 )
 from tests.fakes import FakeClient
@@ -396,18 +395,6 @@ def test_a_finished_check_is_logged_without_its_input(
 LEAN = "commission_reverse_lean"
 
 
-def lean_script(dose_confidence: int = 95) -> Script:
-    return Script(
-        commissions_claims=CLAIMS_REPLY,
-        commissions_check=verdicts_reply(
-            SKIING_SUPPORTED,
-            EXAM_UNSUPPORTED,
-            {**DOSE_CONTRADICTED, "not_supported_confidence": dose_confidence},
-        ),
-        commissions_refute=support_reply(("c2", False, None), ("c3", False, None)),
-    )
-
-
 def test_choosing_quick_by_name_is_the_same_as_leaving_preset_out():
     use_client(Script(commissions_check=ISSUES))
     left_out = http.post("/v1/commissions", json=check()).json()
@@ -462,7 +449,10 @@ def test_the_score_is_rescaled_around_the_presets_own_threshold(
 ):
     # The same 0.82 alarm score passes quick's 0.85 but reaches lean's 0.80.
     if preset == LEAN:
-        use_client(lean_script(dose_confidence=82))
+        dose = {**DOSE_CONTRADICTED, "not_supported_confidence": 82}
+        use_client(
+            lean_script(verdicts_reply(SKIING_SUPPORTED, EXAM_UNSUPPORTED, dose))
+        )
     else:
         dose = issue(DOSE, "contradicted", 82, "critical", DOSE_SOURCE)
         use_client(Script(commissions_check=issues_reply(dose)))

@@ -1,6 +1,8 @@
 """The lean preset's support check: one call judges every claim against the source,
 and only the claims the source doesn't support come out as commissions."""
 
+from typing import Any
+
 import pytest
 
 from groundline_core.core import StageError
@@ -69,6 +71,7 @@ def test_only_the_claims_the_source_does_not_support_are_commissions():
     assert (exam.id, exam.quote) == ("c2", EXAM)
     assert (exam.support_verdict, exam.unsupported_confidence) == ("unsupported", 0.7)
     assert exam.severity == "supporting"
+    assert (exam.evidence, exam.evidence_found) == (None, None)  # needs no quote
     assert (dose.id, dose.quote) == ("c3", DOSE)
     assert (dose.support_verdict, dose.unsupported_confidence) == (
         "contradicted",
@@ -81,17 +84,8 @@ def test_only_the_claims_the_source_does_not_support_are_commissions():
     )
 
 
-def test_an_unsupported_claim_needs_no_quote():
-    out, _ = support(
-        verdicts_reply(SKIING_SUPPORTED, EXAM_UNSUPPORTED, DOSE_CONTRADICTED)
-    )
-
-    exam = out.commissions[0]
-    assert (exam.evidence, exam.evidence_found) == (None, None)
-
-
-def test_a_supported_claim_with_a_quote_not_in_the_source_is_kept_without_it():
-    # Lean: a supported claim needs no quote, so a bad one is dropped, not retried.
+def test_a_supported_claim_with_a_quote_not_in_the_source_is_not_asked_again():
+    # Lean: a supported claim needs no quote, so a bad one is never checked.
     skiing = verdict_entry(
         "c1", "supported", 5, "peripheral", "words not in the source"
     )
@@ -108,42 +102,27 @@ def test_with_no_claims_there_is_no_call():
     assert out.commissions == []
 
 
+def bad_dose(**changes: Any) -> str:
+    """The standard verdicts, with the dose claim's entry changed."""
+    return verdicts_reply(
+        SKIING_SUPPORTED, EXAM_UNSUPPORTED, {**DOSE_CONTRADICTED, **changes}
+    )
+
+
 @pytest.mark.parametrize(
     "bad",
     [
-        verdicts_reply(
-            SKIING_SUPPORTED,
-            EXAM_UNSUPPORTED,
-            {**DOSE_CONTRADICTED, "evidence": "words not in the source"},
-        ),
-        verdicts_reply(
-            SKIING_SUPPORTED, EXAM_UNSUPPORTED, {**DOSE_CONTRADICTED, "evidence": None}
-        ),
+        bad_dose(evidence="words not in the source"),
+        bad_dose(evidence=None),
         verdicts_reply(SKIING_SUPPORTED, EXAM_UNSUPPORTED),
         verdicts_reply(
             SKIING_SUPPORTED, EXAM_UNSUPPORTED, DOSE_CONTRADICTED, SKIING_SUPPORTED
         ),
-        verdicts_reply(
-            SKIING_SUPPORTED, EXAM_UNSUPPORTED, {**DOSE_CONTRADICTED, "id": "c9"}
-        ),
-        verdicts_reply(
-            SKIING_SUPPORTED, EXAM_UNSUPPORTED, {**DOSE_CONTRADICTED, "label": "maybe"}
-        ),
-        verdicts_reply(
-            SKIING_SUPPORTED,
-            EXAM_UNSUPPORTED,
-            {**DOSE_CONTRADICTED, "not_supported_confidence": 101},
-        ),
-        verdicts_reply(
-            SKIING_SUPPORTED,
-            EXAM_UNSUPPORTED,
-            {**DOSE_CONTRADICTED, "not_supported_confidence": True},
-        ),
-        verdicts_reply(
-            SKIING_SUPPORTED,
-            EXAM_UNSUPPORTED,
-            {**DOSE_CONTRADICTED, "importance": "huge"},
-        ),
+        bad_dose(id="c9"),
+        bad_dose(label="maybe"),
+        bad_dose(not_supported_confidence=101),
+        bad_dose(not_supported_confidence=True),
+        bad_dose(importance="huge"),
         '{"issues": []}',
     ],
     ids=[

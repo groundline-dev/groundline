@@ -13,16 +13,11 @@ from urllib.error import HTTPError, URLError
 from urllib.request import Request, urlopen
 
 from groundline_core.presets import load_preset
+from groundline_core.profiles import load_builtin_profile
 
 ANTHROPIC_KEY = "smoke-anthropic-key"
 SOURCE = "Take the medicine once daily."
 SUMMARY = "Take the medicine twice daily."
-
-
-def call_name(preset: str, step: str) -> str:
-    """How the mock counts a call: both commission presets have a
-    commissions_check and a commissions_refute step."""
-    return f"{preset} {step}"
 
 
 LEAN = "commission_reverse_lean"
@@ -42,80 +37,76 @@ MODEL_SETTINGS = {
     }
     for _, preset, _ in CHECKS
 }
-EXPECTED_CALLS = {
-    call_name(preset, step): 1
-    for preset, stages in MODEL_SETTINGS.items()
-    for step in stages
+PROMPTS = load_builtin_profile("clinical").texts
+EXPECTED_CALLS = dict(
+    Counter(
+        settings["prompt"]
+        for stages in MODEL_SETTINGS.values()
+        for settings in stages.values()
+    )
+)
+"""How many calls each prompt should get, by its name in the profile."""
+MODELS = {
+    settings["prompt"]: settings["model"]
+    for stages in MODEL_SETTINGS.values()
+    for settings in stages.values()
 }
+REPLIES: dict[str, dict[str, Any]] = {
+    "extract_coarse_v1": {"facts": [{"id": "f1", "fact": SOURCE, "evidence": SOURCE}]},
+    "rank_v1": {"facts": [{"id": "f1", "severity": "critical", "why": "Frequency"}]},
+    "check_batch_v1": {
+        "facts": [
+            {"id": "f1", "verdict": "absent", "missing_confidence": 100, "quote": None}
+        ]
+    },
+    "refute_v1": {"facts": [{"id": "f1", "found": "no", "quote": None}]},
+    "quick_check_v1": {
+        "issues": [
+            {
+                "quote": SUMMARY,
+                "label": "contradicted",
+                "confidence": 100,
+                "importance": "critical",
+                "evidence": SOURCE,
+            }
+        ]
+    },
+    "note_claims_v1": {"claims": [{"claim": SUMMARY, "quote": SUMMARY}]},
+    "support_check_lean_v1": {
+        "claims": [
+            {
+                "id": "c1",
+                "label": "contradicted",
+                "evidence": SOURCE,
+                "not_supported_confidence": 100,
+                "importance": "critical",
+            }
+        ]
+    },
+    "support_refute_v1": {
+        "claims": [{"id": "c1", "supported": False, "evidence": None}]
+    },
+}
+"""The scripted reply to each prompt, by its name in the profile."""
 APP_URL = "http://127.0.0.1:8000"
 
 
 def scripted_reply(model: str, prompt: str) -> tuple[str, dict[str, Any]]:
-    """Recognize the real profile's stage prompts; reject unknown requests.
-    Returns the call's name, as `call_name` gives it, and the reply."""
-    if "<flagged_facts>" in prompt:
-        preset, step = "omission_all_opus", "refute"
-        reply = {"facts": [{"id": "f1", "found": "no", "quote": None}]}
-    elif "<rubric>" in prompt:
-        preset, step = "omission_all_opus", "rank"
-        reply = {"facts": [{"id": "f1", "severity": "critical", "why": "Frequency"}]}
-    elif "<note>" in prompt and "<facts>" in prompt:
-        preset, step = "omission_all_opus", "check"
-        reply = {
-            "facts": [
-                {
-                    "id": "f1",
-                    "verdict": "absent",
-                    "missing_confidence": 100,
-                    "quote": None,
-                }
-            ]
-        }
-    elif "<flagged_claims>" in prompt:
-        preset, step = LEAN, "commissions_refute"
-        reply = {"claims": [{"id": "c1", "supported": False, "evidence": None}]}
-    elif "<claims>" in prompt:
-        preset, step = LEAN, "commissions_check"
-        reply = {
-            "claims": [
-                {
-                    "id": "c1",
-                    "label": "contradicted",
-                    "evidence": SOURCE,
-                    "not_supported_confidence": 100,
-                    "importance": "critical",
-                }
-            ]
-        }
-    elif "<transcript>" in prompt and "<note>" in prompt:
-        preset, step = "commission_quick", "commissions_check"
-        reply = {
-            "issues": [
-                {
-                    "quote": SUMMARY,
-                    "label": "contradicted",
-                    "confidence": 100,
-                    "importance": "critical",
-                    "evidence": SOURCE,
-                }
-            ]
-        }
-    elif "<transcript>" in prompt:
-        preset, step = "omission_all_opus", "extract"
-        reply = {"facts": [{"id": "f1", "fact": SOURCE, "evidence": SOURCE}]}
-    elif "<note>" in prompt:
-        preset, step = LEAN, "commissions_claims"
-        reply = {"claims": [{"claim": SUMMARY, "quote": SUMMARY}]}
-    else:
+    """Recognize which of the real profile's prompts this is, from its first line,
+    and return its name and scripted reply; reject unknown requests."""
+    first_line = prompt.lstrip().split("\n", 1)[0]
+    name = next(
+        (n for n in EXPECTED_CALLS if PROMPTS[n].lstrip().startswith(first_line)),
+        None,
+    )
+    if name is None or not first_line:
         raise ValueError("unrecognized stage prompt")
-    name = call_name(preset, step)
-    if model != MODEL_SETTINGS[preset][step]["model"]:
+    if model != MODELS[name]:
         raise ValueError(f"unexpected model for {name}")
-    reads_summary = {"check", "refute", "commissions_claims"}
-    expected_text = SUMMARY if step in reads_summary else SOURCE
-    if expected_text not in prompt:
-        raise ValueError(f"fixture input missing from {name} prompt")
-    return name, reply
+    for placeholder, text in (("{transcript}", SOURCE), ("{note}", SUMMARY)):
+        if placeholder in PROMPTS[name] and text not in prompt:
+            raise ValueError(f"fixture input missing from {name} prompt")
+    return name, REPLIES[name]
 
 
 class MockAnthropic(HTTPServer):

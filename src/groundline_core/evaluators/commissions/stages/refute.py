@@ -59,28 +59,30 @@ class CommissionsRefuteLLM(PromptImplementation):
             return CommissionsRefuteOutput(commissions=found, cleared=[])
 
         # The model sees its own numbering, q1, q2, ... over the critical commissions.
+        sent = {f"q{n}": c for n, c in enumerate(critical, 1)}
         return await self.refute(
-            ctx, found, {f"q{n}": (c, c.quote) for n, c in enumerate(critical, 1)}
+            ctx, found, sent, {sent_id: c.quote for sent_id, c in sent.items()}
         )
 
     async def refute(
         self,
         ctx: StageContext,
         found: list[Commission],
-        sent: dict[str, tuple[Commission, str]],
+        sent: dict[str, Commission],
+        claim_texts: dict[str, str],
     ) -> CommissionsRefuteOutput:
-        """Send the commissions in `sent` (by the id the model sees: the commission
-        and the claim text to show for it) in one call, and clear the ones the
-        model finds support for."""
+        """Send the commissions in `sent`, under the ids the model sees, with the
+        claim text to show for each, in one call; clear the ones the model finds
+        support for."""
         block = json.dumps(
             [
                 {
                     "id": sent_id,
-                    "claim": claim_text,
+                    "claim": claim_texts[sent_id],
                     "note_quote": c.quote,
                     "label": c.support_verdict,
                 }
-                for sent_id, (c, claim_text) in sent.items()
+                for sent_id, c in sent.items()
             ]
         )
         prompt = ctx.fill(ctx.text(self.prompt), flagged_claims=block)
@@ -89,9 +91,7 @@ class CommissionsRefuteLLM(PromptImplementation):
             prompt,
             lambda reply: parse_support(reply, list(sent), source=ctx.source),
         )
-        return apply_support(
-            found, {sent_id: c for sent_id, (c, _) in sent.items()}, support
-        )
+        return apply_support(found, sent, support)
 
     def passthrough(self, ctx: StageContext) -> CommissionsRefuteOutput:
         found = ctx.output("commissions_check", CommissionsCheckOutput).commissions
@@ -114,15 +114,13 @@ class CommissionsRefuteLLMFlagged(CommissionsRefuteLLM):
     async def run(self, ctx: StageContext) -> CommissionsRefuteOutput:
         found = ctx.output("commissions_check", CommissionsCheckOutput).commissions
         if not found:
-            return CommissionsRefuteOutput(commissions=found, cleared=[])
+            return self.passthrough(ctx)
 
         claim_texts = {
             c.id: c.text
             for c in ctx.output("commissions_claims", CommissionsClaimsOutput).claims
         }
-        return await self.refute(
-            ctx, found, {c.id: (c, claim_texts[c.id]) for c in found}
-        )
+        return await self.refute(ctx, found, {c.id: c for c in found}, claim_texts)
 
 
 def parse_support(reply: str, ids: list[str], *, source: str) -> dict[str, str | None]:

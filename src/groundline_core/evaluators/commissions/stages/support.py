@@ -9,8 +9,8 @@ unsupported confidence the alarm thresholds apply to.
 
 Lean, as omission-pipeline measured it: only a contradicted claim needs a quote
 from the source, and that quote must be in the source word for word, or the model
-is asked again. A supported claim needs none, and one that isn't word for word is
-dropped rather than asked again. With no claims there is no call.
+is asked again. A supported claim's quote, if it gives one, is never checked.
+With no claims there is no call.
 
 The reply's keys (`claims`, `label`, `evidence`, `not_supported_confidence`,
 `importance`) are the prompt's words, copied unchanged from omission-pipeline.
@@ -39,7 +39,7 @@ from groundline_core.evaluators.commissions.models import (
 from groundline_core.evaluators.commissions.stages.refute import entries_by_id
 from groundline_core.evaluators.models import SEVERITIES
 
-VERDICTS = ("supported", *SUPPORT_VERDICTS)
+VERDICTS = {"supported": "supported", **SUPPORT_VERDICTS}
 """The verdicts the model may give: the reply calls them labels."""
 
 
@@ -77,30 +77,26 @@ def parse_support_check(
     commissions: list[Commission] = []
     for claim in claims:
         item = entries[claim.id]
-        where = claim.id
 
-        verdict = choice(item, "label", {v: v for v in VERDICTS})
+        verdict = choice(item, "label", VERDICTS)
         if verdict is None:
-            raise ParseError(f"{where}: label is not one of {', '.join(VERDICTS)}")
+            raise ParseError(f"{claim.id}: label is not one of {', '.join(VERDICTS)}")
 
         evidence = stripped(item.get("evidence"))
-        if verdict == "supported":
-            if evidence and not evidence_in(evidence, source):
-                evidence = None
-        elif verdict == "contradicted" and (
+        if verdict == "contradicted" and (
             evidence is None or not evidence_in(evidence, source)
         ):
             raise ParseError(
-                f"{where}: a contradicted claim needs evidence quoted exactly "
+                f"{claim.id}: a contradicted claim needs evidence quoted exactly "
                 "from the source"
             )
 
-        confidence = percent(item, "not_supported_confidence", where)
+        confidence = percent(item, "not_supported_confidence", claim.id)
 
         severity = choice(item, "importance", SEVERITIES)
         if severity is None:
             raise ParseError(
-                f"{where}: importance is not one of {', '.join(SEVERITIES)}"
+                f"{claim.id}: importance is not one of {', '.join(SEVERITIES)}"
             )
 
         if verdict == "supported":
