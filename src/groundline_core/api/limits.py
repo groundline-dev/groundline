@@ -15,8 +15,7 @@ def _read_limits() -> APILimitsSettings:
     try:
         return APILimitsSettings()
     except ValidationError as error:
-        # Validation locations are checked against known fields before naming
-        # settings. Never include rejected values or a validation error chain.
+        # Report known setting names without exposing rejected values.
         names = sorted(
             {
                 "GROUNDLINE_" + str(problem["loc"][0]).upper()
@@ -37,14 +36,7 @@ BODY_TOO_LARGE = "Request body exceeds the configured size limit"
 
 
 class BodyLimitMiddleware:
-    """Limit every HTTP request body, with groundline's JSON errors.
-
-    FastAPI reads the entire body before parsing JSON. The native limiter
-    bounds that read, checking both declared and actual byte counts. This
-    adapter normalizes both native 413 paths, including its fallback response,
-    only when the limiter's byte counts show an exceeded allowance. A route's
-    own 413 response keeps its body and headers. No pre-read or replay is added.
-    """
+    """Enforce Starlette's body limit with safe JSON errors."""
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
@@ -52,14 +44,12 @@ class BodyLimitMiddleware:
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
-        # Like Starlette's middleware, create a responder per request. Its
-        # counters identify body-limit failures without treating every 413 as
-        # ours or duplicating its byte counting and Content-Length parsing.
         limiter = RequestBodyLimitResponder(self.app, LIMITS.max_body_bytes)
         replaced = False
 
         async def json_send(message: Message) -> None:
             nonlocal replaced
+            # A route's own 413 must retain its body and headers.
             body_exceeded = limiter.total_size > limiter.max_body_size or (
                 limiter.content_length is not None
                 and limiter.content_length > limiter.max_body_size
@@ -82,8 +72,7 @@ class BodyLimitMiddleware:
             except (ClientDisconnect, HTTPException):
                 raise
             except Exception as error:
-                # FastAPI would turn an unexpected receive failure into 400.
-                # Keep server failures distinct, without logging payload text.
+                # FastAPI otherwise turns unexpected read failures into 400.
                 errors.logger.error(
                     "unexpected body read %s\n%s",
                     type(error).__name__,
