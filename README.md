@@ -64,6 +64,11 @@ Creation prints the name, full UUID identifier, expiry, and plaintext API key **
 
 Callers send `Authorization: Bearer <api-key>` to a protected route. Authentication checks the primary database on every request, so revocation affects subsequent checks across workers and app instances; requests already authorized may finish. Invalid, revoked, or expired API keys receive 401; unavailable authentication storage produces 503. `/health` and `/ready` remain public. The reusable dependency is available as described in [DEVELOPMENT.md](DEVELOPMENT.md#protecting-an-endpoint). `POST /v1/omissions` and `POST /v1/commissions` use this dependency. Missing API keys also receive 401; all credential rejections use `{"detail": "Invalid or missing API key"}` and `WWW-Authenticate: Bearer`.
 
+A connection error or timeout during commit does not prove the change failed. The database may have saved it before the connection dropped. Groundline does not automatically repeat the operation.
+
+- **If you were creating a key:** run `uv run groundline-core keys list`. Newest entries appear first. Look for an entry matching the name you supplied, if any, but remember that names can repeat. If you can identify the new key and never received its secret, revoke it using `uv run groundline-core keys revoke <key-id>`, then create a replacement. The secret cannot be retrieved later. If you cannot tell which entry is yours, investigate with the database operator before revoking anything or repeating creation.
+- **If you were revoking a key:** run `uv run groundline-core keys list` and find that key by its full ID. If it is revoked, the operation succeeded. If it is still active, you can repeat the revocation. If you cannot confirm its status, investigate before repeating the operation.
+
 ## Checking for omissions
 
 ```sh
