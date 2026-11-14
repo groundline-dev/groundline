@@ -18,6 +18,7 @@ import pytest
 from fastapi import FastAPI, Request
 from fastapi.testclient import TestClient
 from pydantic import ValidationError
+from starlette.exceptions import HTTPException
 from starlette.types import ASGIApp, Message, Scope
 
 from groundline_core import settings
@@ -301,6 +302,24 @@ def test_global_body_limit_overrides_public_and_routing_responses():
         assert row["body"] == TOO_LARGE, row
         assert row["reads"] == 0, row
         assert PRIVATE not in json.dumps(row) and SECRET not in json.dumps(row)
+
+
+@pytest.mark.parametrize("read_body", [False, True])
+def test_route_owned_413_preserves_its_body_and_headers(read_body: bool):
+    future = FastAPI()
+    future.add_middleware(BodyLimitMiddleware)
+
+    @future.post("/route-limit")
+    async def route_limit(request: Request) -> None:
+        if read_body:
+            await request.body()
+        raise HTTPException(413, detail="Route-specific limit", headers={"X-Own": "1"})
+
+    with TestClient(future) as client:
+        response = client.post("/route-limit", content=b"small")
+    assert response.status_code == 413
+    assert response.json() == {"detail": "Route-specific limit"}
+    assert response.headers.get("X-Own") == "1"
 
 
 def test_future_put_route_inherits_streamed_body_limit():
