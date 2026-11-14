@@ -28,7 +28,7 @@ from groundline_core.core import (
 )
 from groundline_core.core.deadline import raise_if_cancelling
 from groundline_core.core.errors import ModelTimeoutError
-from groundline_core.settings import read_settings
+from groundline_core.settings import read_model_settings
 
 logger = logging.getLogger("groundline.model")
 
@@ -77,9 +77,13 @@ class AnthropicClient:
         max_retries: int | None = None,
         http_client: httpx2.AsyncClient | None = None,
     ) -> None:
-        """`key_source` says where the key came from, for error messages."""
+        """Read model policy only; `api_key` is supplied by the caller.
+
+        `key_source` names its source for errors. `max_retries=N` allows N+1
+        total groundline attempts, bounded by model and enclosing check limits.
+        """
         self._key_source = key_source
-        self._settings = read_settings()
+        self._settings = read_model_settings()
         self._max_attempts = (
             (max_retries + 1)
             if max_retries is not None

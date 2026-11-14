@@ -19,12 +19,12 @@ from groundline_core.core import (
     pipeline_fingerprint,
     run_pipeline,
 )
-from groundline_core.core.deadline import check_deadline
+from groundline_core.core.deadline import check_deadline, has_deadline, remaining
 from groundline_core.evaluators.builtin import default_registry
 from groundline_core.presets import builtin_presets, load_preset
 from groundline_core.profiles import load_builtin_profile
 from groundline_core.result import EvaluationResult
-from groundline_core.settings import read_settings
+from groundline_core.settings import read_check_settings, read_settings
 
 logger = logging.getLogger("groundline.evaluate")
 
@@ -56,9 +56,15 @@ async def evaluate(
     `profile` defaults to the built-in profile the spec names. `client` defaults
     to an Anthropic client using ANTHROPIC_API_KEY. The spec is checked and the
     key looked up before any model call, so mistakes cost nothing.
+
+    Reuse an enclosing check deadline. Otherwise read only the check timeout
+    (120 seconds by default), even with a supplied client or no model stages.
+    Provider configuration is loaded only when creating the default client.
     """
-    settings = read_settings()
-    with check_deadline(settings.check_timeout_seconds):
+    seconds = (
+        remaining() if has_deadline() else read_check_settings().check_timeout_seconds
+    )
+    with check_deadline(seconds):
         spec = spec or load_preset(DEFAULT_PRESET)
         registry = registry or default_registry()
         if profile is None and spec.profile is not None:
@@ -67,8 +73,10 @@ async def evaluate(
         validated, warnings = _compare_with_presets(pipeline)
 
         own_client = None
+        settings = None
         needed_by = model_users(pipeline)
         if client is None and needed_by:
+            settings = read_settings()
             client = own_client = AnthropicClient(
                 settings.anthropic_key(needed_by=needed_by),
                 key_source=settings.anthropic_key_source(),
@@ -81,7 +89,7 @@ async def evaluate(
                 client=client,
             )
         finally:
-            if own_client is not None:
+            if own_client is not None and settings is not None:
                 # Closing a provider connection is bounded even after the check
                 # expired. Cleanup errors must not replace its original failure.
                 try:

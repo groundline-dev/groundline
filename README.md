@@ -298,7 +298,11 @@ Both check endpoints use the following statuses. Every error response is JSON wi
 
 For **502** responses, `detail` identifies the step that failed and any usage recorded before it stopped. Anthropic API errors include the provider's status and error type. If a retry ends in a model error, the response is 502 even if an earlier attempt timed out.
 
+If a retry wait (backoff or Retry-After) cannot fit the remaining allowance, groundline stops immediately with the upstream error. An upstream status failure returns 502 while time remains; a timeout returns 504.
+
 For **503** responses, `detail` provides configuration guidance or reports that authentication is unavailable. See [development setup](DEVELOPMENT.md#getting-started) and the [timeout reference](DEVELOPMENT.md#model-retries) for troubleshooting.
+
+If either the database authentication limit or the whole-check deadline expires during authentication, the response is 503 and no model work starts. Whole-check expiry after successful authentication returns 504.
 
 **Failed checks may still incur model charges.** Interrupted model requests can incur charges without returning usage, so costs reported in errors cover only recorded usage. The provider's bill may be higher. A retry near the deadline can also use the remaining time and incur charges without producing a result.
 

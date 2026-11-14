@@ -77,11 +77,21 @@ GROUNDLINE_CHECK_TIMEOUT_SECONDS=180
 If you call the API, configure your application to wait longer than the check
 limit for a response.
 
+Python `evaluate()` and `evaluate_sync()` reuse an enclosing check deadline.
+Without one, they read `GROUNDLINE_CHECK_TIMEOUT_SECONDS` and default to 120
+seconds. With a supplied model client or no model stages, they do not validate
+unrelated provider or database settings. An invalid check timeout still fails
+before work starts. These paths read `.env` when they need configuration, so
+the file must be readable.
+
 ### Model retries
 
 Groundline retries temporary model failures, such as rate limits, connection
 errors and timeouts. Each model call allows up to three attempts, including the
 first request. Groundline does not retry permanent errors or database operations.
+
+If a backoff or Retry-After wait cannot fit the remaining allowance, groundline
+stops immediately with the upstream error instead of waiting out the budget.
 
 To disable outage retries, add this line to `.env`:
 
@@ -97,6 +107,11 @@ the format of an answer.
 A higher attempt limit allows more retries, but does not extend the overall check
 limit. Failed or interrupted model calls may still incur charges. Reported costs
 include only usage returned by the provider.
+
+Constructing `AnthropicClient` with an explicit API key loads only model retry
+and timeout configuration. It does not validate whole-check or database settings.
+Its existing `max_retries=N` argument allows up to `N+1` total groundline attempts,
+within the model and enclosing check limits; SDK retries remain disabled.
 
 #### Why groundline owns retries
 

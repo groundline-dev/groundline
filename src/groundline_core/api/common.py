@@ -188,8 +188,10 @@ def check_responses(spec: PipelineSpec) -> dict[int | str, dict[str, Any]]:
     upstream = _error(
         ErrorBody,
         "The model returned an error or unusable output after the permitted "
-        "outage retries or correction request. A Retry-After that cannot fit "
-        "the remaining allowance also stops with 502 before deadline expiry.",
+        "outage retries or correction request. A retry wait (backoff or "
+        "Retry-After) that cannot fit the remaining allowance also stops "
+        "on the upstream error before deadline expiry; upstream status "
+        "failures return 502.",
         unusable_reply=(
             "Unusable reply",
             {
@@ -207,7 +209,8 @@ def check_responses(spec: PipelineSpec) -> dict[int | str, dict[str, Any]]:
     unavailable = _error(
         ErrorBody,
         "Authentication is unavailable, the Anthropic API key is missing or "
-        "rejected, or the settings can't be read.",
+        "rejected, or the settings can't be read. Authentication timeouts "
+        "return 503, including whole-check expiry during authentication.",
         authentication_unavailable=(
             "Authentication unavailable",
             {"detail": AUTHENTICATION_UNAVAILABLE},
@@ -223,7 +226,8 @@ def check_responses(spec: PipelineSpec) -> dict[int | str, dict[str, Any]]:
     )
     timeout = _error(
         ErrorBody,
-        "The check, model attempt, or outage retry allowance expired. "
+        "The check deadline expired after authentication, or a model attempt "
+        "or outage retry allowance expired. "
         "Recorded usage may exclude charges for interrupted provider requests.",
         model_timeout=(
             "Model time limit",

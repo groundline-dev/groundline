@@ -105,30 +105,33 @@ def test_attempt_limit_includes_original(attempts: int):
 
 
 @pytest.mark.parametrize("check_remaining,retry_budget", [(0.5, 10), (10, 0.5)])
-def test_minimum_wait_must_fit_both_allowances(
-    check_remaining: float, retry_budget: float
+@pytest.mark.parametrize("minimum,fraction", [(1, 0), (0, 1)])
+def test_retry_after_and_jitter_must_fit_both_allowances(
+    check_remaining: float, retry_budget: float, minimum: float, fraction: float
 ):
     clock = Clock()
     calls = 0
+    failure = TemporaryFailure()
 
     async def operation():
         nonlocal calls
         calls += 1
-        raise TemporaryFailure()
+        raise failure
 
-    with pytest.raises(TemporaryFailure):
+    with pytest.raises(TemporaryFailure) as error:
         asyncio.run(
             scheduled(
                 operation,
                 clock,
                 budget=retry_budget,
                 remaining=check_remaining,
-                minimum=1,
-                fraction=0,
+                minimum=minimum,
+                fraction=fraction,
             )
         )
     assert calls == 1
     assert clock.waits == []
+    assert error.value is failure
 
 
 def test_call_time_consumes_retry_budget():

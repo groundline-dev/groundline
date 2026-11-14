@@ -9,6 +9,10 @@ from contextvars import ContextVar
 _deadline: ContextVar[float | None] = ContextVar("check_deadline", default=None)
 
 
+def has_deadline() -> bool:
+    return _deadline.get() is not None
+
+
 def remaining() -> float:
     end = _deadline.get()
     return max(0.0, end - time.monotonic()) if end is not None else float("inf")

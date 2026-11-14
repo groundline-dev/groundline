@@ -38,12 +38,47 @@ def dotenv_path() -> Path:
     return Path.cwd() / ENV_FILE
 
 
-class Settings(BaseSettings):
+class _EnvironmentSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,
         env_ignore_empty=True,  # a blank `ANTHROPIC_API_KEY=` counts as unset
         extra="ignore",
     )
+
+
+class CheckSettings(_EnvironmentSettings):
+    """Only the timing needed to start a standalone evaluation."""
+
+    check_timeout_seconds: float = Field(
+        default=120,
+        gt=0,
+        allow_inf_nan=False,
+        validation_alias="GROUNDLINE_CHECK_TIMEOUT_SECONDS",
+    )
+    """Seconds allowed for a check: authentication, model calls and retries."""
+
+
+class ModelSettings(_EnvironmentSettings):
+    """Only the retry and timeout policy needed by an explicit model client."""
+
+    model_max_attempts: int = Field(
+        default=3, gt=0, validation_alias="GROUNDLINE_MODEL_MAX_ATTEMPTS"
+    )
+    """Attempts per model call, including the first request; 1 disables outage
+    retries. If the model answers in the wrong format, groundline can still
+    ask it to answer again in the required format."""
+
+    model_timeout_seconds: ClassVar[float] = 60
+    """Time for one model attempt."""
+    model_connect_timeout_seconds: ClassVar[float] = 5
+    model_retry_timeout_seconds: ClassVar[float] = 120
+    """Total time for one model call, including attempts and retry waits."""
+    model_retry_base_seconds: ClassVar[float] = 1
+    model_retry_cap_seconds: ClassVar[float] = 8
+
+
+class Settings(CheckSettings, ModelSettings):
+    """The application's complete configuration, including credentials."""
 
     anthropic_api_key: SecretStr | None = None
     database_url: SecretStr | None = None
@@ -53,22 +88,7 @@ class Settings(BaseSettings):
     """The Postgres admin login, which only setup and the database tests use to
     create the app's login and database. The app itself never gets it (ADR 0013)."""
 
-    check_timeout_seconds: float = Field(
-        default=120,
-        gt=0,
-        allow_inf_nan=False,
-        validation_alias="GROUNDLINE_CHECK_TIMEOUT_SECONDS",
-    )
-    """Seconds allowed for a check: authentication, model calls and retries."""
-    model_max_attempts: int = Field(
-        default=3, gt=0, validation_alias="GROUNDLINE_MODEL_MAX_ATTEMPTS"
-    )
-    """Attempts per model call, including the first request; 1 disables outage
-    retries. If the model answers in the wrong format, groundline can still
-    ask it to answer again in the required format."""
-
-    # Time limits below are in seconds. Each operation stops at its own limit
-    # or when the overall check runs out of time, whichever comes first.
+    # Seconds allowed per operation, capped by any enclosing check deadline.
     db_auth_timeout_seconds: ClassVar[float] = 5
     db_connect_timeout_seconds: ClassVar[float] = 5
     db_pool_timeout_seconds: ClassVar[float] = 5
@@ -77,13 +97,6 @@ class Settings(BaseSettings):
     """Time to acquire a database connection and check that it works."""
     db_readiness_timeout_seconds: ClassVar[float] = 5
     """Time for the entire database startup or readiness probe."""
-    model_timeout_seconds: ClassVar[float] = 60
-    """Time for one model attempt."""
-    model_connect_timeout_seconds: ClassVar[float] = 5
-    model_retry_timeout_seconds: ClassVar[float] = 120
-    """Total time for one model call, including attempts and retry waits."""
-    model_retry_base_seconds: ClassVar[float] = 1
-    model_retry_cap_seconds: ClassVar[float] = 8
 
     def require_database_url(self) -> str:
         """Require storage only when an operation actually uses it."""
@@ -114,12 +127,24 @@ class Settings(BaseSettings):
 
 
 def read_settings() -> Settings:
+    return _read_settings(Settings)
+
+
+def read_check_settings() -> CheckSettings:
+    return _read_settings(CheckSettings)
+
+
+def read_model_settings() -> ModelSettings:
+    return _read_settings(ModelSettings)
+
+
+def _read_settings[T: BaseSettings](settings_type: type[T]) -> T:
     """Load settings and report failures without exposing rejected values.
 
     Validation errors can contain credentials, so retain only the error type.
     """
     try:
-        return Settings()
+        return settings_type()
     except Exception as error:
         raise UnreadableSettingsError(type(error).__name__) from error
 

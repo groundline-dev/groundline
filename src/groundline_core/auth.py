@@ -28,7 +28,11 @@ async def require_api_key(
     request: Request,
     credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_bearer)],
 ) -> APIKeyInfo:
-    """Return safe metadata, or reject without disclosing credential state."""
+    """Return safe metadata, or reject without disclosing credential state.
+
+    Expiry during authentication returns 503, whether the authentication limit
+    or the enclosing whole-check deadline stops the database work.
+    """
     if credentials is None or not valid_api_key_format(credentials.credentials):
         raise _unauthorized()
     keys = getattr(request.app.state, "api_keys", None)

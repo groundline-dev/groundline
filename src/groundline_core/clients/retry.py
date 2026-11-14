@@ -50,6 +50,8 @@ async def retry_call[T](
                 raise ModelTimeoutError("retry") from None
             wait = max(random() * delay_cap, minimum or 0)
             if wait >= allowance():
+                # Neither backoff nor provider guidance fits another attempt.
+                # Preserve the upstream error without waiting out the budget.
                 raise
             logger.info(
                 "outage retry after attempt=%d wait_seconds=%.3f", attempt + 1, wait
