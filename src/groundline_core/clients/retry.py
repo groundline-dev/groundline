@@ -26,6 +26,12 @@ async def retry_call[T](
     sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
     random: Callable[[], float] = randomness.random,
 ) -> T:
+    """Retry transient failures within the attempt and elapsed-time limits.
+
+    If backoff or a provider's minimum wait cannot fit the remaining allowance,
+    stop immediately with the original error, without sleeping or another call.
+    Actual allowance expiry raises ModelTimeoutError; cancellation propagates.
+    """
     end = clock() + budget_seconds
 
     def allowance() -> float:

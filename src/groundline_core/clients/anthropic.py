@@ -81,6 +81,7 @@ class AnthropicClient:
 
         `key_source` names its source for errors. `max_retries=N` allows N+1
         total groundline attempts, bounded by model and enclosing check limits.
+        SDK retries are disabled so all attempts and waits share those limits.
         """
         self._key_source = key_source
         self._settings = read_model_settings()

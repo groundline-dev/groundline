@@ -60,8 +60,9 @@ You need [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13 (0.1
 
 ## Timeouts and outage retries
 
-By default, groundline allows 120 seconds to complete a check and up to three
-attempts for each model call. You can change either setting in `.env`.
+Set the two optional overrides below in `.env` or the shell; shell values take
+precedence. Leave them unset to use the defaults in
+[`settings.py`](src/groundline_core/settings.py).
 
 ### Overall check limit
 
@@ -74,24 +75,11 @@ To change the limit, add this line to `.env`:
 GROUNDLINE_CHECK_TIMEOUT_SECONDS=180
 ```
 
-If you call the API, configure your application to wait longer than the check
-limit for a response.
-
-Python `evaluate()` and `evaluate_sync()` reuse an enclosing check deadline.
-Without one, they read `GROUNDLINE_CHECK_TIMEOUT_SECONDS` and default to 120
-seconds. With a supplied model client or no model stages, they do not validate
-unrelated provider or database settings. An invalid check timeout still fails
-before work starts. These paths read `.env` when they need configuration, so
-the file must be readable.
-
 ### Model retries
 
 Groundline retries temporary model failures, such as rate limits, connection
 errors and timeouts. Each model call allows up to three attempts, including the
 first request. Groundline does not retry permanent errors or database operations.
-
-If a backoff or Retry-After wait cannot fit the remaining allowance, groundline
-stops immediately with the upstream error instead of waiting out the budget.
 
 To disable outage retries, add this line to `.env`:
 
@@ -105,19 +93,7 @@ that setting controls retries after temporary failures, not requests to fix
 the format of an answer.
 
 A higher attempt limit allows more retries, but does not extend the overall check
-limit. Failed or interrupted model calls may still incur charges. Reported costs
-include only usage returned by the provider.
-
-Constructing `AnthropicClient` with an explicit API key loads only model retry
-and timeout configuration. It does not validate whole-check or database settings.
-Its existing `max_retries=N` argument allows up to `N+1` total groundline attempts,
-within the model and enclosing check limits; SDK retries remain disabled.
-
-#### Why groundline owns retries
-
-Groundline disables the Anthropic SDK's automatic retries so it can keep all model
-attempts and waits within one check deadline. Separate retry layers or a fresh
-timeout for each stage could make a check take much longer than intended.
+limit.
 
 ### Other limits
 
@@ -130,11 +106,10 @@ Database operations also have their own time limits. The model and database
 limits are defined on the `Settings` class in
 [`src/groundline_core/settings.py`](src/groundline_core/settings.py).
 
-The two environment settings for checks are `GROUNDLINE_CHECK_TIMEOUT_SECONDS`
-and `GROUNDLINE_MODEL_MAX_ATTEMPTS`. Set them in `.env` or in the shell;
-shell values take precedence.
-
-See [API statuses and errors](README.md#statuses-and-errors) for response codes.
+See [API statuses and errors](README.md#statuses-and-errors) for response codes
+and the cost implications of failed checks. Python configuration behavior is
+documented on [`evaluate()`](src/groundline_core/evaluate.py) and
+[`AnthropicClient`](src/groundline_core/clients/anthropic.py).
 
 ## Running the whole stack in Docker
 

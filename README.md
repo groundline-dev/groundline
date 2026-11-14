@@ -293,16 +293,12 @@ Both check endpoints use the following statuses. Every error response is JSON wi
 | 422 | The request is invalid. Check the JSON syntax, required fields, text length and any extra fields. The body must be a JSON object, and the source and summary must not be blank. |
 | 500 | An unexpected error occurred in groundline. Details are recorded in the server log. |
 | 502 | The model or Anthropic's API failed, refused the request, or returned a response groundline could not use. Retrying later may help. |
-| 503 | The service is unavailable because of a model configuration or authentication database problem. The service operator should check the configuration and database availability. |
-| 504 | The check exceeded a time limit. This can happen during a model attempt, while retrying model calls, or when the overall check reaches its deadline. |
+| 503 | Model configuration or database authentication is unavailable. Expiry during authentication returns 503, whether the authentication limit or whole-check deadline fires first; no model work starts. |
+| 504 | A model attempt or retry allowance expired, or the whole-check deadline expired after successful authentication. |
 
 For **502** responses, `detail` identifies the step that failed and any usage recorded before it stopped. Anthropic API errors include the provider's status and error type. If a retry ends in a model error, the response is 502 even if an earlier attempt timed out.
 
-If a retry wait (backoff or Retry-After) cannot fit the remaining allowance, groundline stops immediately with the upstream error. An upstream status failure returns 502 while time remains; a timeout returns 504.
-
-For **503** responses, `detail` provides configuration guidance or reports that authentication is unavailable. See [development setup](DEVELOPMENT.md#getting-started) and the [timeout reference](DEVELOPMENT.md#model-retries) for troubleshooting.
-
-If either the database authentication limit or the whole-check deadline expires during authentication, the response is 503 and no model work starts. Whole-check expiry after successful authentication returns 504.
+For **503** responses, `detail` provides configuration guidance or reports that authentication is unavailable. The operator should check the [service configuration and database](DEVELOPMENT.md#getting-started).
 
 **Failed checks may still incur model charges.** Interrupted model requests can incur charges without returning usage, so costs reported in errors cover only recorded usage. The provider's bill may be higher. A retry near the deadline can also use the remaining time and incur charges without producing a result.
 
