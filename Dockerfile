@@ -5,7 +5,7 @@
 # Base images are pinned by digest so every build starts from the same image.
 # Dependabot updates digests and patch tags for both images in one PR; Python and
 # uv minor upgrades are manual (see "Upgrading uv" in DEVELOPMENT.md).
-FROM ghcr.io/astral-sh/uv:0.13.7-python3.13-trixie-slim@sha256:6ff812e34a0e14b4b8bc9ddf25e77b3e16bac6e0c4d9b67641f40366fa382d4c AS builder
+FROM ghcr.io/astral-sh/uv:0.13.8-python3.13-trixie-slim@sha256:9a9f205ad2f9aaf63597afef4042c455392f9253937028264b98226e91c09518 AS builder
 
 # Precompile bytecode for faster startup; copy rather than hard-link out of the
 # cache mount; use the image's Python instead of downloading one.
