@@ -25,7 +25,7 @@ from groundline_core.db.config import DRIVERS
 from groundline_core.db.connection import scrub
 from groundline_core.settings import Settings
 
-EXAMPLE_PASSWORD = "CHANGE_ME"
+EXAMPLE_PASSWORD = "CHANGE_ME"  # betterleaks:allow (public; rejected below)
 CONNECT_TIMEOUT_SECONDS = 5
 
 

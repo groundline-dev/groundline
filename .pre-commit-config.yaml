@@ -6,6 +6,33 @@ repos:
         args: [--enforce-all]
         exclude: ^uv\.lock$
 
+  - repo: https://github.com/betterleaks/betterleaks
+    rev: 8d77e1712fb06fd14444cc648686f1d5655e28a8 # v1.10.0; CI uses these hooks too
+    hooks:
+      - id: betterleaks
+        name: Check staged files for secrets
+        entry: python3 scripts/check_secrets.py staged
+        stages: [pre-commit]
+        always_run: true
+      - id: betterleaks
+        alias: secrets-tracked
+        name: Check tracked files for secrets
+        entry: python3 scripts/check_secrets.py tracked
+        stages: [manual]
+        always_run: true
+      - id: betterleaks
+        alias: secrets-smoke
+        name: Test secret checks with the real scanner
+        entry: python3 tests/secrets_smoke.py
+        stages: [manual]
+        always_run: true
+      - id: betterleaks
+        alias: secrets-history
+        name: Check all fetched history for secrets
+        entry: python3 scripts/check_secrets.py history
+        stages: [manual]
+        always_run: true
+
   - repo: local
     hooks:
       - id: ruff-check
