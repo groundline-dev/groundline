@@ -1,4 +1,5 @@
 import json
+import re
 import shutil
 from collections.abc import Callable
 from pathlib import Path
@@ -501,8 +502,10 @@ def test_a_chosen_preset_with_a_changed_profile_is_not_validated(
 
 def test_help_lists_both_presets_and_the_default():
     result = runner.invoke(cli.app, ["commissions", "--help"])
-    # Rich wraps the help in a box, so compare the words without it.
-    words = " ".join(result.stdout.replace("│", " ").split())
+    # Rich draws the help in a box, and colors it where it detects CI, so compare
+    # the words without either.
+    plain = re.sub(r"\x1b\[[0-9;]*m", "", result.stdout)
+    words = " ".join(plain.replace("│", " ").split())
 
     assert result.exit_code == 0
     assert "--preset" in words
