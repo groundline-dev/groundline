@@ -16,6 +16,7 @@ from groundline_core.api import omissions as api
 from groundline_core.app import app
 from groundline_core.core import APIKeyRejectedError
 from groundline_core.evaluate import DEFAULT_PRESET
+from tests.anthropic_helpers import fake_anthropic, keys_sent
 from tests.auth_helpers import SECRET as API_KEY
 from tests.auth_helpers import FakeKeys
 from tests.fakes import FakeClient
@@ -161,6 +162,20 @@ def test_a_422_never_repeats_the_input(body: dict[str, object], loc: list[str]):
     assert response.status_code == 422
     assert "tenofovir" not in response.text
     assert response.json()["detail"][0]["loc"] == loc
+
+
+def test_the_anthropic_key_comes_from_the_servers_dotenv(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    use_client(None)  # the real Anthropic client, on a fake transport
+    sent = fake_anthropic(monkeypatch, not_flagged_script())
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    Path(".env").write_text("ANTHROPIC_API_KEY=sk-dotenv\n")
+
+    response = http.post("/v1/omissions", json=check())
+
+    assert response.status_code == 200
+    assert keys_sent(sent) == {"sk-dotenv"}
 
 
 def test_a_missing_key_is_a_503_with_the_clis_message(

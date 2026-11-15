@@ -21,7 +21,7 @@ from groundline_core.api_keys import (
 from groundline_core.command import EXIT_ERROR
 from groundline_core.core.errors import SetupError
 from groundline_core.db.connection import make_engine
-from groundline_core.settings import read_settings
+from groundline_core.settings import ENV_FILE, read_settings
 
 app = typer.Typer(
     help="Create, list, and revoke groundline API keys.",
@@ -45,7 +45,7 @@ def _lifetime(value: str | None) -> timedelta | None:
 
 
 async def _run[T](operation: Callable[[APIKeys], Awaitable[T]]) -> T:
-    engine = make_engine(read_settings().require_database_url())
+    engine = make_engine(read_settings(ENV_FILE).require_database_url())
     try:
         return await operation(APIKeys(engine))
     finally:

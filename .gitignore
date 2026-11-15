@@ -14,8 +14,8 @@ wheels/
 .ruff_cache/
 
 # Secrets
-.env
-.env.*
+.env*
+*.env
 !.env.example
 
 # Terraform: local state, providers, and each contributor's settings

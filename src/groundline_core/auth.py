@@ -10,7 +10,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from groundline_core.api.errors import AUTHENTICATION_UNAVAILABLE, INVALID_API_KEY
 from groundline_core.api_keys import APIKeyInfo, APIKeys, valid_api_key_format
 from groundline_core.core.deadline import raise_if_cancelling, remaining
-from groundline_core.settings import read_settings
+from groundline_core.settings import ENV_FILE, read_settings
 
 logger = logging.getLogger("groundline.auth")
 _bearer = HTTPBearer(auto_error=False)
@@ -40,7 +40,7 @@ async def require_api_key(
         raise HTTPException(status_code=503, detail=AUTHENTICATION_UNAVAILABLE)
     try:
         async with asyncio.timeout(
-            min(remaining(), read_settings().db_auth_timeout_seconds)
+            min(remaining(), read_settings(ENV_FILE).db_auth_timeout_seconds)
         ):
             info = await keys.authenticate(credentials.credentials)
     except Exception as error:
