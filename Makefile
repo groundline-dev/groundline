@@ -29,10 +29,11 @@ test-db: db
 test-live:
 	uv run pytest -m live -s
 
-# Read-only: lint, types, the large-file check and the tests that need nothing
+# Read-only: lint, types, secrets, the large-file check and the tests that need nothing
 # running. CI also runs test-db, docker-smoke, core-check and infra-check.
 check:
 	uv run pre-commit run --all-files
+	uv run pre-commit run secrets-tracked --hook-stage manual --all-files
 	uv run pytest
 
 fix:

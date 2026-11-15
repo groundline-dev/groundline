@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 from groundline_core.core.deadline import raise_if_cancelling, remaining
 from groundline_core.core.errors import SetupError
 from groundline_core.db.config import DRIVERS
-from groundline_core.settings import Settings, read_settings
+from groundline_core.settings import ENV_FILE, Settings, read_settings
 
 logger = logging.getLogger("groundline.db")
 
@@ -36,7 +36,7 @@ def make_engine(raw: str, *, timeout: float | None = None) -> AsyncEngine:
     Authentication must read the primary, with a fresh READ COMMITTED snapshot.
     Pooling reuses connections, not query results.
     """
-    settings = read_settings()
+    settings = read_settings(ENV_FILE)
     connect_seconds = (
         settings.db_connect_timeout_seconds if timeout is None else timeout
     )
@@ -92,7 +92,7 @@ async def check_connection(
     where = f"{url.host or 'localhost'}:{url.port or 5432}/{url.database}"
     owns_engine = engine is None
     try:
-        settings = read_settings()
+        settings = read_settings(ENV_FILE)
         allowance = min(settings.db_readiness_timeout_seconds, remaining())
         if timeout is not None:
             allowance = min(allowance, timeout)

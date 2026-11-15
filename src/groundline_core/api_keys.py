@@ -4,7 +4,7 @@ The module doesn't depend on the CLI or FastAPI. The caller creates the async
 engine with `groundline_core.db.connection.make_engine`, which connects to the
 primary database and hides SQL parameters from errors, and closes it when done:
 
-    engine = make_engine(Settings().require_database_url())
+    engine = make_engine(read_settings(ENV_FILE).require_database_url())
     try:
         created = await APIKeys(engine).create(
             name="integration", expires_in=timedelta(days=90)
@@ -40,7 +40,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from groundline_core.core.deadline import raise_if_cancelling, remaining
 from groundline_core.db import api_keys
-from groundline_core.settings import read_settings
+from groundline_core.settings import ENV_FILE, read_settings
 
 _ADJECTIVES = ("bright", "calm", "gentle", "nimble", "quiet", "swift", "warm", "wise")
 _NOUNS = (
@@ -162,7 +162,7 @@ def _digest(credential: str) -> str:
 async def _query() -> AsyncGenerator[None]:
     """Bound one statement, including a driver that stalls before returning."""
     async with asyncio.timeout(
-        min(remaining(), read_settings().db_query_timeout_seconds)
+        min(remaining(), read_settings(ENV_FILE).db_query_timeout_seconds)
     ):
         yield
 
@@ -177,7 +177,7 @@ class APIKeys:
     async def _transaction(
         self, *, seconds: float | None = None
     ) -> AsyncGenerator[AsyncConnection]:
-        settings = read_settings()
+        settings = read_settings(ENV_FILE)
         total_end = (
             asyncio.get_running_loop().time() + seconds
             if seconds is not None
@@ -311,7 +311,7 @@ class APIKeys:
             return None
         digest = _digest(credential)
         async with self._transaction(
-            seconds=read_settings().db_auth_timeout_seconds
+            seconds=read_settings(ENV_FILE).db_auth_timeout_seconds
         ) as connection:
             async with _query():
                 result = await connection.execute(

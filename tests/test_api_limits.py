@@ -109,8 +109,13 @@ def test_limits_load_dotenv_and_environment_takes_precedence(
     for name in LIMIT_NAMES:
         monkeypatch.setenv(name, "")
     assert set(limits().values()) == {12345}
-    assert settings.Settings().check_timeout_seconds == 37
-    assert settings.Settings().anthropic_key() == "sk-dummy-dotenv"
+    assert settings.read_settings(settings.ENV_FILE).check_timeout_seconds == 37
+    assert (
+        settings.anthropic_key(
+            None, env_file=settings.ENV_FILE
+        ).value.get_secret_value()
+        == "sk-dummy-dotenv"
+    )
 
 
 def test_empty_dotenv_limits_use_defaults(tmp_path: Path):
@@ -123,7 +128,7 @@ def test_invalid_api_limits_do_not_affect_cli_settings(tmp_path: Path):
     (tmp_path / ".env").write_text(
         "GROUNDLINE_MAX_BODY_BYTES=invalid\nGROUNDLINE_CHECK_TIMEOUT_SECONDS=37\n"
     )
-    assert settings.Settings().check_timeout_seconds == 37
+    assert settings.read_settings(settings.ENV_FILE).check_timeout_seconds == 37
     with pytest.raises(ValidationError):
         limits()
 

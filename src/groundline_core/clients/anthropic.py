@@ -28,7 +28,7 @@ from groundline_core.core import (
 )
 from groundline_core.core.deadline import raise_if_cancelling
 from groundline_core.core.errors import ModelTimeoutError
-from groundline_core.settings import read_model_settings
+from groundline_core.settings import EnvFile, read_model_settings
 
 logger = logging.getLogger("groundline.model")
 
@@ -74,6 +74,8 @@ class AnthropicClient:
         api_key: str,
         *,
         key_source: str = "ANTHROPIC_API_KEY",
+        key_name: str = "ANTHROPIC_API_KEY",
+        env_file: EnvFile = None,
         max_retries: int | None = None,
         http_client: httpx2.AsyncClient | None = None,
     ) -> None:
@@ -84,7 +86,8 @@ class AnthropicClient:
         SDK retries are disabled so all attempts and waits share those limits.
         """
         self._key_source = key_source
-        self._settings = read_model_settings()
+        self._key_name = key_name
+        self._settings = read_model_settings(env_file)
         self._max_attempts = (
             (max_retries + 1)
             if max_retries is not None
@@ -161,14 +164,14 @@ class AnthropicClient:
             )
         except anthropic.AuthenticationError as error:
             raise self._rejected(
-                f"ANTHROPIC_API_KEY was rejected by the Anthropic API "
+                f"{self._key_name} was rejected by the Anthropic API "
                 f"({error.status_code}).",
                 "check the key is complete, hasn't been revoked, "
                 "and belongs to the workspace you expect.",
             ) from error
         except anthropic.PermissionDeniedError as error:
             raise self._rejected(
-                f"ANTHROPIC_API_KEY doesn't have access to {model} "
+                f"{self._key_name} doesn't have access to {model} "
                 f"({error.status_code}).",
                 "use a key from a workspace that can use this model, "
                 "or change the stage's model setting.",

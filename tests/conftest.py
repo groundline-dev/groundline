@@ -14,7 +14,7 @@ from sqlalchemy import Engine, create_engine, make_url
 
 from groundline_core.db import api_keys
 from groundline_core.db.setup import drop_database, setup_database
-from groundline_core.settings import Settings
+from groundline_core.settings import ENV_FILE, read_settings
 
 # API limits are loaded while test modules import the app. Keep inherited
 # operator overrides out of the suite; override tests use fresh processes.
@@ -28,7 +28,7 @@ for _limit_name in (
 
 @pytest.fixture(scope="session")
 def admin_url() -> str:
-    url = Settings().database_admin_url
+    url = read_settings(ENV_FILE).database_admin_url
     if url is None:
         pytest.fail(
             "DATABASE_ADMIN_URL is not set; the database tests need it to create "
