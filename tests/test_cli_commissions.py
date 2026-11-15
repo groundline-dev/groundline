@@ -1,4 +1,5 @@
 import json
+import shutil
 from collections.abc import Callable
 from pathlib import Path
 
@@ -13,11 +14,15 @@ from tests.commissions_helpers import (
     EXAM,
     EXAM_ISSUE,
     ISSUES,
+    SKIING_SUPPORTED,
     SUMMARY,
     Script,
     issue,
     issues_reply,
+    lean_script,
     support_reply,
+    verdict_entry,
+    verdicts_reply,
 )
 from tests.fakes import FakeClient
 from tests.omission_helpers import SOURCE
@@ -381,3 +386,122 @@ def test_an_unexpected_error_exits_with_2_not_1(
     assert result.exit_code == 2
     assert result.stderr.startswith("error: unexpected KeyError: 'a bug'")
     assert "Traceback" not in result.output
+
+
+# --- choosing the preset ------------------------------------------------------
+
+LEAN = "commission_reverse_lean"
+
+
+def test_the_lean_preset_runs_when_chosen_and_is_validated(
+    files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+):
+    use_client(monkeypatch, lean_script())
+
+    result = commissions(files, "--preset", LEAN)
+
+    assert result.exit_code == 1, result.output
+    out = result.stdout
+    assert f"{LEAN} · clinical profile (validated preset)" in out
+    assert "FLAGGED (alarm 0.95 ≥ 0.80, default)" in out
+    assert f"critical    contradicted  0.95        {DOSE}" in out
+    assert "3 calls" in out
+
+
+def test_the_lean_preset_exits_with_0_when_nothing_is_flagged(
+    files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+):
+    all_supported = verdicts_reply(
+        SKIING_SUPPORTED, verdict_entry("c2"), verdict_entry("c3")
+    )
+    use_client(monkeypatch, lean_script(verdicts=all_supported))
+
+    result = commissions(files, "--preset", LEAN)
+
+    assert result.exit_code == 0, result.output
+    assert "NOT FLAGGED (alarm 0.00 < 0.80, default)" in result.stdout
+
+
+def test_the_quick_preset_can_be_chosen_by_name(
+    files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+):
+    use_client(monkeypatch, Script(commissions_check=ISSUES))
+
+    result = commissions(files, "--preset", "commission_quick")
+
+    assert result.exit_code == 1, result.output
+    assert "commission_quick · clinical profile (validated preset)" in result.stdout
+    assert "1 calls" in result.stdout
+
+
+def test_json_names_the_chosen_preset(
+    files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+):
+    use_client(monkeypatch, lean_script())
+    out_path = files[0].parent / "result.json"
+
+    commissions(files, "--preset", LEAN, "--json", str(out_path))
+
+    data = json.loads(out_path.read_text())
+    assert data["pipeline"] == LEAN
+    assert data["validated_preset"] == LEAN
+
+
+@pytest.mark.parametrize("name", ["fast", "Commission_Quick", "omission_all_opus"])
+def test_an_unknown_preset_exits_with_2_before_any_call(
+    files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, name: str
+):
+    client = FakeClient([])
+    monkeypatch.setattr(cli, "make_client", lambda: client)
+
+    result = commissions(files, "--preset", name)
+
+    assert result.exit_code == 2
+    assert result.stderr == (
+        f"error: unknown preset '{name}'. "
+        "Use commission_quick or commission_reverse_lean.\n"
+    )
+    assert client.requests == []
+
+
+@pytest.mark.parametrize("name", ["commission_quick", LEAN, "fast"])
+def test_preset_and_pipeline_together_exit_with_2_before_any_call(
+    files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, name: str
+):
+    client = FakeClient([])
+    monkeypatch.setattr(cli, "make_client", lambda: client)
+    custom = files[0].parent / "mine.yaml"
+    custom.write_text(preset_text().replace("name: commission_quick", "name: mine"))
+
+    result = commissions(files, "--preset", name, "--pipeline", str(custom))
+
+    assert result.exit_code == 2
+    assert result.stderr == (
+        "error: use --preset or --pipeline, not both: "
+        "a pipeline spec file replaces the preset.\n"
+    )
+    assert client.requests == []
+
+
+def test_a_chosen_preset_with_a_changed_profile_is_not_validated(
+    files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+):
+    use_client(monkeypatch, lean_script())
+    profile = files[0].parent / "clinical"
+    shutil.copytree(Path(cli.__file__).parent / "profiles" / "clinical", profile)
+    prompt = profile / "prompts" / "support_check_lean_v1.txt"
+    prompt.write_text(prompt.read_text() + "\nBe brief.\n")
+
+    result = commissions(files, "--preset", LEAN, "--profile", str(profile))
+
+    assert result.exit_code == 1, result.output
+    assert f"{LEAN} · clinical profile (not a validated preset)" in result.stdout
+
+
+def test_help_lists_both_presets_and_the_default():
+    result = runner.invoke(cli.app, ["commissions", "--help"], terminal_width=200)
+
+    assert result.exit_code == 0
+    assert "--preset" in result.stdout
+    assert "commission_quick (the default)" in result.stdout
+    assert LEAN in result.stdout
