@@ -136,9 +136,12 @@ def anthropic_key(
 
 
 def missing_key_error(needed_by: str | None, env_file: EnvFile) -> MissingAPIKeyError:
-    """The error for a key found nowhere: where it was looked for, and how to fix
-    it. Without an `env_file`, the library's message names no path. With one, an
-    HTTP response still leaves the path out, since it is a detail of the server."""
+    """The error for an Anthropic API key found nowhere.
+
+    The message says where the key was looked for and how to fix it. Without an
+    `env_file`, it names no path. With one, the HTTP response still leaves the
+    path out, since the path is a detail of the server.
+    """
     if env_file is None:
         message = _key_message(
             "The Anthropic API key is not set.",

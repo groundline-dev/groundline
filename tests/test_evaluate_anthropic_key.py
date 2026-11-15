@@ -35,7 +35,7 @@ def sent(monkeypatch: pytest.MonkeyPatch) -> list[httpx2.Request]:
     return fake_anthropic(monkeypatch, not_flagged_script())
 
 
-# --- R1: the key as an argument ---------------------------------------------
+# --- the key as an argument --------------------------------------------------
 
 
 @pytest.mark.parametrize("argument", ["sk-arg", SecretStr("sk-arg")])
@@ -66,7 +66,7 @@ def test_a_client_and_a_key_together_are_refused_before_any_call():
     assert client.requests == []
 
 
-# --- R2: no .env unless the caller asks --------------------------------------
+# --- no .env unless the caller asks ------------------------------------------
 
 
 def test_a_dotenv_in_the_current_folder_is_ignored_by_default(
@@ -90,7 +90,7 @@ def test_an_env_file_is_read_when_the_caller_names_it(
     assert keys_sent(sent) == {"sk-dotenv"}
 
 
-# --- R3: the environment still works -----------------------------------------
+# --- the environment still works ---------------------------------------------
 
 
 def test_the_environment_key_is_used_without_an_argument(
@@ -103,7 +103,7 @@ def test_the_environment_key_is_used_without_an_argument(
     assert keys_sent(sent) == {"sk-env"}
 
 
-# --- R4: a missing key fails first, without a path ---------------------------
+# --- a missing key fails first, without a path -------------------------------
 
 
 def test_a_missing_key_fails_before_any_call_and_names_no_path(
@@ -120,7 +120,7 @@ def test_a_missing_key_fails_before_any_call_and_names_no_path(
     assert ".env" not in message
 
 
-# --- R5: the key never shows ------------------------------------------------
+# --- the key never shows -----------------------------------------------------
 
 
 def test_the_key_appears_nowhere_in_the_result_or_the_logs(
