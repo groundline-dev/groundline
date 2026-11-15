@@ -138,7 +138,7 @@ Not supported by the source (severity order):
 Cost              $0.0020 · 1 calls · 14,820 input / 1,040 output tokens · 4.1 s
 ```
 
-The [exit codes](#exit-codes) and [options](#options) are the same as for omissions, plus `--preset NAME`, which picks the validated preset to run: `commission_quick` (the default) or `commission_reverse_lean`, which, as above, isn't confirmed to its pre-registered standard. Use `--preset` or `--pipeline`, not both, since a pipeline spec file replaces the preset. An unknown name, or both options together, stops the command with exit code 2. If the model's quote of the source passage isn't found word for word in the source, the report still shows it, marked `(not found word for word in the source)`. If a pipeline switches refute on, the report adds a `Cleared by refute` line.
+The [exit codes](#exit-codes) and [options](#options) are the same as for omissions, plus `--preset NAME`, which picks the validated preset to run: `commission_quick` (the default) or `commission_reverse_lean` (not confirmed to its pre-registered standard, as above). Use `--preset` or `--pipeline`, not both, since a pipeline spec file replaces the preset. An unknown name, or both options together, stops the command with exit code 2. If the model's quote of the source passage isn't found word for word in the source, the report still shows it, marked `(not found word for word in the source)`. If a pipeline switches refute on, the report adds a `Cleared by refute` line.
 
 ## Using it from Python
 

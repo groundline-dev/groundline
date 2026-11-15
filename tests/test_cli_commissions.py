@@ -47,6 +47,14 @@ def use_client(
     )
 
 
+@pytest.fixture
+def no_calls(monkeypatch: pytest.MonkeyPatch) -> FakeClient:
+    """A fake model with no replies; its `requests` shows any call that was made."""
+    client = FakeClient([])
+    monkeypatch.setattr(cli, "make_client", lambda: client)
+    return client
+
+
 def commissions(files: tuple[Path, Path], *args: str) -> Result:
     return runner.invoke(cli.app, ["commissions", str(files[0]), str(files[1]), *args])
 
@@ -167,16 +175,13 @@ def test_the_cost_is_priced_for_haiku(
 
 
 def test_threshold_is_no_longer_an_option(
-    files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+    files: tuple[Path, Path], no_calls: FakeClient
 ):
-    client = FakeClient([])
-    monkeypatch.setattr(cli, "make_client", lambda: client)
-
     result = commissions(files, "--threshold", "default")
 
     assert result.exit_code == 2
     assert "No such option" in result.stderr
-    assert client.requests == []
+    assert no_calls.requests == []
 
 
 def test_a_missing_key_exits_with_2_and_a_clear_message(
@@ -390,6 +395,7 @@ def test_an_unexpected_error_exits_with_2_not_1(
 
 # --- choosing the preset ------------------------------------------------------
 
+QUICK = "commission_quick"
 LEAN = "commission_reverse_lean"
 
 
@@ -427,10 +433,10 @@ def test_the_quick_preset_can_be_chosen_by_name(
 ):
     use_client(monkeypatch, Script(commissions_check=ISSUES))
 
-    result = commissions(files, "--preset", "commission_quick")
+    result = commissions(files, "--preset", QUICK)
 
     assert result.exit_code == 1, result.output
-    assert "commission_quick · clinical profile (validated preset)" in result.stdout
+    assert f"{QUICK} · clinical profile (validated preset)" in result.stdout
     assert "1 calls" in result.stdout
 
 
@@ -449,11 +455,8 @@ def test_json_names_the_chosen_preset(
 
 @pytest.mark.parametrize("name", ["fast", "Commission_Quick", "omission_all_opus"])
 def test_an_unknown_preset_exits_with_2_before_any_call(
-    files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, name: str
+    files: tuple[Path, Path], no_calls: FakeClient, name: str
 ):
-    client = FakeClient([])
-    monkeypatch.setattr(cli, "make_client", lambda: client)
-
     result = commissions(files, "--preset", name)
 
     assert result.exit_code == 2
@@ -461,15 +464,13 @@ def test_an_unknown_preset_exits_with_2_before_any_call(
         f"error: unknown preset '{name}'. "
         "Use commission_quick or commission_reverse_lean.\n"
     )
-    assert client.requests == []
+    assert no_calls.requests == []
 
 
-@pytest.mark.parametrize("name", ["commission_quick", LEAN, "fast"])
+@pytest.mark.parametrize("name", [QUICK, LEAN, "fast"])
 def test_preset_and_pipeline_together_exit_with_2_before_any_call(
-    files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch, name: str
+    files: tuple[Path, Path], no_calls: FakeClient, name: str
 ):
-    client = FakeClient([])
-    monkeypatch.setattr(cli, "make_client", lambda: client)
     custom = files[0].parent / "mine.yaml"
     custom.write_text(preset_text().replace("name: commission_quick", "name: mine"))
 
@@ -480,7 +481,7 @@ def test_preset_and_pipeline_together_exit_with_2_before_any_call(
         "error: use --preset or --pipeline, not both: "
         "a pipeline spec file replaces the preset.\n"
     )
-    assert client.requests == []
+    assert no_calls.requests == []
 
 
 def test_a_chosen_preset_with_a_changed_profile_is_not_validated(
@@ -505,5 +506,5 @@ def test_help_lists_both_presets_and_the_default():
 
     assert result.exit_code == 0
     assert "--preset" in words
-    assert "commission_quick (the default)" in words
-    assert f"{LEAN}, which isn't confirmed to its pre-registered standard" in words
+    assert f"{QUICK} (the default) or {LEAN}." in words
+    assert "The lean preset isn't confirmed to its pre-registered standard" in words
