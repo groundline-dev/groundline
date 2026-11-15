@@ -9,13 +9,15 @@
 # against the source, quoting the source only for a contradicted claim; Opus
 # refute takes a second look at every flagged claim and clears one only with a
 # verified quote.
-# The one threshold level was fixed for this pipeline, not taken from quick
-# (ADR 0004).
+# The one threshold level is 0.80: the exact preset's level, at which lean was
+# tested (ADR 0004).
 #
-# Measured on 172 held-out commission pairs:
+# Measured on 172 commission pairs that earlier tests had already used:
 #   166 caught, 0/110 clean notes flagged, about $0.28 per note, ~19 s per note.
-# It matched the exact preset's catches, but missed its pre-registered margin by
-# less than two pairs, so it isn't confirmed to that standard (ADR 0017).
+# It matched the exact preset's catches, but failed both of its pre-registered
+# tests: its paired-score margin, which was less than two pairs wide, and a
+# false-alarm limit on 108 notes from other sources. So it isn't confirmed to
+# that standard (ADR 0017).
 #
 # Every setting is written out, so the preset doesn't change if a default does.
 
@@ -25,8 +27,8 @@ description: >-
   Lean commission check (Opus claims, one Opus support check, Opus refute,
   alarm). Measured on 172 commission pairs: 166 caught, 0/110 clean notes
   flagged, about $0.28 per note. It matched the exact preset's catches, but
-  missed its pre-registered margin by less than two pairs, so it isn't
-  confirmed to that standard.
+  failed both of its pre-registered tests, a paired-score margin less than two
+  pairs wide and a false-alarm limit, so it isn't confirmed to that standard.
 
 stages:
   - step: commissions_claims

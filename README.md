@@ -36,7 +36,7 @@ groundline can also run the **lean commission check** (`commission_reverse_lean`
 3. **Commissions refute:** a second look at every flagged claim, whatever its severity, which can only clear one, and only with a verified quote from the source.
 4. **Alarm:** as above, with its own threshold level, `default`, at 0.80.
 
-Measured on 172 commission pairs, it caught 166, flagged 0 of 110 clean notes, and cost about $0.28 and 19 seconds per note. It matched the exact preset's catches, but missed its pre-registered margin by less than two pairs, so it isn't confirmed to that standard (see [ADR 0017](docs/adr/0017-the-commission-check-also-offers-lean.md)). Those results hold only for the unchanged `commission_reverse_lean` preset. The CLI's `commissions` command runs quick unless you pass the lean preset's file with `--pipeline`.
+Measured on 172 commission pairs, it caught 166, flagged 0 of 110 clean notes, and cost about $0.28 and 19 seconds per note. It matched the exact preset's catches, but failed both of its pre-registered tests, a paired-score margin less than two pairs wide and a false-alarm limit on notes from other sources, so it isn't confirmed to that standard (see [ADR 0017](docs/adr/0017-the-commission-check-also-offers-lean.md)). Those results hold only for the unchanged `commission_reverse_lean` preset. The CLI's `commissions` command runs quick unless you pass the lean preset's file with `--pipeline`.
 
 ## Setup
 
