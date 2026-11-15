@@ -499,9 +499,11 @@ def test_a_chosen_preset_with_a_changed_profile_is_not_validated(
 
 
 def test_help_lists_both_presets_and_the_default():
-    result = runner.invoke(cli.app, ["commissions", "--help"], terminal_width=200)
+    result = runner.invoke(cli.app, ["commissions", "--help"])
+    # Rich wraps the help in a box, so compare the words without it.
+    words = " ".join(result.stdout.replace("│", " ").split())
 
     assert result.exit_code == 0
-    assert "--preset" in result.stdout
-    assert "commission_quick (the default)" in result.stdout
-    assert LEAN in result.stdout
+    assert "--preset" in words
+    assert "commission_quick (the default)" in words
+    assert f"{LEAN}, which isn't confirmed to its pre-registered standard" in words

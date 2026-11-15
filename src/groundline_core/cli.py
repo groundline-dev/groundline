@@ -109,17 +109,16 @@ CommissionsPipelineOpt = Annotated[
     ),
 ]
 COMMISSION_PRESETS: tuple[str, ...] = get_args(CommissionPreset)
+# Unpacking fails if a preset is added, so its help can't be left out.
+QUICK_PRESET, LEAN_PRESET = COMMISSION_PRESETS
 CommissionsPresetOpt = Annotated[
     str | None,
     typer.Option(
         metavar="<name>",
         help=(
-            "Which validated preset to run: "
-            + " or ".join(
-                f"{name} (the default)" if name == DEFAULT_COMMISSIONS_PRESET else name
-                for name in COMMISSION_PRESETS
-            )
-            + "."
+            f"Which validated preset to run: {QUICK_PRESET} (the default), or "
+            f"{LEAN_PRESET}, which isn't confirmed to its pre-registered standard "
+            "(see the README)."
         ),
         show_default=False,
     ),
