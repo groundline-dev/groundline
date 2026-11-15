@@ -44,6 +44,7 @@ from groundline_core.evaluators.omissions import report as omissions_report
 from groundline_core.evaluators.report import require_steps, result_json, usage_text
 from groundline_core.keys_cli import app as keys_app
 from groundline_core.presets import load_preset
+from groundline_core.settings import ENV_FILE
 
 app = typer.Typer(
     help="Check AI-written summaries against their source.",
@@ -240,6 +241,7 @@ def _check(
         profile=domain,
         cache=stage_cache,
         client=make_client(),
+        env_file=ENV_FILE,
     )
     seconds = time.perf_counter() - started
 

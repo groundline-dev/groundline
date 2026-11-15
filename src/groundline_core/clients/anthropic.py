@@ -28,11 +28,14 @@ class AnthropicClient:
         api_key: str,
         *,
         key_source: str = "ANTHROPIC_API_KEY",
+        key_name: str = "ANTHROPIC_API_KEY",
         max_retries: int = 4,
         http_client: httpx2.AsyncClient | None = None,
     ) -> None:
-        """`key_source` says where the key came from, for error messages."""
+        """`key_name` is what error messages call the key, and `key_source`
+        says where it came from."""
         self._key_source = key_source
+        self._key_name = key_name
         # The SDK retries connection errors, 408, 409, 429 and 5xx with backoff.
         self._sdk = AsyncAnthropic(
             api_key=api_key, max_retries=max_retries, http_client=http_client
@@ -58,14 +61,14 @@ class AnthropicClient:
             )
         except anthropic.AuthenticationError as error:
             raise self._rejected(
-                f"ANTHROPIC_API_KEY was rejected by the Anthropic API "
+                f"{self._key_name} was rejected by the Anthropic API "
                 f"({error.status_code}: {_detail(error)}).",
                 "check the key is complete, hasn't been revoked, "
                 "and belongs to the workspace you expect.",
             ) from error
         except anthropic.PermissionDeniedError as error:
             raise self._rejected(
-                f"ANTHROPIC_API_KEY doesn't have access to {model} "
+                f"{self._key_name} doesn't have access to {model} "
                 f"({error.status_code}: {_detail(error)}).",
                 "use a key from a workspace that can use this model, "
                 "or change the stage's model setting.",

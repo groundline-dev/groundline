@@ -4,7 +4,7 @@ The module doesn't depend on the CLI or FastAPI. The caller creates the async
 engine with `groundline_core.db.connection.make_engine`, which connects to the
 primary database and hides SQL parameters from errors, and closes it when done:
 
-    engine = make_engine(Settings().require_database_url())
+    engine = make_engine(read_settings(ENV_FILE).require_database_url())
     try:
         created = await APIKeys(engine).create(
             name="integration", expires_in=timedelta(days=90)
