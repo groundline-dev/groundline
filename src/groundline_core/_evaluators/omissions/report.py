@@ -1,6 +1,5 @@
 """Presenting an omission check: a terminal report."""
 
-from groundline_core._evaluators.models import ALARM_STEP
 from groundline_core._evaluators.omissions.models import ScoreOutput
 from groundline_core._evaluators.report import (
     cost_line,
@@ -10,12 +9,7 @@ from groundline_core._evaluators.report import (
     result_line,
     row,
 )
-from groundline_core._findings import CHECK_STEPS
 from groundline_core._result import EvaluationResult
-
-REQUIRED_STEPS = (*CHECK_STEPS["omissions"], ALARM_STEP)
-"""The result and the report read these steps' outputs, so a pipeline needs
-them."""
 
 LABEL_WIDTH = 17
 
@@ -38,7 +32,7 @@ def render_report(
     if result.findings:
         lines.append(f"  {'severity':<10}  {'verdict':<7}  {'p_missing':<9}  fact")
         for f in result.findings:
-            p = number(f.confidence) if f.confidence is not None else "-"
+            p = number(f.confidence)
             lines.append(
                 f"  {f.severity or '-':<10}  {f.verdict:<7}  {p:<9}  {f.statement}"
             )

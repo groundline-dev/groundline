@@ -32,6 +32,12 @@ CHECK_STEPS: dict[EvaluationType, tuple[str, ...]] = {
 """The steps each check's findings are read from. Every check also needs the
 alarm step, which decides the flag."""
 
+CHECK_NAMES: dict[EvaluationType, str] = {
+    "omissions": "omission check",
+    "commissions": "commission check",
+}
+"""What each check is called in messages."""
+
 EXPLANATIONS = {
     ("omission", "absent"): "The summary does not record this fact.",
     ("omission", "partial"): "The summary only partly records this fact.",
@@ -89,7 +95,16 @@ def evaluation_type_of(spec: PipelineSpec) -> EvaluationType:
     missing: list[str] = []
     if ALARM_STEP not in steps:
         missing.append(f"the {ALARM_STEP} step")
-    if not kinds:
+    started: dict[EvaluationType, list[str]] = {
+        kind: [step for step in needed if step not in steps]
+        for kind, needed in CHECK_STEPS.items()
+        if steps.intersection(needed)
+    }
+    if not kinds and len(started) == 1:
+        kind, absent = next(iter(started.items()))
+        plural = "s" if len(absent) > 1 else ""
+        missing.append(f"the {CHECK_NAMES[kind]}'s {' and '.join(absent)} step{plural}")
+    elif not kinds:
         missing.append(
             "the steps of a check: score and rank (omissions), "
             "or commissions_refute (commissions)"

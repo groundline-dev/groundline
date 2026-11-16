@@ -7,7 +7,6 @@ read `.env`, and library callers name a `.env` file only if they want one.
 
 import asyncio
 import logging
-from dataclasses import dataclass
 from typing import Literal
 
 from pydantic import SecretStr
@@ -21,7 +20,6 @@ from groundline_core._core import (
     Pipeline,
     PipelineSpec,
     Registry,
-    RunResult,
     build_pipeline,
     pipeline_fingerprint,
     run_pipeline,
@@ -47,16 +45,6 @@ DEFAULT_COMMISSIONS_PRESET = "commission_quick"
 
 CommissionPreset = Literal["commission_quick", "commission_reverse_lean"]
 """The commission presets a caller can choose, in the API and the CLI."""
-
-__all__ = [
-    "CommissionPreset",
-    "DEFAULT_COMMISSIONS_PRESET",
-    "DEFAULT_PRESET",
-    "EvaluationResult",
-    "default_registry",
-    "evaluate",
-    "evaluate_sync",
-]
 
 
 async def evaluate(
@@ -90,72 +78,6 @@ async def evaluate(
     """
     spec = spec or load_preset(DEFAULT_PRESET)
     evaluation_type = evaluation_type_of(spec)
-    ran = await run_any_pipeline(
-        source,
-        summary,
-        spec=spec,
-        profile=profile,
-        cache=cache,
-        client=client,
-        registry=registry,
-        anthropic_api_key=anthropic_api_key,
-        env_file=env_file,
-    )
-    alarm = ran.run.output(ALARM_STEP, AlarmOutput)
-    findings, counts = findings_and_counts(ran.run, evaluation_type)
-    usage = ran.run.usage
-    return EvaluationResult(
-        pipeline=ran.pipeline,
-        profile=ran.profile,
-        validated_preset=ran.validated_preset,
-        evaluation_type=evaluation_type,
-        flagged=alarm.flagged,
-        score=alarm.rescaled_score,
-        findings=findings,
-        counts=counts,
-        alarm=Alarm(score=alarm.score, threshold=alarm.threshold, level=alarm.level),
-        usage=Usage(
-            calls=usage.calls,
-            input_tokens=usage.input_tokens,
-            output_tokens=usage.output_tokens,
-            cost_usd=usage.cost_usd,
-        ),
-        run=ran.run,
-        warnings=ran.warnings,
-    )
-
-
-@dataclass(frozen=True)
-class AnyPipelineResult:
-    """What `run_any_pipeline` returns: the run, and how its spec compares with
-    the presets."""
-
-    pipeline: str
-    profile: str | None
-    validated_preset: str | None
-    run: RunResult
-    warnings: list[str]
-
-
-async def run_any_pipeline(
-    source: str,
-    summary: str,
-    *,
-    spec: PipelineSpec,
-    profile: DomainProfile | None = None,
-    cache: Cache | None = None,
-    client: ModelClient | None = None,
-    registry: Registry | None = None,
-    anthropic_api_key: str | SecretStr | None = None,
-    env_file: EnvFile = None,
-) -> AnyPipelineResult:
-    """Run a spec's stages as `evaluate` does, whether or not they make a full
-    check, without reading a check's result from them. Not public: `evaluate` is.
-
-    The spec is checked and the key looked up before any model call, and no key
-    is needed when no enabled stage calls a model. Reuse an enclosing check
-    deadline, or else read only the check timeout.
-    """
     if client is not None and anthropic_api_key is not None:
         raise ValueError("pass client or anthropic_api_key, not both")
     seconds = (
@@ -203,13 +125,27 @@ async def run_any_pipeline(
                         "model client cleanup failed (%s)", type(error).__name__
                     )
 
-        return AnyPipelineResult(
-            pipeline=spec.name,
-            profile=profile.name if profile else None,
-            validated_preset=validated,
-            run=run,
-            warnings=warnings,
-        )
+    alarm = run.output(ALARM_STEP, AlarmOutput)
+    findings, counts = findings_and_counts(run, evaluation_type)
+    return EvaluationResult(
+        pipeline=spec.name,
+        profile=profile.name if profile else None,
+        validated_preset=validated,
+        evaluation_type=evaluation_type,
+        flagged=alarm.flagged,
+        score=alarm.rescaled_score,
+        findings=findings,
+        counts=counts,
+        alarm=Alarm(score=alarm.score, threshold=alarm.threshold, level=alarm.level),
+        usage=Usage(
+            calls=run.usage.calls,
+            input_tokens=run.usage.input_tokens,
+            output_tokens=run.usage.output_tokens,
+            cost_usd=run.usage.cost_usd,
+        ),
+        run=run,
+        warnings=warnings,
+    )
 
 
 def evaluate_sync(

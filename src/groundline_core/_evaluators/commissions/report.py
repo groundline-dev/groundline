@@ -1,7 +1,6 @@
 """Presenting a commission check: a terminal report."""
 
 from groundline_core._evaluators.commissions.models import CommissionsRefuteOutput
-from groundline_core._evaluators.models import ALARM_STEP
 from groundline_core._evaluators.report import (
     cost_line,
     number,
@@ -10,12 +9,7 @@ from groundline_core._evaluators.report import (
     result_line,
     row,
 )
-from groundline_core._findings import CHECK_STEPS
 from groundline_core._result import EvaluationResult, Finding
-
-REQUIRED_STEPS = (*CHECK_STEPS["commissions"], ALARM_STEP)
-"""The result and the report read these steps' outputs, so a pipeline needs
-them."""
 
 LABEL_WIDTH = 18
 
@@ -38,9 +32,7 @@ def render_report(
     if result.findings:
         lines.append(f"  {'severity':<10}  {'verdict':<12}  {'confidence':<10}  claim")
         for finding in result.findings:
-            confidence = (
-                number(finding.confidence) if finding.confidence is not None else "-"
-            )
+            confidence = number(finding.confidence)
             lines.append(
                 f"  {finding.severity or '-':<10}  {finding.verdict:<12}  "
                 f"{confidence:<10}  {finding.statement}"

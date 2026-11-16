@@ -63,8 +63,6 @@ RESULT_FIELDS = {
 """The result types' fields are promised too, so removing or renaming one has to
 change here as well."""
 
-RESULT_TYPES = list(RESULT_FIELDS)
-
 
 def test_the_public_names_are_exactly_the_promised_list():
     assert sorted(groundline_core.__all__) == sorted(PUBLIC_NAMES)
@@ -93,11 +91,8 @@ def test_the_result_types_have_exactly_the_promised_fields():
 
 def test_every_field_of_the_result_types_has_a_docstring():
     undocumented: list[str] = []
-    for name in RESULT_TYPES:
-        cls = getattr(groundline_core, name, None)
-        if cls is None:
-            undocumented.append(f"{name} (not public)")
-            continue
+    for name in RESULT_FIELDS:
+        cls = getattr(groundline_core, name)
         body = ast.parse(textwrap.dedent(inspect.getsource(cls))).body[0]
         assert isinstance(body, ast.ClassDef), name
         statements = body.body

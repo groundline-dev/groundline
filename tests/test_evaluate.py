@@ -128,6 +128,7 @@ def test_the_result_reports_the_omission_check_without_stage_outputs():
     "case, expected",
     [
         ("without its alarm", "alarm"),
+        ("without one of its check's steps", "the omission check's rank step"),
         ("with both checks' steps", "both checks"),
         ("with no check's steps", "alarm"),
     ],
@@ -142,6 +143,10 @@ def test_a_spec_that_is_not_one_full_check_fails_before_the_key_lookup(
     if case == "without its alarm":
         spec = PRESET.model_copy(
             update={"stages": [s for s in PRESET.stages if s.step != "alarm"]}
+        )
+    elif case == "without one of its check's steps":
+        spec = PRESET.model_copy(
+            update={"stages": [s for s in PRESET.stages if s.step != "rank"]}
         )
     elif case == "with both checks' steps":
         omissions = [s for s in PRESET.stages if s.step != "alarm"]
@@ -257,26 +262,19 @@ def test_the_missing_key_message_names_the_stages_and_model(
     )
 
 
-def test_a_pipeline_that_calls_no_model_needs_no_key(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-):
-    # evaluate() runs only full checks, and the built-in ones all call a model,
-    # so the rule is checked on the runner underneath it.
-    from groundline_core._evaluate import run_any_pipeline
+def test_a_pipeline_that_calls_no_model_needs_no_key():
+    # Every full check calls a model, so evaluate() can't run one that doesn't.
+    # The key is looked up only when this list of the stages that call a model
+    # isn't empty.
+    from groundline_core._core import build_pipeline
+    from groundline_core._evaluate import model_users
 
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("GROUNDLINE_MODEL_MAX_ATTEMPTS", "invalid-unused-policy")
     spec = PipelineSpec(
         name="no-models",
         stages=[StageSpec(step="upper", implementation="upper.basic")],
     )
 
-    result = asyncio.run(
-        run_any_pipeline(SOURCE, SUMMARY, spec=spec, registry=make_registry())
-    )
-
-    assert result.run.stages["upper"].status == "ran"
+    assert model_users(build_pipeline(spec, make_registry(), None)) == ""
 
 
 def test_injected_client_ignores_invalid_model_configuration(

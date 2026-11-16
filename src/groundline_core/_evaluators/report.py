@@ -1,28 +1,11 @@
 """Presentation helpers shared by every evaluator's report."""
 
-from collections.abc import Sequence
 from typing import Any
 
 # The run's own usage, which also counts cached calls and models with no price:
 # more than the public `Usage` in a result reports.
-from groundline_core._core import PipelineSpec
 from groundline_core._core import Usage as RunUsage
 from groundline_core._result import EvaluationResult
-
-
-def require_steps(spec: PipelineSpec, steps: Sequence[str], *, report: str) -> None:
-    """Raise a ValueError, before anything runs, if `spec` lacks a step that the
-    `report` reads (each evaluator's report module lists them as
-    `REQUIRED_STEPS`)."""
-    have = {stage.step for stage in spec.stages}
-    missing = [step for step in steps if step not in have]
-    if missing:
-        names = [f"'{step}'" for step in steps]
-        needs = " and ".join([", ".join(names[:-1]), names[-1]] if names[1:] else names)
-        raise ValueError(
-            f"pipeline '{spec.name}' needs {needs} stages "
-            f"for the {report} report (missing: {', '.join(missing)})"
-        )
 
 
 def row(label: str, value: str, *, width: int) -> str:
@@ -30,8 +13,10 @@ def row(label: str, value: str, *, width: int) -> str:
     return f"{label:<{width}}{value}"
 
 
-def number(value: float) -> str:
-    """Two decimals, or three when needed: 0.90, 0.95, 0.425."""
+def number(value: float | None) -> str:
+    """Two decimals, or three when needed: 0.90, 0.95, 0.425. A dash for None."""
+    if value is None:
+        return "-"
     text = f"{value:.3f}"
     return text[:-1] if text.endswith("0") else text
 

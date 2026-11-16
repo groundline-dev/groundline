@@ -194,7 +194,7 @@ result = evaluate_sync(
 )
 ```
 
-The fields mean what the API's do (see [Findings](#findings) and [Scores](#scores)), and `None` stands for the API's `null`. Where the API has `metadata`, the Python result has `alarm` and `usage` as fields of its own, and `pipeline` and `validated_preset` (the name of the pipeline that ran, and the preset it matched). `result.run` holds every step's output for inspection; its shape follows the pipeline's steps and may change without notice.
+The fields mean what the API's do (see [Findings](#findings) and [Scores](#scores)), and `None` stands for the API's `null`. What the API puts in `metadata` is in separate fields in Python: `alarm`, `usage`, `pipeline` (the name of the pipeline that ran) and `validated_preset` (the preset it matched). `result.run` holds every step's output for inspection; its shape follows the pipeline's steps and may change without notice.
 
 `evaluate()` is the async version, for FastAPI or other async code. Both take a `spec`, a `client` (your own `ModelClient`, such as a fake one so your app's tests cost nothing) and `anthropic_api_key` or `env_file` for the key. Pass `client` or `anthropic_api_key`, not both: a `client` brings its own key. They also accept `profile`, `cache` and `registry`, but those take internal types, so they aren't part of the public interface yet.
 
