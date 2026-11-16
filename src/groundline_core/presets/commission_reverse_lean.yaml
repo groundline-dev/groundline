@@ -13,7 +13,8 @@
 # tested (ADR 0004).
 #
 # Measured on 172 commission pairs that earlier tests had already used:
-#   166 caught, 0/110 clean notes flagged, about $0.28 per note, ~19 s per note.
+#   166 caught, 0/110 clean notes flagged, about $0.14 per note ($0.28 per pair),
+#   ~19 s per note.
 # It matched the exact preset's catches, but failed both of its pre-registered
 # tests: its paired-score margin, which was less than two pairs wide, and a
 # false-alarm limit on 108 notes from other sources. So it isn't confirmed to
@@ -26,7 +27,7 @@ profile: clinical
 description: >-
   Lean commission check (Opus claims, one Opus support check, Opus refute,
   alarm). Measured on 172 commission pairs: 166 caught, 0/110 clean notes
-  flagged, about $0.28 per note. It matched the exact preset's catches, but
+  flagged, about $0.14 per note. It matched the exact preset's catches, but
   failed both of its pre-registered tests, a paired-score margin less than two
   pairs wide and a false-alarm limit, so it isn't confirmed to that standard.
 

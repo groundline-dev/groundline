@@ -9,7 +9,7 @@ from groundline_core import (
     evaluate,
     load_preset,
 )
-from groundline_core.core import PipelineSpec, with_settings
+from groundline_core.core import PipelineSpec, SpecError, with_settings
 from groundline_core.evaluators.models import AlarmOutput
 from tests.commissions_helpers import (
     ISSUES,
@@ -174,6 +174,23 @@ def test_an_unchanged_lean_run_is_its_validated_preset():
     assert result.warnings == []
     alarm = result.run.output("alarm", AlarmOutput)
     assert (alarm.score, alarm.threshold, alarm.flagged) == (0.95, 0.80, True)
+
+
+def test_lean_refute_after_the_quick_check_is_rejected_before_any_call():
+    quick_check = next(s for s in PRESET.stages if s.step == "commissions_check")
+    stages = [
+        quick_check if s.step == "commissions_check" else s for s in LEAN_PRESET.stages
+    ]
+    spec = LEAN_PRESET.model_copy(update={"name": "my_lean", "stages": stages})
+
+    with pytest.raises(SpecError) as error:
+        asyncio.run(evaluate(SOURCE, SUMMARY, spec=spec, client=FakeClient([])))
+
+    assert error.value.problems == [
+        "stage 3 (commissions_refute): 'commissions_refute.llm_flagged' needs "
+        "commissions_check to be 'commissions_check.llm_support', not "
+        "'commissions_check.llm_quick'"
+    ]
 
 
 def test_the_two_commission_presets_do_not_match_each_other():

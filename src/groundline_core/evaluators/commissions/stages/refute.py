@@ -105,6 +105,11 @@ class CommissionsRefuteLLMFlagged(CommissionsRefuteLLM):
 
     name: ClassVar[str] = "commissions_refute.llm_flagged"
     reads: ClassVar[tuple[str, ...]] = ("commissions_claims", "commissions_check")
+    # Only the support check keeps the claims step's ids; the quick check
+    # numbers its own.
+    works_with: ClassVar[dict[str, tuple[str, ...]]] = {
+        "commissions_check": ("commissions_check.llm_support",)
+    }
 
     model: str = "claude-opus-5-5"
     """The model to call."""
