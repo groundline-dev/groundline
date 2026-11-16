@@ -35,6 +35,7 @@ from tests.omission_helpers import SOURCE
 http = TestClient(app, headers=HEADERS)
 
 SECRET = "patient is HIV positive and takes tenofovir"
+MAX_SOURCE_CHARS = common.LIMITS.max_source_chars
 
 
 @pytest.fixture(autouse=True)
@@ -178,7 +179,7 @@ def test_the_route_runs_the_quick_preset():
         check(threshold="default"),
         check(source=""),
         check(summary="  \n "),
-        check(source="x" * (common.MAX_CHARS + 1)),
+        check(source="x" * (MAX_SOURCE_CHARS + 1)),
         check(pipeline="custom.yaml"),
         {"source": SOURCE},
     ],
@@ -196,7 +197,10 @@ def test_unusable_input_is_a_422_before_any_call(body: dict[str, object]):
 @pytest.mark.parametrize(
     ("body", "loc"),
     [
-        (check(source=SECRET + "x" * common.MAX_CHARS), ["body", "source"]),
+        (
+            check(source=SECRET + "x" * MAX_SOURCE_CHARS),
+            ["body", "source"],
+        ),
         (check(source={"text": SECRET}), ["body", "source"]),
         (check(notes=SECRET), ["body"]),
         (check(**{SECRET: "x"}), ["body"]),

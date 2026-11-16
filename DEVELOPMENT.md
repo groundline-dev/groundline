@@ -111,6 +111,69 @@ and the cost implications of failed checks. Python configuration behavior is
 documented on [`evaluate()`](src/groundline_core/evaluate.py) and
 [`AnthropicClient`](src/groundline_core/clients/anthropic.py).
 
+## Request size limits
+
+The API limits request bodies to keep a single upload from using too much memory.
+The same limit applies to every HTTP path and method, including public endpoints,
+unknown routes and new routes added later.
+
+Both check endpoints also limit the number of Unicode characters in source and
+summary after JSON decoding. The body limit counts the bytes sent, including
+JSON structure and escaping. These limits control how much text the API accepts. Models have their own
+limits, measured in tokens rather than characters, and the instructions sent
+with your text also take up space. An accepted request can therefore still be
+too large for the selected model.
+
+CLI and direct Python evaluation do not go through the HTTP API, so these request
+limits do not apply to them. The selected model's limits still apply.
+
+A declared oversized body can return **413 Content Too Large** before
+authentication, **404 Not Found** or **405 Method Not Allowed**. Streamed bodies
+are limited as the application reads them; routes that do not read a body do not
+buffer it to check its size.
+
+| Setting | Unit | Default |
+| --- | --- | --- |
+| `GROUNDLINE_MAX_BODY_BYTES` | Total body bytes | 5,242,880 (5 MiB) |
+| `GROUNDLINE_MAX_SOURCE_CHARS` | Decoded source characters | 200,000 |
+| `GROUNDLINE_MAX_SUMMARY_CHARS` | Decoded summary characters | 200,000 |
+
+For `make dev` or Docker Compose, add the settings you want to change to `.env`:
+
+```dotenv
+GROUNDLINE_MAX_BODY_BYTES=10485760
+GROUNDLINE_MAX_SOURCE_CHARS=100000
+```
+
+This example allows a 10 MiB body and up to 100,000 source characters, while
+leaving the summary limit at its default. Exported shell values take precedence
+over `.env`, just as they do for the check timeout and retry settings.
+
+Setting values must be positive ASCII decimal integers, without spaces, signs,
+underscores, fractions or exponents. Invalid configuration stops API startup
+with an error naming the setting and omitting its rejected value. Missing or
+empty values select the code defaults.
+
+After changing `.env` or exported values, restart `make dev` or recreate the
+Compose app container to apply them:
+
+```sh
+docker compose up -d --force-recreate app
+```
+
+Body and field allowances are independent. Raising a field allowance may require
+raising the body allowance too; a deliberately tighter body allowance can reject
+otherwise valid fields. Oversized bodies return **413 Content Too Large**;
+overlong fields return **422 Unprocessable Content**, without echoing input.
+
+This limit prevents a single upload from being too large. The server still needs
+memory to process requests, and several requests can arrive at once, so its total
+memory use can exceed this limit.
+
+The running server's `/docs` (also `/api`) shows its current limits: body bytes
+in the 413 response description, and character limits in the `CheckRequest` schema.
+For AWS restrictions, see [deployment limits](docs/deploying-to-aws.md#request-size-limits).
+
 ## Running the whole stack in Docker
 
 To run Postgres, the database setup and the app together, as they'll run on a server, start the stack at http://127.0.0.1:8001. Stop it with Ctrl+C:
@@ -205,7 +268,7 @@ If you change a prompt, the rubric or a step's logic, expect `tests/test_parity.
 
 ### API behavior suite
 
-`make test-api` runs the focused API tests with a named pass/fail result for each endpoint and scenario. It checks authentication, validation, evaluator responses, settings/SDK integration, documentation and safe errors. No running server, database, real API key or network access is needed.
+`make test-api` runs the focused API tests with a named pass/fail result for each endpoint and scenario. It checks authentication, validation, evaluator responses, settings/SDK integration, documentation and safe errors. No pre-existing server, database, real API key or internet access is needed. The upload test starts a temporary uvicorn server and requires loopback networking.
 
 Optionally save a JUnit XML report:
 
