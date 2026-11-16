@@ -176,6 +176,7 @@ def test_the_commissions_docs_offer_both_presets_with_quick_as_the_default():
     assert "isn't confirmed to that standard" in preset["description"]
     for name in preset["enum"]:
         assert name in operation["description"]
+    assert "an unknown `preset`" in operation["responses"]["422"]["description"]
 
 
 OPERATION_IDS = {
