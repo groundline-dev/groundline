@@ -62,7 +62,7 @@ You need [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13 (0.1
 
 Set the two optional overrides below in `.env` or the shell; shell values take
 precedence. Leave them unset to use the defaults in
-[`settings.py`](src/groundline_core/_settings.py).
+[`_settings.py`](src/groundline_core/_settings.py).
 
 ### Overall check limit
 
@@ -334,19 +334,20 @@ Every route needs it except probes such as `/health` and `/ready` and the docs p
 .claude/skills/            links to .agents/skills/, so Claude Code finds the same skills
 Dockerfile                 the app image
 compose.yaml               the stack: Postgres, the setup service and the app
-src/groundline_core/
-  core/                    the pipeline framework: steps, registry, specs, runner, cache, costs
-  clients/                 the Anthropic client
+src/groundline_core/       a leading underscore marks the library's internals (ADR 0018)
+  _core/                   the pipeline framework: steps, registry, specs, runner, cache, costs
+  _clients/                the Anthropic client
   db/                      the database: tables, migrations, connection check, setup
-  evaluators/              what the checks share, and the registry of built-in checks
-  evaluators/omissions/    the omission check
-  evaluators/commissions/  the commission check
+  _evaluators/             what the checks share, and the registry of built-in checks
+  _evaluators/omissions/   the omission check
+  _evaluators/commissions/ the commission check
   profiles/clinical/       the clinical profile: prompts and severity rubric
   presets/                 validated pipeline specs (omission_all_opus, commission_quick,
                            commission_reverse_lean)
   __init__.py              the public interface: the names library callers import
-  evaluate.py              evaluate(): the entry point the CLI and API share
-  result.py, findings.py   the result evaluate() returns, and how findings are built from a run
+  _evaluate.py             evaluate(): the entry point the CLI and API share
+  _result.py, _findings.py the result evaluate() returns, and how findings are built from a run
+  _settings.py             secrets and settings, from the environment or a .env file
   api_keys.py              API-key creation, revocation and authentication
   auth.py                  the Bearer authentication dependency
   command.py               where the groundline-core command starts: checks for the cli extra

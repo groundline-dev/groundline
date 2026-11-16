@@ -7,8 +7,8 @@ its score from 0 to 1, what the check found, and what it cost.
 
 The names listed in `__all__`, and the documented fields of the result types,
 are the public interface: they keep working across upgrades. Everything else,
-including the modules inside this package and `EvaluationResult.run`, is
-internal and may change without notice.
+including the modules whose names start with an underscore and
+`EvaluationResult.run`, is internal and may change without notice.
 """
 
 from groundline_core._core import ModelClient, ModelReply, PipelineSpec

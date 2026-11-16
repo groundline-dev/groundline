@@ -202,7 +202,7 @@ A spec has to make one full check: the alarm step, plus the steps one check's fi
 
 ### Public interface
 
-Import from `groundline_core` itself. Its names, and the documented fields of the result types, keep working across upgrades. Everything else, including the modules inside the package and `result.run`, is internal and may change without notice.
+Import from `groundline_core` itself. Its names, and the documented fields of the result types, keep working across upgrades. Everything else, including the modules whose names start with an underscore (such as `groundline_core._core`) and `result.run`, is internal and may change without notice.
 
 | Name | What it is |
 |---|---|
