@@ -10,7 +10,7 @@ from groundline_core import (
     evaluate_sync,
     load_preset,
 )
-from groundline_core.core import (
+from groundline_core._core import (
     DomainProfile,
     PipelineSpec,
     SpecError,
@@ -18,11 +18,11 @@ from groundline_core.core import (
     load_spec,
     with_settings,
 )
-from groundline_core.core.deadline import check_deadline
-from groundline_core.evaluators.models import AlarmOutput
-from groundline_core.evaluators.omissions.models import ScoreOutput
+from groundline_core._core.deadline import check_deadline
+from groundline_core._evaluators.models import AlarmOutput
+from groundline_core._evaluators.omissions.models import ScoreOutput
+from groundline_core._settings import MissingAPIKeyError, UnreadableSettingsError
 from groundline_core.profiles import load_builtin_profile
-from groundline_core.settings import MissingAPIKeyError, UnreadableSettingsError
 from tests.core_fakes import make_registry
 from tests.fakes import FakeClient
 from tests.omission_helpers import (
@@ -262,7 +262,7 @@ def test_a_pipeline_that_calls_no_model_needs_no_key(
 ):
     # evaluate() runs only full checks, and the built-in ones all call a model,
     # so the rule is checked on the runner underneath it.
-    from groundline_core.evaluate import run_any_pipeline
+    from groundline_core._evaluate import run_any_pipeline
 
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.chdir(tmp_path)

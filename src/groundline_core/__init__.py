@@ -11,16 +11,16 @@ including the modules inside this package and `EvaluationResult.run`, is
 internal and may change without notice.
 """
 
-from groundline_core.core import ModelClient, ModelReply, PipelineSpec
-from groundline_core.evaluate import (
+from groundline_core._core import ModelClient, ModelReply, PipelineSpec
+from groundline_core._evaluate import (
     DEFAULT_COMMISSIONS_PRESET,
     DEFAULT_PRESET,
     CommissionPreset,
     evaluate,
     evaluate_sync,
 )
+from groundline_core._result import Alarm, Counts, EvaluationResult, Finding, Usage
 from groundline_core.presets import builtin_presets, load_preset
-from groundline_core.result import Alarm, Counts, EvaluationResult, Finding, Usage
 
 __all__ = [
     "DEFAULT_COMMISSIONS_PRESET",

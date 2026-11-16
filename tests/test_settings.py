@@ -3,7 +3,7 @@ from pathlib import Path
 import pytest
 from pydantic import SecretStr
 
-from groundline_core.settings import (
+from groundline_core._settings import (
     ENV_FILE,
     MissingAPIKeyError,
     Settings,

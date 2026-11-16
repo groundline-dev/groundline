@@ -1,6 +1,6 @@
 import json
 
-from groundline_core.evaluators.commissions.models import (
+from groundline_core._evaluators.commissions.models import (
     CommissionsCheckOutput,
     CommissionsRefuteOutput,
 )

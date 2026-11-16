@@ -8,9 +8,9 @@ from groundline_core import (
     evaluate,
     load_preset,
 )
-from groundline_core.core import PipelineSpec, SpecError, with_settings
-from groundline_core.evaluate import default_registry
-from groundline_core.evaluators.models import AlarmOutput
+from groundline_core._core import PipelineSpec, SpecError, with_settings
+from groundline_core._evaluate import default_registry
+from groundline_core._evaluators.models import AlarmOutput
 from tests.commissions_helpers import (
     DOSE,
     EXAM,
@@ -127,7 +127,7 @@ def test_the_commission_and_omission_presets_do_not_match_each_other():
 def test_a_missing_key_is_reported_before_any_call(
     monkeypatch: pytest.MonkeyPatch, tmp_path: pytest.TempPathFactory
 ):
-    from groundline_core.settings import MissingAPIKeyError
+    from groundline_core._settings import MissingAPIKeyError
 
     monkeypatch.chdir(str(tmp_path))
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -138,9 +138,9 @@ def test_a_missing_key_is_reported_before_any_call(
 
 @pytest.mark.parametrize("order", ["omissions first", "commissions first", "alone"])
 def test_evaluators_can_be_registered_in_any_order_or_alone(order: str):
-    from groundline_core.core import Registry
-    from groundline_core.evaluators.commissions import register_commissions
-    from groundline_core.evaluators.omissions import register_omissions
+    from groundline_core._core import Registry
+    from groundline_core._evaluators.commissions import register_commissions
+    from groundline_core._evaluators.omissions import register_omissions
 
     registries = {
         "omissions first": [register_omissions, register_commissions],

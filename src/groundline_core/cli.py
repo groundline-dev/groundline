@@ -20,8 +20,7 @@ from typing import Annotated, get_args
 import platformdirs
 import typer
 
-from groundline_core.command import EXIT_ERROR, EXIT_FLAGGED, EXIT_NOT_FLAGGED
-from groundline_core.core import (
+from groundline_core._core import (
     FileCache,
     ModelClient,
     ProfileError,
@@ -32,20 +31,21 @@ from groundline_core.core import (
     load_spec,
     summarize_usage,
 )
-from groundline_core.core.errors import ModelTimeoutError
-from groundline_core.evaluate import (
+from groundline_core._core.errors import ModelTimeoutError
+from groundline_core._evaluate import (
     DEFAULT_COMMISSIONS_PRESET,
     DEFAULT_PRESET,
     CommissionPreset,
     EvaluationResult,
     evaluate_sync,
 )
-from groundline_core.evaluators.commissions import report as commissions_report
-from groundline_core.evaluators.omissions import report as omissions_report
-from groundline_core.evaluators.report import require_steps, result_json, usage_text
+from groundline_core._evaluators.commissions import report as commissions_report
+from groundline_core._evaluators.omissions import report as omissions_report
+from groundline_core._evaluators.report import require_steps, result_json, usage_text
+from groundline_core._settings import ENV_FILE
+from groundline_core.command import EXIT_ERROR, EXIT_FLAGGED, EXIT_NOT_FLAGGED
 from groundline_core.keys_cli import app as keys_app
 from groundline_core.presets import load_preset
-from groundline_core.settings import ENV_FILE
 
 app = typer.Typer(
     help="Check AI-written summaries against their source.",

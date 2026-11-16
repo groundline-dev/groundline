@@ -62,7 +62,7 @@ You need [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13 (0.1
 
 Set the two optional overrides below in `.env` or the shell; shell values take
 precedence. Leave them unset to use the defaults in
-[`settings.py`](src/groundline_core/settings.py).
+[`settings.py`](src/groundline_core/_settings.py).
 
 ### Overall check limit
 
@@ -104,12 +104,12 @@ check runs out of time.
 
 Database operations also have their own time limits. The model and database
 limits are defined on the `Settings` class in
-[`src/groundline_core/settings.py`](src/groundline_core/settings.py).
+[`src/groundline_core/_settings.py`](src/groundline_core/_settings.py).
 
 See [API statuses and errors](README.md#statuses-and-errors) for response codes
 and the cost implications of failed checks. Python configuration behavior is
-documented on [`evaluate()`](src/groundline_core/evaluate.py) and
-[`AnthropicClient`](src/groundline_core/clients/anthropic.py).
+documented on [`evaluate()`](src/groundline_core/_evaluate.py) and
+[`AnthropicClient`](src/groundline_core/_clients/anthropic.py).
 
 ## Request size limits
 
