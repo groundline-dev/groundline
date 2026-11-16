@@ -19,7 +19,15 @@ from groundline_core._evaluate import (
     evaluate,
     evaluate_sync,
 )
-from groundline_core._result import Alarm, Counts, EvaluationResult, Finding, Usage
+from groundline_core._evaluators.models import Severity
+from groundline_core._result import (
+    Alarm,
+    Counts,
+    EvaluationResult,
+    EvaluationType,
+    Finding,
+    Usage,
+)
 from groundline_core.presets import builtin_presets, load_preset
 
 __all__ = [
@@ -29,10 +37,12 @@ __all__ = [
     "CommissionPreset",
     "Counts",
     "EvaluationResult",
+    "EvaluationType",
     "Finding",
     "ModelClient",
     "ModelReply",
     "PipelineSpec",
+    "Severity",
     "Usage",
     "builtin_presets",
     "evaluate",

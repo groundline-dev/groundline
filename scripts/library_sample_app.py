@@ -15,10 +15,12 @@ from groundline_core import (
     CommissionPreset,
     Counts,
     EvaluationResult,
+    EvaluationType,
     Finding,
     ModelClient,
     ModelReply,
     PipelineSpec,
+    Severity,
     Usage,
     builtin_presets,
     evaluate,
@@ -43,6 +45,10 @@ class CannedModel:
             input_tokens=len(prompt),
             output_tokens=min(len(self.reply), max_tokens),
         )
+
+
+def severity_rank(severity: Severity | None) -> int:
+    return ["critical", "supporting", "peripheral", None].index(severity)
 
 
 def describe_finding(finding: Finding) -> str:
@@ -84,16 +90,18 @@ def describe_usage(usage: Usage) -> str:
 
 
 def describe(result: EvaluationResult) -> list[str]:
+    check: EvaluationType = result.evaluation_type
     validated: str | None = result.validated_preset
     profile: str | None = result.profile
     lines = [
-        f"{result.evaluation_type} check by {result.pipeline} ({profile}, {validated})",
+        f"{check} check by {result.pipeline} ({profile}, {validated})",
         f"flagged: {result.flagged}, score {result.score:.2f}",
         describe_alarm(result.alarm),
         describe_counts(result.counts),
         describe_usage(result.usage),
     ]
-    lines += [describe_finding(finding) for finding in result.findings]
+    findings = sorted(result.findings, key=lambda f: severity_rank(f.severity))
+    lines += [describe_finding(finding) for finding in findings]
     lines += [f"warning: {warning}" for warning in result.warnings]
     return lines
 

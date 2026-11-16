@@ -212,6 +212,7 @@ Import from `groundline_core` itself. Its names, and the documented fields of th
 | `PipelineSpec` | A pipeline spec, as `load_preset` returns it. |
 | `ModelClient`, `ModelReply` | What a `client` implements (an async `complete(prompt, *, model, effort, max_tokens)`), and what it returns. |
 | `EvaluationResult`, `Finding`, `Counts`, `Alarm`, `Usage` | The result and its parts. |
+| `EvaluationType`, `Severity` | The types of `evaluation_type` (`omissions` or `commissions`) and of a finding's `severity` (`critical`, `supporting` or `peripheral`). |
 
 The package includes its type information, so type checkers such as pyright and mypy check your code against these names.
 

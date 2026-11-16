@@ -95,13 +95,13 @@ def evaluation_type_of(spec: PipelineSpec) -> EvaluationType:
     missing: list[str] = []
     if ALARM_STEP not in steps:
         missing.append(f"the {ALARM_STEP} step")
-    started: dict[EvaluationType, list[str]] = {
+    partial_checks: dict[EvaluationType, list[str]] = {
         kind: [step for step in needed if step not in steps]
         for kind, needed in CHECK_STEPS.items()
         if steps.intersection(needed)
     }
-    if not kinds and len(started) == 1:
-        kind, absent = next(iter(started.items()))
+    if not kinds and len(partial_checks) == 1:
+        kind, absent = next(iter(partial_checks.items()))
         plural = "s" if len(absent) > 1 else ""
         missing.append(f"the {CHECK_NAMES[kind]}'s {' and '.join(absent)} step{plural}")
     elif not kinds:
@@ -127,11 +127,11 @@ def evaluation_type_of(spec: PipelineSpec) -> EvaluationType:
 
 
 def findings_and_counts(
-    run: RunResult, check: EvaluationType
+    run: RunResult, evaluation_type: EvaluationType
 ) -> tuple[list[Finding], Counts | None]:
     """What the check found, most important first, and for the omission check how
     many of the source's facts the summary records."""
-    if check == "omissions":
+    if evaluation_type == "omissions":
         scored = run.output("score", ScoreOutput)
         facts = {f.id: f for f in run.output("rank", RankOutput).facts}
         findings = [omission_finding(m, facts[m.id]) for m in scored.missing_facts]

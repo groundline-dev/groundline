@@ -31,10 +31,12 @@ def render_report(
     lines += ["", "Not fully recorded (rank order):"]
     if result.findings:
         lines.append(f"  {'severity':<10}  {'verdict':<7}  {'p_missing':<9}  fact")
-        for f in result.findings:
-            p = number(f.confidence)
+        for finding in result.findings:
+            confidence = number(finding.confidence)
+            severity = finding.severity or "-"
             lines.append(
-                f"  {f.severity or '-':<10}  {f.verdict:<7}  {p:<9}  {f.statement}"
+                f"  {severity:<10}  {finding.verdict:<7}  {confidence:<9}  "
+                f"{finding.statement}"
             )
     else:
         lines.append("  none")
