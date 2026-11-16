@@ -38,13 +38,13 @@ def test_smoke_scripts_work_through_real_routes_settings_and_sdk(
     model_service: smoke.MockAnthropic,
     http: TestClient,
 ):
-    for endpoint in ("omissions", "commissions"):
+    for endpoint, preset, extra in smoke.CHECKS:
         response = http.post(
             f"/v1/{endpoint}",
-            json={"source": smoke.SOURCE, "summary": smoke.SUMMARY},
+            json={"source": smoke.SOURCE, "summary": smoke.SUMMARY, **extra},
         )
         assert response.status_code == 200, response.text
-        smoke.verify_evaluation(endpoint, response.json())
+        smoke.verify_evaluation(endpoint, preset, response.json())
 
     status, body = smoke.request(
         "GET", f"http://127.0.0.1:{model_service.server_port}/requests", {}, None
@@ -58,20 +58,20 @@ def test_mock_rejects_unexpected_requests_instead_of_returning_success(
     model_service: smoke.MockAnthropic, failure: str
 ):
     headers = {"Authorization": f"Bearer {smoke.ANTHROPIC_KEY}"}
-    prompt = f"<transcript>{smoke.SOURCE}</transcript>"
+    prompt = smoke.PROMPTS["extract_coarse_v1"].replace("{transcript}", smoke.SOURCE)
     if failure == "credential":
         headers = {}
     elif failure == "prompt":
         prompt = "unknown stage"
     else:
-        model_service.calls["extract"] = 1
+        model_service.calls["extract_coarse_v1"] = 1
     status, body = smoke.request(
         "POST",
         f"http://127.0.0.1:{model_service.server_port}/v1/messages",
         headers,
         json.dumps(
             {
-                "model": smoke.MODEL_SETTINGS["omissions"]["extract"]["model"],
+                "model": smoke.MODEL_SETTINGS["omission_all_opus"]["extract"]["model"],
                 "messages": [{"content": prompt}],
             }
         ),
@@ -79,6 +79,12 @@ def test_mock_rejects_unexpected_requests_instead_of_returning_success(
     assert status == 400
     assert body["type"] == "error"
     assert len(model_service.errors) == 1
+    expected = {
+        "credential": "unexpected mock credential",
+        "prompt": "unrecognized stage prompt",
+        "extra-call": "unexpected extra call to extract_coarse_v1",
+    }[failure]
+    assert model_service.errors == [expected]
 
 
 @pytest.mark.parametrize("method", ["connect", "connect_ex"])

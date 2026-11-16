@@ -1,4 +1,5 @@
-"""`POST /v1/commissions`: run the validated quick commission preset on one summary.
+"""`POST /v1/commissions`: run a validated commission preset on one summary: the
+quick one unless the caller chooses the lean one.
 
 The request and response are models of their own, not the pipeline's, so the
 API's contract doesn't change when the internals do. Every finished check
@@ -8,10 +9,10 @@ from the source or summary; see `groundline_core.api.common`.
 
 import logging
 import time
-from typing import Annotated, Literal
+from typing import Annotated, Literal, get_args
 
 from fastapi import APIRouter, Depends
-from pydantic import ConfigDict
+from pydantic import ConfigDict, Field
 
 from groundline_core.api.common import (
     Alarm,
@@ -45,8 +46,24 @@ logger = logging.getLogger("groundline.api")
 router = APIRouter()
 
 
+CommissionPreset = Literal["commission_quick", "commission_reverse_lean"]
+"""The commission presets a caller can choose."""
+
+
+def _preset_choices() -> str:
+    """What each choosable preset runs and how it was measured, from the presets'
+    own descriptions, so the docs can't drift from them."""
+    lines = ["Which validated preset to run."]
+    for name in get_args(CommissionPreset):
+        default = " (the default)" if name == DEFAULT_COMMISSIONS_PRESET else ""
+        lines.append(f"`{name}`{default}: {load_preset(name).description}")
+    return "\n\n".join(lines)
+
+
 class CommissionsRequest(CheckRequest):
-    pass
+    preset: CommissionPreset = Field(
+        default=DEFAULT_COMMISSIONS_PRESET, description=_preset_choices()
+    )
 
 
 class CommissionsAlarm(Alarm):
@@ -121,11 +138,15 @@ async def commissions(
     """Find the claims a summary makes that its source doesn't support, and
     whether to flag it.
 
-    Runs the validated quick commission check (often called hallucination
-    detection): one Claude Haiku 5.5 call that costs about $0.002 for a typical
-    clinical note. A claim is a commission if the source contradicts it or
-    never mentions it. Answers 200 for every finished check, flagged or not."""
-    spec = load_preset(DEFAULT_COMMISSIONS_PRESET)
+    Runs a validated commission check (often called hallucination detection),
+    chosen with `preset`: `commission_quick` by default, or
+    `commission_reverse_lean`. The `preset` field says what each runs, how it was
+    measured, what it costs and whether it is confirmed to its pre-registered
+    standard.
+    Each preset flags at its own threshold, and both answer in the same shape. A
+    claim is a commission if the source contradicts it or never mentions it.
+    Answers 200 for every finished check, flagged or not."""
+    spec = load_preset(request.preset)
     started = time.perf_counter()
     with check_failures():
         result = await evaluate(
@@ -142,7 +163,7 @@ async def commissions(
 
 
 def _response(result: EvaluationResult) -> CommissionsResponse:
-    # Refute is off in the quick preset, so this holds the check's commissions.
+    # The commissions still flagged after refute; quick switches refute off.
     found = result.run.output("commissions_refute", CommissionsRefuteOutput)
     alarm = result.run.output(ALARM_STEP, AlarmOutput)
     return CommissionsResponse(

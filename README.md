@@ -15,7 +15,7 @@ The default pipeline, the **all-Opus omission check**, runs six steps:
 5. **Score:** counts and ratios of what's missing.
 6. **Alarm:** flag the summary when a critical fact is confidently missing. The alarm score is the highest missing confidence among critical facts still flagged, with partials at half weight.
 
-Every step uses Claude Opus 5.5, so the pipeline can run under Anthropic's BAA once it's in production. On 50 held-out notes from [OmissionBench](https://huggingface.co/datasets/ComposoAI/OmissionBench), with thresholds fixed in advance, it caught 16/50 omissions with 1/50 clean notes flagged, at about $0.28 per note. Those results hold only for the unchanged `omission_all_opus` preset. The report tells you whether a run used it.
+Every step uses Claude Opus 5.5, so the pipeline can run under Anthropic's BAA once it's in production. On 50 held-out notes from [OmissionBench](https://huggingface.co/datasets/ComposoAI/OmissionBench), with thresholds fixed in advance, it caught 16/50 omissions with 1/50 clean notes flagged, at about $0.21 per note. Those results hold only for the unchanged `omission_all_opus` preset. The report tells you whether a run used it.
 
 The default commission pipeline, the **quick commission check**, runs three steps:
 
@@ -23,11 +23,20 @@ The default commission pipeline, the **quick commission check**, runs three step
 2. **Commissions refute:** a second look at the critical flags. It can only clear a flag, and only with a verified quote from the source. It is switched off in the preset.
 3. **Alarm:** flag the summary when a critical claim is confidently unsupported. The alarm score is the highest unsupported confidence among critical claims still flagged, and the one threshold level, `default`, is 0.85.
 
-Measured on 172 held-out commission pairs (pre-registered), it caught 151, flagged 1 of 110 clean notes, and cost about $0.002 per note. Those results hold only for the unchanged `commission_quick` preset.
+Measured on 172 held-out commission pairs (pre-registered), it caught 151, flagged 1 of 110 clean notes, and cost about $0.001 per note. It passed its pre-registered test. Those results hold only for the unchanged `commission_quick` preset.
 
 On realistic notes outside that benchmark, it flagged about a third of them. A blind review found that most of those flags were on genuine content the transcript doesn't say aloud, such as exam findings, which the check can't tell apart from invented content. A flag means the note needs a look; it isn't proof that anything was invented.
 
 The quick check uses Claude Haiku 5.5, not Opus. Anthropic's BAA is understood to cover services and features rather than specific models, but confirm that before production (see [ADR 0007](docs/adr/0007-commission-check-ships-quick.md)).
+
+groundline can also run the **lean commission check** (`commission_reverse_lean`), which uses Claude Opus 5.5 throughout:
+
+1. **Commissions claims:** one call lists every claim the summary makes, each as a short statement with the summary's own words.
+2. **Commissions check:** one call judges each claim against the source as supported, unsupported or contradicted, with a confidence and a severity. Only a contradicted claim needs a quote from the source, and that quote must be found word for word.
+3. **Commissions refute:** a second look at every flagged claim, whatever its severity, which can only clear one, and only with a verified quote from the source.
+4. **Alarm:** as above, with its own threshold level, `default`, at 0.80.
+
+Measured on 172 commission pairs, it caught 166, flagged 0 of 110 clean notes, and cost about $0.14 and 19 seconds per note. It matched the exact preset's catches, but failed both of its pre-registered tests, a paired-score margin less than two pairs wide and a false-alarm limit on notes from other sources, so it isn't confirmed to that standard (see [ADR 0017](docs/adr/0017-the-commission-check-also-offers-lean.md)). Those results hold only for the unchanged `commission_reverse_lean` preset. The CLI's `commissions` command runs quick unless you pass the lean preset's file with `--pipeline`.
 
 ## Setup
 
@@ -41,7 +50,7 @@ make setup
 
 Model calls need an Anthropic API key. Copy `.env.example` to `.env` and add your key, or export `ANTHROPIC_API_KEY`. groundline stores its own API-key hashes and metadata in PostgreSQL. HTTP checks require PostgreSQL for authentication; CLI and Python checks do not. [DEVELOPMENT.md](DEVELOPMENT.md#getting-started) explains how to set it up. `.env` is git-ignored; never commit a key. The CLI and the API read `.env` from the folder you run them in, so run commands from the repo root. The Python library reads a `.env` file only if you name one (see [The Anthropic API key in your code](#the-anthropic-api-key-in-your-code)). A missing or rejected Anthropic API key produces an error saying where groundline looked and how to fix it, before any paid call.
 
-**Live calls cost money.** A typical clinical note costs about $0.28 for the omission check and about $0.002 for the commission check. Agree a budget with your team before running anything at scale.
+**Live calls cost money.** A typical clinical note costs about $0.21 for the omission check, and about $0.001 for the quick commission check or $0.14 for the lean one. Agree a budget with your team before running anything at scale.
 
 ## Managing API keys
 
@@ -244,7 +253,7 @@ curl -s http://127.0.0.1:8000/v1/omissions \
 
 ### `POST /v1/commissions`
 
-Runs the validated quick commission preset on one summary. It takes the same API key, `source` and `summary` as `/v1/omissions`. It answers the same [statuses](#statuses-and-errors):
+Runs a validated commission preset on one summary. It takes the same API key, `source` and `summary` as `/v1/omissions`, and an optional `preset`, either `commission_quick` (the default) or `commission_reverse_lean`. Any other value, including `null`, gets a 422 that names the two. Both presets answer in the same shape, each flags at its own threshold, and `metadata.pipeline` names the one that ran. It answers the same [statuses](#statuses-and-errors):
 
 ```sh
 curl -s http://127.0.0.1:8000/v1/commissions \
@@ -343,7 +352,7 @@ make aws-destroy   # when you're done
 ## Pipelines, presets and profiles
 
 - **A pipeline spec** says how to check: which steps run, which implementation does each (for example `check.llm_batch`), whether each step is on, and each step's settings, such as model, effort and thresholds. Specs are YAML or JSON. Every spec is validated before any model call, and the validation reports every problem at once.
-- **A preset** is a validated spec that ships with groundline. [`omission_all_opus`](src/groundline_core/presets/omission_all_opus.yaml) is the default. To try a variation, copy it, change it, and pass it with `--pipeline`. The report then says it isn't the validated preset, and warns if it still uses the preset's alarm thresholds, since those were calibrated only for the preset.
+- **A preset** is a validated spec that ships with groundline. [`omission_all_opus`](src/groundline_core/presets/omission_all_opus.yaml) is the default; the commission presets are [`commission_quick`](src/groundline_core/presets/commission_quick.yaml) and [`commission_reverse_lean`](src/groundline_core/presets/commission_reverse_lean.yaml). To try a variation, copy it, change it, and pass it with `--pipeline`. The report then says it isn't the validated preset, and warns if it still uses the preset's alarm thresholds, since those were calibrated only for the preset.
 
   Editors with YAML schema support, such as VS Code with Red Hat's YAML extension, can check a spec as you write it and suggest each implementation's settings. The preset's first line does this; in your own copy, point it at the published schema:
 

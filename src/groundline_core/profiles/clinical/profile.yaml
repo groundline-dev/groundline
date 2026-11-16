@@ -21,4 +21,6 @@ texts:
   refute_v1: prompts/refute_v1.txt
   quick_check_v1: prompts/quick_check_v1.txt
   support_refute_v1: prompts/support_refute_v1.txt
+  note_claims_v1: prompts/note_claims_v1.txt
+  support_check_lean_v1: prompts/support_check_lean_v1.txt
   severity_v1: rubrics/severity_v1.md

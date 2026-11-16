@@ -1,0 +1,26 @@
+You are an experienced clinician auditing a clinical note against the consultation it was written from. Below are the consultation transcript and a numbered list of claims the note makes. For each claim, decide whether the consultation supports it.
+
+<transcript>
+{transcript}
+</transcript>
+
+<claims>
+{claims}
+</claims>
+
+For each claim, answer with one of:
+- "supported": the consultation establishes the claim, including its qualifiers (side, dose, frequency, timing, negation, certainty). A faithful paraphrase, an abbreviation, a correct unit conversion or a direct clinical summary of what was said counts as supported.
+- "contradicted": the consultation says something incompatible with the claim (a different dose, side, result or diagnosis; a denial turned into a finding; a hedge made certain).
+- "unsupported": the consultation neither establishes nor contradicts the claim; the note adds it.
+
+For "contradicted", give as "evidence" the passage of the transcript that contradicts the claim, copied word for word (at most 40 words). For "supported" or "unsupported", set "evidence" to null; decide "supported" only when you can point to the passage that establishes the claim.
+
+Give "not_supported_confidence": a whole number from 0 to 100 for how confident you are that the claim is NOT supported by the consultation (that is, unsupported or contradicted). 0 means certain it is supported, 100 means certain it is not, 50 means you cannot tell. Use the whole range.
+
+Give "importance": how much it would matter clinically if this claim were wrong.
+- "critical": a reader could make a wrong clinical decision: diagnosis, medication or dose, allergy, examination finding, test result, plan, safety advice.
+- "supporting": useful clinical context whose error would rarely change care.
+- "peripheral": social detail, pleasantries or administrative content.
+
+Reply with only this JSON object, no other text, with one entry for every claim:
+{"claims": [{"id": "c1", "label": "supported", "evidence": null, "not_supported_confidence": 5, "importance": "supporting"}, {"id": "c2", "label": "contradicted", "evidence": "...", "not_supported_confidence": 95, "importance": "critical"}]}

@@ -1,0 +1,54 @@
+# yaml-language-server: $schema=pipeline.schema.json
+# The lean commission check, with the clinical profile.
+#
+# This is the configuration omission-pipeline measured (its reverse_lean preset),
+# so its results only hold while every setting here, and the clinical profile's
+# prompts, stay unchanged. No refusal fallback (ADR 0003).
+#
+# Claude Opus 5.5 lists every claim the summary makes; one Opus call judges each
+# against the source, quoting the source only for a contradicted claim; Opus
+# refute takes a second look at every flagged claim and clears one only with a
+# verified quote.
+# The one threshold level is 0.80: the exact preset's level, at which lean was
+# tested (ADR 0004).
+#
+# Measured on 172 commission pairs that earlier tests had already used:
+#   166 caught, 0/110 clean notes flagged, about $0.14 per note ($0.28 per pair),
+#   ~19 s per note.
+# It matched the exact preset's catches, but failed both of its pre-registered
+# tests: its paired-score margin, which was less than two pairs wide, and a
+# false-alarm limit on 108 notes from other sources. So it isn't confirmed to
+# that standard (ADR 0017).
+#
+# Every setting is written out, so the preset doesn't change if a default does.
+
+name: commission_reverse_lean
+profile: clinical
+description: >-
+  Lean commission check (Opus claims, one Opus support check, Opus refute,
+  alarm). Measured on 172 commission pairs: 166 caught, 0/110 clean notes
+  flagged, about $0.14 per note. It matched the exact preset's catches, but
+  failed both of its pre-registered tests, a paired-score margin less than two
+  pairs wide and a false-alarm limit, so it isn't confirmed to that standard.
+
+stages:
+  - step: commissions_claims
+    implementation: commissions_claims.llm
+    settings:
+      {model: claude-opus-5-5, effort: high, max_tokens: 16000, prompt: note_claims_v1}
+
+  - step: commissions_check
+    implementation: commissions_check.llm_support
+    settings:
+      {model: claude-opus-5-5, effort: low, max_tokens: 16000, prompt: support_check_lean_v1}
+
+  - step: commissions_refute
+    implementation: commissions_refute.llm_flagged
+    settings:
+      {model: claude-opus-5-5, effort: high, max_tokens: 16000, prompt: support_refute_v1}
+
+  - step: alarm
+    implementation: alarm.critical_unsupported_max
+    settings:
+      thresholds: {default: 0.80}
+      level: default

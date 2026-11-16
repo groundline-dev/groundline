@@ -15,6 +15,7 @@
             "check",
             "refute",
             "score",
+            "commissions_claims",
             "commissions_check",
             "commissions_refute"
           ]
@@ -30,8 +31,11 @@
             "refute.llm",
             "score.basic",
             "alarm.critical_max",
+            "commissions_claims.llm",
             "commissions_check.llm_quick",
+            "commissions_check.llm_support",
             "commissions_refute.llm",
+            "commissions_refute.llm_flagged",
             "alarm.critical_unsupported_max"
           ]
         },
@@ -203,6 +207,31 @@
           "if": {
             "properties": {
               "implementation": {
+                "const": "commissions_claims.llm"
+              }
+            },
+            "required": [
+              "implementation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "step": {
+                "const": "commissions_claims"
+              },
+              "settings": {
+                "$ref": "#/$defs/CommissionsClaimsLLM"
+              },
+              "enabled": {
+                "const": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "implementation": {
                 "const": "commissions_check.llm_quick"
               }
             },
@@ -228,6 +257,31 @@
           "if": {
             "properties": {
               "implementation": {
+                "const": "commissions_check.llm_support"
+              }
+            },
+            "required": [
+              "implementation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "step": {
+                "const": "commissions_check"
+              },
+              "settings": {
+                "$ref": "#/$defs/CommissionsCheckLLMSupport"
+              },
+              "enabled": {
+                "const": true
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "implementation": {
                 "const": "commissions_refute.llm"
               }
             },
@@ -242,6 +296,28 @@
               },
               "settings": {
                 "$ref": "#/$defs/CommissionsRefuteLLM"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "implementation": {
+                "const": "commissions_refute.llm_flagged"
+              }
+            },
+            "required": [
+              "implementation"
+            ]
+          },
+          "then": {
+            "properties": {
+              "step": {
+                "const": "commissions_refute"
+              },
+              "settings": {
+                "$ref": "#/$defs/CommissionsRefuteLLMFlagged"
               }
             }
           }
@@ -397,6 +473,82 @@
       "title": "CommissionsCheckLLMQuick",
       "type": "object"
     },
+    "CommissionsCheckLLMSupport": {
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "default": "claude-opus-5-5",
+          "description": "The model to call.",
+          "title": "Model",
+          "type": "string"
+        },
+        "effort": {
+          "default": "low",
+          "description": "How much effort the model spends: low, medium, high, xhigh or max.",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "title": "Effort",
+          "type": "string"
+        },
+        "max_tokens": {
+          "default": 16000,
+          "description": "The longest reply allowed, in tokens. A reply cut off here is an error.",
+          "title": "Max Tokens",
+          "type": "integer"
+        },
+        "prompt": {
+          "default": "support_check_lean_v1",
+          "description": "The profile prompt to use.",
+          "title": "Prompt",
+          "type": "string"
+        }
+      },
+      "title": "CommissionsCheckLLMSupport",
+      "type": "object"
+    },
+    "CommissionsClaimsLLM": {
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "default": "claude-opus-5-5",
+          "description": "The model to call.",
+          "title": "Model",
+          "type": "string"
+        },
+        "effort": {
+          "default": "high",
+          "description": "How much effort the model spends: low, medium, high, xhigh or max.",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "title": "Effort",
+          "type": "string"
+        },
+        "max_tokens": {
+          "default": 16000,
+          "description": "The longest reply allowed, in tokens. A reply cut off here is an error.",
+          "title": "Max Tokens",
+          "type": "integer"
+        },
+        "prompt": {
+          "default": "note_claims_v1",
+          "description": "The profile prompt to use.",
+          "title": "Prompt",
+          "type": "string"
+        }
+      },
+      "title": "CommissionsClaimsLLM",
+      "type": "object"
+    },
     "CommissionsRefuteLLM": {
       "additionalProperties": false,
       "properties": {
@@ -433,6 +585,45 @@
         }
       },
       "title": "CommissionsRefuteLLM",
+      "type": "object"
+    },
+    "CommissionsRefuteLLMFlagged": {
+      "additionalProperties": false,
+      "description": "Refute as the lean preset measured it: every commission the check found,\nwhatever its severity, goes to the model under the id and plain statement the\nclaims step gave it, so it reads that step too. Clearing works as above.",
+      "properties": {
+        "model": {
+          "default": "claude-opus-5-5",
+          "description": "The model to call.",
+          "title": "Model",
+          "type": "string"
+        },
+        "effort": {
+          "default": "high",
+          "description": "How much effort the model spends: low, medium, high, xhigh or max.",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "xhigh",
+            "max"
+          ],
+          "title": "Effort",
+          "type": "string"
+        },
+        "max_tokens": {
+          "default": 16000,
+          "description": "The longest reply allowed, in tokens. A reply cut off here is an error.",
+          "title": "Max Tokens",
+          "type": "integer"
+        },
+        "prompt": {
+          "default": "support_refute_v1",
+          "description": "The profile prompt to use.",
+          "title": "Prompt",
+          "type": "string"
+        }
+      },
+      "title": "CommissionsRefuteLLMFlagged",
       "type": "object"
     },
     "ExtractLLM": {

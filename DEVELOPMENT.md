@@ -264,7 +264,7 @@ CI runs the fast and database tests on every PR, but never the live tests.
 
 `tests/https_smoke.py` is an executable integration harness, invoked by `make https-smoke`, rather than a pytest suite. It lives beside the other Docker smoke harness and uses the runtime Python image pinned in `Dockerfile`.
 
-If you change a prompt, the rubric or a step's logic, expect `tests/test_parity.py` and `tests/test_parity_commissions.py` to fail. They replay recorded runs of the measured presets, so a failure means `omission_all_opus` or `commission_quick` no longer matches its measured results.
+If you change a prompt, the rubric or a step's logic, expect `tests/test_parity.py`, `tests/test_parity_commissions.py` and `tests/test_parity_commissions_lean.py` to fail. They replay recorded runs of the measured presets, so a failure means `omission_all_opus`, `commission_quick` or `commission_reverse_lean` no longer matches its measured results.
 
 ### API behavior suite
 
@@ -323,7 +323,7 @@ The docs page is generated from the request and response models in `src/groundli
 
 ## Protecting an endpoint
 
-To require an API key on a route, add `dependencies=[Depends(require_api_key)]` from `groundline_core.auth`, and `responses=PROTECTED_RESPONSES` from `groundline_core.api.common` to document the 401 and 503. `POST /v1/omissions` and `POST /v1/commissions` pass `responses=check_responses(...)` instead, which documents every error status a check can answer, with a labeled example of each. It builds the route's preset, so the 502 examples name the first stage that calls a model, at that model's price, and the 503 example lists the stages that need the Anthropic API key. To use the key's metadata in the handler, take it as a parameter instead: `api_key: Annotated[APIKeyInfo, Depends(require_api_key)]`.
+To require an API key on a route, add `dependencies=[Depends(require_api_key)]` from `groundline_core.auth`, and `responses=PROTECTED_RESPONSES` from `groundline_core.api.common` to document the 401 and 503. `POST /v1/omissions` and `POST /v1/commissions` pass `responses=check_responses(...)` instead, which documents every error status a check can answer, with a labeled example of each. It builds the route's default preset, so the 502 examples name the first stage that calls a model, at that model's price, and the 503 example lists the stages that need the Anthropic API key. For `/v1/commissions` that is `commission_quick`; a `commission_reverse_lean` request names its own stages. To use the key's metadata in the handler, take it as a parameter instead: `api_key: Annotated[APIKeyInfo, Depends(require_api_key)]`.
 
 Every route needs it except probes such as `/health` and `/ready` and the docs pages ([ADR 0012](docs/adr/0012-only-probes-and-docs-pages-are-public.md)). A test in `tests/test_api_auth.py` lists the public probes and fails if any other route lacks an API key.
 
@@ -342,7 +342,8 @@ src/groundline_core/
   evaluators/omissions/    the omission check
   evaluators/commissions/  the commission check
   profiles/clinical/       the clinical profile: prompts and severity rubric
-  presets/                 validated pipeline specs (omission_all_opus, commission_quick)
+  presets/                 validated pipeline specs (omission_all_opus, commission_quick,
+                           commission_reverse_lean)
   evaluate.py              evaluate(): the entry point the CLI and API share
   api_keys.py              API-key creation, revocation and authentication
   auth.py                  the Bearer authentication dependency

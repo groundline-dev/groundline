@@ -26,4 +26,10 @@ placeholder substitution omission-pipeline uses, not by groundline. groundline's
 parity test replays the reply and checks it sends an identical prompt and reaches
 the results listed under `expected`.
 
+`recorded_reverse_lean.json` holds the same for the lean commission check's three
+Claude Opus 5.5 calls on this row: the claims call, the lean support call and the
+refute call. omission-pipeline built their prompts from `prompts/note_claims_v1.txt`,
+`prompts/support_check_lean_v1.txt` and `prompts/support_refute_v1.txt` during its
+`reverse_lean_confirm172` study, and the calls were copied from its cache.
+
 Not for clinical use. No real patients are in the data.

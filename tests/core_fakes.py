@@ -66,6 +66,13 @@ class Polish(Implementation):
         return ctx.output("join", Text)
 
 
+class PolishBasicOnly(Polish):
+    """Step `polish`, usable only after `join.basic`."""
+
+    name: ClassVar[str] = "polish.basic_only"
+    works_with: ClassVar[dict[str, tuple[str, ...]]] = {"join": ("join.basic",)}
+
+
 class SlowLeft(Implementation):
     name: ClassVar[str] = "left.slow"
     step: ClassVar[str] = "left"
@@ -172,6 +179,7 @@ def make_registry() -> Registry:
         Upper,
         Join,
         Polish,
+        PolishBasicOnly,
         SlowLeft,
         SlowRight,
         Both,

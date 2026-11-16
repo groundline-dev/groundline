@@ -118,10 +118,11 @@ async def omissions(
 ) -> OmissionsResponse:
     """Find the facts a summary leaves out, and whether to flag it.
 
-    Runs the validated all-Opus omission check. Set the client timeout
-    above the configured whole-check limit, which defaults to 120 seconds, to
-    allow time for request and response transfer. Answers 200 for every finished
-    check, flagged or not."""
+    Runs the validated all-Opus omission check, which costs about $0.21 for a
+    typical clinical note. Set the client timeout above the configured
+    whole-check limit, which defaults to 120 seconds, to allow time for request
+    and response transfer. Answers 200 for every finished check, flagged or
+    not."""
     spec = load_preset(DEFAULT_PRESET)
     started = time.perf_counter()
     with check_failures():

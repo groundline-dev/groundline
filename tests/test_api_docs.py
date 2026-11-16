@@ -187,6 +187,23 @@ def test_the_503_example_names_the_stages_needing_the_anthropic_key(path: str):
     assert "(no price" not in str(schema["paths"][path]["post"]["responses"]["502"])
 
 
+def test_the_commissions_docs_offer_both_presets_with_quick_as_the_default():
+    operation = schema["paths"]["/v1/commissions"]["post"]
+    body = _resolve(operation["requestBody"]["content"]["application/json"]["schema"])
+    preset = body["properties"]["preset"]
+
+    assert preset["enum"] == ["commission_quick", "commission_reverse_lean"]
+    assert preset["default"] == DEFAULT_COMMISSIONS_PRESET
+    assert "preset" not in body.get("required", [])
+    # Where a caller chooses, the docs say which presets passed their
+    # pre-registered tests: quick did, lean didn't (ADR 0017).
+    assert "It passed its pre-registered test." in preset["description"]
+    assert "isn't confirmed to that standard" in preset["description"]
+    for name in preset["enum"]:
+        assert name in operation["description"]
+    assert "an unknown `preset`" in operation["responses"]["422"]["description"]
+
+
 @pytest.mark.parametrize("route", ["/v1/omissions", "/v1/commissions"])
 def test_check_documents_gateway_timeout_with_a_safe_example(route: str):
     from groundline_core.app import app

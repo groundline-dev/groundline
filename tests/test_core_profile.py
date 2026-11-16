@@ -194,6 +194,8 @@ def test_the_clinical_profile_is_built_in():
         "severity_v1",
         "quick_check_v1",
         "support_refute_v1",
+        "note_claims_v1",
+        "support_check_lean_v1",
     }
     assert "{transcript}" in clinical.texts["extract_coarse_v1"]
     assert "{note}" in clinical.texts["check_batch_v1"]
