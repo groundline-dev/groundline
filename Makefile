@@ -1,4 +1,4 @@
-.PHONY: setup dev db test-fast test-api test-db test-live check fix core-check docker-build docker-run docker-smoke https-smoke \
+.PHONY: setup dev db test-fast test-api test-db test-live check fix core-check generate-sdk sdk-check sdk-install-check docker-build docker-run docker-smoke https-smoke \
 	aws-https-smoke infra-check aws-up aws-project aws-deploy aws-smoke aws-smoke-live aws-key aws-status aws-reset-deadline aws-destroy
 
 setup:
@@ -44,6 +44,29 @@ fix:
 # the library loads without the server or CLI packages. Builds the wheel; CI runs it.
 core-check:
 	scripts/core-install-check
+
+# Rebuild the SDK's generated code from the API as it is now: writes
+# packages/groundline-client/openapi.json, then the code in _generated/. Run it
+# after changing the API, and commit the changed files.
+generate-sdk:
+	scripts/generate-sdk
+
+# Regenerate the SDK and fail if the result differs from what is committed or
+# staged. CI runs it. A local run also flags the files it just changed, so
+# commit or stage the result of make generate-sdk first.
+sdk-check: generate-sdk
+	@changed="$$(git status --porcelain -- packages/groundline-client/openapi.json \
+		packages/groundline-client/src/groundline_client/_generated)"; \
+	if [ -n "$$changed" ]; then \
+		echo "$$changed"; \
+		echo "sdk-check: the SDK is out of date. Run make generate-sdk and commit the result."; \
+		exit 1; \
+	fi
+
+# Install the built SDK into clean environments, with pip and with uv pip, and
+# check that it brings no pipeline, Anthropic or server packages. CI runs it.
+sdk-install-check:
+	scripts/sdk-install-check
 
 # The app image, built from the Dockerfile (see DEVELOPMENT.md).
 IMAGE ?= groundline:dev

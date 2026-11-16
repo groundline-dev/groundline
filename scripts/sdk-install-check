@@ -1,0 +1,77 @@
+#!/usr/bin/env bash
+# Install the built SDK, as a developer would, and check that:
+#   - `import groundline_client` works, and so do the generated functions
+#   - none of groundline-core's packages came with it: not groundline-core itself,
+#     the Anthropic SDK, the server or the command-line packages
+#   - the wheel holds the generated code
+#
+# It builds the wheel, then installs it into two new, empty environments: one
+# with pip and one with uv pip, since users may install with either.
+#
+# Usage: scripts/sdk-install-check   (or make sdk-install-check)
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
+
+fail() {
+  echo "sdk-install-check: $*" >&2
+  exit 1
+}
+
+uv build --package groundline-client --wheel --out-dir "$work/dist" --quiet
+wheels=("$work"/dist/groundline_client-*.whl)
+[ -f "${wheels[0]}" ] || fail "uv build made no groundline_client wheel: $(ls "$work/dist")"
+wheel="${wheels[0]}"
+
+# Read the listing first: grep -q can end early and break the pipe under pipefail.
+listing="$(unzip -l "$wheel")"
+for member in groundline_client/py.typed \
+  groundline_client/_generated/api/v1/evaluate_omissions.py \
+  groundline_client/_generated/models/omissions_response.py; do
+  grep -q " $member\$" <<<"$listing" || fail "the wheel doesn't hold $member"
+done
+if grep -q "ruff_cache\|__pycache__" <<<"$listing"; then
+  fail "the wheel holds cache folders: $(grep "ruff_cache\|__pycache__" <<<"$listing")"
+fi
+
+check() {
+  local installer="$1" env="$2"
+  local python="$env/bin/python" unwanted
+
+  "$python" -I -c '
+from groundline_client._generated.api.v1 import evaluate_omissions
+from groundline_client._generated.client import AuthenticatedClient
+' || fail "$installer: the SDK doesn't load"
+
+  unwanted="$("$python" -I - <<'PY'
+from importlib.metadata import PackageNotFoundError, version
+
+# What groundline-core installs, and its server and cli extras.
+NOT_WANTED = [
+    "groundline-core", "anthropic", "pydantic-settings", "pyyaml",
+    "fastapi", "alembic", "psycopg", "sqlalchemy", "typer", "platformdirs",
+]
+found = []
+for name in NOT_WANTED:
+    try:
+        version(name)
+    except PackageNotFoundError:
+        continue
+    found.append(name)
+print(" ".join(found))
+PY
+)"
+  [ -z "$unwanted" ] || fail "$installer: installed without being asked for: $unwanted"
+
+  echo "ok: $installer installs groundline-client without groundline-core's packages"
+}
+
+uv venv --seed --quiet "$work/pip"
+"$work/pip/bin/python" -m pip install --quiet --disable-pip-version-check "$wheel"
+check pip "$work/pip"
+
+uv venv --quiet "$work/uv"
+uv pip install --quiet --python "$work/uv/bin/python" "$wheel"
+check "uv pip" "$work/uv"
