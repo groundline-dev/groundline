@@ -258,7 +258,7 @@ There are three test suites. They differ in what they use for Postgres and Claud
 
 None of them starts the Docker stack, runs `terraform test` or touches AWS: `make docker-smoke`, `make infra-check` and `make aws-smoke` do that.
 
-`make core-check` builds the package and installs it with no extras, once with pip and once with uv pip, then checks that the library loads without the server or CLI packages and that the command and the API say which extra to install. Run it when you change the dependencies in `pyproject.toml` or what `groundline_core` imports when it loads. CI runs it on every PR.
+`make core-check` builds the package and installs it with no extras, once with pip and once with uv pip, then checks that the library loads without the server or CLI packages and that the command and the API say which extra to install. It also type-checks `scripts/library_sample_app.py`, an app that uses only the public names, with pyright strict against each install, so a public name or result field whose type callers can't see fails it. Run it when you change the dependencies in `pyproject.toml`, what `groundline_core` imports when it loads, or the public interface. CI runs it on every PR.
 
 CI runs the fast and database tests on every PR, but never the live tests.
 
@@ -344,7 +344,9 @@ src/groundline_core/
   profiles/clinical/       the clinical profile: prompts and severity rubric
   presets/                 validated pipeline specs (omission_all_opus, commission_quick,
                            commission_reverse_lean)
+  __init__.py              the public interface: the names library callers import
   evaluate.py              evaluate(): the entry point the CLI and API share
+  result.py, findings.py   the result evaluate() returns, and how findings are built from a run
   api_keys.py              API-key creation, revocation and authentication
   auth.py                  the Bearer authentication dependency
   command.py               where the groundline-core command starts: checks for the cli extra
@@ -353,7 +355,7 @@ src/groundline_core/
   api/, app.py             the API's endpoints and the FastAPI app
 infra/                     Terraform for AWS test deployments, the startup script, and their tests
 scripts/                   db-setup, the stack check behind make docker-smoke, the install check
-                           behind make core-check, and the AWS
+                           and sample library app behind make core-check, and the AWS
                            scripts behind make aws-deploy, aws-smoke, aws-smoke-live and aws-destroy
 tests/                     the tests
 ```

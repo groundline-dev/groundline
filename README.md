@@ -166,43 +166,54 @@ result = evaluate_sync(transcript_text, note_text, anthropic_api_key=my_key)
 result = evaluate_sync(transcript_text, note_text, env_file="config/groundline.env")
 ```
 
-The argument wins over the environment, and the environment wins over `env_file`. A blank argument raises an error; it doesn't fall back to the environment or `env_file`. With no key, `evaluate_sync` raises `MissingAPIKeyError` before any paid call; unless you named an `env_file`, the message names no file paths. The key never appears in logs, errors or the result.
+The argument wins over the environment, and the environment wins over `env_file`. A blank argument raises an error; it doesn't fall back to the environment or `env_file`. With no key, `evaluate_sync` raises an error (`MissingAPIKeyError`) before any paid call; unless you named an `env_file`, the message names no file paths. The key never appears in logs, errors or the result.
 
 ### Running a check
 
 ```python
 from groundline_core import evaluate_sync
-from groundline_core.evaluators.models import AlarmOutput
-from groundline_core.evaluators.omissions.models import ScoreOutput
 
 result = evaluate_sync(transcript_text, note_text)
 
-alarm = result.run.output("alarm", AlarmOutput)
-print(alarm.flagged, alarm.score, alarm.rescaled_score)
-for fact in result.run.output("score", ScoreOutput).missing_facts:
-    print(fact.severity, fact.verdict, fact.fact)
+print(result.flagged, result.score)  # True 0.15
+for finding in result.findings:
+    print(finding.severity, finding.verdict, finding.confidence, finding.statement)
+print(result.counts)  # total=35 present=29 partial=3 absent=3
+print(result.alarm)  # score=0.97 threshold=0.9 level='strict'
 print(result.validated_preset)  # "omission_all_opus", or None if anything was changed
-print(result.run.usage.cost_usd)
+print(result.usage.cost_usd)
 ```
 
-For the commission check, pass its preset as the `spec`:
+For the commission check, pass its preset as the `spec`. The result has the same fields, and `counts` is `None`:
 
 ```python
 from groundline_core import DEFAULT_COMMISSIONS_PRESET, evaluate_sync, load_preset
-from groundline_core.evaluators.commissions.models import CommissionsRefuteOutput
-from groundline_core.evaluators.models import AlarmOutput
 
 result = evaluate_sync(
     transcript_text, note_text, spec=load_preset(DEFAULT_COMMISSIONS_PRESET)
 )
-
-print(result.run.output("alarm", AlarmOutput).flagged)
-refute = result.run.output("commissions_refute", CommissionsRefuteOutput)
-for c in refute.commissions:
-    print(c.severity, c.support_verdict, c.unsupported_confidence, c.quote)
 ```
 
-`evaluate()` is the async version, for FastAPI or other async code. Both accept a `spec`, `profile`, `cache`, `client` or `registry` to override the defaults, and `anthropic_api_key` or `env_file` for the key. Pass `client` or `anthropic_api_key`, not both: a `client` brings its own key.
+The fields mean what the API's do (see [Findings](#findings) and [Scores](#scores)), and `None` stands for the API's `null`. Where the API has `metadata`, the Python result has `alarm` and `usage` as fields of its own, and `pipeline` and `validated_preset` (the name of the pipeline that ran, and the preset it matched). `result.run` holds every step's output for inspection; its shape follows the pipeline's steps and may change without notice.
+
+`evaluate()` is the async version, for FastAPI or other async code. Both take a `spec`, a `client` (your own `ModelClient`, such as a fake one so your app's tests cost nothing) and `anthropic_api_key` or `env_file` for the key. Pass `client` or `anthropic_api_key`, not both: a `client` brings its own key. They also accept `profile`, `cache` and `registry`, but those take internal types, so they aren't part of the public interface yet.
+
+A spec has to make one full check: the alarm step, plus the steps one check's findings come from. Anything else raises an error before the key is looked up or a model is called. The error types aren't public yet: an invalid spec raises a `ValueError`, and a missing or rejected key or a failed step raises another `Exception`.
+
+### Public interface
+
+Import from `groundline_core` itself. Its names, and the documented fields of the result types, keep working across upgrades. Everything else, including the modules inside the package and `result.run`, is internal and may change without notice.
+
+| Name | What it is |
+|---|---|
+| `evaluate`, `evaluate_sync` | Run a check. |
+| `load_preset`, `builtin_presets` | Load a built-in preset by name, and list the names. |
+| `DEFAULT_PRESET`, `DEFAULT_COMMISSIONS_PRESET`, `CommissionPreset` | The default omission and commission presets, and the commission presets' names as a type. |
+| `PipelineSpec` | A pipeline spec, as `load_preset` returns it. |
+| `ModelClient`, `ModelReply` | What a `client` implements (an async `complete(prompt, *, model, effort, max_tokens)`), and what it returns. |
+| `EvaluationResult`, `Finding`, `Counts`, `Alarm`, `Usage` | The result and its parts. |
+
+The package includes its type information, so type checkers such as pyright and mypy check your code against these names.
 
 ## Using the API
 
@@ -305,7 +316,7 @@ Both endpoints return `evaluation_type` (`omissions` or `commissions`), `flagged
 
 ### Scores
 
-`score` runs from 0 to 1, and higher is better, for both checks. A summary is flagged exactly when its score is below 0.5, and passes at 0.5 or above, so tools such as DeepEval can use their default cut of 0.5. The alarm still decides the flag: the score is the alarm score turned around and rescaled around the alarm's threshold. The CLI report shows the same score, and `--json` and Python results have it as the alarm's `rescaled_score`.
+`score` runs from 0 to 1, and higher is better, for both checks. A summary is flagged exactly when its score is below 0.5, and passes at 0.5 or above, so tools such as DeepEval can use their default cut of 0.5. The alarm still decides the flag: the score is the alarm score turned around and rescaled around the alarm's threshold. The CLI report and Python's `result.score` show the same score, and `--json` has it as the alarm's `rescaled_score`.
 
 A score shows whether a critical problem was found, not how good the summary is overall, and it belongs to the preset that produced it. A commission flag means a claim wasn't found in the source, for a reviewer to check. When nothing critical is found the score is 1. That includes a source with no facts, where `counts.total` is 0 and only the extract call is charged.
 
