@@ -3,8 +3,10 @@
 from collections.abc import Sequence
 from typing import Any
 
-from groundline_core.core import PipelineSpec, Usage
-from groundline_core.evaluators.models import ALARM_STEP, AlarmOutput
+# The run's own usage, which also counts cached calls and models with no price:
+# more than the public `Usage` in a result reports.
+from groundline_core.core import PipelineSpec
+from groundline_core.core import Usage as RunUsage
 from groundline_core.result import EvaluationResult
 
 
@@ -15,7 +17,8 @@ def require_steps(spec: PipelineSpec, steps: Sequence[str], *, report: str) -> N
     have = {stage.step for stage in spec.stages}
     missing = [step for step in steps if step not in have]
     if missing:
-        needs = " and ".join(f"'{step}'" for step in steps)
+        names = [f"'{step}'" for step in steps]
+        needs = " and ".join([", ".join(names[:-1]), names[-1]] if names[1:] else names)
         raise ValueError(
             f"pipeline '{spec.name}' needs {needs} stages "
             f"for the {report} report (missing: {', '.join(missing)})"
@@ -76,7 +79,7 @@ def cost_line(result: EvaluationResult, seconds: float) -> str:
     return usage_text(result.run.usage, seconds)
 
 
-def usage_text(usage: Usage, seconds: float | None = None) -> str:
+def usage_text(usage: RunUsage, seconds: float | None = None) -> str:
     """Dollars, calls and tokens, then the time if given."""
     calls = f"{usage.calls} calls"
     if usage.cached_calls:
@@ -95,13 +98,12 @@ def usage_text(usage: Usage, seconds: float | None = None) -> str:
 def result_json(result: EvaluationResult) -> dict[str, Any]:
     """Everything about a run, for `--json`. It includes text from the source and
     summary (facts, claims and quotes), so treat the file as sensitive."""
-    alarm = result.run.output(ALARM_STEP, AlarmOutput)
     return {
         "pipeline": result.pipeline,
         "profile": result.profile,
         "validated_preset": result.validated_preset,
         "warnings": result.warnings,
-        "flagged": alarm.flagged,
+        "flagged": result.flagged,
         "outputs": {
             step: output.model_dump(mode="json")
             for step, output in result.run.outputs.items()

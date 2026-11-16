@@ -5,8 +5,8 @@ with the same ones, so the library and the API report a check the same way. Kept
 apart from `evaluate` so that the evaluators' reports can use them without
 importing the module that imports the evaluators.
 
-Field descriptions say "null" where the API's JSON has `null`; in Python that is
-`None`.
+The parts the API shares (`Finding`, `Counts`, `Alarm` and `Usage`) say "null"
+where the API's JSON has `null`; in Python that is `None`.
 """
 
 from dataclasses import dataclass, field
@@ -34,8 +34,9 @@ class Alarm(ResultModel):
     The summary is flagged when the alarm score reaches the threshold."""
 
     score: float
-    """The highest confidence among the summary's critical problems; 0 if there
-    are none."""
+    """The highest confidence among the summary's critical problems (for the
+    omission check, with partly recorded facts at half weight); 0 if there are
+    none."""
     threshold: float
     """The alarm score at or above which the summary is flagged."""
     level: str

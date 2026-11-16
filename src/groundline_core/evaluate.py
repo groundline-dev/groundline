@@ -1,6 +1,6 @@
-"""`evaluate`: the single entry point for checking a summary against its source.
+"""`evaluate`: the entry point for checking a summary against its source.
 
-The CLI, the API and evaluator adapters all call this, so they behave the same.
+The CLI and the API both call it, so they behave the same.
 Only where the Anthropic API key comes from differs: the CLI and the API also
 read `.env`, and library callers name a `.env` file only if they want one.
 """
@@ -29,7 +29,7 @@ from groundline_core.core import (
 from groundline_core.core.deadline import check_deadline, has_deadline, remaining
 from groundline_core.evaluators.builtin import default_registry
 from groundline_core.evaluators.models import ALARM_STEP, AlarmOutput
-from groundline_core.findings import check_type, findings_and_counts
+from groundline_core.findings import evaluation_type_of, findings_and_counts
 from groundline_core.presets import builtin_presets, load_preset
 from groundline_core.profiles import load_builtin_profile
 from groundline_core.result import Alarm, EvaluationResult, Usage
@@ -53,11 +53,9 @@ __all__ = [
     "DEFAULT_COMMISSIONS_PRESET",
     "DEFAULT_PRESET",
     "EvaluationResult",
-    "PipelineRun",
     "default_registry",
     "evaluate",
     "evaluate_sync",
-    "run_any_pipeline",
 ]
 
 
@@ -91,7 +89,7 @@ async def evaluate(
     Provider configuration is loaded only when creating the default client.
     """
     spec = spec or load_preset(DEFAULT_PRESET)
-    check = check_type(spec)
+    evaluation_type = evaluation_type_of(spec)
     ran = await run_any_pipeline(
         source,
         summary,
@@ -104,13 +102,13 @@ async def evaluate(
         env_file=env_file,
     )
     alarm = ran.run.output(ALARM_STEP, AlarmOutput)
-    findings, counts = findings_and_counts(ran.run, check)
+    findings, counts = findings_and_counts(ran.run, evaluation_type)
     usage = ran.run.usage
     return EvaluationResult(
         pipeline=ran.pipeline,
         profile=ran.profile,
         validated_preset=ran.validated_preset,
-        evaluation_type=check,
+        evaluation_type=evaluation_type,
         flagged=alarm.flagged,
         score=alarm.rescaled_score,
         findings=findings,
@@ -128,9 +126,9 @@ async def evaluate(
 
 
 @dataclass(frozen=True)
-class PipelineRun:
-    """What `run_any_pipeline` returns: the run, and how it compares with the
-    presets."""
+class AnyPipelineResult:
+    """What `run_any_pipeline` returns: the run, and how its spec compares with
+    the presets."""
 
     pipeline: str
     profile: str | None
@@ -150,9 +148,9 @@ async def run_any_pipeline(
     registry: Registry | None = None,
     anthropic_api_key: str | SecretStr | None = None,
     env_file: EnvFile = None,
-) -> PipelineRun:
-    """Run any pipeline, check or not, as `evaluate` does, without reading a
-    check's result from it. Not public: `evaluate` is.
+) -> AnyPipelineResult:
+    """Run a spec's stages as `evaluate` does, whether or not they make a full
+    check, without reading a check's result from them. Not public: `evaluate` is.
 
     The spec is checked and the key looked up before any model call, and no key
     is needed when no enabled stage calls a model. Reuse an enclosing check
@@ -205,7 +203,7 @@ async def run_any_pipeline(
                         "model client cleanup failed (%s)", type(error).__name__
                     )
 
-        return PipelineRun(
+        return AnyPipelineResult(
             pipeline=spec.name,
             profile=profile.name if profile else None,
             validated_preset=validated,

@@ -213,7 +213,7 @@ def test_a_custom_pipeline_is_not_the_validated_preset(
     assert "Warning          the alarm thresholds were calibrated" in result.stdout
 
 
-def test_a_pipeline_without_score_and_alarm_stages_exits_with_2(
+def test_a_pipeline_without_score_rank_and_alarm_stages_exits_with_2(
     files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ):
     use_client(monkeypatch, not_flagged_script())
@@ -226,7 +226,7 @@ def test_a_pipeline_without_score_and_alarm_stages_exits_with_2(
     result = omissions(files, "--pipeline", str(custom))
 
     assert result.exit_code == 2
-    assert "needs 'score' and 'alarm' stages" in result.stderr
+    assert "needs 'score', 'rank' and 'alarm' stages" in result.stderr
 
 
 def test_help_lists_the_omissions_command():

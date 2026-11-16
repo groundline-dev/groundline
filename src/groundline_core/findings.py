@@ -77,10 +77,11 @@ def commission_finding(commission: Commission) -> Finding:
     )
 
 
-def check_type(spec: PipelineSpec) -> EvaluationType:
-    """Which check a pipeline is, from its steps. A pipeline that has no alarm, or
-    not every step one check's findings are read from, is an error: its result
-    would have no flag, score or findings to report."""
+def evaluation_type_of(spec: PipelineSpec) -> EvaluationType:
+    """Which check a spec carries out, from its steps. A spec is an error when its
+    result would have no flag, score or findings to report (no alarm, or not every
+    step one check's findings are read from), or when it has both checks' steps,
+    since a result reports one check."""
     steps = {stage.step for stage in spec.stages}
     kinds: list[EvaluationType] = [
         kind for kind, needed in CHECK_STEPS.items() if steps.issuperset(needed)
@@ -96,8 +97,15 @@ def check_type(spec: PipelineSpec) -> EvaluationType:
     if missing:
         raise SpecError(
             [
-                f"pipeline '{spec.name}' isn't a full check, so it has no result "
+                f"spec '{spec.name}' doesn't make a full check, so it has no result "
                 f"to report: it needs {' and '.join(missing)}"
+            ]
+        )
+    if len(kinds) > 1:
+        raise SpecError(
+            [
+                f"spec '{spec.name}' has the steps of both checks, but a result "
+                "reports one check: run omissions and commissions separately"
             ]
         )
     return kinds[0]

@@ -149,7 +149,7 @@ JsonOpt = Annotated[
 @dataclass(frozen=True)
 class Check:
     """What differs between the checks: the preset they run, the steps their
-    report reads, and how it is written."""
+    result and report read, and how the report is written."""
 
     preset: str
     report_name: str

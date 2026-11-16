@@ -2,8 +2,11 @@
 `groundline_core.__all__`, and the documented fields of the result types."""
 
 import ast
+import dataclasses
 import inspect
 import textwrap
+
+from pydantic import BaseModel
 
 import groundline_core
 
@@ -27,7 +30,40 @@ PUBLIC_NAMES = [
 """Adding, removing or renaming a public name changes what callers can rely on,
 so it has to change here too, where a reviewer sees it."""
 
-RESULT_TYPES = ["EvaluationResult", "Finding", "Counts", "Alarm", "Usage"]
+RESULT_FIELDS = {
+    "EvaluationResult": [
+        "pipeline",
+        "profile",
+        "validated_preset",
+        "evaluation_type",
+        "flagged",
+        "score",
+        "findings",
+        "counts",
+        "alarm",
+        "usage",
+        "run",
+        "warnings",
+    ],
+    "Finding": [
+        "type",
+        "severity",
+        "verdict",
+        "confidence",
+        "statement",
+        "source_evidence",
+        "summary_evidence",
+        "evidence_found",
+        "explanation",
+    ],
+    "Counts": ["total", "present", "partial", "absent"],
+    "Alarm": ["score", "threshold", "level"],
+    "Usage": ["calls", "input_tokens", "output_tokens", "cost_usd"],
+}
+"""The result types' fields are promised too, so removing or renaming one has to
+change here as well."""
+
+RESULT_TYPES = list(RESULT_FIELDS)
 
 
 def test_the_public_names_are_exactly_the_promised_list():
@@ -38,6 +74,21 @@ def test_every_public_name_can_be_imported_from_the_package():
     missing = [name for name in PUBLIC_NAMES if not hasattr(groundline_core, name)]
 
     assert missing == []
+
+
+def field_names(cls: type) -> list[str]:
+    if dataclasses.is_dataclass(cls):
+        return [f.name for f in dataclasses.fields(cls)]
+    assert issubclass(cls, BaseModel), cls
+    return list(cls.model_fields)
+
+
+def test_the_result_types_have_exactly_the_promised_fields():
+    actual = {
+        name: field_names(getattr(groundline_core, name)) for name in RESULT_FIELDS
+    }
+
+    assert actual == RESULT_FIELDS
 
 
 def test_every_field_of_the_result_types_has_a_docstring():

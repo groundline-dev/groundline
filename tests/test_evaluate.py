@@ -124,18 +124,29 @@ def test_the_result_reports_the_omission_check_without_stage_outputs():
     }
 
 
-@pytest.mark.parametrize("pipeline", ["without its alarm", "that is no check"])
-def test_a_pipeline_that_is_not_a_full_check_fails_before_the_key_lookup(
-    pipeline: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+@pytest.mark.parametrize(
+    "case, expected",
+    [
+        ("without its alarm", "alarm"),
+        ("with both checks' steps", "both checks"),
+        ("with no check's steps", "alarm"),
+    ],
+)
+def test_a_spec_that_is_not_one_full_check_fails_before_the_key_lookup(
+    case: str, expected: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
     # With no key anywhere, reaching the key lookup would raise MissingAPIKeyError.
     monkeypatch.chdir(tmp_path)
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    if pipeline == "without its alarm":
+    registry = None
+    if case == "without its alarm":
         spec = PRESET.model_copy(
             update={"stages": [s for s in PRESET.stages if s.step != "alarm"]}
         )
-        registry = None
+    elif case == "with both checks' steps":
+        omissions = [s for s in PRESET.stages if s.step != "alarm"]
+        commissions = load_preset("commission_quick").stages
+        spec = PRESET.model_copy(update={"stages": [*omissions, *commissions]})
     else:
         spec = PipelineSpec(
             name="no-models",
@@ -148,7 +159,7 @@ def test_a_pipeline_that_is_not_a_full_check_fails_before_the_key_lookup(
 
     message = str(error.value)
     assert spec.name in message, message
-    assert "alarm" in message, message
+    assert expected in message, message
 
 
 def test_the_unchanged_preset_is_recognized_as_validated():
@@ -249,8 +260,8 @@ def test_the_missing_key_message_names_the_stages_and_model(
 def test_a_pipeline_that_calls_no_model_needs_no_key(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
-    # evaluate() runs only full checks, which always call a model, so the rule
-    # is checked on the runner underneath it.
+    # evaluate() runs only full checks, and the built-in ones all call a model,
+    # so the rule is checked on the runner underneath it.
     from groundline_core.evaluate import run_any_pipeline
 
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)

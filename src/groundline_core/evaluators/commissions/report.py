@@ -10,10 +10,12 @@ from groundline_core.evaluators.report import (
     result_line,
     row,
 )
+from groundline_core.findings import CHECK_STEPS
 from groundline_core.result import EvaluationResult, Finding
 
-REQUIRED_STEPS = ("commissions_refute", ALARM_STEP)
-"""The report reads these steps' outputs, so a pipeline needs them."""
+REQUIRED_STEPS = (*CHECK_STEPS["commissions"], ALARM_STEP)
+"""The result and the report read these steps' outputs, so a pipeline needs
+them."""
 
 LABEL_WIDTH = 18
 
