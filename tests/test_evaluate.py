@@ -32,6 +32,7 @@ from tests.omission_helpers import (
     SUMMARY,
     Script,
     check_reply,
+    flagged_script,
     refute_reply,
 )
 
@@ -89,6 +90,65 @@ def test_runs_the_preset_by_default():
     assert result.run.output("score", ScoreOutput).total == 3
     assert result.run.output("alarm", AlarmOutput).flagged is False
     assert [c.step for c in result.run.calls] == ["extract", "rank", "check", "refute"]
+
+
+def test_the_result_reports_the_omission_check_without_stage_outputs():
+    result = asyncio.run(evaluate(SOURCE, SUMMARY, client=FakeClient(flagged_script())))
+
+    assert result.evaluation_type == "omissions"
+    assert result.flagged is True
+    assert result.score == pytest.approx(0.25)
+    assert result.alarm.model_dump() == {
+        "score": 0.95,
+        "threshold": 0.9,
+        "level": "strict",
+    }
+    assert result.counts is not None
+    assert result.counts.model_dump() == {
+        "total": 3,
+        "present": 0,
+        "partial": 1,
+        "absent": 2,
+    }
+    assert [(f.type, f.verdict, f.statement) for f in result.findings] == [
+        ("omission", "absent", "Motrin 600 mg every 6 hours for a week."),
+        ("omission", "partial", "Injured the finger skiing."),
+        ("omission", "absent", "Pain is worse with movement."),
+    ]
+    run_usage = result.run.usage
+    assert result.usage.model_dump() == {
+        "calls": 4,
+        "input_tokens": run_usage.input_tokens,
+        "output_tokens": run_usage.output_tokens,
+        "cost_usd": run_usage.cost_usd,
+    }
+
+
+@pytest.mark.parametrize("pipeline", ["without its alarm", "that is no check"])
+def test_a_pipeline_that_is_not_a_full_check_fails_before_the_key_lookup(
+    pipeline: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    # With no key anywhere, reaching the key lookup would raise MissingAPIKeyError.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    if pipeline == "without its alarm":
+        spec = PRESET.model_copy(
+            update={"stages": [s for s in PRESET.stages if s.step != "alarm"]}
+        )
+        registry = None
+    else:
+        spec = PipelineSpec(
+            name="no-models",
+            stages=[StageSpec(step="upper", implementation="upper.basic")],
+        )
+        registry = make_registry()
+
+    with pytest.raises(SpecError) as error:
+        asyncio.run(evaluate(SOURCE, SUMMARY, spec=spec, registry=registry))
+
+    message = str(error.value)
+    assert spec.name in message, message
+    assert "alarm" in message, message
 
 
 def test_the_unchanged_preset_is_recognized_as_validated():
@@ -189,6 +249,10 @@ def test_the_missing_key_message_names_the_stages_and_model(
 def test_a_pipeline_that_calls_no_model_needs_no_key(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
+    # evaluate() runs only full checks, which always call a model, so the rule
+    # is checked on the runner underneath it.
+    from groundline_core.evaluate import run_any_pipeline
+
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     monkeypatch.chdir(tmp_path)
     monkeypatch.setenv("GROUNDLINE_MODEL_MAX_ATTEMPTS", "invalid-unused-policy")
@@ -197,7 +261,9 @@ def test_a_pipeline_that_calls_no_model_needs_no_key(
         stages=[StageSpec(step="upper", implementation="upper.basic")],
     )
 
-    result = asyncio.run(evaluate(SOURCE, SUMMARY, spec=spec, registry=make_registry()))
+    result = asyncio.run(
+        run_any_pipeline(SOURCE, SUMMARY, spec=spec, registry=make_registry())
+    )
 
     assert result.run.stages["upper"].status == "ran"
 

@@ -355,7 +355,7 @@ def _response_fails(*args: object, **fields: object) -> None:
     [
         ("evaluate", _evaluate_fails, "KeyError"),
         ("load_preset", _preset_fails, "ValueError"),
-        ("commission_finding", _response_fails, "ValueError"),
+        ("alarm_of", _response_fails, "ValueError"),
     ],
     ids=["while checking", "loading the preset", "building the response"],
 )

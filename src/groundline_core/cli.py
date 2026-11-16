@@ -41,7 +41,6 @@ from groundline_core.evaluate import (
     evaluate_sync,
 )
 from groundline_core.evaluators.commissions import report as commissions_report
-from groundline_core.evaluators.models import ALARM_STEP, AlarmOutput
 from groundline_core.evaluators.omissions import report as omissions_report
 from groundline_core.evaluators.report import require_steps, result_json, usage_text
 from groundline_core.keys_cli import app as keys_app
@@ -285,7 +284,7 @@ def _check(
     )
     seconds = time.perf_counter() - started
 
-    flagged = result.run.output(ALARM_STEP, AlarmOutput).flagged
+    flagged = result.flagged
     typer.echo(
         check.render(result, source=source.name, summary=summary.name, seconds=seconds)
     )

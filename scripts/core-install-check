@@ -5,6 +5,9 @@
 #   - none of the server or CLI packages came with it
 #   - the groundline-core command says to install the cli extra, and exits 2
 #   - importing the API says to install the server extra
+#   - the wheel ships py.typed, and pyright strict passes on
+#     scripts/library_sample_app.py, which uses only the public names, against
+#     the installed package
 #
 # It builds the wheel, then installs it into two new, empty environments: one
 # with pip and one with uv pip, since users may install with either.
@@ -28,6 +31,14 @@ uv build --wheel --out-dir "$work/dist" --quiet
 wheels=("$work"/dist/groundline_core-*.whl)
 [ -f "${wheels[0]}" ] || fail "uv build made no groundline_core wheel: $(ls "$work/dist")"
 wheel="${wheels[0]}"
+python3 -I -c 'import sys, zipfile; sys.exit("groundline_core/py.typed" not in zipfile.ZipFile(sys.argv[1]).namelist())' "$wheel" \
+  || fail "the wheel has no groundline_core/py.typed, so type checkers ignore its types"
+
+# The sample app is checked from its own folder, away from this repository's
+# pyright settings and source, so only the installed package can satisfy it.
+mkdir "$work/app"
+cp scripts/library_sample_app.py "$work/app/"
+pyright_bin="$(uv run --quiet which pyright)"
 
 check() {
   local installer="$1" env="$2"
@@ -63,6 +74,9 @@ EOF
   [ "$status" != 0 ] || fail "$installer: groundline_core.app imported without the server extra"
   [[ "$import_output" == *"$server_message"* ]] \
     || fail "$installer: importing groundline_core.app without the server extra printed: $import_output"
+
+  (cd "$work/app" && "$pyright_bin" --pythonpath "$python" library_sample_app.py) \
+    || fail "$installer: pyright strict fails on the sample app against the installed package"
 
   echo "ok: $installer installs groundline-core without extras"
 }

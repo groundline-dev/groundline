@@ -10,8 +10,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from groundline_core.api import common
-from groundline_core.api.findings import EXPLANATIONS
 from groundline_core.app import app
+from groundline_core.findings import EXPLANATIONS
 from tests.auth_helpers import HEADERS, FakeKeys
 from tests.commissions_helpers import (
     DOSE,

@@ -5,13 +5,15 @@ import pytest
 from groundline_core import (
     DEFAULT_COMMISSIONS_PRESET,
     builtin_presets,
-    default_registry,
     evaluate,
     load_preset,
 )
 from groundline_core.core import PipelineSpec, SpecError, with_settings
+from groundline_core.evaluate import default_registry
 from groundline_core.evaluators.models import AlarmOutput
 from tests.commissions_helpers import (
+    DOSE,
+    EXAM,
     ISSUES,
     SUMMARY,
     Script,
@@ -78,6 +80,25 @@ def test_an_unchanged_run_is_the_validated_preset():
     assert result.pipeline == "commission_quick"
     assert result.profile == "clinical"
     assert result.run.output("alarm", AlarmOutput).flagged is True
+
+
+def test_the_result_reports_the_commission_check_without_stage_outputs():
+    result = evaluate_with()
+
+    assert result.evaluation_type == "commissions"
+    assert result.flagged is True
+    assert result.score == pytest.approx(0.1667, abs=1e-4)
+    assert result.alarm.model_dump() == {
+        "score": 0.95,
+        "threshold": 0.85,
+        "level": "default",
+    }
+    assert result.counts is None
+    assert [(f.type, f.verdict, f.statement) for f in result.findings] == [
+        ("commission", "contradicted", DOSE),
+        ("commission", "unsupported", EXAM),
+    ]
+    assert result.usage.calls == 1
 
 
 def test_choosing_the_named_level_is_still_the_validated_preset():

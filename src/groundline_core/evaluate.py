@@ -1,4 +1,4 @@
-"""`evaluate`: the single entry point for running a pipeline on a source and summary.
+"""`evaluate`: the single entry point for checking a summary against its source.
 
 The CLI, the API and evaluator adapters all call this, so they behave the same.
 Only where the Anthropic API key comes from differs: the CLI and the API also
@@ -7,6 +7,7 @@ read `.env`, and library callers name a `.env` file only if they want one.
 
 import asyncio
 import logging
+from dataclasses import dataclass
 from typing import Literal
 
 from pydantic import SecretStr
@@ -20,15 +21,18 @@ from groundline_core.core import (
     Pipeline,
     PipelineSpec,
     Registry,
+    RunResult,
     build_pipeline,
     pipeline_fingerprint,
     run_pipeline,
 )
 from groundline_core.core.deadline import check_deadline, has_deadline, remaining
 from groundline_core.evaluators.builtin import default_registry
+from groundline_core.evaluators.models import ALARM_STEP, AlarmOutput
+from groundline_core.findings import check_type, findings_and_counts
 from groundline_core.presets import builtin_presets, load_preset
 from groundline_core.profiles import load_builtin_profile
-from groundline_core.result import EvaluationResult
+from groundline_core.result import Alarm, EvaluationResult, Usage
 from groundline_core.settings import (
     EnvFile,
     ModelSettings,
@@ -49,9 +53,11 @@ __all__ = [
     "DEFAULT_COMMISSIONS_PRESET",
     "DEFAULT_PRESET",
     "EvaluationResult",
+    "PipelineRun",
     "default_registry",
     "evaluate",
     "evaluate_sync",
+    "run_any_pipeline",
 ]
 
 
@@ -67,7 +73,12 @@ async def evaluate(
     anthropic_api_key: str | SecretStr | None = None,
     env_file: EnvFile = None,
 ) -> EvaluationResult:
-    """Run a pipeline (by default the all-Opus omission preset) on one summary.
+    """Check one summary against its source, by default with the all-Opus omission
+    preset.
+
+    The pipeline must be a full check: the alarm step, plus the steps one check's
+    findings are read from. Anything else is a `SpecError`, raised before the key
+    is looked up or any model is called.
 
     `profile` defaults to the built-in profile the spec names. `client` defaults
     to an Anthropic client using `anthropic_api_key`, or else ANTHROPIC_API_KEY
@@ -76,8 +87,76 @@ async def evaluate(
     call, so mistakes cost nothing.
 
     Reuse an enclosing check deadline. Otherwise read only the check timeout
-    (120 seconds by default), even with a supplied client or no model stages.
+    (120 seconds by default), even with a supplied client.
     Provider configuration is loaded only when creating the default client.
+    """
+    spec = spec or load_preset(DEFAULT_PRESET)
+    check = check_type(spec)
+    ran = await run_any_pipeline(
+        source,
+        summary,
+        spec=spec,
+        profile=profile,
+        cache=cache,
+        client=client,
+        registry=registry,
+        anthropic_api_key=anthropic_api_key,
+        env_file=env_file,
+    )
+    alarm = ran.run.output(ALARM_STEP, AlarmOutput)
+    findings, counts = findings_and_counts(ran.run, check)
+    usage = ran.run.usage
+    return EvaluationResult(
+        pipeline=ran.pipeline,
+        profile=ran.profile,
+        validated_preset=ran.validated_preset,
+        evaluation_type=check,
+        flagged=alarm.flagged,
+        score=alarm.rescaled_score,
+        findings=findings,
+        counts=counts,
+        alarm=Alarm(score=alarm.score, threshold=alarm.threshold, level=alarm.level),
+        usage=Usage(
+            calls=usage.calls,
+            input_tokens=usage.input_tokens,
+            output_tokens=usage.output_tokens,
+            cost_usd=usage.cost_usd,
+        ),
+        run=ran.run,
+        warnings=ran.warnings,
+    )
+
+
+@dataclass(frozen=True)
+class PipelineRun:
+    """What `run_any_pipeline` returns: the run, and how it compares with the
+    presets."""
+
+    pipeline: str
+    profile: str | None
+    validated_preset: str | None
+    run: RunResult
+    warnings: list[str]
+
+
+async def run_any_pipeline(
+    source: str,
+    summary: str,
+    *,
+    spec: PipelineSpec,
+    profile: DomainProfile | None = None,
+    cache: Cache | None = None,
+    client: ModelClient | None = None,
+    registry: Registry | None = None,
+    anthropic_api_key: str | SecretStr | None = None,
+    env_file: EnvFile = None,
+) -> PipelineRun:
+    """Run any pipeline, check or not, as `evaluate` does, without reading a
+    check's result from it. Not public: `evaluate` is.
+
+    The spec is checked and the key looked up before any model call, and no key
+    is needed when no enabled stage calls a model. Reuse an enclosing check
+    deadline, or else read only the check timeout.
     """
     if client is not None and anthropic_api_key is not None:
         raise ValueError("pass client or anthropic_api_key, not both")
@@ -87,7 +166,6 @@ async def evaluate(
         else read_check_settings(env_file).check_timeout_seconds
     )
     with check_deadline(seconds):
-        spec = spec or load_preset(DEFAULT_PRESET)
         registry = registry or default_registry()
         if profile is None and spec.profile is not None:
             profile = load_builtin_profile(spec.profile)
@@ -127,7 +205,7 @@ async def evaluate(
                         "model client cleanup failed (%s)", type(error).__name__
                     )
 
-        return EvaluationResult(
+        return PipelineRun(
             pipeline=spec.name,
             profile=profile.name if profile else None,
             validated_preset=validated,

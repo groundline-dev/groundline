@@ -1,6 +1,6 @@
 """Presenting an omission check: a terminal report."""
 
-from groundline_core.evaluators.models import ALARM_STEP, AlarmOutput
+from groundline_core.evaluators.models import ALARM_STEP
 from groundline_core.evaluators.omissions.models import ScoreOutput
 from groundline_core.evaluators.report import (
     cost_line,
@@ -21,23 +21,25 @@ LABEL_WIDTH = 17
 def render_report(
     result: EvaluationResult, *, source: str, summary: str, seconds: float
 ) -> str:
+    # The quote and evidence checks aren't in the result's fields.
     score = result.run.output("score", ScoreOutput)
-    alarm = result.run.output(ALARM_STEP, AlarmOutput)
 
     lines = [
         _row("Omission check", f"{source} · {summary}"),
         _row("Pipeline", pipeline_line(result)),
-        _row("Result", result_line(alarm)),
-        _row("Omission score", rescaled_score_text(alarm)),
+        _row("Result", result_line(result)),
+        _row("Omission score", rescaled_score_text(result)),
     ]
     lines += [_row("Warning", warning) for warning in result.warnings]
 
     lines += ["", "Not fully recorded (rank order):"]
-    if score.missing_facts:
+    if result.findings:
         lines.append(f"  {'severity':<10}  {'verdict':<7}  {'p_missing':<9}  fact")
-        for m in score.missing_facts:
-            p = number(m.score) if m.score is not None else "-"
-            lines.append(f"  {m.severity or '-':<10}  {m.verdict:<7}  {p:<9}  {m.fact}")
+        for f in result.findings:
+            p = number(f.confidence) if f.confidence is not None else "-"
+            lines.append(
+                f"  {f.severity or '-':<10}  {f.verdict:<7}  {p:<9}  {f.statement}"
+            )
     else:
         lines.append("  none")
 
@@ -49,11 +51,13 @@ def render_report(
             "evidence not found in source: " + ", ".join(score.evidence_not_found)
         )
 
-    lines += [
-        "",
-        f"{score.total} facts: {score.present} present · {score.partial} partial · "
-        f"{score.absent} absent",
-    ]
+    if result.counts is not None:
+        counts = result.counts
+        lines += [
+            "",
+            f"{counts.total} facts: {counts.present} present · "
+            f"{counts.partial} partial · {counts.absent} absent",
+        ]
     if checks:
         lines.append(_row("Checks", " · ".join(checks)))
     lines.append(_row("Cost", cost_line(result, seconds)))

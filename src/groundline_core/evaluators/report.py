@@ -55,19 +55,20 @@ def pipeline_line(result: EvaluationResult) -> str:
     return f"{pipeline} ({validated})"
 
 
-def result_line(alarm: AlarmOutput) -> str:
+def result_line(result: EvaluationResult) -> str:
     """Whether the summary was flagged, and the alarm score against its threshold."""
-    outcome = "FLAGGED" if alarm.flagged else "NOT FLAGGED"
-    compare = "≥" if alarm.flagged else "<"
+    alarm = result.alarm
+    outcome = "FLAGGED" if result.flagged else "NOT FLAGGED"
+    compare = "≥" if result.flagged else "<"
     return (
         f"{outcome} (alarm {number(alarm.score)} {compare} "
         f"{number(alarm.threshold)}, {alarm.level})"
     )
 
 
-def rescaled_score_text(alarm: AlarmOutput) -> str:
+def rescaled_score_text(result: EvaluationResult) -> str:
     """The rescaled score, with no trailing zeros, and how to read it."""
-    return f"{alarm.rescaled_score:g} (higher is better; below 0.5 is flagged)"
+    return f"{result.score:g} (higher is better; below 0.5 is flagged)"
 
 
 def cost_line(result: EvaluationResult, seconds: float) -> str:

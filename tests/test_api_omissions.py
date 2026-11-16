@@ -316,7 +316,7 @@ def _preset_fails(name: str) -> None:
     raise ValueError(SECRET)
 
 
-def _response_fails(**fields: object) -> None:
+def _response_fails(*args: object, **fields: object) -> None:
     raise ValueError(SECRET)
 
 
@@ -325,7 +325,7 @@ def _response_fails(**fields: object) -> None:
     [
         ("evaluate", _evaluate_fails, "KeyError"),
         ("load_preset", _preset_fails, "ValueError"),
-        ("Counts", _response_fails, "ValueError"),
+        ("alarm_of", _response_fails, "ValueError"),
     ],
     ids=["while checking", "loading the preset", "building the response"],
 )
