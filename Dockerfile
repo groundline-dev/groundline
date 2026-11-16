@@ -5,7 +5,7 @@
 # Base images are pinned by digest so every build starts from the same image.
 # Dependabot updates digests and patch tags for both images in one PR; Python and
 # uv minor upgrades are manual (see "Upgrading uv" in DEVELOPMENT.md).
-FROM ghcr.io/astral-sh/uv:0.13.7-python3.13-trixie-slim@sha256:6ff812e34a0e14b4b8bc9ddf25e77b3e16bac6e0c4d9b67641f40366fa382d4c AS builder
+FROM ghcr.io/astral-sh/uv:0.13.8-python3.13-trixie-slim@sha256:9a9f205ad2f9aaf63597afef4042c455392f9253937028264b98226e91c09518 AS builder
 
 # Precompile bytecode for faster startup; copy rather than hard-link out of the
 # cache mount; use the image's Python instead of downloading one.
@@ -33,7 +33,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # Runtime stage: the same Python and Debian as the build stage, without uv or build tools.
 # Its Python minor (3.13) must match the build stage's tag: the virtualenv's
 # interpreter link points at python3.13.
-FROM python:3.13-slim-trixie@sha256:ae14d4ce8771606477a81446e7ef429edd6762305fc50c84507c1041fa8285d1
+FROM python:3.13-slim-trixie@sha256:e48f59cdba69a3cbd9ed2cf0f348d90d45a8d350d98134cf1070bc106ee9ed90
 
 # The app runs from /app/.venv and never uses the system pip. Removing it drops
 # pip's bundled copies of urllib3, msgpack and setuptools, which scanners flag.
