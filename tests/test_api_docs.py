@@ -97,7 +97,7 @@ def test_each_score_is_defined_in_the_docs(model: str, empty_case: str):
 def test_each_check_has_a_valid_example_for_every_error(path: str):
     responses = schema["paths"][path]["post"]["responses"]
 
-    assert set(responses) == {"200", "400", "401", "422", "500", "502", "503"}
+    assert set(responses) == {"200", "400", "401", "422", "500", "502", "503", "504"}
     for status, response in responses.items():
         if status == "200":
             continue
@@ -177,6 +177,18 @@ def test_the_commissions_docs_offer_both_presets_with_quick_as_the_default():
     for name in preset["enum"]:
         assert name in operation["description"]
     assert "an unknown `preset`" in operation["responses"]["422"]["description"]
+
+
+@pytest.mark.parametrize("route", ["/v1/omissions", "/v1/commissions"])
+def test_check_documents_gateway_timeout_with_a_safe_example(route: str):
+    from groundline_core.app import app
+
+    responses = app.openapi()["paths"][route]["post"]["responses"]
+    assert "504" in responses
+    examples = responses["504"]["content"]["application/json"]["examples"]
+    assert examples
+    for example in examples.values():
+        assert isinstance(example["value"]["detail"], str)
 
 
 OPERATION_IDS = {

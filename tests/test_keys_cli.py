@@ -354,6 +354,7 @@ def test_list_aligns_wide_and_combining_names_without_truncating(fake: FakeKeys)
             APIKeyStorageError("API-key storage is unavailable"),
             "storage is unavailable",
         ),
+        (APIKeyStorageError("API-key operation timed out"), "operation timed out"),
         (RuntimeError(SECRET), "API-key operation failed"),
     ],
 )

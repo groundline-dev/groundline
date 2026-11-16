@@ -13,7 +13,7 @@ RETRY_NOTE = (
 
 
 class ReplyError(Exception):
-    """The model's reply was still unusable after one retry."""
+    """The model's reply remained unusable after a request for correction."""
 
 
 class PromptImplementation(Implementation):
@@ -44,7 +44,8 @@ class PromptImplementation(Implementation):
             except ParseError as second:
                 # Not the reply's text: it can quote the source or summary.
                 raise ReplyError(
-                    f"unusable reply after 1 retry: {second} "
+                    "The model’s reply remained unusable after a request "
+                    f"for correction: {second} "
                     f"(the reply was {len(reply):,} characters)"
                 ) from second
 

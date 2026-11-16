@@ -135,10 +135,10 @@ class Wire:
 def wire(endpoint: Endpoint, monkeypatch: pytest.MonkeyPatch) -> Wire:
     wire = Wire(endpoint.not_flagged())
 
-    def client(api_key: str, *, key_source: str) -> AnthropicClient:
+    def client(api_key: str, **options: Any) -> AnthropicClient:
         return AnthropicClient(
             api_key,
-            key_source=key_source,
+            **options,
             max_retries=0,  # SDK backoff is covered separately; keep failures instant.
             http_client=DefaultAsyncHttpxClient(
                 transport=httpx2.MockTransport(wire.respond), trust_env=False
@@ -366,7 +366,10 @@ def test_unusable_reply_retries_once_without_exposing_sensitive_content(
     wire.replies = unusable
     response = failure_response(http, endpoint, caplog, 502)
     assert len(wire.requests) == 2
-    assert "unusable reply after 1 retry" in response.json()["detail"]
+    assert (
+        "The model’s reply remained unusable after a request for correction"
+        in response.json()["detail"]
+    )
 
 
 @pytest.mark.parametrize("method", ["connect", "connect_ex"])

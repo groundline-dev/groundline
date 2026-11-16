@@ -2,19 +2,77 @@
 
 import asyncio
 import logging
+from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import cast
 
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import event
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from groundline_core.app import app
 from groundline_core.db import check_connection
 from groundline_core.db import connection as connection_module
 from groundline_core.db.connection import make_engine
+from groundline_core.settings import Settings
+from tests.async_helpers import finish_before_watchdog
 
 UNREACHABLE = "postgresql+psycopg://groundline:pw-secret@127.0.0.1:1/groundline"
+
+
+@pytest.mark.parametrize("probe_succeeds", [True, False])
+def test_disposal_timeout_preserves_probe_result_and_original_error(
+    probe_succeeds: bool,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+):
+    monkeypatch.setattr(Settings, "db_check_timeout_seconds", 0.3)
+
+    async def run():
+        disposed = 0
+        cancelled = 0
+
+        class Connection:
+            async def execute(self, statement: object):
+                if not probe_succeeds:
+                    raise SQLAlchemyError("original probe failure")
+
+        class Engine:
+            @asynccontextmanager
+            async def connect(self):
+                yield Connection()
+
+            async def dispose(self):
+                nonlocal disposed, cancelled
+                disposed += 1
+                try:
+                    await asyncio.Event().wait()
+                finally:
+                    cancelled += 1
+
+        engine = Engine()
+
+        def factory(*args: object, **kwargs: object) -> AsyncEngine:
+            return cast(AsyncEngine, engine)
+
+        monkeypatch.setattr(
+            connection_module,
+            "create_async_engine",
+            factory,
+        )
+        result = await finish_before_watchdog(check_connection(UNREACHABLE))
+        assert result is probe_succeeds
+        assert disposed == cancelled == 1
+
+    asyncio.run(run())
+    assert "cleanup failed (TimeoutError)" in caplog.text
+    if probe_succeeds:
+        assert "can't connect" not in caplog.text
+    else:
+        assert "original probe failure" in caplog.text
+    assert "pw-secret" not in caplog.text
 
 
 @pytest.mark.parametrize("borrowed", [False, True])
@@ -114,3 +172,60 @@ def test_a_driver_that_isnt_installed_is_logged_not_raised(
     assert f"the {driver} driver isn't installed" in caplog.text
     assert "postgresql+psycopg://" in caplog.text  # how to fix it
     assert "pw-secret" not in caplog.text
+
+
+@pytest.mark.parametrize("borrowed", [False, True])
+@pytest.mark.parametrize("hang_at", ["connect", "query"])
+def test_readiness_bounds_both_owned_and_borrowed_engines(
+    borrowed: bool,
+    hang_at: str,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+):
+    from contextlib import asynccontextmanager
+    from typing import Any, cast
+
+    async def run():
+        cancelled: list[str] = []
+        disposed: list[bool] = []
+
+        async def hang():
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cancelled.append(hang_at)
+
+        class Connection:
+            async def execute(self, statement: object):
+                if hang_at == "query":
+                    await hang()
+
+        class Engine:
+            @asynccontextmanager
+            async def connect(self):
+                if hang_at == "connect":
+                    await hang()
+                yield Connection()
+
+            async def dispose(self):
+                disposed.append(True)
+
+        engine = Engine()
+
+        def factory(*args: Any, **kwargs: Any):
+            return engine
+
+        monkeypatch.setattr(connection_module, "create_async_engine", factory)
+        result = await finish_before_watchdog(
+            check_connection(
+                UNREACHABLE,
+                timeout=0.1,
+                engine=cast(AsyncEngine, engine) if borrowed else None,
+            )
+        )
+        assert result is False
+        assert cancelled == [hang_at]
+        assert disposed == ([] if borrowed else [True])
+
+    asyncio.run(run())
+    assert "database operation timed out" in caplog.text

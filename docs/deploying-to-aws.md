@@ -271,7 +271,7 @@ SSM keeps each command's output, so anyone who can read your project's Run Comma
 
 To try your summary app against a disposable deployment, point its backend at the server instead of a local groundline:
 
-- **Base URL:** the server's address, such as `https://203.0.113.10`. `make aws-up` prints it under What next, and `make aws-status` shows it too. The app calls `POST <base URL>/v1/omissions` and `POST <base URL>/v1/commissions`, with the same requests and responses as a local server ([README](../README.md#post-v1omissions)). A check may take longer than two minutes; choose an appropriate client timeout. Caddy adds no response timeout or automatic request retries.
+- **Base URL:** the server's address, such as `https://203.0.113.10`. `make aws-up` prints it under What next, and `make aws-status` shows it too. The app calls `POST <base URL>/v1/omissions` and `POST <base URL>/v1/commissions`, with the same requests and responses as a local server ([README](../README.md#post-v1omissions)). Set the app's HTTP client timeout above the configured whole-check limit, which defaults to 120 seconds, to allow time for request and response transfer. Caddy adds no response timeout or automatic request retries.
 - **API key:** one from `make aws-key`, sent as `Authorization: Bearer <API key>`. It's a groundline API key, separate from the Anthropic API key the server uses.
 - **Settings, not code:** a new server gets a new address, and its API keys go with the old one. Have the app read both from settings, such as `GROUNDLINE_URL` and `GROUNDLINE_API_KEY`, so switching servers doesn't need a code change.
 

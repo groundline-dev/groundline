@@ -32,6 +32,7 @@ from groundline_core.core import (
     load_spec,
     summarize_usage,
 )
+from groundline_core.core.errors import ModelTimeoutError
 from groundline_core.evaluate import (
     DEFAULT_COMMISSIONS_PRESET,
     DEFAULT_PRESET,
@@ -44,6 +45,7 @@ from groundline_core.evaluators.omissions import report as omissions_report
 from groundline_core.evaluators.report import require_steps, result_json, usage_text
 from groundline_core.keys_cli import app as keys_app
 from groundline_core.presets import load_preset
+from groundline_core.settings import ENV_FILE
 
 app = typer.Typer(
     help="Check AI-written summaries against their source.",
@@ -194,11 +196,11 @@ def _finish(run: Callable[[], int]) -> None:
     bug. Python's own exit code for an uncaught error is 1."""
     try:
         code = run()
-    except StageError as error:
+    except (StageError, ModelTimeoutError) as error:
         typer.echo(f"error: {error}", err=True)
         if error.calls:
             cost = usage_text(summarize_usage(error.calls))
-            typer.echo(f"  Cost before stopping: {cost}", err=True)
+            typer.echo(f"  Recorded cost before stopping: {cost}", err=True)
         code = EXIT_ERROR
     except (SetupError, SpecError, ProfileError, ValueError, OSError) as error:
         typer.echo(f"error: {error}", err=True)
@@ -240,6 +242,7 @@ def _check(
         profile=domain,
         cache=stage_cache,
         client=make_client(),
+        env_file=ENV_FILE,
     )
     seconds = time.perf_counter() - started
 
