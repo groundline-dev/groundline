@@ -21,6 +21,7 @@ from groundline_core.api.common import (
     Finding,
     Metadata,
     alarm_of,
+    begin_check,
     check_failures,
     check_responses,
     model_client,
@@ -42,6 +43,7 @@ from groundline_core.evaluators.models import ALARM_STEP, AlarmOutput
 from groundline_core.evaluators.report import cost_line, result_line
 from groundline_core.presets import load_preset
 from groundline_core.result import EvaluationResult
+from groundline_core.settings import ENV_FILE
 
 logger = logging.getLogger("groundline.api")
 
@@ -126,7 +128,7 @@ class CommissionsResponse(CheckResponse[Literal["commissions"], CommissionsMetad
 @router.post(
     "/commissions",
     operation_id="evaluate_commissions",
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(begin_check), Depends(require_api_key)],
     responses=check_responses(load_preset(DEFAULT_COMMISSIONS_PRESET)),
 )
 async def commissions(
@@ -148,7 +150,7 @@ async def commissions(
     started = time.perf_counter()
     with check_failures():
         result = await evaluate(
-            request.source, request.summary, spec=spec, client=client
+            request.source, request.summary, spec=spec, client=client, env_file=ENV_FILE
         )
     response = _response(result)
     logger.info(

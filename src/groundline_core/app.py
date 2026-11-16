@@ -14,13 +14,18 @@ try:
     from fastapi.responses import HTMLResponse
     from sqlalchemy.ext.asyncio import AsyncEngine
 
-    from groundline_core.api import commissions, errors, omissions
+    from groundline_core.api import commissions, common, errors, omissions
     from groundline_core.api.common import ErrorBody, error_response
+    from groundline_core.api.limits import BodyLimitMiddleware
     from groundline_core.api_keys import APIKeys
     from groundline_core.core.errors import SetupError
     from groundline_core.db import check_connection
     from groundline_core.db.connection import make_engine
-    from groundline_core.settings import UnreadableSettingsError, read_settings
+    from groundline_core.settings import (
+        ENV_FILE,
+        UnreadableSettingsError,
+        read_settings,
+    )
 except ModuleNotFoundError as error:
     if is_missing_one_of(error, SERVER_PACKAGES):
         raise ModuleNotFoundError(SERVER_MESSAGE, name=error.name) from error
@@ -73,7 +78,7 @@ def _database_url() -> str | None:
     """The database URL from the settings, warning about anything missing that
     leaves checks or API-key storage unavailable."""
     try:
-        settings = read_settings()
+        settings = read_settings(ENV_FILE)
     except UnreadableSettingsError as error:
         api_logger.warning("%s\nChecks will answer 503 until it's fixed.", error)
         return None
@@ -131,6 +136,12 @@ Both checks need a groundline API key, sent as `Authorization: Bearer gl_...`.
 Create one with `groundline-core keys create`, then use **Authorize** below.
 `/health` and `/ready` are public.
 
+The body-byte allowance applies to every HTTP path and method, including public
+and unknown routes. A declared oversized body can return **413 Content Too Large**
+before authentication or **404 Not Found** / **405 Method Not Allowed** responses.
+For streamed bodies, the allowance is enforced as the application reads them;
+routes that do not read a body do not buffer it to check its size.
+
 ### Versions
 
 Both checks are under `/v1`. groundline isn't public yet, so v1 can still
@@ -151,11 +162,13 @@ app = FastAPI(
     title="groundline",
     version=version("groundline-core"),
     description=DESCRIPTION,
+    responses={413: common.FAILURE_RESPONSES[413]},
     openapi_tags=[
         {"name": "v1", "description": "The checks, version 1. Each needs an API key."}
     ],
     lifespan=lifespan,
 )
+app.add_middleware(BodyLimitMiddleware)
 errors.install(app)
 v1 = APIRouter(prefix="/v1", tags=["v1"])
 v1.include_router(omissions.router)

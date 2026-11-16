@@ -209,7 +209,7 @@ def test_an_unusable_reply_exits_with_2(
 
     assert result.exit_code == 2
     assert result.stderr.startswith("error: stage 'commissions_check' failed")
-    assert "Cost before stopping: $0.0001 · 2 calls · " in result.stderr
+    assert "Recorded cost before stopping: $0.0001 · 2 calls · " in result.stderr
 
 
 def test_a_missing_input_file_exits_with_2(
@@ -511,3 +511,38 @@ def test_help_lists_both_presets_and_the_default():
     assert "--preset" in words
     assert f"{QUICK} (the default) or {LEAN}." in words
     assert "The lean preset isn't confirmed to its pre-registered standard" in words
+
+
+def test_cli_reports_check_deadline_with_exit_code_2(
+    files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+):
+    import asyncio
+    from typing import Any
+
+    from groundline_core.core import ModelReply
+
+    monkeypatch.setenv("GROUNDLINE_CHECK_TIMEOUT_SECONDS", "0.5")
+    cancelled: list[bool] = []
+
+    class HungClient:
+        async def complete(self, prompt: str, **kwargs: Any) -> ModelReply:
+            try:
+                async with asyncio.timeout(3):
+                    await asyncio.Event().wait()
+            except TimeoutError:
+                raise AssertionError("test watchdog fired") from None
+            finally:
+                cancelled.append(True)
+            raise AssertionError("hung client returned")
+
+    monkeypatch.setattr(cli, "make_client", lambda: HungClient())
+    result = commissions(files)
+    assert result.exit_code == 2
+    assert cancelled == [True]
+    assert "unexpected" not in result.output.lower()
+    assert "test watchdog" not in result.output
+    assert "AssertionError" not in result.output
+    assert any(
+        word in result.output.lower()
+        for word in ("timed out", "time limit", "deadline", "timeout")
+    )

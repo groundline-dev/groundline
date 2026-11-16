@@ -1,23 +1,45 @@
 """Connecting to the database, and logging when that fails."""
 
+import asyncio
 import logging
+import math
 
 from sqlalchemy import make_url, text
 from sqlalchemy.exc import DBAPIError, SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
+from groundline_core.core.deadline import raise_if_cancelling, remaining
 from groundline_core.core.errors import SetupError
 from groundline_core.db.config import DRIVERS
+from groundline_core.settings import ENV_FILE, Settings, read_settings
 
 logger = logging.getLogger("groundline.db")
 
 
-def make_engine(raw: str, *, timeout: int = 5) -> AsyncEngine:
+def _connect_args(settings: Settings, connect_seconds: float) -> dict[str, str | int]:
+    """Use the same bounded connection and statement options for every engine."""
+    return {
+        # libpq accepts whole seconds, with a two-second minimum.
+        # Async acquisition/authentication boundaries enforce shorter limits.
+        "connect_timeout": max(2, math.ceil(connect_seconds)),
+        "options": (
+            "-c statement_timeout="
+            f"{max(1, math.ceil(settings.db_query_timeout_seconds * 1000))}"
+        ),
+        "target_session_attrs": "read-write",
+    }
+
+
+def make_engine(raw: str, *, timeout: float | None = None) -> AsyncEngine:
     """A caller-owned engine for operational data, with safe error messages.
 
     Authentication must read the primary, with a fresh READ COMMITTED snapshot.
     Pooling reuses connections, not query results.
     """
+    settings = read_settings(ENV_FILE)
+    connect_seconds = (
+        settings.db_connect_timeout_seconds if timeout is None else timeout
+    )
     try:
         url = make_url(raw)
         if url.drivername not in DRIVERS:
@@ -30,10 +52,8 @@ def make_engine(raw: str, *, timeout: int = 5) -> AsyncEngine:
             # broken by a Postgres restart are replaced instead of failing a request.
             pool_pre_ping=True,
             isolation_level="READ COMMITTED",
-            connect_args={
-                "connect_timeout": timeout,
-                "target_session_attrs": "read-write",
-            },
+            pool_timeout=settings.db_pool_timeout_seconds,
+            connect_args=_connect_args(settings, connect_seconds),
         )
     except (SQLAlchemyError, ValueError, ImportError):
         message = "DATABASE_URL is not a usable PostgreSQL URL"
@@ -43,7 +63,7 @@ def make_engine(raw: str, *, timeout: int = 5) -> AsyncEngine:
 async def check_connection(
     raw: str,
     *,
-    timeout: int = 5,
+    timeout: float | None = None,
     engine: AsyncEngine | None = None,
     was_connected: bool | None = None,
 ) -> bool:
@@ -56,9 +76,9 @@ async def check_connection(
     result as `was_connected`. The function then logs only when the database
     goes down or comes back.
 
-    If you pass `engine`, the function uses it and leaves it open, and `timeout`
-    has no effect. Otherwise it creates its own engine with `timeout` and closes
-    it before returning.
+    A supplied engine stays open. Both owned and borrowed engines share a
+    readiness allowance, optionally shortened by `timeout` and the check deadline.
+    An owned engine also bounds connection establishment and queries.
     """
     try:
         url = make_url(raw)
@@ -72,14 +92,48 @@ async def check_connection(
     where = f"{url.host or 'localhost'}:{url.port or 5432}/{url.database}"
     owns_engine = engine is None
     try:
-        if engine is None:
-            engine = create_async_engine(url, connect_args={"connect_timeout": timeout})
+        settings = read_settings(ENV_FILE)
+        allowance = min(settings.db_readiness_timeout_seconds, remaining())
+        if timeout is not None:
+            allowance = min(allowance, timeout)
         try:
-            async with engine.connect() as connection:
-                await connection.execute(text("SELECT 1"))
+            async with asyncio.timeout(allowance):
+                if engine is None:
+                    engine = create_async_engine(
+                        url,
+                        pool_timeout=settings.db_pool_timeout_seconds,
+                        connect_args=_connect_args(
+                            settings,
+                            min(allowance, settings.db_connect_timeout_seconds),
+                        ),
+                    )
+                acquisition = asyncio.timeout(
+                    min(
+                        allowance,
+                        settings.db_check_timeout_seconds,
+                        settings.db_pool_timeout_seconds,
+                        settings.db_connect_timeout_seconds,
+                    )
+                )
+                async with acquisition:
+                    async with engine.connect() as connection:
+                        acquisition.reschedule(None)
+                        async with asyncio.timeout(
+                            min(remaining(), settings.db_query_timeout_seconds)
+                        ):
+                            await connection.execute(text("SELECT 1"))
         finally:
-            if owns_engine:
-                await engine.dispose()
+            if owns_engine and engine is not None:
+                try:
+                    async with asyncio.timeout(settings.db_check_timeout_seconds):
+                        await engine.dispose()
+                except Exception as error:
+                    raise_if_cancelling()
+                    # Disposal is cleanup, not evidence about SELECT 1. Never
+                    # replace the probe's result or its original failure.
+                    logger.warning(
+                        "database engine cleanup failed (%s)", type(error).__name__
+                    )
     except ImportError as error:
         # A URL such as postgresql+asyncpg:// names a driver that isn't installed.
         if was_connected is False:
@@ -91,7 +145,7 @@ async def check_connection(
             error.name or url.get_driver_name(),
         )
         return False
-    except (SQLAlchemyError, OSError) as error:
+    except (SQLAlchemyError, OSError, SetupError) as error:
         if was_connected is not False:
             password = url.password if isinstance(url.password, str) else None
             logger.error(
@@ -121,4 +175,6 @@ def scrub(message: str, *passwords: str | None) -> str:
 def _reason(error: Exception, password: str | None) -> str:
     """The driver's own explanation, on one line, with the password removed."""
     inner = error.orig if isinstance(error, DBAPIError) else error
+    if isinstance(inner, TimeoutError):
+        return "database operation timed out"
     return scrub(str(inner), password)

@@ -22,6 +22,7 @@ from groundline_core.evaluators.omissions.models import (
     RankOutput,
     ScoreOutput,
 )
+from groundline_core.settings import ENV_FILE
 from tests.auth_helpers import HEADERS, FakeKeys
 from tests.commissions_helpers import SUMMARY as SUMMARY_WITH_ERRORS
 from tests.omission_helpers import SOURCE, SUMMARY
@@ -30,7 +31,7 @@ pytestmark = pytest.mark.live
 
 
 def test_the_all_opus_preset_runs_end_to_end():
-    result = evaluate_sync(SOURCE, SUMMARY)
+    result = evaluate_sync(SOURCE, SUMMARY, env_file=ENV_FILE)
 
     usage = result.run.usage
     print(
@@ -61,7 +62,7 @@ def test_the_all_opus_preset_runs_end_to_end():
 
 def test_the_quick_commission_preset_runs_end_to_end():
     spec = load_preset(DEFAULT_COMMISSIONS_PRESET)
-    result = evaluate_sync(SOURCE, SUMMARY_WITH_ERRORS, spec=spec)
+    result = evaluate_sync(SOURCE, SUMMARY_WITH_ERRORS, spec=spec, env_file=ENV_FILE)
 
     usage = result.run.usage
     print(

@@ -41,6 +41,7 @@ from tests.omission_helpers import SOURCE
 http = TestClient(app, headers=HEADERS)
 
 SECRET = "patient is HIV positive and takes tenofovir"
+MAX_SOURCE_CHARS = common.LIMITS.max_source_chars
 
 
 @pytest.fixture(autouse=True)
@@ -184,7 +185,7 @@ def test_the_route_runs_the_quick_preset():
         check(threshold="default"),
         check(source=""),
         check(summary="  \n "),
-        check(source="x" * (common.MAX_CHARS + 1)),
+        check(source="x" * (MAX_SOURCE_CHARS + 1)),
         check(pipeline="custom.yaml"),
         {"source": SOURCE},
     ],
@@ -202,7 +203,10 @@ def test_unusable_input_is_a_422_before_any_call(body: dict[str, object]):
 @pytest.mark.parametrize(
     ("body", "loc"),
     [
-        (check(source=SECRET + "x" * common.MAX_CHARS), ["body", "source"]),
+        (
+            check(source=SECRET + "x" * MAX_SOURCE_CHARS),
+            ["body", "source"],
+        ),
         (check(source={"text": SECRET}), ["body", "source"]),
         (check(notes=SECRET), ["body"]),
         (check(**{SECRET: "x"}), ["body"]),
@@ -268,9 +272,10 @@ def test_an_unusable_reply_is_a_502_naming_the_stage_and_cost():
     assert response.status_code == 502
     detail = response.json()["detail"]
     assert detail.startswith(
-        "stage 'commissions_check' failed: unusable reply after 1 retry"
+        "stage 'commissions_check' failed: The model’s reply remained unusable "
+        "after a request for correction"
     )
-    assert "Cost before stopping: $0." in detail and "· 2 calls" in detail
+    assert "Recorded cost before stopping: $0." in detail and "· 2 calls" in detail
 
 
 def _api_request() -> httpx2.Request:

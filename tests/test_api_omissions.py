@@ -16,6 +16,7 @@ from groundline_core.api import omissions as api
 from groundline_core.app import app
 from groundline_core.core import APIKeyRejectedError
 from groundline_core.evaluate import DEFAULT_PRESET
+from tests.anthropic_helpers import fake_anthropic, keys_sent
 from tests.auth_helpers import SECRET as API_KEY
 from tests.auth_helpers import FakeKeys
 from tests.fakes import FakeClient
@@ -32,6 +33,7 @@ from tests.omission_helpers import (
 http = TestClient(app, headers={"Authorization": f"Bearer {API_KEY}"})
 
 SECRET = "patient is HIV positive and takes tenofovir"
+MAX_SOURCE_CHARS = common.LIMITS.max_source_chars
 
 
 @pytest.fixture(autouse=True)
@@ -120,7 +122,7 @@ def test_a_source_with_no_facts_answers_200_with_a_score_of_one():
         check(threshold="moderate"),
         check(source=""),
         check(summary="  \n "),
-        check(source="x" * (common.MAX_CHARS + 1)),
+        check(source="x" * (MAX_SOURCE_CHARS + 1)),
         check(pipeline="custom.yaml"),
         {"source": SOURCE},
     ],
@@ -146,7 +148,10 @@ def test_unusable_input_is_a_422_before_any_call(body: dict[str, object]):
 @pytest.mark.parametrize(
     ("body", "loc"),
     [
-        (check(source=SECRET + "x" * common.MAX_CHARS), ["body", "source"]),
+        (
+            check(source=SECRET + "x" * MAX_SOURCE_CHARS),
+            ["body", "source"],
+        ),
         (check(source={"text": SECRET}), ["body", "source"]),
         (check(notes=SECRET), ["body"]),
         (check(**{SECRET: "x"}), ["body"]),
@@ -161,6 +166,20 @@ def test_a_422_never_repeats_the_input(body: dict[str, object], loc: list[str]):
     assert response.status_code == 422
     assert "tenofovir" not in response.text
     assert response.json()["detail"][0]["loc"] == loc
+
+
+def test_the_anthropic_key_comes_from_the_servers_dotenv(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    use_client(None)  # the real Anthropic client, on a fake transport
+    sent = fake_anthropic(monkeypatch, not_flagged_script())
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    Path(".env").write_text("ANTHROPIC_API_KEY=sk-dotenv\n")
+
+    response = http.post("/v1/omissions", json=check())
+
+    assert response.status_code == 200
+    assert keys_sent(sent) == {"sk-dotenv"}
 
 
 def test_a_missing_key_is_a_503_with_the_clis_message(
@@ -198,8 +217,11 @@ def test_an_unusable_reply_is_a_502_naming_the_stage_and_cost():
 
     assert response.status_code == 502
     detail = response.json()["detail"]
-    assert detail.startswith("stage 'extract' failed: unusable reply after 1 retry")
-    assert "Cost before stopping: $0." in detail and "· 2 calls" in detail
+    assert detail.startswith(
+        "stage 'extract' failed: The model’s reply remained unusable "
+        "after a request for correction"
+    )
+    assert "Recorded cost before stopping: $0." in detail and "· 2 calls" in detail
 
 
 def _api_request() -> httpx2.Request:
@@ -261,7 +283,7 @@ def test_an_anthropic_api_error_after_some_calls_says_what_they_cost():
     detail = response.json()["detail"]
     assert detail.startswith(
         "stage 'rank' failed: the Anthropic API answered 500 (InternalServerError)"
-        ". Cost before stopping: $0."
+        ". Recorded cost before stopping: $0."
     )
     assert re.search(r"· 1 calls · [\d,]+ input / [\d,]+ output tokens$", detail)
     assert "tenofovir" not in detail

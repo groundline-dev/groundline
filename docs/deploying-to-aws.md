@@ -271,7 +271,7 @@ SSM keeps each command's output, so anyone who can read your project's Run Comma
 
 To try your summary app against a disposable deployment, point its backend at the server instead of a local groundline:
 
-- **Base URL:** the server's address, such as `https://203.0.113.10`. `make aws-up` prints it under What next, and `make aws-status` shows it too. The app calls `POST <base URL>/v1/omissions` and `POST <base URL>/v1/commissions`, with the same requests and responses as a local server ([README](../README.md#post-v1omissions)). A check may take longer than two minutes; choose an appropriate client timeout. Caddy adds no response timeout or automatic request retries.
+- **Base URL:** the server's address, such as `https://203.0.113.10`. `make aws-up` prints it under What next, and `make aws-status` shows it too. The app calls `POST <base URL>/v1/omissions` and `POST <base URL>/v1/commissions`, with the same requests and responses as a local server ([README](../README.md#post-v1omissions)). Set the app's HTTP client timeout above the configured whole-check limit, which defaults to 120 seconds, to allow time for request and response transfer. Caddy adds no response timeout or automatic request retries.
 - **API key:** one from `make aws-key`, sent as `Authorization: Bearer <API key>`. It's a groundline API key, separate from the Anthropic API key the server uses.
 - **Settings, not code:** a new server gets a new address, and its API keys go with the old one. Have the app read both from settings, such as `GROUNDLINE_URL` and `GROUNDLINE_API_KEY`, so switching servers doesn't need a code change.
 
@@ -300,3 +300,18 @@ The server costs about $0.024 an hour, so one that runs to its 8-hour limit cost
 It also deletes your Anthropic API key from Parameter Store. If anyone else can access the AWS project, they could have copied the key while your server ran, so revoke it in the Anthropic Console if that matters to you.
 
 Terraform state stays in `infra/` on your computer. Delete the server with `make aws-destroy` from the same folder you created it from; another clone doesn't know about it.
+
+## Request size limits
+
+`make aws-up` uses the defaults: a 5 MiB request body, 200,000 characters each
+for source and summary, a 120-second check timeout and up to three attempts per
+model call. Local `.env` settings and exported overrides do not change these
+values on AWS.
+
+You can try custom limits locally with `make dev` or Docker Compose;
+see the commands in [request size limits](../DEVELOPMENT.md#request-size-limits).
+
+To check a running deployment's limits, open its base URL with `/docs` appended
+(or `/api`, which shows the same documentation). The 413 response description
+shows the body limit in bytes. Expand the `CheckRequest` schema to see `maxLength`
+for `source` and `summary`.

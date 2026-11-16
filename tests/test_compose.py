@@ -8,7 +8,8 @@ passes:
 - A port is published on every network interface, so other machines on the
   network can reach the app or the database. It should be on 127.0.0.1 only.
 - Postgres lets clients connect without a password.
-- compose.yaml reads a setting that .env.example doesn't list.
+- compose.yaml reads a setting that .env.example doesn't list (the API size
+  limits are left out on purpose).
 - The app container gets the admin password, or misses a setting the app reads.
 
 These tests only read the file, so they don't need Docker.
@@ -112,8 +113,8 @@ def test_the_app_health_check_ignores_the_database(services: dict[str, Any]):
 
 
 @pytest.mark.usefixtures("services")  # fails plainly if compose.yaml is missing
-def test_every_setting_compose_reads_is_in_env_example():
-    names = set(re.findall(r"\$\{(\w+)", COMPOSE.read_text()))
+def test_compose_settings_other_than_api_limits_are_in_env_example():
+    names = set(re.findall(r"\$\{(\w+)", COMPOSE.read_text())) - API_LIMIT_SETTINGS
     documented = ENV_EXAMPLE.read_text()
 
     missing = {
@@ -125,6 +126,11 @@ def test_every_setting_compose_reads_is_in_env_example():
 
 
 ADMIN_ONLY = {"DATABASE_ADMIN_URL", "POSTGRES_PASSWORD"}
+API_LIMIT_SETTINGS = {
+    "GROUNDLINE_MAX_BODY_BYTES",
+    "GROUNDLINE_MAX_SOURCE_CHARS",
+    "GROUNDLINE_MAX_SUMMARY_CHARS",
+}
 
 
 def environment_names(service: dict[str, Any]) -> set[str]:
@@ -146,7 +152,10 @@ def test_the_app_gets_every_setting_it_reads_and_not_the_admin_password(
 ):
     """A setting added to Settings must also be passed to the app in compose.yaml,
     or the app runs in Compose without it and nothing reports the gap."""
-    reads = {name.upper() for name in Settings.model_fields} - ADMIN_ONLY
+    reads = {
+        str(field.validation_alias or name.upper())
+        for name, field in Settings.model_fields.items()
+    } - ADMIN_ONLY
     gets = environment_names(services["app"])
 
     assert reads <= gets, f"compose.yaml doesn't pass {sorted(reads - gets)} to app"
@@ -167,3 +176,46 @@ def test_the_example_urls_follow_the_postgres_port(name: str):
 
     assert line, f".env.example has no {name}"
     assert "@localhost:${POSTGRES_HOST_PORT:-5433}/" in line[1]
+
+
+@pytest.mark.parametrize(
+    "name",
+    [
+        "GROUNDLINE_CHECK_TIMEOUT_SECONDS",
+        "GROUNDLINE_MODEL_MAX_ATTEMPTS",
+    ],
+)
+def test_deadline_and_retry_overrides_are_optional(services: dict[str, Any], name: str):
+    environment = services["app"].get("environment", {})
+    assert name in environment, f"app must forward {name} explicitly"
+    assert environment[name] is None, "Compose must not provide an app default"
+    example = ENV_EXAMPLE.read_text()
+    assert re.search(rf"^#\s*{name}=", example, re.MULTILINE)
+    assert not re.search(rf"^{name}=", example, re.MULTILINE)
+
+
+def test_compose_exposes_only_operator_controls(
+    services: dict[str, Any],
+):
+    names = {
+        name
+        for name in services["app"]["environment"]
+        if name.startswith("GROUNDLINE_")
+    }
+    assert (
+        names
+        == {
+            "GROUNDLINE_CHECK_TIMEOUT_SECONDS",
+            "GROUNDLINE_MODEL_MAX_ATTEMPTS",
+        }
+        | API_LIMIT_SETTINGS
+    )
+
+
+@pytest.mark.parametrize("name", sorted(API_LIMIT_SETTINGS))
+def test_api_limits_forward_overrides_without_compose_defaults(
+    services: dict[str, Any], name: str
+):
+    environment = services["app"]["environment"]
+    assert environment.get(name) == "${" + name + ":-}"
+    assert not re.search(rf"^\s*{name}=", ENV_EXAMPLE.read_text(), re.MULTILINE)

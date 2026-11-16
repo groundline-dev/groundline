@@ -26,7 +26,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 CORE = {"anthropic", "pydantic-settings", "pyyaml"}
 DATABASE = {"alembic", "psycopg", "sqlalchemy"}
-SERVER = {"fastapi"} | DATABASE
+SERVER = {"fastapi", "starlette"} | DATABASE
 CLI = {"platformdirs", "typer"} | DATABASE
 
 REQUIREMENT = re.compile(r"\s*([A-Za-z0-9][A-Za-z0-9._-]*)\s*(?:\[([^\]]*)\])?")
