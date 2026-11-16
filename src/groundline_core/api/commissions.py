@@ -20,6 +20,7 @@ from groundline_core.api.common import (
     Finding,
     Metadata,
     alarm_of,
+    begin_check,
     check_failures,
     check_responses,
     model_client,
@@ -110,7 +111,7 @@ class CommissionsResponse(CheckResponse[Literal["commissions"], CommissionsMetad
 @router.post(
     "/commissions",
     operation_id="evaluate_commissions",
-    dependencies=[Depends(require_api_key)],
+    dependencies=[Depends(begin_check), Depends(require_api_key)],
     responses=check_responses(load_preset(DEFAULT_COMMISSIONS_PRESET)),
 )
 async def commissions(

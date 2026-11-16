@@ -58,6 +58,59 @@ You need [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13 (0.1
    make check
    ```
 
+## Timeouts and outage retries
+
+Set the two optional overrides below in `.env` or the shell; shell values take
+precedence. Leave them unset to use the defaults in
+[`settings.py`](src/groundline_core/settings.py).
+
+### Overall check limit
+
+The 120-second limit covers the entire check, including authentication, model
+calls and retries. It applies to the API, CLI and Python evaluations.
+
+To change the limit, add this line to `.env`:
+
+```dotenv
+GROUNDLINE_CHECK_TIMEOUT_SECONDS=180
+```
+
+### Model retries
+
+Groundline retries temporary model failures, such as rate limits, connection
+errors and timeouts. Each model call allows up to three attempts, including the
+first request. Groundline does not retry permanent errors or database operations.
+
+To disable outage retries, add this line to `.env`:
+
+```dotenv
+GROUNDLINE_MODEL_MAX_ATTEMPTS=1
+```
+
+If the model answers in the wrong format, groundline asks it to answer again
+in the required format. This can happen even with `GROUNDLINE_MODEL_MAX_ATTEMPTS=1`:
+that setting controls retries after temporary failures, not requests to fix
+the format of an answer.
+
+A higher attempt limit allows more retries, but does not extend the overall check
+limit.
+
+### Other limits
+
+Each model attempt has a 60-second limit. One model call, including all its
+attempts and retry waits, has a 120-second limit. Increasing the overall check
+limit does not increase either limit. A model call stops sooner if the overall
+check runs out of time.
+
+Database operations also have their own time limits. The model and database
+limits are defined on the `Settings` class in
+[`src/groundline_core/settings.py`](src/groundline_core/settings.py).
+
+See [API statuses and errors](README.md#statuses-and-errors) for response codes
+and the cost implications of failed checks. Python configuration behavior is
+documented on [`evaluate()`](src/groundline_core/evaluate.py) and
+[`AnthropicClient`](src/groundline_core/clients/anthropic.py).
+
 ## Running the whole stack in Docker
 
 To run Postgres, the database setup and the app together, as they'll run on a server, start the stack at http://127.0.0.1:8001. Stop it with Ctrl+C:

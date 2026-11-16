@@ -10,8 +10,9 @@ printed or logged.
 import os
 from dataclasses import dataclass
 from pathlib import Path
+from typing import ClassVar
 
-from pydantic import SecretStr
+from pydantic import Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from groundline_core.core.errors import SetupError
@@ -58,14 +59,46 @@ class AnthropicKey:
     source: str
 
 
-class Settings(BaseSettings):
-    """The settings from the environment alone. `read_settings` adds a `.env`
-    file when its caller names one."""
-
+class _EnvironmentSettings(BaseSettings):
     model_config = SettingsConfigDict(
         env_ignore_empty=True,  # a blank `ANTHROPIC_API_KEY=` counts as unset
         extra="ignore",
     )
+
+
+class CheckSettings(_EnvironmentSettings):
+    """Only the timing needed to start a standalone evaluation."""
+
+    check_timeout_seconds: float = Field(
+        default=120,
+        gt=0,
+        allow_inf_nan=False,
+        validation_alias="GROUNDLINE_CHECK_TIMEOUT_SECONDS",
+    )
+    """Seconds allowed for a check: authentication, model calls and retries."""
+
+
+class ModelSettings(_EnvironmentSettings):
+    """Only the retry and timeout policy needed by an explicit model client."""
+
+    model_max_attempts: int = Field(
+        default=3, gt=0, validation_alias="GROUNDLINE_MODEL_MAX_ATTEMPTS"
+    )
+    """Attempts per model call, including the first request; 1 disables outage
+    retries. If the model answers in the wrong format, groundline can still
+    ask it to answer again in the required format."""
+
+    model_timeout_seconds: ClassVar[float] = 60
+    """Time for one model attempt."""
+    model_connect_timeout_seconds: ClassVar[float] = 5
+    model_retry_timeout_seconds: ClassVar[float] = 120
+    """Total time for one model call, including attempts and retry waits."""
+    model_retry_base_seconds: ClassVar[float] = 1
+    model_retry_cap_seconds: ClassVar[float] = 8
+
+
+class Settings(CheckSettings, ModelSettings):
+    """The application's complete configuration, including credentials."""
 
     anthropic_api_key: SecretStr | None = None
     database_url: SecretStr | None = None
@@ -74,6 +107,16 @@ class Settings(BaseSettings):
     database_admin_url: SecretStr | None = None
     """The Postgres admin login, which only setup and the database tests use to
     create the app's login and database. The app itself never gets it (ADR 0013)."""
+
+    # Seconds allowed per operation, capped by any enclosing check deadline.
+    db_auth_timeout_seconds: ClassVar[float] = 5
+    db_connect_timeout_seconds: ClassVar[float] = 5
+    db_pool_timeout_seconds: ClassVar[float] = 5
+    db_query_timeout_seconds: ClassVar[float] = 5
+    db_check_timeout_seconds: ClassVar[float] = 5
+    """Time to acquire a database connection and check that it works."""
+    db_readiness_timeout_seconds: ClassVar[float] = 5
+    """Time for the entire database startup or readiness probe."""
 
     def require_database_url(self) -> str:
         """Require storage only when an operation actually uses it."""
@@ -87,13 +130,21 @@ class Settings(BaseSettings):
 
 
 def read_settings(env_file: EnvFile) -> Settings:
-    """The settings from the environment and `env_file`, if given, or an error
-    naming only the problem's type and the file to check: a settings error can
-    quote the value it rejected, such as a key."""
+    return _read_settings(Settings, env_file)
+
+
+def read_check_settings(env_file: EnvFile = None) -> CheckSettings:
+    return _read_settings(CheckSettings, env_file)
+
+
+def read_model_settings(env_file: EnvFile = None) -> ModelSettings:
+    return _read_settings(ModelSettings, env_file)
+
+
+def _read_settings[T: BaseSettings](settings_type: type[T], env_file: EnvFile) -> T:
+    """Read only the requested settings, without exposing rejected values."""
     try:
-        # pydantic-settings takes `_env_file` at runtime, but pyright builds the
-        # constructor from the fields alone, so it doesn't know the argument.
-        return Settings(_env_file=env_file)  # pyright: ignore[reportCallIssue]
+        return settings_type(_env_file=env_file)  # pyright: ignore[reportCallIssue]
     except Exception as error:
         raise UnreadableSettingsError(type(error).__name__, env_file) from error
 

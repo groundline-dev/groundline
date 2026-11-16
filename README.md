@@ -45,7 +45,7 @@ Model calls need an Anthropic API key. Copy `.env.example` to `.env` and add you
 
 ## Managing API keys
 
-These are groundline API keys for callers of protected HTTP endpoints, separate from the Anthropic API key used for model calls. Set `DATABASE_URL` and complete the [database setup](DEVELOPMENT.md#getting-started) first; these commands access PostgreSQL directly and do not require the API server to be running or an Anthropic API key.
+These are groundline API keys for callers of protected HTTP endpoints, separate from the Anthropic API key used for model calls. Complete the [database setup](DEVELOPMENT.md#getting-started) first; these commands access PostgreSQL directly and do not require the API server to be running or an Anthropic API key.
 
 ```sh
 uv run groundline-core keys create
@@ -63,6 +63,11 @@ Creation prints the name, full UUID identifier, expiry, and plaintext API key **
 `keys list` shows every API key newest first in aligned columns, with its full UUID, name, identifying prefix, status, and UTC expiry (`never` when unset). Values are not truncated. It includes revoked and expired keys; an active key past its expiry displays as `expired` without changing its stored status. No credentials or hashes are shown. An empty database prints `No API keys found.` Prefixes help identify a key but are not guaranteed unique: use the full UUID to revoke it.
 
 Callers send `Authorization: Bearer <api-key>` to a protected route. Authentication checks the primary database on every request, so revocation affects subsequent checks across workers and app instances; requests already authorized may finish. Invalid, revoked, or expired API keys receive 401; unavailable authentication storage produces 503. `/health` and `/ready` remain public. The reusable dependency is available as described in [DEVELOPMENT.md](DEVELOPMENT.md#protecting-an-endpoint). `POST /v1/omissions` and `POST /v1/commissions` use this dependency. Missing API keys also receive 401; all credential rejections use `{"detail": "Invalid or missing API key"}` and `WWW-Authenticate: Bearer`.
+
+A connection error or timeout during commit does not prove the change failed. The database may have saved it before the connection dropped. Groundline does not automatically repeat the operation.
+
+- **If you were creating a key:** run `uv run groundline-core keys list`. Newest entries appear first. Look for an entry matching the name you supplied, if any, but remember that names can repeat. If you can identify the new key and never received its secret, revoke it using `uv run groundline-core keys revoke <key-id>`, then create a replacement. The secret cannot be retrieved later. If you cannot tell which entry is yours, investigate with the database operator before revoking anything or repeating creation.
+- **If you were revoking a key:** run `uv run groundline-core keys list` and find that key by its full ID. If it is revoked, the operation succeeded. If it is still active, you can repeat the revocation. If you cannot confirm its status, investigate before repeating the operation.
 
 ## Checking for omissions
 
@@ -192,7 +197,7 @@ for c in refute.commissions:
 
 ## Using the API
 
-Set up [PostgreSQL](DEVELOPMENT.md#getting-started) and configure `ANTHROPIC_API_KEY` first; `make dev` reads `DATABASE_URL` from `.env`. Start the API with `make dev`; it serves at http://127.0.0.1:8000, with interactive docs at `/docs` (also at `/api`) and a read-only reference at `/redoc`. The docs list each endpoint with example requests and responses, and explain how the API is versioned. To run the API and Postgres together in Docker instead, see [Running the whole stack in Docker](DEVELOPMENT.md#running-the-whole-stack-in-docker); to run them as a test deployment in your AWS project, see [Deploying to AWS](docs/deploying-to-aws.md). Both check endpoints require a groundline API key, and every check spends your Anthropic credit. `/health` and `/ready` are public. `/health` answers 200 while the app is running, and `/ready` answers 503 while the database is unavailable.
+Complete the [development setup](DEVELOPMENT.md#getting-started) first. Start the API with `make dev`; it serves at http://127.0.0.1:8000, with interactive docs at `/docs` (also at `/api`) and a read-only reference at `/redoc`. The docs list each endpoint with example requests and responses, and explain how the API is versioned. To run the API and Postgres together in Docker instead, see [Running the whole stack in Docker](DEVELOPMENT.md#running-the-whole-stack-in-docker); to run them as a test deployment in your AWS project, see [Deploying to AWS](docs/deploying-to-aws.md). Both check endpoints require a groundline API key, and every check spends your Anthropic credit. `/health` and `/ready` are public. `/health` answers 200 while the app is running, and `/ready` answers 503 while the database is unavailable.
 
 ### `POST /v1/omissions`
 
@@ -208,7 +213,7 @@ curl -s http://127.0.0.1:8000/v1/omissions \
   -d '{"source": "...transcript...", "summary": "...note..."}'
 ```
 
-`source` and `summary` must not be blank, and each can be up to 200,000 characters. A check takes about 30 to 60 seconds, so give your HTTP client a long timeout.
+`source` and `summary` must not be blank, and each can be up to 200,000 characters. The default whole-check limit is 120 seconds, including authentication, model calls, and retry waits. Set your HTTP client timeout above that limit to allow request and response transfer time. No timeout configuration is required. See [the overall check limit](DEVELOPMENT.md#overall-check-limit) if observed check durations justify changing it.
 
 ```json
 {
@@ -293,22 +298,31 @@ A score shows whether a critical problem was found, not how good the summary is 
 
 ### Statuses and errors
 
-Every finished check answers **200, flagged or not** ([ADR 0008](docs/adr/0008-the-api-returns-200-for-a-flagged-summary.md)). Other statuses mean the check couldn't finish. They apply to both endpoints:
+A completed check returns **200**, whether or not it flags the summary ([ADR 0008](docs/adr/0008-the-api-returns-200-for-a-flagged-summary.md)). A flagged summary is a completed result that requires review. Other statuses indicate that the request did not produce a completed check.
+
+Both check endpoints use the following statuses. Every error response is JSON with a `detail` field describing the error.
 
 | Status | Meaning |
 |---|---|
-| 400 | The body isn't valid UTF-8 text. (Bytes that begin like UTF-16 or UTF-32 text are read as that and answer 422 if they aren't JSON.) |
-| 401 | The groundline API key is missing, malformed, unknown, revoked, or expired. Includes `WWW-Authenticate: Bearer`. |
-| 404 | No such route. `detail` names the method and path, and points to `/docs`. |
-| 405 | The route doesn't take that method, such as `GET /v1/omissions`. |
-| 422 | The request is unusable: broken JSON, not a JSON object, a blank or too-long text, or an unexpected field. |
-| 500 | An unexpected error, a bug in groundline. Details are in the server log. |
-| 502 | The model or Anthropic's API failed: an unusable reply, a refusal or an outage. `detail` names the step and what the check had spent; for an Anthropic API error it gives only the status and error type. Retrying later may work. |
-| 503 | `ANTHROPIC_API_KEY` is missing or rejected, or settings cannot be read. It's also 503 when authentication is unavailable (missing/unusable `DATABASE_URL` or unavailable storage), with `{"detail": "Authentication is unavailable"}`. Model setup errors provide setup guidance, without the path of the server's `.env`. |
+| 400 | The server could not decode the request body. Send JSON encoded as UTF-8. |
+| 401 | The groundline API key is missing or invalid. Provide a valid, unexpired key in the `Authorization: Bearer ...` header. Revoked keys are not accepted. The response includes `WWW-Authenticate: Bearer`. |
+| 404 | The route does not exist. The error names the method and path you requested; `/docs` lists the available routes. |
+| 405 | The route exists, but does not accept the requested HTTP method. For example, checks require `POST`, not `GET`. |
+| 422 | The request is invalid. Check the JSON syntax, required fields, text length and any extra fields. The body must be a JSON object, and the source and summary must not be blank. |
+| 500 | An unexpected error occurred in groundline. Details are recorded in the server log. |
+| 502 | The model or Anthropic's API failed, refused the request, or returned a response groundline could not use. Retrying later may help. |
+| 503 | Model configuration or database authentication is unavailable. Expiry during authentication returns 503, whether the authentication limit or whole-check deadline fires first; no model work starts. |
+| 504 | A model attempt or retry allowance expired, or the whole-check deadline expired after successful authentication. |
 
-JSON parsing happens before authentication: broken JSON returns 422 and invalid UTF-8 bodies return 400 even without credentials. For readable JSON, authentication precedes field validation. Requests rejected by authentication never start the pipeline or make model calls.
+For **502** responses, `detail` identifies the step that failed and any usage recorded before it stopped. Anthropic API errors include the provider's status and error type. If a retry ends in a model error, the response is 502 even if an earlier attempt timed out.
 
-Every error answers with JSON: `{"detail": ...}`. Error responses and the server log never contain text from the source or summary. The log records each finished check's outcome, number of omissions or commissions, and cost, and each failure.
+For **503** responses, `detail` provides configuration guidance or reports that authentication is unavailable. The operator should check the [service configuration and database](DEVELOPMENT.md#getting-started).
+
+**Failed checks may still incur model charges.** Interrupted model requests can incur charges without returning usage, so costs reported in errors cover only recorded usage. The provider's bill may be higher. A retry near the deadline can also use the remaining time and incur charges without producing a result.
+
+The server parses JSON before authenticating the API key, then validates the fields after authentication. This means malformed JSON returns 422 even without credentials; a body that cannot be decoded returns 400. Bodies recognized as UTF-16 or UTF-32 are decoded before JSON parsing, and may also return 422. Requests rejected by authentication never start a check or make model calls.
+
+Error responses and server logs never include the source or summary text. Logs record each completed check's outcome, the number of omissions or commissions, and its cost, along with failures.
 
 ## Deploying to AWS
 
@@ -335,7 +349,7 @@ make aws-destroy   # when you're done
 
 ## Caching and sensitive data
 
-The library caches only when it's given a cache, and the CLI caches only with `--cache`. The cache is kept outside the repo, in your platform's cache folder (`~/Library/Caches/groundline` on macOS), or in `GROUNDLINE_CACHE_DIR` if set. It stores sources, summaries and the facts taken from them, so the CLI warns whenever it's on: **don't cache sensitive data**. `--json` output also contains text from the source and summary.
+The library caches only when it's given a cache, and the CLI caches only with `--cache`. The cache is kept outside the repo, in your platform's cache folder (`~/Library/Caches/groundline` on macOS), or in a configured cache directory. It stores sources, summaries and the facts taken from them, so the CLI warns whenever it's on: **don't cache sensitive data**. `--json` output also contains text from the source and summary.
 
 ## Contributing
 

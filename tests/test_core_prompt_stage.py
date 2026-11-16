@@ -117,7 +117,10 @@ def test_retries_once_with_the_parse_error_appended():
 def test_gives_up_after_one_retry_without_showing_the_reply():
     # A reply can quote the source, so its text stays out of error messages.
     reply = '{"value": "the patient said x"}'
-    with pytest.raises(StageError, match="unusable reply after 1 retry") as error:
+    with pytest.raises(
+        StageError,
+        match="The model’s reply remained unusable after a request for correction",
+    ) as error:
         run(FakeClient(['{"value": "x"}', reply]))
 
     assert "patient" not in str(error.value)
