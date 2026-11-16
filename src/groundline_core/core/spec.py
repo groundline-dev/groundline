@@ -155,11 +155,13 @@ def build_pipeline(
     """Check a spec and build its implementations.
 
     Each step may appear once, and a stage may only read steps that come earlier
-    in the list. That rule also rules out dependency cycles.
+    in the list. That rule also rules out dependency cycles. A stage that works
+    only with certain implementations of a step it reads says so in `works_with`.
     """
     problems: list[str] = []
     stages: list[PipelineStage] = []
     earlier: set[str] = set()
+    chosen: dict[str, str] = {}  # the implementation each earlier step uses
 
     for number, stage in enumerate(spec.stages, 1):
         where = f"stage {number} ({stage.step})"
@@ -186,6 +188,15 @@ def build_pipeline(
                     f"{where}: reads '{needed}', "
                     "which must come earlier in the pipeline"
                 )
+        for needed, usable in impl_type.works_with.items():
+            used = chosen.get(needed)
+            if used is not None and used not in usable:
+                choices = " or ".join(f"'{name}'" for name in usable)
+                problems.append(
+                    f"{where}: '{stage.implementation}' needs {needed} to be "
+                    f"{choices}, not '{used}'"
+                )
+        chosen[stage.step] = stage.implementation
 
         try:
             implementation = impl_type.model_validate(stage.settings)

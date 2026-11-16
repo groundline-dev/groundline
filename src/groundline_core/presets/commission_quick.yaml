@@ -10,7 +10,8 @@
 # in advance on 30 development pairs.
 #
 # Measured on 172 held-out commission pairs (pre-registered, confirmed):
-#   151 caught, 1/110 clean notes flagged, about $0.002 per note.
+#   151 caught, 1/110 clean notes flagged, about $0.001 per note
+#   ($0.002 per pair).
 #
 # Every setting is written out, so the preset doesn't change if a default does.
 
@@ -19,7 +20,8 @@ profile: clinical
 description: >-
   Quick commission check (one Haiku call that lists the unsupported or
   contradicted claims, refute off, alarm). Measured on 172 held-out commission
-  pairs: 151 caught, 1/110 clean notes flagged, about $0.002 per note.
+  pairs: 151 caught, 1/110 clean notes flagged, about $0.001 per note. It
+  passed its pre-registered test.
 
 stages:
   - step: commissions_check

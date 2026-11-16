@@ -6,7 +6,9 @@
 # unchanged. The strict threshold was fixed in advance on 60 calibration notes.
 #
 # Measured on 50 held-out OmissionBench notes, thresholds fixed beforehand:
-#   strict (0.90): 16/50 omissions caught, 1/50 clean notes flagged, ~$0.28 per note.
+#   strict (0.90): 16/50 omissions caught, 1/50 clean notes flagged, ~$0.21 per note.
+#   (The study's $0.28 per row covers an omitted and a clean note sharing one
+#   extract and rank.)
 #
 # Every setting is written out, so the preset doesn't change if a default does.
 
@@ -15,7 +17,7 @@ profile: clinical
 description: >-
   All-Opus omission check (extract, rank, batched check, refute, score, alarm).
   Measured on 50 held-out OmissionBench notes at the strict level: 16/50
-  omissions caught, 1/50 clean notes flagged, about $0.28 per note.
+  omissions caught, 1/50 clean notes flagged, about $0.21 per note.
 
 stages:
   - step: extract

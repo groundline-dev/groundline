@@ -170,8 +170,9 @@ def test_the_commissions_docs_offer_both_presets_with_quick_as_the_default():
     assert preset["enum"] == ["commission_quick", "commission_reverse_lean"]
     assert preset["default"] == DEFAULT_COMMISSIONS_PRESET
     assert "preset" not in body.get("required", [])
-    # The lean preset isn't confirmed to its pre-registered standard (ADR 0017),
-    # and the docs say so where a caller chooses it.
+    # Where a caller chooses, the docs say which presets passed their
+    # pre-registered tests: quick did, lean didn't (ADR 0017).
+    assert "It passed its pre-registered test." in preset["description"]
     assert "isn't confirmed to that standard" in preset["description"]
     for name in preset["enum"]:
         assert name in operation["description"]

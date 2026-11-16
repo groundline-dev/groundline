@@ -76,6 +76,17 @@ def test_rejects_reading_a_step_that_is_missing_or_comes_later():
     ]
 
 
+def test_rejects_a_stage_after_an_implementation_it_does_not_work_with():
+    polish = {"step": "polish", "implementation": "polish.basic_only"}
+    sneaky_join = {"step": "join", "implementation": "join.sneaky"}
+
+    assert problems(spec(UPPER, sneaky_join, polish)) == [
+        "stage 3 (polish): 'polish.basic_only' needs join to be 'join.basic', "
+        "not 'join.sneaky'"
+    ]
+    assert build_pipeline(spec(UPPER, JOIN, polish), make_registry())
+
+
 def test_rejects_switching_off_a_stage_that_cannot_be_switched_off():
     assert problems(spec({**UPPER, "enabled": False})) == [
         "stage 1 (upper): 'upper.basic' can't be switched off"

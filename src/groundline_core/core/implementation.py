@@ -155,6 +155,9 @@ class Implementation(BaseModel, ABC):
     """Bump when behavior changes, so cached outputs stop matching."""
     reads: ClassVar[tuple[str, ...]] = ()
     """Steps whose outputs this stage needs. They must come earlier in a pipeline."""
+    works_with: ClassVar[dict[str, tuple[str, ...]]] = {}
+    """For a step it reads whose output only some implementations make usable,
+    those implementations. A step not named here may use any."""
     uses: ClassVar[tuple[InputName, ...]] = ()
     """Inputs this stage reads: "source", "summary" or both."""
     can_disable: ClassVar[bool] = False
