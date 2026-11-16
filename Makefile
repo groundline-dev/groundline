@@ -30,7 +30,8 @@ test-live:
 	uv run pytest -m live -s
 
 # Read-only: lint, types, secrets, the large-file check and the tests that need nothing
-# running. CI also runs test-db, docker-smoke, core-check and infra-check.
+# running. CI also runs test-db, docker-smoke, core-check, sdk-check,
+# sdk-install-check and infra-check.
 check:
 	uv run pre-commit run --all-files
 	uv run pre-commit run secrets-tracked --hook-stage manual --all-files
@@ -51,12 +52,13 @@ core-check:
 generate-sdk:
 	scripts/generate-sdk
 
-# Regenerate the SDK and fail if the result differs from what is committed or
-# staged. CI runs it. A local run also flags the files it just changed, so
-# commit or stage the result of make generate-sdk first.
+# Regenerate the SDK and fail if the result differs from the staged files (the
+# last commit, where nothing is staged). CI runs it on a clean checkout. Locally,
+# stage the result of make generate-sdk first.
 sdk-check: generate-sdk
-	@changed="$$(git status --porcelain -- packages/groundline-client/openapi.json \
-		packages/groundline-client/src/groundline_client/_generated)"; \
+	@paths="packages/groundline-client/openapi.json \
+		packages/groundline-client/src/groundline_client/_generated"; \
+	changed="$$(git diff --name-only -- $$paths; git ls-files --others --exclude-standard -- $$paths)"; \
 	if [ -n "$$changed" ]; then \
 		echo "$$changed"; \
 		echo "sdk-check: the SDK is out of date. Run make generate-sdk and commit the result."; \

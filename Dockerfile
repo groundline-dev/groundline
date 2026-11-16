@@ -20,11 +20,15 @@ WORKDIR /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     --mount=type=bind,source=uv.lock,target=uv.lock \
     --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    --mount=type=bind,source=packages,target=packages \
     uv sync --locked --no-dev --extra server --extra cli --no-install-project
 
 # Then groundline itself, installed as a regular (non-editable) package, so the
 # runtime stage needs only the virtualenv, not the source tree.
+# packages/ holds only each workspace member's pyproject.toml (see .dockerignore):
+# uv checks that the members in uv.lock exist, but installs none of them.
 COPY pyproject.toml uv.lock README.md LICENSE NOTICE ./
+COPY packages ./packages
 COPY src ./src
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked --no-dev --extra server --extra cli --no-editable

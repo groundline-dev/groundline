@@ -13,8 +13,8 @@ from typing import Any, cast
 
 import pytest
 
-PACKAGE = Path(__file__).resolve().parents[1]
-SPEC = json.loads((PACKAGE / "openapi.json").read_text())
+PACKAGE_DIR = Path(__file__).resolve().parents[1]
+SPEC = json.loads((PACKAGE_DIR / "openapi.json").read_text())
 SCHEMAS: dict[str, Any] = SPEC["components"]["schemas"]
 
 # operation ID -> (request model, response model); no request model means the
@@ -38,22 +38,14 @@ def spec_operations() -> dict[str, tuple[str, str]]:
     }
 
 
-def generated_functions() -> set[str]:
-    """The names of the modules that hold one generated function per operation."""
+def generated_functions() -> dict[str, Any]:
+    """Operation ID -> the generated module that holds its function."""
     api = importlib.import_module("groundline_client._generated.api")
     return {
-        module.name.rsplit(".", 1)[1]
+        module.name.rsplit(".", 1)[1]: importlib.import_module(module.name)
         for module in pkgutil.walk_packages(api.__path__, f"{api.__name__}.")
         if not module.ispkg
     }
-
-
-def function_module(operation_id: str) -> Any:
-    api = importlib.import_module("groundline_client._generated.api")
-    for module in pkgutil.walk_packages(api.__path__, f"{api.__name__}."):
-        if module.name.rsplit(".", 1)[1] == operation_id:
-            return importlib.import_module(module.name)
-    raise AssertionError(f"no generated function for {operation_id}")
 
 
 def model(name: str) -> Any:
@@ -63,14 +55,14 @@ def model(name: str) -> Any:
 def test_the_spec_this_test_knows_and_the_generated_sdk_cover_the_same_operations():
     in_spec = set(spec_operations())
     assert in_spec == set(OPERATIONS), "add the new operation to OPERATIONS"
-    assert generated_functions() == in_spec, "run make generate-sdk"
+    assert set(generated_functions()) == in_spec, "run make generate-sdk"
 
 
 @pytest.mark.parametrize("operation_id", sorted(OPERATIONS))
 def test_the_generated_function_builds_the_request(operation_id: str):
     method, path = spec_operations()[operation_id]
     request_model, _ = OPERATIONS[operation_id]
-    function = function_module(operation_id)
+    function = generated_functions()[operation_id]
     if request_model is None:
         kwargs = cast(dict[str, Any], function._get_kwargs())
     else:
