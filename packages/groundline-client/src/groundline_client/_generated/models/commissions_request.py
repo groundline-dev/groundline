@@ -26,13 +26,12 @@ class CommissionsRequest:
             `commission_reverse_lean`: Lean commission check (Opus claims, one Opus support check, Opus refute, alarm).
             Measured on 172 commission pairs: 166 caught, 0/110 clean notes flagged, about $0.14 per note. It matched the
             exact preset's catches, but failed both of its pre-registered tests, a paired-score margin less than two pairs
-            wide and a false-alarm limit, so it isn't confirmed to that standard. Default:
-            CommissionsRequestPreset.COMMISSION_QUICK.
+            wide and a false-alarm limit, so it isn't confirmed to that standard.
     """
 
     source: str
     summary: str
-    preset: CommissionsRequestPreset | Unset = CommissionsRequestPreset.COMMISSION_QUICK
+    preset: CommissionsRequestPreset | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
         source = self.source
