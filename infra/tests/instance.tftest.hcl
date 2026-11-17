@@ -418,3 +418,36 @@ run "a_fractional_attempt_count_is_rejected" {
   }
   expect_failures = [var.app_settings]
 }
+
+run "a_lasting_deployment_has_no_time_limit_and_says_so" {
+  command = plan
+  variables {
+    lifetime             = "lasting"
+    auto_terminate_hours = 0
+  }
+
+  assert {
+    condition = (
+      aws_instance.app.tags["groundline-lifetime"] == "lasting"
+      && aws_instance.app.instance_initiated_shutdown_behavior == "stop"
+      && !strcontains(aws_instance.app.user_data, "groundline-expire")
+    )
+    error_message = "A lasting deployment's server should be tagged lasting, with no deadline, and only stop when shut down from inside."
+  }
+}
+
+run "a_lasting_deployment_with_a_time_limit_is_rejected" {
+  command = plan
+  variables {
+    lifetime = "lasting"
+  }
+  expect_failures = [var.lifetime]
+}
+
+run "an_unknown_lifetime_is_rejected" {
+  command = plan
+  variables {
+    lifetime = "permanent"
+  }
+  expect_failures = [var.lifetime]
+}

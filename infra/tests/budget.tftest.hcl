@@ -33,6 +33,41 @@ variables {
   git_ref            = "0123456789abcdef0123456789abcdef01234567"
 }
 
+run "a_lasting_deployment_budget_defaults_to_35_dollars" {
+  command = plan
+  variables {
+    lifetime             = "lasting"
+    auto_terminate_hours = 0
+  }
+
+  assert {
+    condition     = tonumber(aws_budgets_budget.monthly.limit_amount) == 35
+    error_message = "A lasting deployment's budget should default to 35 USD a month."
+  }
+}
+
+run "the_budget_amount_can_be_chosen" {
+  command = plan
+  variables {
+    lifetime             = "lasting"
+    auto_terminate_hours = 0
+    budget_amount        = 60
+  }
+
+  assert {
+    condition     = tonumber(aws_budgets_budget.monthly.limit_amount) == 60
+    error_message = "budget_amount should set the budget's amount."
+  }
+}
+
+run "a_budget_of_zero_is_rejected" {
+  command = plan
+  variables {
+    budget_amount = 0
+  }
+  expect_failures = [var.budget_amount]
+}
+
 run "the_budget_is_five_dollars_of_cost_a_month" {
   command = plan
 

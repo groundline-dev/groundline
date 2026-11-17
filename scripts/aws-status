@@ -19,6 +19,11 @@ use_project
 instance="$(terraform -chdir=infra output -raw instance_id 2>/dev/null || true)"
 if [ -z "$instance" ]; then
   other_deployments
+  # make aws-destroy keeps a lasting deployment's data and address.
+  if kept="$(terraform -chdir=infra/data output -raw public_ip 2>/dev/null)" && [ -n "$kept" ] \
+    && [ "$(terraform -chdir=infra/data output -raw lifetime 2>/dev/null || true)" = lasting ]; then
+    fail "your lasting deployment has no server in $(project_label), but its data and address ($kept) are kept: make aws-up brings it back, and make aws-destroy DATA=delete deletes them"
+  fi
   fail "you have nothing deployed to $(project_label): run make aws-up"
 fi
 # Runs on exit, so it also follows a failure, such as a terminated server.
@@ -26,6 +31,9 @@ trap other_deployments EXIT
 
 require_running
 echo "The server ($instance) is running in $(project_label) at $(terraform -chdir=infra output -raw app_url)"
+lifetime="$(terraform -chdir=infra output -raw lifetime 2>/dev/null || echo disposable)"
+running="$(terraform -chdir=infra output -raw git_ref 2>/dev/null || true)"
+echo "It's a $lifetime deployment${running:+, running ${running:0:7}}."
 
 deadline="$(on_server "cat $deadline_file 2>/dev/null || echo none" | tr -d '[:space:]')" \
   || fail "couldn't read the deadline from the server; if it started in the last few minutes, try again shortly"

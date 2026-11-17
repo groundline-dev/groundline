@@ -304,13 +304,46 @@ configured_access_mode() {
   esac
 }
 
+# choose_access_mode [DEFAULT]: ask who may reach the app and set
+# $access_mode. DEFAULT is 1 (IP-restricted, for testing) or 2 (unrestricted,
+# which a lasting deployment's callers need).
 choose_access_mode() {
-  echo "  1) IP-restricted HTTPS for testing from this computer (recommended)"
-  echo "  2) Unrestricted HTTPS for callers from any IP"
+  local default="${1:-1}"
+  if [ "$default" = 1 ]; then
+    echo "  1) IP-restricted HTTPS for testing from this computer (recommended)"
+    echo "  2) Unrestricted HTTPS for callers from any IP"
+  else
+    echo "  1) IP-restricted HTTPS for testing from this computer"
+    echo "  2) Unrestricted HTTPS for callers from any IP (recommended)"
+  fi
   bullet "Both use automatic certificates; protected API endpoints require API keys."
-  choose "Who may access the HTTPS application? (1 IP-restricted, 2 unrestricted)" 2 1
+  choose "Who may access the HTTPS application? (1 IP-restricted, 2 unrestricted)" 2 "$default"
   access_mode=restricted
   [ "$answer" = 1 ] || access_mode=unrestricted
+}
+
+# choose_lifetime: ask whether the deployment is disposable or lasting, and set
+# $lifetime. It's asked once per folder: a folder that manages a lasting
+# deployment manages only that one.
+choose_lifetime() {
+  echo "  1) Disposable: for trying a commit. It terminates itself after 8 hours, and"
+  echo "     make aws-destroy deletes it with its data."
+  echo "  2) Lasting: for staging or production. It keeps running, and keeps its data,"
+  echo "     API keys, settings and address when you upgrade it, until you delete it."
+  choose "Disposable or lasting? (1 disposable, 2 lasting)" 2 1
+  lifetime=disposable
+  [ "$answer" = 1 ] || lifetime=lasting
+}
+
+# configured_lifetime: the lifetime in infra/terraform.tfvars, or disposable,
+# as Terraform's default is.
+configured_lifetime() {
+  local lifetime
+  lifetime="$(tfvars_value lifetime)"
+  case "${lifetime:-disposable}" in
+    disposable | lasting) echo "${lifetime:-disposable}" ;;
+    *) fail "Unrecognized lifetime: $lifetime. Set lifetime = \"disposable\" or \"lasting\" in infra/terraform.tfvars." ;;
+  esac
 }
 
 public_ipv4() {
@@ -339,14 +372,39 @@ deployed_access_mode() {
 # Anthropic API key, as infra/main.tf builds it.
 anthropic_parameter() { echo "/groundline/$1/anthropic-api-key"; }
 
+# running_lifetimes: the groundline servers starting or running in this
+# project, one "NAME LIFETIME" a line, from their tags. A server from before
+# lifetimes counts as disposable.
+running_lifetimes() {
+  aws ec2 describe-instances --region "$region" \
+    --filters Name=tag:app,Values=groundline Name=instance-state-name,Values=pending,running \
+    --output json \
+    | jq -r '.Reservations[].Instances[] | (.Tags // [] | from_entries) as $tags
+      | select($tags.deployment) | "\($tags.deployment) \($tags["groundline-lifetime"] // "disposable")"' \
+    | sort -u
+}
+
 # running_deployments: the deployment names of the groundline servers starting
 # or running in this project, one a line, from their deployment tags.
 running_deployments() {
-  # shellcheck disable=SC2016  # the backticks are JMESPath's, not the shell's
-  aws ec2 describe-instances --region "$region" \
-    --filters Name=tag:app,Values=groundline Name=instance-state-name,Values=pending,running \
-    --query 'Reservations[].Instances[].Tags[?Key==`deployment`].Value[]' --output text \
-    | tr '\t' '\n' | sed '/^$/d' | sort -u
+  running_lifetimes | cut -d' ' -f1 | sort -u
+}
+
+# shared_project_warning NAME LIFETIME: warn when deployment NAME shares this
+# project with deployments of the other kind. Budget alerts cover the whole
+# project, so a lasting deployment's cost sets off the $5 disposable alerts,
+# and theirs counts toward its budget. It warns, since some have only one
+# project.
+shared_project_warning() {
+  local name="$1" lifetime="$2" running others lasting
+  running="$(running_lifetimes 2>/dev/null)" || return 0
+  others="$(awk -v name="$name" '$1 != name { print $1 }' <<<"$running" | join_names)"
+  lasting="$(awk -v name="$name" '$1 != name && $2 == "lasting" { print $1 }' <<<"$running" | join_names)"
+  if [ "$lifetime" = lasting ] && [ -n "$others" ]; then
+    answer_warn "other deployments run in $(project_label): $others. Budget alerts cover the whole project, so this deployment's cost sets off their \$5 alerts, and theirs counts toward its budget. A lasting deployment is best in an AWS project of its own."
+  elif [ "$lifetime" = disposable ] && [ -n "$lasting" ]; then
+    answer_warn "the lasting deployment $lasting runs in $(project_label). Budget alerts cover the whole project, so its cost sets off this deployment's \$5 alert. Test deployments are best in another AWS project."
+  fi
 }
 
 # other_deployments: say which other AWS projects still hold a deployment of
@@ -363,6 +421,42 @@ other_deployments() {
     bullet "To check it or delete it, run make aws-project and choose that project,"
     echo "    then make aws-status or make aws-destroy."
   done
+}
+
+# folder_lasting_deployments: the deployments this folder's infra/data/ state
+# holds, in any AWS project, one "ACCOUNT NAME LIFETIME" a line. The data
+# volume outlives the server, so this still lists a lasting deployment whose
+# server make aws-destroy deleted.
+folder_lasting_deployments() {
+  local state
+  for state in infra/data/terraform.tfstate.d/*/terraform.tfstate; do
+    [ -f "$state" ] || continue
+    jq -r --arg account "$(basename "$(dirname "$state")")" \
+      'select(.outputs.volume_id.value) | "\($account) \(.outputs.deployment_name.value // "") \(.outputs.lifetime.value // "disposable")"' \
+      "$state" 2>/dev/null || true
+  done
+}
+
+# guard_lasting_folder: fail unless this run deploys what the folder already
+# holds. infra/terraform.tfvars is the same for every AWS project the folder
+# deploys to, and a lasting deployment needs different settings from a
+# disposable one, so a folder that holds a lasting deployment deploys nothing
+# else. A disposable deployment can't become lasting either: a lasting one
+# starts with its own data and API keys.
+guard_lasting_folder() {
+  local name lifetime held_account held_name held_lifetime
+  name="$(deployment_name)"
+  lifetime="$(configured_lifetime)"
+  while read -r held_account held_name held_lifetime; do
+    [ -n "$held_account" ] || continue
+    if [ "$held_lifetime" = lasting ]; then
+      if [ "$held_account" != "$account" ] || [ "$held_name" != "$name" ] || [ "$lifetime" != lasting ]; then
+        fail "this folder manages the lasting deployment $held_name in account $held_account, so it deploys nothing else. Use another clone or worktree for other deployments, such as: git worktree add ../groundline-test"
+      fi
+    elif [ "$lifetime" = lasting ] && [ "$held_account" = "$account" ] && [ "$held_name" = "$name" ]; then
+      fail "$name is a disposable deployment, and one can't become lasting: a lasting deployment starts with its own data and API keys. Run make aws-destroy first, or choose another name."
+    fi
+  done < <(folder_lasting_deployments)
 }
 
 # The repository the server clones main from, and the default for every commit.
@@ -518,6 +612,14 @@ what_next() {
   echo "    and an API key from make aws-key. See docs/deploying-to-aws.md, \"Calling it from your app\"."
   echo
   echo "Your server is still running and costing money."
+  if [ "$(terraform -chdir=infra output -raw lifetime 2>/dev/null || true)" = lasting ]; then
+    bullet "It's a lasting deployment, so it has no time limit and costs about \$18 a month."
+    bullet "make aws-up upgrades it to another commit or settings. It keeps its data and address."
+    bullet "make aws-destroy deletes the server and keeps its data and address, for about"
+    echo "    \$4.25 a month; make aws-destroy DATA=delete deletes those too."
+    echo
+    return
+  fi
   hours="$(terraform -chdir=infra output -raw auto_terminate_hours 2>/dev/null || echo 8)"
   case "$deadline" in
     "")
@@ -545,6 +647,23 @@ describe_deadline() {
     echo "$when (it has passed; the server shuts down within 5 minutes)"
   else
     echo "$when ($((left / 3600)) h $((left % 3600 / 60)) min from now)"
+  fi
+}
+
+# describe_commit PLAN_JSON: the commit an update of the server moves it to,
+# from its groundline-git-ref tag, and whether that's older than the one it
+# runs, which is a rollback.
+describe_commit() {
+  local from to
+  from="$(jq -r '[.resource_changes[] | select(.type == "aws_instance" and .change.actions == ["update"])
+    | .change.before.tags["groundline-git-ref"] // empty][0] // empty' <<<"$1")"
+  to="$(jq -r '[.resource_changes[] | select(.type == "aws_instance" and .change.actions == ["update"])
+    | .change.after.tags["groundline-git-ref"] // empty][0] // empty' <<<"$1")"
+  [ -n "$from" ] && [ -n "$to" ] && [ "$from" != "$to" ] || return 0
+  echo "    It's upgraded from ${from:0:7} to ${to:0:7}."
+  if git merge-base --is-ancestor "$to" "$from" 2>/dev/null; then
+    echo "    ${to:0:7} is older than ${from:0:7}, so this rolls it back. If a database"
+    echo "    migration ran since, restore the pre-upgrade snapshot first (docs/deploying-to-aws.md)."
   fi
 }
 
@@ -631,6 +750,7 @@ describe_plan() {
         ;;
       aws_instance:update)
         echo "  · update your server ($id) in place. It keeps its data."
+        describe_commit "$1"
         describe_settings "$1"
         ;;
       aws_instance:delete) echo "  · delete your server ($id)." ;;

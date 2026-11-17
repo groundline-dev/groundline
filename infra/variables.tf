@@ -115,3 +115,29 @@ variable "app_settings" {
     error_message = "GROUNDLINE_MODEL_MAX_ATTEMPTS and the request size limits must be whole numbers."
   }
 }
+
+variable "lifetime" {
+  description = "disposable: for trying a commit; it terminates itself after auto_terminate_hours, and make aws-destroy deletes its data. lasting: for a deployment that keeps running, such as staging or production; it has no time limit, and make aws-destroy keeps its data and address unless DATA=delete."
+  type        = string
+  default     = "disposable"
+
+  validation {
+    condition     = contains(["disposable", "lasting"], var.lifetime)
+    error_message = "lifetime must be disposable or lasting."
+  }
+  validation {
+    condition     = var.lifetime != "lasting" || var.auto_terminate_hours == 0
+    error_message = "A lasting deployment has no time limit: set auto_terminate_hours = 0."
+  }
+}
+
+variable "budget_amount" {
+  description = "The monthly budget alert's amount, in US dollars. It defaults to $5 for a disposable deployment, to catch a forgotten server, and $35 for a lasting one, about twice what it costs. The alert covers the whole AWS project, so a lasting deployment is best in a project of its own."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.budget_amount == null || try(var.budget_amount > 0, false)
+    error_message = "budget_amount must be more than 0."
+  }
+}

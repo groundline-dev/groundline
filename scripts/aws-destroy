@@ -1,10 +1,17 @@
 #!/usr/bin/env bash
-# Destroy your AWS test deployment with Terraform, then ask AWS directly whether the
+# Destroy your AWS deployment with Terraform, then ask AWS directly whether the
 # instance, security group, IAM role, instance profile, budget, data volume and
 # Elastic IP are gone. It fails if any is still there, or if AWS can't say (an
 # expired sign-in, say).
 #
-# Usage: scripts/aws-destroy   (make aws-destroy)
+# Usage: scripts/aws-destroy               (make aws-destroy)
+#        scripts/aws-destroy --data delete (make aws-destroy DATA=delete)
+#
+# A lasting deployment keeps its data volume, its Elastic IP, its pre-upgrade
+# snapshot and its Anthropic API key, so make aws-up can bring it back with
+# its data, API keys and address. --data delete deletes them too, once you've
+# typed the deployment's name. A disposable deployment loses everything either
+# way.
 #
 # It acts on the project make aws-up or make aws-project last chose; to reach a
 # deployment in another project, run make aws-project first.
@@ -15,6 +22,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/aws-common.sh
+
+delete_data=""
+case "$*" in
+  "") ;;
+  "--data delete") delete_data=yes ;;
+  *) fail "usage: make aws-destroy, or make aws-destroy DATA=delete to delete a lasting deployment's data too" ;;
+esac
 
 use_project
 
@@ -31,8 +45,30 @@ volume="$(output volume_id infra/data)"
 address="$(output eip_allocation_id infra/data)"
 name="$(deployment_name)"
 anthropic_parameter="${anthropic_parameter:-${name:+$(anthropic_parameter "$name")}}"
+# The lifetime the deployment was made with, from its state; infra/data/ still
+# says once make aws-destroy has kept a lasting deployment's data.
+lifetime="$(output lifetime)"
+lifetime="${lifetime:-$(output lifetime infra/data)}"
+lifetime="${lifetime:-$(configured_lifetime)}"
+size="$(output data_volume_gib infra/data)"
+public_ip="$(output public_ip infra/data)"
 
-echo "Deleting your test deployment in $(project_label)."
+keep_data=""
+if [ "$lifetime" = lasting ] && [ -z "$delete_data" ]; then
+  keep_data=yes
+  echo "Deleting the server of your lasting deployment $name in $(project_label). Its data"
+  echo "volume, address, pre-upgrade snapshot and Anthropic API key stay, so make aws-up"
+  echo "can bring it back with its data, API keys and address."
+elif [ -n "$delete_data" ] && [ -n "$volume$address" ]; then
+  echo "This deletes your deployment $name in $(project_label) with its data: the"
+  echo "database and every API key in it, its address and its pre-upgrade snapshot."
+  bullet "Callers would need a new address and new API keys from a new deployment."
+  bullet "There's no backup: nothing can bring the data back."
+  ask "To delete $name and its data, type its name"
+  [ "$answer" = "$name" ] || fail "canceled: $name and its data are unchanged"
+else
+  echo "Deleting your test deployment in $(project_label)."
+fi
 
 # Plans both folders first, so one question covers the server and the data
 # volume and address it was attached to; on a disposable deployment they go
@@ -43,16 +79,63 @@ doing "Working out what will change"
 make_plan infra -destroy \
   -var "region=$region" -var "git_ref=unused" -var "access_mode=unrestricted" \
   -var "deployment_name=unused" -var "budget_alert_email=unused@example.com"
-server_plan="$planned" summary="$planned_summary"
-allow_data_deletion=yes make_plan infra/data -destroy \
-  -var "region=$region" -var "deployment_name=unused"
-data_plan="$planned"
-summary="$summary${summary:+${planned_summary:+$'\n'}}$planned_summary"
+server_plan="$planned" summary="$planned_summary" data_plan=""
+if [ -z "$keep_data" ]; then
+  allow_data_deletion=yes make_plan infra/data -destroy \
+    -var "region=$region" -var "deployment_name=unused"
+  data_plan="$planned"
+  summary="$summary${summary:+${planned_summary:+$'\n'}}$planned_summary"
+fi
 apply_plans "nothing to delete: Terraform's state for this project lists no resources." \
   "$summary" infra "$server_plan" infra/data "$data_plan"
 changed="$plan_changed"
 
 leftover=0
+
+# A kept lasting deployment's server is gone, and the rest stays for make
+# aws-up. Only the server's resources are checked.
+if [ -n "$keep_data" ]; then
+  if [ -n "$changed" ] || [ -n "$instance$group$role$profile$budget" ]; then
+    doing "Checking that the server is gone"
+    if [ -n "$instance" ] && instance_state="$(aws ec2 describe-instances --region "$region" \
+      --instance-ids "$instance" --query 'Reservations[0].Instances[0].State.Name' --output text 2>&1)" \
+      && [ "$instance_state" != terminated ]; then
+      check_error "instance $instance is $instance_state, not terminated"
+      leftover=1
+    else
+      check_ok "instance ${instance:-of this deployment} is gone"
+    fi
+  fi
+  [ "$leftover" = 0 ] || {
+    echo
+    fail "the server may still be running; see above, and check the AWS console"
+  }
+  monthly="$(awk -v gib="${size:-5}" 'BEGIN { printf "%.2f", 3.65 + gib * 0.08 }')"
+  echo
+  ok "deleted the server of $name and kept its data."
+  bullet "Its data volume (${volume:-unknown}, ${size:-5} GiB) and address (${public_ip:-unknown}) cost about \$$monthly a month."
+  bullet "make aws-up brings $name back with its data, API keys and address."
+  bullet "make aws-destroy DATA=delete deletes them, and its data, for good."
+  echo
+  exit 0
+fi
+
+# A deployment's pre-upgrade snapshots go with its data.
+if [ -n "$name" ]; then
+  snapshots="$(aws ec2 describe-snapshots --region "$region" --owner-ids self \
+    --filters "Name=tag:deployment,Values=$name" Name=tag-key,Values=groundline-pre-upgrade \
+    --query 'Snapshots[].SnapshotId' --output text 2>/dev/null || true)"
+  for snapshot in $snapshots; do
+    [ "$snapshot" != None ] || continue
+    doing "Deleting the pre-upgrade snapshot $snapshot"
+    if aws ec2 delete-snapshot --region "$region" --snapshot-id "$snapshot"; then
+      check_ok "deleted $snapshot"
+    else
+      check_error "couldn't delete $snapshot; delete it in the AWS console"
+      leftover=1
+    fi
+  done
+fi
 
 # The server is gone, so nothing needs the Anthropic API key any more.
 doing "Deleting your Anthropic API key"
@@ -143,6 +226,6 @@ fi
 }
 
 echo
-ok "your test deployment is deleted. To deploy again, run make aws-up."
+ok "your deployment is deleted. To deploy again, run make aws-up."
 other_deployments
 echo

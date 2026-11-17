@@ -42,6 +42,12 @@ esac
             source = source.replace(
                 "case", 'if [ "$1" = cat-file ]; then exit 1; fi\ncase', 1
             )
+        if name == "git" and world.get("branch"):
+            source = source.replace("echo main ;;", f"echo {world['branch']} ;;", 1)
+        if name == "git" and world.get("newer_commit"):
+            source = source.replace(
+                "case", 'if [ "$1" = merge-base ]; then exit 1; fi\ncase', 1
+            )
         if name == "git" and world.get("missing_apply"):
             source = source.replace(
                 "case",
@@ -130,7 +136,7 @@ def test_new_wizard_asks_once_and_saves_choice(checkout: Path, choice: str, mode
             'access_mode = "restricted" # keep this comment',
         )
     )
-    answers = f"\nalice\nalerts@example.com\n{choice}\n\n"
+    answers = f"\nalice\nalerts@example.com\n\n{choice}\n\n"
     result, _ = invoke(checkout, "aws-up", aws_fakes.new_world(), answers)
     assert result.returncode == 0, result.stdout + result.stderr
     saved = (checkout / "infra/terraform.tfvars").read_text()

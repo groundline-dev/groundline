@@ -53,8 +53,9 @@ resource "aws_ebs_volume" "data" {
   encrypted         = true
 
   tags = {
-    Name = "groundline-${var.deployment_name}-data"
-    role = "data"
+    Name     = "groundline-${var.deployment_name}-data"
+    role     = "data"
+    lifetime = var.lifetime
   }
 
   lifecycle {

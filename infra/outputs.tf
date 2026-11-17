@@ -70,3 +70,13 @@ output "app_settings" {
   description = "The app settings the server has, besides the app's defaults. scripts/aws-deploy lists them."
   value       = var.app_settings
 }
+
+output "lifetime" {
+  description = "disposable or lasting. scripts/aws-destroy keeps a lasting deployment's data."
+  value       = var.lifetime
+}
+
+output "budget_amount" {
+  description = "The monthly budget alert's amount, in US dollars."
+  value       = local.budget_amount
+}

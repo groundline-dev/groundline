@@ -268,6 +268,7 @@ resource "aws_instance" "app" {
   # instead of replacing it. They contain no secrets.
   tags = merge({
     Name                      = "groundline-${var.deployment_name}"
+    groundline-lifetime       = var.lifetime
     groundline-git-ref        = var.git_ref
     groundline-repository-url = var.repository_url
     groundline-access-mode    = var.access_mode

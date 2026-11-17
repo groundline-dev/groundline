@@ -112,5 +112,7 @@ aws-status:
 aws-reset-deadline:
 	scripts/aws-reset-deadline $(HOURS)
 
+# DATA=delete also deletes a lasting deployment's data volume, address and
+# snapshot, once you've typed its name; without it, they stay for make aws-up.
 aws-destroy:
-	scripts/aws-destroy
+	scripts/aws-destroy $(if $(DATA),--data "$(DATA)")

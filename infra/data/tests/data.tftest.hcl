@@ -112,3 +112,19 @@ run "the_outputs_give_the_scripts_what_they_read" {
     error_message = "The outputs should name the volume, its zone and size, and the Elastic IP and its address."
   }
 }
+
+run "the_volume_and_outputs_say_whose_it_is_and_how_long_it_lasts" {
+  command = plan
+  variables {
+    lifetime = "lasting"
+  }
+
+  assert {
+    condition = (
+      aws_ebs_volume.data.tags["lifetime"] == "lasting"
+      && output.deployment_name == "alice"
+      && output.lifetime == "lasting"
+    )
+    error_message = "The data volume and outputs should name the deployment and its lifetime, for the folder guard."
+  }
+}

@@ -24,3 +24,13 @@ output "data_volume_gib" {
   description = "The data volume's size, for the cost the scripts print."
   value       = aws_ebs_volume.data.size
 }
+
+output "deployment_name" {
+  description = "The deployment these belong to. scripts/aws-common.sh reads it from the state, to keep a folder from deploying another deployment over a lasting one."
+  value       = var.deployment_name
+}
+
+output "lifetime" {
+  description = "disposable or lasting, as the folder guard reads it."
+  value       = var.lifetime
+}

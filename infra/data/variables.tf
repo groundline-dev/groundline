@@ -36,3 +36,14 @@ variable "data_volume_gib" {
     error_message = "data_volume_gib should be a whole number of GiB from 1 to 100."
   }
 }
+
+variable "lifetime" {
+  description = "disposable or lasting, as in infra/variables.tf. It's kept here too, so a folder still knows it holds a lasting deployment's data after make aws-destroy keeps it."
+  type        = string
+  default     = "disposable"
+
+  validation {
+    condition     = contains(["disposable", "lasting"], var.lifetime)
+    error_message = "lifetime must be disposable or lasting."
+  }
+}

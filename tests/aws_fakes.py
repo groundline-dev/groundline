@@ -32,6 +32,11 @@ They answer only the calls the scripts make, the way the real tools answer:
   `describe-addresses`, `aws iam get-role`, `get-instance-profile` and `aws
   budgets describe-budget` find what `existing` lists, or fail with that
   service's not-found error. `aws ec2 modify-instance-attribute` is recorded.
+- `aws ec2 describe-instances` without --instance-ids lists `running`, each
+  {"name": ..., "lifetime": ...}, as servers with those tags.
+- `aws ec2 create-snapshot` adds to `snapshots` (the ids of the deployment's
+  pre-upgrade snapshots), `describe-snapshots` lists them and
+  `delete-snapshot` removes one.
 - With `error` set, every aws call fails with that error code, as with an
   expired sign-in.
 
@@ -98,6 +103,8 @@ def new_world(**fields: Any) -> dict[str, Any]:
         "account": "123456789012",
         "account_name": "Test project",
         "existing": {},
+        "running": [],
+        "snapshots": [],
         "error": None,
         "delete_parameter_error": None,
     }
@@ -365,6 +372,26 @@ def _reply(
             if not world["parameter_exists"]:
                 raise AWSError("ParameterNotFound", "DeleteParameter", "")
             world["parameter_exists"] = False
+            return {}
+        case ("ec2", "describe-instances") if "--instance-ids" not in options:
+            servers = [
+                {
+                    "Tags": [
+                        {"Key": "deployment", "Value": server["name"]},
+                        {"Key": "groundline-lifetime", "Value": server["lifetime"]},
+                    ]
+                }
+                for server in world["running"]
+            ]
+            return {"Reservations": [{"Instances": servers}]}
+        case ("ec2", "create-snapshot"):
+            snapshot_id = f"snap-{len(world['snapshots']) + 1:017d}"
+            world["snapshots"].append(snapshot_id)
+            return {"SnapshotId": snapshot_id, "VolumeId": options.get("--volume-id")}
+        case ("ec2", "describe-snapshots"):
+            return {"Snapshots": [{"SnapshotId": i} for i in world["snapshots"]]}
+        case ("ec2", "delete-snapshot"):
+            world["snapshots"].remove(options.get("--snapshot-id"))
             return {}
         case ("ec2", "describe-instances"):
             instance_id = options.get("--instance-ids")

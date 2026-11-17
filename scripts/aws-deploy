@@ -31,6 +31,8 @@ grep --quiet '^[[:space:]]*deployment_name[[:space:]]*=' infra/terraform.tfvars 
 
 use_project
 access_mode="$(configured_access_mode)"
+lifetime="$(configured_lifetime)"
+guard_lasting_folder
 anthropic_parameter="$(anthropic_parameter "$(deployment_name)")"
 
 ref="${REF:-HEAD}"
@@ -101,7 +103,7 @@ if [ -n "$previous_instance" ] \
 fi
 
 # The data volume and the address first: the server is attached to them.
-data_args=(-var "region=$region" -var "deployment_name=$(deployment_name)")
+data_args=(-var "region=$region" -var "deployment_name=$(deployment_name)" -var "lifetime=$lifetime")
 for setting in instance_type data_volume_gib; do
   value="$(tfvars_value "$setting")"
   [ -z "$value" ] || data_args+=(-var "$setting=$value")
@@ -116,11 +118,14 @@ plan_and_apply infra "Terraform configuration is unchanged for ${commit:0:7}; ch
 instance="$(terraform -chdir=infra output -raw instance_id)"
 hours="$(terraform -chdir=infra output -raw auto_terminate_hours)"
 # A disposable server's data volume goes with it when it terminates itself, so
-# a forgotten one leaves nothing that costs money. Terraform can't set this for
-# an attached volume, so it's set here; it's the same on every run.
+# a forgotten one leaves nothing that costs money; a lasting one's never does.
+# Terraform can't set this for an attached volume, so it's set here; it's the
+# same on every run.
+delete_on_termination=true
+[ "$lifetime" = disposable ] || delete_on_termination=false
 aws ec2 modify-instance-attribute --region "$region" --instance-id "$instance" \
-  --block-device-mappings '[{"DeviceName":"/dev/sdf","Ebs":{"DeleteOnTermination":true}}]' \
-  || fail "couldn't mark the data volume of $instance to be deleted with it; run make aws-deploy again"
+  --block-device-mappings "[{\"DeviceName\":\"/dev/sdf\",\"Ebs\":{\"DeleteOnTermination\":$delete_on_termination}}]" \
+  || fail "couldn't set whether the data volume of $instance goes with it; run make aws-deploy again"
 # A server that was already running is upgraded in place: it waits for its
 # tags to show this run's access settings, checks out the commit, and runs the
 # new commit's infra/server/apply, which rewrites .env (reading the Anthropic
@@ -132,6 +137,29 @@ aws ec2 modify-instance-attribute --region "$region" --instance-id "$instance" \
 if [ "$instance" = "$previous_instance" ]; then
   reset_deadline=""
   [ "$hours" = 0 ] || reset_deadline="echo \$((\$(date +%s) + $hours * 3600)) >$deadline_file.new && mv $deadline_file.new $deadline_file"
+  # A lasting deployment's data is copied first, so a bad database migration
+  # can be undone: restore this snapshot, then deploy the older commit. Only the
+  # newest is kept; it's a way back from one upgrade, not a backup.
+  if [ "$lifetime" = lasting ]; then
+    doing "Taking a snapshot of the data volume"
+    volume="$(output volume_id infra/data)"
+    snapshot="$(aws ec2 create-snapshot --region "$region" --volume-id "$volume" \
+      --description "groundline $(deployment_name), before upgrading to ${commit:0:7}" \
+      --tag-specifications "ResourceType=snapshot,Tags=[{Key=app,Value=groundline},{Key=deployment,Value=$(deployment_name)},{Key=groundline-pre-upgrade,Value=${commit:0:7}}]" \
+      --query SnapshotId --output text)" \
+      || fail "couldn't take a snapshot of the data volume $volume, so the server wasn't upgraded"
+    check_ok "took $snapshot of $volume"
+    for old in $(aws ec2 describe-snapshots --region "$region" --owner-ids self \
+      --filters "Name=tag:deployment,Values=$(deployment_name)" Name=tag-key,Values=groundline-pre-upgrade \
+      --query 'Snapshots[].SnapshotId' --output text); do
+      [ "$old" != "$snapshot" ] || continue
+      if aws ec2 delete-snapshot --region "$region" --snapshot-id "$old"; then
+        check_ok "deleted the older snapshot $old"
+      else
+        check_warn "couldn't delete the older snapshot $old; delete it in the AWS console"
+      fi
+    done
+  fi
   doing "Upgrading your server ($instance) in place to ${commit:0:7}"
   echo "It keeps its data, address and HTTPS certificate. This takes a few minutes."
   upgraded="$(on_server "set -eu; cd /opt/groundline; attempts=0
