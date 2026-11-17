@@ -19,7 +19,7 @@ import subprocess
 import sys
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 SPEC = Path(__file__).resolve().parents[1] / "packages/groundline-client/openapi.json"
 
@@ -54,26 +54,53 @@ def default_spec() -> dict[str, Any]:
     return json.loads(result.stdout)
 
 
+HTTP_METHODS = ("get", "put", "post", "delete", "options", "head", "patch", "trace")
+"""The keys of a path item that are operations; the others (`parameters`, `summary`
+and so on) are not."""
+
+
 def without_request_defaults(spec: dict[str, Any]) -> dict[str, Any]:
     """A copy of the description with the `default` of each request field removed.
 
     The generator turns a default into a value the SDK always sends, so a caller
     on an old SDK would keep sending the old default after the API changes it.
     Without it, the generated field is left out unless the caller sets it, and
-    the server chooses. Only the SDK's copy is changed: the API's own /docs still
-    shows the defaults, and responses are left alone.
+    the server chooses. Every schema a request body reaches is cleaned, however
+    deeply nested. Only the SDK's copy is changed: the API's own /docs still shows
+    the defaults, and fields only a response uses keep theirs.
     """
     result = copy.deepcopy(spec)
-    for methods in result["paths"].values():
-        for operation in methods.values():
-            content = operation.get("requestBody", {}).get("content", {})
-            for media in content.values():
-                reference = media.get("schema", {}).get("$ref")
-                if reference is None:
-                    continue
-                schema = result["components"]["schemas"][reference.rsplit("/", 1)[-1]]
-                for field in schema.get("properties", {}).values():
-                    field.pop("default", None)
+    schemas: dict[str, Any] = result.get("components", {}).get("schemas", {})
+    cleaned: set[str] = set()
+
+    def clean(schema: Any) -> None:
+        if not isinstance(schema, dict):
+            return
+        node = cast(dict[str, Any], schema)
+        reference = node.get("$ref")
+        if isinstance(reference, str):
+            name = reference.rsplit("/", 1)[-1]
+            if name not in cleaned and name in schemas:
+                cleaned.add(name)
+                clean(schemas[name])
+            return
+        for field in node.get("properties", {}).values():
+            if isinstance(field, dict):
+                cast(dict[str, Any], field).pop("default", None)
+            clean(field)
+        for key in ("allOf", "anyOf", "oneOf"):
+            for part in node.get(key, []):
+                clean(part)
+        clean(node.get("items"))
+        clean(node.get("additionalProperties"))
+
+    for item in result.get("paths", {}).values():
+        for method in HTTP_METHODS:
+            operation = item.get(method)
+            if operation is None:
+                continue
+            for media in operation.get("requestBody", {}).get("content", {}).values():
+                clean(media.get("schema"))
     return result
 
 

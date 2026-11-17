@@ -35,13 +35,24 @@ OPERATIONS: dict[str, tuple[str | None, str]] = {
 PROBE_REPLY = {"status": "ok"}
 
 
+HTTP_METHODS = ("get", "put", "post", "delete", "options", "head", "patch", "trace")
+
+
 def spec_operations() -> dict[str, tuple[str, str]]:
     """Operation ID -> (HTTP method, path), as openapi.json lists them."""
     return {
-        operation["operationId"]: (method, path)
-        for path, methods in SPEC["paths"].items()
-        for method, operation in methods.items()
+        item[method]["operationId"]: (method, path)
+        for path, item in SPEC["paths"].items()
+        for method in HTTP_METHODS
+        if method in item
     }
+
+
+def json_content(operation_id: str, status: str) -> dict[str, Any] | None:
+    """The JSON content of one documented reply, or None if it has no JSON body."""
+    method, path = spec_operations()[operation_id]
+    response = SPEC["paths"][path][method]["responses"][status]
+    return response.get("content", {}).get("application/json")
 
 
 def generated_functions() -> dict[str, Any]:
@@ -66,9 +77,8 @@ def test_the_spec_this_test_knows_and_the_generated_sdk_cover_the_same_operation
 
 def reply_examples(operation_id: str, status: str) -> list[Any]:
     """The documented examples of one reply, or the probe reply for a probe."""
-    _, path = spec_operations()[operation_id]
-    operation = next(iter(SPEC["paths"][path].values()))
-    content = operation["responses"][status]["content"]["application/json"]
+    content = json_content(operation_id, status)
+    assert content is not None, f"{operation_id} {status} has no JSON body"
     if "examples" in content:
         return [example["value"] for example in content["examples"].values()]
     schema_name = content["schema"].get("$ref", "").rsplit("/", 1)[-1]
@@ -77,22 +87,24 @@ def reply_examples(operation_id: str, status: str) -> list[Any]:
     return [PROBE_REPLY]
 
 
-def documented_replies() -> list[tuple[str, str, int]]:
-    """(operation ID, model the spec names, status) for every documented reply."""
+def documented_replies(*, with_json: bool) -> list[tuple[str, str, int]]:
+    """(operation ID, model the spec names, status) for every documented reply
+    that has a JSON body, or for those that have none."""
     replies: list[tuple[str, str, int]] = []
-    for methods in SPEC["paths"].values():
-        for operation in methods.values():
-            for status, response in operation["responses"].items():
-                operation_id = operation["operationId"]
-                schema = response["content"]["application/json"]["schema"]
-                # The probes' 200 replies are free-form maps, which the
-                # generator names after the operation (see OPERATIONS).
-                name = (
-                    schema["$ref"].rsplit("/", 1)[-1]
-                    if "$ref" in schema
-                    else OPERATIONS[operation_id][1]
-                )
-                replies.append((operation_id, name, int(status)))
+    for operation_id, (method, path) in spec_operations().items():
+        for status in SPEC["paths"][path][method]["responses"]:
+            content = json_content(operation_id, status)
+            if (content is not None) != with_json:
+                continue
+            schema: dict[str, Any] = content["schema"] if content else {}
+            # The probes' 200 replies are free-form maps, which the generator
+            # names after the operation (see OPERATIONS).
+            name: str = (
+                str(schema["$ref"]).rsplit("/", 1)[-1]
+                if "$ref" in schema
+                else OPERATIONS[operation_id][1]
+            )
+            replies.append((operation_id, name, int(status)))
     return replies
 
 
@@ -139,7 +151,9 @@ def test_the_generated_function_sends_the_request_the_spec_describes(
         assert json.loads(seen[0].content) == SCHEMAS[request_model]["examples"][0]
 
 
-@pytest.mark.parametrize(("operation_id", "model_name", "status"), documented_replies())
+@pytest.mark.parametrize(
+    ("operation_id", "model_name", "status"), documented_replies(with_json=True)
+)
 def test_the_generated_function_parses_each_documented_reply_into_the_named_model(
     operation_id: str, model_name: str, status: int
 ):
@@ -158,3 +172,10 @@ def test_the_map_names_the_model_the_generated_parser_returns_for_a_200(
     example = reply_examples(operation_id, "200")[0]
     response = call(operation_id, replying(200, example))
     assert type(response.parsed) is model(response_model)
+
+
+def test_a_documented_reply_without_a_body_parses_to_nothing():
+    for operation_id, _, status in documented_replies(with_json=False):
+        response = call(operation_id, lambda _request: httpx2.Response(status))
+        assert response.status_code == status
+        assert response.parsed is None

@@ -11,21 +11,28 @@
 # With an output folder it writes openapi.json and _generated/ there and leaves
 # the repo alone; make sdk-check uses that to compare without changing files.
 set -euo pipefail
+
+# An output folder is read against where you ran the script, not the repo root.
+out=""
+if [ $# -gt 0 ]; then
+  mkdir -p -- "$1"
+  out="$(cd -- "$1" && pwd)"
+fi
+
 cd "$(dirname "$0")/.."
 
 package=packages/groundline-client
-if [ $# -gt 0 ]; then
-  out="$1"
-else
-  out=""
-fi
 spec=${out:-$package}/openapi.json
 generated=${out:-$package/src/groundline_client}/_generated
 
-# Build everything in a temporary folder and only then replace the real one, so a
-# generator error leaves the committed _generated/ as it was.
+# The generator runs in a temporary folder, away from the repo's ruff settings, so
+# the output doesn't depend on where the repo is.
 work="$(mktemp -d)"
-trap 'rm -rf "$work"' EXIT
+# The result is then copied next to where it will live, so replacing the real
+# folder is a rename on one disk. A failure before that leaves it as it was.
+mkdir -p -- "$(dirname "$generated")"
+stage="$(mktemp -d "$(dirname "$generated")/.generate-sdk.XXXXXX")"
+trap 'rm -rf "$work" "$stage"' EXIT
 
 uv run python scripts/export_openapi.py "$work/openapi.json"
 
@@ -47,12 +54,20 @@ and CI fails if the committed copy differs from what the generator produces.
 To change it, change the API and run `make generate-sdk` from the repository root.
 NOTICE
 
+cp -R "$work/_generated" "$stage/_generated"
+cp "$work/openapi.json" "$stage/openapi.json"
+
 # Replacing the whole folder, not overwriting into it, also drops the module of an
 # endpoint that was removed from the API; otherwise the freshness check would
-# never notice it.
-mkdir -p "$(dirname "$generated")"
-rm -rf -- "${generated:?}"
-mv "$work/_generated" "$generated"
-mv "$work/openapi.json" "$spec"
+# never notice it. The old folder is kept until the new one is in place.
+if [ -e "$generated" ]; then
+  mv -- "$generated" "$stage/previous"
+fi
+if ! mv -- "$stage/_generated" "$generated"; then
+  if [ -e "$stage/previous" ]; then mv -- "$stage/previous" "$generated"; fi
+  echo "generate-sdk: couldn't replace $generated; it is as it was" >&2
+  exit 1
+fi
+mv -- "$stage/openapi.json" "$spec"
 
 echo "generated $generated from $spec: commit the changed files"
