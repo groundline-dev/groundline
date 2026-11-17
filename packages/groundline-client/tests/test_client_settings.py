@@ -7,7 +7,7 @@ from typing import Any
 
 import groundline_client as sdk
 import pytest
-from conftest import KEY_VARIABLE, URL_VARIABLE, FakeServer
+from conftest import API_KEY_VARIABLE, URL_VARIABLE, FakeServer
 
 PUBLIC_NAMES = [
     "GroundlineClient",
@@ -44,7 +44,7 @@ def test_environment_variables_alone_are_enough(
     fake_server: FakeServer, api_key: str, monkeypatch: pytest.MonkeyPatch
 ):
     monkeypatch.setenv(URL_VARIABLE, fake_server.url)
-    monkeypatch.setenv(KEY_VARIABLE, api_key)
+    monkeypatch.setenv(API_KEY_VARIABLE, api_key)
     client: Any = sdk.GroundlineClient()
     client.health()
     assert fake_server.requests[-1].headers["authorization"] == f"Bearer {api_key}"
@@ -54,7 +54,7 @@ def test_arguments_win_over_environment_variables(
     fake_server: FakeServer, api_key: str, monkeypatch: pytest.MonkeyPatch
 ):
     monkeypatch.setenv(URL_VARIABLE, UNUSED_URL)
-    monkeypatch.setenv(KEY_VARIABLE, "environment-key")
+    monkeypatch.setenv(API_KEY_VARIABLE, "environment-key")
     client: Any = sdk.GroundlineClient(base_url=fake_server.url, api_key=api_key)
     client.health()
     assert fake_server.requests[-1].headers["authorization"] == f"Bearer {api_key}"
@@ -64,7 +64,7 @@ def test_an_empty_argument_falls_back_to_the_environment_variable(
     fake_server: FakeServer, api_key: str, monkeypatch: pytest.MonkeyPatch
 ):
     monkeypatch.setenv(URL_VARIABLE, fake_server.url)
-    monkeypatch.setenv(KEY_VARIABLE, api_key)
+    monkeypatch.setenv(API_KEY_VARIABLE, api_key)
     client: Any = sdk.GroundlineClient(base_url="", api_key="")
     client.health()
     assert fake_server.requests[-1].headers["authorization"] == f"Bearer {api_key}"
@@ -82,13 +82,15 @@ def test_a_missing_url_fails_at_once_and_names_only_the_url(api_key: str):
     with pytest.raises(sdk.GroundlineConfigError) as raised:
         sdk.GroundlineClient(api_key=api_key)
     assert URL_VARIABLE in str(raised.value)
-    assert KEY_VARIABLE not in str(raised.value)
+    assert API_KEY_VARIABLE not in str(raised.value)
 
 
-def test_a_missing_key_fails_at_once_and_names_only_the_key(fake_server: FakeServer):
+def test_a_missing_api_key_fails_at_once_and_names_only_the_api_key(
+    fake_server: FakeServer,
+):
     with pytest.raises(sdk.GroundlineConfigError) as raised:
         sdk.GroundlineClient(base_url=fake_server.url)
-    assert KEY_VARIABLE in str(raised.value)
+    assert API_KEY_VARIABLE in str(raised.value)
     assert URL_VARIABLE not in str(raised.value)
 
 
@@ -96,14 +98,14 @@ def test_missing_both_names_both():
     with pytest.raises(sdk.GroundlineConfigError) as raised:
         sdk.GroundlineClient()
     assert URL_VARIABLE in str(raised.value)
-    assert KEY_VARIABLE in str(raised.value)
+    assert API_KEY_VARIABLE in str(raised.value)
 
 
 @pytest.mark.parametrize("blank", ["", "   ", "\t\n"])
 def test_a_blank_value_counts_as_missing(
     blank: str, fake_server: FakeServer, api_key: str
 ):
-    with pytest.raises(sdk.GroundlineConfigError, match=KEY_VARIABLE):
+    with pytest.raises(sdk.GroundlineConfigError, match=API_KEY_VARIABLE):
         sdk.GroundlineClient(base_url=fake_server.url, api_key=blank)
     with pytest.raises(sdk.GroundlineConfigError, match=URL_VARIABLE):
         sdk.GroundlineClient(base_url=blank, api_key=api_key)

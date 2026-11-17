@@ -27,13 +27,14 @@ or pass them as arguments, which win over the environment variables:
 client = GroundlineClient(base_url="https://groundline.example.com", api_key=key)
 ```
 
-Don't write the key as a literal in your code or type it on a command line:
+Don't write the API key as a literal in your code or type it on a command line:
 both end up in git or your shell history. Read it from your secret store or
 environment.
 
-If the URL or key is missing, creating the client fails at once with a message
-naming the setting. The key never appears in the client's `repr`, in error
-messages or in logs.
+If the URL or API key is missing, creating the client fails at once with a message
+naming the setting. The client doesn't print the API key in its `repr` or its
+own error messages, and its tests check that the key stays out of tracebacks
+and of the logs of the libraries it uses.
 
 Each method has an `_async` twin (`await client.health_async()`; use
 `async with` to close the connections). A method returns the parsed response

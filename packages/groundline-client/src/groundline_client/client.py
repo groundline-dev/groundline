@@ -21,10 +21,10 @@ from ._generated.models import (
 from .errors import GroundlineConfigError
 
 URL_VARIABLE = "GROUNDLINE_API_URL"
-KEY_VARIABLE = "GROUNDLINE_API_KEY"
+API_KEY_VARIABLE = "GROUNDLINE_API_KEY"
 
 
-def _setting(argument: str | None, variable: str) -> str | None:
+def _argument_or_variable(argument: str | None, variable: str) -> str | None:
     """The argument, else the environment variable, else None; blank is None."""
     for value in (argument, os.environ.get(variable)):
         if value is not None and value.strip():
@@ -32,31 +32,33 @@ def _setting(argument: str | None, variable: str) -> str | None:
     return None
 
 
-def read_settings(base_url: str | None, api_key: str | None) -> tuple[str, str]:
+def resolve_url_and_api_key(
+    base_url: str | None, api_key: str | None
+) -> tuple[str, str]:
     """Return the URL and API key to use, or raise saying which is wrong."""
-    url = _setting(base_url, URL_VARIABLE)
-    key = _setting(api_key, KEY_VARIABLE)
+    chosen_url = _argument_or_variable(base_url, URL_VARIABLE)
+    chosen_api_key = _argument_or_variable(api_key, API_KEY_VARIABLE)
     problems: list[str] = []
-    if url is None:
+    if chosen_url is None:
         problems.append(f"No API URL: pass base_url= or set {URL_VARIABLE}.")
     else:
-        parts = urlsplit(url)
+        parts = urlsplit(chosen_url)
         if parts.scheme not in ("http", "https") or not parts.netloc:
             problems.append(
                 "The API URL must start with http:// or https:// "
                 f"(from base_url= or {URL_VARIABLE})."
             )
-    if key is None:
-        problems.append(f"No API key: pass api_key= or set {KEY_VARIABLE}.")
-    if problems or url is None or key is None:
+    if chosen_api_key is None:
+        problems.append(f"No API key: pass api_key= or set {API_KEY_VARIABLE}.")
+    if problems or chosen_url is None or chosen_api_key is None:
         raise GroundlineConfigError(" ".join(problems))
-    return url, key
+    return chosen_url, chosen_api_key
 
 
-class _KeyHidingClient(AuthenticatedClient):
+class _ApiKeyHidingClient(AuthenticatedClient):
     """The generated client, whose `repr` would otherwise print the API key.
 
-    It shows the key twice: as `token`, and in its headers after the first
+    It shows the API key twice: as `token`, and in its headers after the first
     call. Tools that dump a traceback's local variables call `repr` on it.
     """
 
@@ -67,7 +69,7 @@ class _KeyHidingClient(AuthenticatedClient):
 class GroundlineClient:
     """Calls a groundline deployment's API with an API key.
 
-    The URL and key come from the arguments, or else from the environment
+    The URL and API key come from the arguments, or else from the environment
     variables `GROUNDLINE_API_URL` and `GROUNDLINE_API_KEY`; an argument wins
     over its variable. A missing or unusable value raises
     `GroundlineConfigError` here, before any request is made.
@@ -79,9 +81,11 @@ class GroundlineClient:
     """
 
     def __init__(self, base_url: str | None = None, api_key: str | None = None) -> None:
-        url, key = read_settings(base_url, api_key)
-        self._base_url = url
-        self._client = _KeyHidingClient(base_url=url, token=key)
+        resolved_url, resolved_api_key = resolve_url_and_api_key(base_url, api_key)
+        self._base_url = resolved_url
+        self._client = _ApiKeyHidingClient(
+            base_url=resolved_url, token=resolved_api_key
+        )
 
     def __repr__(self) -> str:
         return f"GroundlineClient(base_url={self._base_url!r})"

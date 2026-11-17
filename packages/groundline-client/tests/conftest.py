@@ -6,6 +6,7 @@ reaches the real API.
 """
 
 import json
+import socket
 import threading
 from collections.abc import Iterator
 from dataclasses import dataclass
@@ -18,7 +19,7 @@ import pytest
 SPEC = json.loads((Path(__file__).resolve().parents[1] / "openapi.json").read_text())
 PROBE_REPLY = {"status": "ok"}
 URL_VARIABLE = "GROUNDLINE_API_URL"
-KEY_VARIABLE = "GROUNDLINE_API_KEY"
+API_KEY_VARIABLE = "GROUNDLINE_API_KEY"
 
 
 @dataclass(frozen=True)
@@ -111,4 +112,12 @@ def api_key() -> str:
 def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
     """A developer's own settings must not change what a test sees."""
     monkeypatch.delenv(URL_VARIABLE, raising=False)
-    monkeypatch.delenv(KEY_VARIABLE, raising=False)
+    monkeypatch.delenv(API_KEY_VARIABLE, raising=False)
+
+
+@pytest.fixture
+def closed_port() -> int:
+    """A local port nothing listens on, so a request to it is refused."""
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]

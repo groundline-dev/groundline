@@ -1,7 +1,8 @@
 """What each client method sends and returns, sync and async (R1, R4, ALL-156)."""
 
 import asyncio
-import socket
+import importlib
+import pkgutil
 from typing import Any
 
 import groundline_client as sdk
@@ -77,7 +78,7 @@ def test_each_method_calls_its_route_and_returns_the_parsed_reply(
 @pytest.mark.parametrize(
     ("operation", "request_model"), [(o[0], o[3]) for o in OPERATIONS]
 )
-def test_every_call_sends_the_key_as_a_bearer_token(
+def test_every_call_sends_the_api_key_as_a_bearer_token(
     operation: str,
     request_model: str | None,
     is_async: bool,
@@ -118,13 +119,37 @@ def test_an_undocumented_status_comes_back_as_none(
     assert client.health() is None
 
 
-def test_a_server_that_is_not_listening_raises_a_connection_error(api_key: str):
-    with socket.socket() as probe:
-        probe.bind(("127.0.0.1", 0))
-        closed_port = probe.getsockname()[1]
+def test_a_server_that_is_not_listening_raises_a_connection_error(
+    api_key: str, closed_port: int
+):
     client: Any = sdk.GroundlineClient(
         base_url=f"http://127.0.0.1:{closed_port}", api_key=api_key
     )
 
     with pytest.raises(httpx2.ConnectError):
         client.health()
+
+
+# The generated operations whose client method has a different name.
+CLIENT_METHOD_NAMES = {"get_health": "health", "get_ready": "ready"}
+
+
+def test_every_generated_operation_has_a_client_method_and_an_async_twin():
+    api = importlib.import_module("groundline_client._generated.api")
+    operations = {
+        module.name.rsplit(".", 1)[1]
+        for module in pkgutil.walk_packages(api.__path__, f"{api.__name__}.")
+        if not module.ispkg
+    }
+    expected = {
+        name
+        for operation in operations
+        for name in (
+            CLIENT_METHOD_NAMES.get(operation, operation),
+            f"{CLIENT_METHOD_NAMES.get(operation, operation)}_async",
+        )
+    }
+    missing = sorted(
+        name for name in expected if not hasattr(sdk.GroundlineClient, name)
+    )
+    assert not missing, f"add these methods to GroundlineClient: {missing}"
