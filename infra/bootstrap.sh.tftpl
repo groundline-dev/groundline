@@ -115,7 +115,7 @@ for attempt in $(seq 1 120); do
 done
 if ! blkid "$device" >/dev/null 2>&1; then
   echo "groundline bootstrap: formatting the new data volume"
-  mkfs.xfs -q -L groundline-data "$device"
+  mkfs.xfs -q -L groundline "$device"
 fi
 uuid="$(blkid -s UUID -o value "$device")"
 mkdir -p "$data" /var/lib/docker/volumes

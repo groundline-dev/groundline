@@ -135,6 +135,13 @@ def test_only_the_server_decrypts_the_anthropic_parameter():
     assert not readers, f"{readers} read the Anthropic API key"
 
 
+def test_the_data_volume_label_fits_xfs():
+    """mkfs.xfs rejects a label longer than 12 characters, which stops the bootstrap."""
+    labels = re.findall(r"mkfs\.xfs\b[^\n]*?-L\s+(\S+)", BOOTSTRAP.read_text())
+    assert labels
+    assert all(len(label.strip("\"'")) <= 12 for label in labels), labels
+
+
 def test_the_security_group_has_one_inbound_rule():
     """Public TCP 443 allows TLS validation; Caddy restricts application access."""
     assert len(blocks("resource", "aws_vpc_security_group_ingress_rule")) == 1
