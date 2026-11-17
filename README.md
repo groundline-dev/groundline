@@ -4,6 +4,12 @@ groundline checks an AI-written summary against its source. Its **omission check
 
 **Status:** early development. It is research code, **not for clinical use**, and must not be used with real patient data yet (see [Caching and sensitive data](#caching-and-sensitive-data)).
 
+## Ways to use groundline
+
+- **Python library:** import `groundline_core` to run checks inside a Python app (see [Using it from Python](#using-it-from-python)).
+- **Command line:** `groundline-core omissions` or `groundline-core commissions` checks files from a terminal or script (see [Checking for omissions](#checking-for-omissions) and [Checking for commissions](#checking-for-commissions)).
+- **HTTP API:** run the server when several apps, or apps in other languages, need to call groundline over HTTP (see [Using the API](#using-the-api)).
+
 ## How it works
 
 The default pipeline, the **all-Opus omission check**, runs six steps:
