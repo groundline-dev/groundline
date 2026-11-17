@@ -22,21 +22,22 @@ fi
 spec=${out:-$package}/openapi.json
 generated=${out:-$package/src/groundline_client}/_generated
 
-uv run python scripts/export_openapi.py "$spec"
+# Build everything in a temporary folder and only then replace the real one, so a
+# generator error leaves the committed _generated/ as it was.
+work="$(mktemp -d)"
+trap 'rm -rf "$work"' EXIT
 
-# --overwrite only replaces the files the generator writes. Without clearing the
-# folder first, the module of an endpoint that was removed from the API would
-# stay behind, and the freshness check would never notice.
-rm -rf -- "${generated:?}"
+uv run python scripts/export_openapi.py "$work/openapi.json"
 
-# The generator is a dev dependency of the SDK, pinned in uv.lock.
+# The generator is a dev dependency of the SDK, pinned to an exact version in the
+# SDK's pyproject.toml.
 uv run --package groundline-client openapi-python-client generate \
-  --path "$spec" \
+  --path "$work/openapi.json" \
   --config "$package/generator-config.yaml" \
   --meta none \
-  --output-path "$generated"
+  --output-path "$work/_generated"
 
-cat > "$generated/README.md" <<'NOTICE'
+cat > "$work/_generated/README.md" <<'NOTICE'
 # Generated code: don't edit by hand
 
 Everything in this folder is generated from `packages/groundline-client/openapi.json`
@@ -45,5 +46,13 @@ and CI fails if the committed copy differs from what the generator produces.
 
 To change it, change the API and run `make generate-sdk` from the repository root.
 NOTICE
+
+# Replacing the whole folder, not overwriting into it, also drops the module of an
+# endpoint that was removed from the API; otherwise the freshness check would
+# never notice it.
+mkdir -p "$(dirname "$generated")"
+rm -rf -- "${generated:?}"
+mv "$work/_generated" "$generated"
+mv "$work/openapi.json" "$spec"
 
 echo "generated $generated from $spec: commit the changed files"

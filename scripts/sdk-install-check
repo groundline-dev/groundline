@@ -3,7 +3,7 @@
 #   - `import groundline_client` works, and so do the generated functions
 #   - none of groundline-core's packages came with it: not groundline-core itself,
 #     the Anthropic SDK, the server or the command-line packages
-#   - the wheel holds the generated code
+#   - the wheel holds the generated code, the LICENSE and the NOTICE
 #
 # It builds the wheel, then installs it into two new, empty environments: one
 # with pip and one with uv pip, since users may install with either.
@@ -31,6 +31,10 @@ for member in groundline_client/py.typed \
   groundline_client/_generated/api/v1/evaluate_omissions.py \
   groundline_client/_generated/models/omissions_response.py; do
   grep -q " $member\$" <<<"$listing" || fail "the wheel doesn't hold $member"
+done
+for member in LICENSE NOTICE; do
+  grep -Eq " groundline_client-[^/]*\\.dist-info/licenses/$member\$" <<<"$listing" \
+    || fail "the wheel's dist-info doesn't hold $member"
 done
 if grep -q "ruff_cache\|__pycache__" <<<"$listing"; then
   fail "the wheel holds cache folders: $(grep "ruff_cache\|__pycache__" <<<"$listing")"

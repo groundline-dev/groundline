@@ -1,0 +1,7 @@
+groundline
+Copyright 2026 The groundline Authors
+
+The test fixtures in tests/fixtures/parity/ are not covered by the Apache
+License. They are rows of OmissionBench (Composo AI), derived from PriMock57
+(Babylon Health), both licensed under CC BY 4.0. The ATTRIBUTION.md in each
+fixture folder gives the full credits and the changes made.
