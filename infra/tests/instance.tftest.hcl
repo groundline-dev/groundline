@@ -255,14 +255,14 @@ run "the_server_runs_in_the_volume_zone_with_the_volume_and_address_attached" {
   }
   assert {
     condition = (
-      aws_volume_attachment.data.volume_id == "vol-0123456789abcdef0"
-      && aws_volume_attachment.data.device_name == "/dev/sdf"
-      && aws_volume_attachment.data.stop_instance_before_detaching == true
+      aws_volume_attachment.data[0].volume_id == "vol-0123456789abcdef0"
+      && aws_volume_attachment.data[0].device_name == "/dev/sdf"
+      && aws_volume_attachment.data[0].stop_instance_before_detaching == true
     )
     error_message = "The data volume should be attached as /dev/sdf, stopping the server before it's detached."
   }
   assert {
-    condition     = aws_eip_association.app.allocation_id == "eipalloc-0123456789abcdef0"
+    condition     = aws_eip_association.app[0].allocation_id == "eipalloc-0123456789abcdef0"
     error_message = "The Elastic IP should be associated with the server."
   }
 }

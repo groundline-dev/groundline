@@ -319,6 +319,10 @@ def test_data_delete_deletes_everything_once_the_name_is_typed(checkout: Path):
     assert world["snapshots"] == []
     assert not world["parameter_exists"]
     assert "There's no backup" in result.stdout
+    # The server's Terraform finds the volume and address by the name.
+    plans = [c for c in world["calls"] if c[0] == "terraform" and "plan" in c]
+    assert len(plans) == 2
+    assert all("deployment_name=staging" in plan for plan in plans), plans
 
 
 def test_destroy_rejects_other_arguments(checkout: Path):

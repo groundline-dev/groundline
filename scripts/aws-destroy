@@ -43,7 +43,10 @@ budget="$(output budget_name)"
 anthropic_parameter="$(output anthropic_parameter_name)"
 volume="$(output volume_id infra/data)"
 address="$(output eip_allocation_id infra/data)"
-name="$(deployment_name)"
+# The deployment's name, from its state if it has a data volume: the server's
+# Terraform finds the volume and address by it, so destroying needs it.
+name="$(output deployment_name infra/data)"
+name="${name:-$(deployment_name)}"
 anthropic_parameter="${anthropic_parameter:-${name:+$(anthropic_parameter "$name")}}"
 # The lifetime the deployment was made with, from its state; infra/data/ still
 # says once make aws-destroy has kept a lasting deployment's data.
@@ -73,16 +76,17 @@ fi
 # Plans both folders first, so one question covers the server and the data
 # volume and address it was attached to; on a disposable deployment they go
 # with it. The server goes first, since the volume can't be deleted while it's
-# attached. Destroying doesn't use these values, but Terraform asks for every
-# required variable without a default, and infra/terraform.tfvars may be missing.
+# attached. Destroying uses only the name, which finds the volume and address;
+# Terraform asks for the other required variables, and infra/terraform.tfvars
+# may be missing.
 doing "Working out what will change"
 make_plan infra -destroy \
   -var "region=$region" -var "git_ref=unused" -var "access_mode=unrestricted" \
-  -var "deployment_name=unused" -var "budget_alert_email=unused@example.com"
+  -var "deployment_name=${name:-unused}" -var "budget_alert_email=unused@example.com"
 server_plan="$planned" summary="$planned_summary" data_plan=""
 if [ -z "$keep_data" ]; then
   allow_data_deletion=yes make_plan infra/data -destroy \
-    -var "region=$region" -var "deployment_name=unused"
+    -var "region=$region" -var "deployment_name=${name:-unused}"
   data_plan="$planned"
   summary="$summary${summary:+${planned_summary:+$'\n'}}$planned_summary"
 fi

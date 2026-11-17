@@ -293,8 +293,11 @@ resource "aws_instance" "app" {
 
 # The data volume, as /dev/sdf. Stopping the server first lets Postgres shut
 # down cleanly before the volume is detached, when the server is replaced or
-# deleted.
+# deleted. The count lets make aws-destroy delete a server whose volume or
+# address is missing, such as one deployed before infra/data/ existed; any
+# other plan without them fails the server's precondition.
 resource "aws_volume_attachment" "data" {
+  count                          = local.data_volume_id == null ? 0 : 1
   device_name                    = "/dev/sdf"
   volume_id                      = local.data_volume_id
   instance_id                    = aws_instance.app.id
@@ -302,6 +305,7 @@ resource "aws_volume_attachment" "data" {
 }
 
 resource "aws_eip_association" "app" {
+  count         = local.eip_allocation_id == null ? 0 : 1
   allocation_id = local.eip_allocation_id
   instance_id   = aws_instance.app.id
 }
