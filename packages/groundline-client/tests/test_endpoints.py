@@ -174,8 +174,10 @@ def test_the_map_names_the_model_the_generated_parser_returns_for_a_200(
     assert type(response.parsed) is model(response_model)
 
 
-def test_a_documented_reply_without_a_body_parses_to_nothing():
-    for operation_id, _, status in documented_replies(with_json=False):
-        response = call(operation_id, lambda _request: httpx2.Response(status))
-        assert response.status_code == status
-        assert response.parsed is None
+def test_every_documented_reply_has_a_json_body():
+    # The tests above parse JSON replies only. A reply with no body would be
+    # skipped silently, so this fails when the API documents one.
+    without_body = documented_replies(with_json=False)
+    assert not without_body, (
+        f"add a test that these parse to None, then update this one: {without_body}"
+    )
