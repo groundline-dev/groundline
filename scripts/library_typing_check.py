@@ -1,6 +1,6 @@
 # pyright: strict
-"""A small app that uses groundline only through its public names, the way a
-caller would. `make core-check` type-checks it with pyright strict against the
+"""Code that uses groundline only through its public names, the way a caller
+would. `make core-check` type-checks it with pyright strict against the
 package installed with no extras, so a public name or result field whose type
 a caller can't see fails the check. It is never run: a real check needs an
 Anthropic API key."""
@@ -29,7 +29,7 @@ from groundline_core import (
 )
 
 
-class CannedModel:
+class CannedModelClient:
     """A stand-in model for an app's own tests, so they cost nothing. `effort` is
     a plain `str` here: a caller needn't import groundline's own effort type."""
 
@@ -122,7 +122,7 @@ def main() -> None:
     presets: list[str] = builtin_presets()
     print(presets)
 
-    client: ModelClient = CannedModel("{}")
+    client: ModelClient = CannedModelClient("{}")
     omissions = asyncio.run(check_in_async_code("source", "summary", client))
     print("\n".join(describe(omissions)))
 
