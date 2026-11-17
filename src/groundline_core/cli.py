@@ -23,6 +23,7 @@ import typer
 from groundline_core._core import (
     FileCache,
     GroundlineError,
+    InvalidInputError,
     ModelClient,
     ModelFailureError,
     SetupError,
@@ -202,18 +203,23 @@ def commissions(
     )
 
 
+class UsageError(GroundlineError):
+    """A mistake in how the command was run, such as two options that can't go
+    together. The message says how to run it instead."""
+
+
 def _commissions_check(preset: str | None, pipeline: Path | None) -> Check:
     """The commission check with the preset the caller chose, if any. Raises
     before anything runs if it is unknown or comes with a pipeline spec file."""
     if preset is None:
         return COMMISSIONS
     if pipeline:
-        raise ValueError(
+        raise UsageError(
             "use --preset or --pipeline, not both: "
             "a pipeline spec file replaces the preset."
         )
     if preset not in COMMISSION_PRESETS:
-        raise ValueError(
+        raise UsageError(
             f"unknown preset '{preset}'. Use {' or '.join(COMMISSION_PRESETS)}."
         )
     return replace(COMMISSIONS, preset=preset)
@@ -231,7 +237,7 @@ def _finish(run: Callable[[], int]) -> None:
             cost = usage_text(summarize_usage(error.calls))
             typer.echo(f"  Recorded cost before stopping: {cost}", err=True)
         code = EXIT_ERROR
-    except (GroundlineError, ValueError, OSError) as error:
+    except GroundlineError as error:
         typer.echo(f"error: {error}", err=True)
         if isinstance(error, SetupError) and error.path:
             missing = "" if error.path.exists() else " (not found)"
@@ -260,7 +266,7 @@ def _check(
     spec = load_spec(pipeline) if pipeline else load_preset(check.preset)
     evaluation_type = evaluation_type_of(spec)
     if evaluation_type != check.evaluation_type:
-        raise ValueError(
+        raise UsageError(
             f"pipeline '{spec.name}' carries out the {CHECK_NAMES[evaluation_type]}: "
             f"run it with groundline-core {evaluation_type}"
         )
@@ -273,8 +279,8 @@ def _check(
 
     started = time.perf_counter()
     result = evaluate_sync(
-        source.read_text(),
-        summary.read_text(),
+        _input_text(source),
+        _input_text(summary),
         spec=spec,
         profile=domain,
         cache=stage_cache,
@@ -291,10 +297,22 @@ def _check(
     return EXIT_FLAGGED if result.flagged else EXIT_NOT_FLAGGED
 
 
+def _input_text(path: Path) -> str:
+    """A source or summary file's text. One that can't be read is invalid input,
+    named as the user typed it."""
+    try:
+        return path.read_text()
+    except UnicodeDecodeError as error:
+        raise InvalidInputError(f"{path} isn't readable UTF-8 text") from error
+    except OSError as error:
+        reason = error.strerror or type(error).__name__
+        raise InvalidInputError(f"can't read {path}: {reason}") from error
+
+
 def _write_json(path: Path, result: EvaluationResult) -> None:
     try:
         path.write_text(json.dumps(result_json(result), indent=2) + "\n")
     except OSError as error:
-        raise OSError(
+        raise UsageError(
             f"couldn't write the JSON result to {path}: {error.strerror or error}"
         ) from error

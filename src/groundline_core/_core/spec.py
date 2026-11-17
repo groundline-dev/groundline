@@ -104,6 +104,9 @@ def load_spec(path: str | Path) -> PipelineSpec:
         # An OSError's text repeats the full path; its strerror doesn't.
         reason = error.strerror or type(error).__name__
         raise SpecError([f"{path.name}: {reason}"], path=path) from error
+    except UnicodeDecodeError as error:
+        problem = f"{path.name}: not readable UTF-8 text"
+        raise SpecError([problem], path=path) from error
     except (yaml.YAMLError, ValidationError) as error:
         raise SpecError([f"{path.name}: {error}"], path=path) from error
 

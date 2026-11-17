@@ -156,6 +156,33 @@ def test_an_unusable_reply_exits_with_2(
     )
 
 
+def test_a_summary_that_is_not_utf8_is_invalid_input_not_a_bug(
+    files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+):
+    use_client(monkeypatch, not_flagged_script())
+    files[1].write_bytes(b"Knee pain \xff")
+
+    result = omissions(files)
+
+    assert result.exit_code == 2
+    assert result.stderr == f"error: {files[1]} isn't readable UTF-8 text\n"
+
+
+def test_a_value_error_from_inside_groundline_is_reported_as_a_bug(
+    files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+):
+    def broken(*args: object, **kwargs: object) -> None:
+        raise ValueError("no verdict for f3")
+
+    monkeypatch.setattr(cli, "evaluate_sync", broken)
+
+    result = omissions(files)
+
+    assert result.exit_code == 2
+    assert result.stderr.startswith("error: unexpected ValueError: no verdict for f3")
+    assert "This is a bug in groundline; please report it." in result.stderr
+
+
 def test_a_missing_input_file_exits_with_2(
     files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ):

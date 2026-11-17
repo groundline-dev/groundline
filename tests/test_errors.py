@@ -97,6 +97,22 @@ def test_a_profile_that_cannot_be_loaded_is_a_setup_error_with_its_path(
     assert_safe(error.value, folder / "profile.yaml")
 
 
+@pytest.mark.parametrize("kind", ["spec", "profile"])
+def test_a_spec_or_profile_that_is_not_utf8_is_a_setup_error(kind: str, tmp_path: Path):
+    folder = tmp_path / "mine"
+    folder.mkdir()
+    path = folder / "profile.yaml"
+    path.write_bytes(b"name: caf\xe9\n")
+    load = load_spec if kind == "spec" else load_profile
+
+    with pytest.raises(gl.SetupError) as error:
+        load(path if kind == "spec" else folder)
+
+    assert error.value.path == path.absolute()
+    assert "profile.yaml" in str(error.value)
+    assert_safe(error.value, path)
+
+
 def test_a_missing_key_names_the_env_file_only_in_path(tmp_path: Path):
     env_file = tmp_path / "config" / "app.env"
 

@@ -73,6 +73,18 @@ def profile_file_schema() -> dict[str, Any]:
     return _ProfileFile.model_json_schema()
 
 
+def _text(path: Path, label: str) -> str:
+    """A profile file's text, or a `ProfileError` naming the file by name."""
+    try:
+        return path.read_text()
+    except UnicodeDecodeError as error:
+        problem = f"{label}: {path.name} isn't readable UTF-8 text"
+        raise ProfileError(problem, path=path) from error
+    except OSError as error:
+        problem = f"{label}: can't read {path.name} ({error.strerror or error})"
+        raise ProfileError(problem, path=path) from error
+
+
 def load_profile(folder: str | Path) -> DomainProfile:
     """Load a profile folder, reading every text it lists."""
     folder = Path(folder)
@@ -81,7 +93,7 @@ def load_profile(folder: str | Path) -> DomainProfile:
     if not manifest.exists():
         raise ProfileError(f"{label} has no profile.yaml", path=manifest)
     try:
-        spec = _ProfileFile.model_validate(yaml.safe_load(manifest.read_text()))
+        spec = _ProfileFile.model_validate(yaml.safe_load(_text(manifest, label)))
     except (yaml.YAMLError, ValidationError) as error:
         raise ProfileError(f"{label}: {error}", path=manifest) from error
 
@@ -92,7 +104,7 @@ def load_profile(folder: str | Path) -> DomainProfile:
             raise ProfileError(
                 f"{label}: text '{name}' file {relative} not found", path=manifest
             )
-        texts[name] = path.read_text()
+        texts[name] = _text(path, label)
 
     return DomainProfile(
         name=spec.name,
