@@ -36,9 +36,10 @@ naming the setting. The client doesn't print the API key in its `repr` or its
 own error messages, and its tests check that the key stays out of tracebacks
 and of the logs of the libraries it uses.
 
-Each method has an `_async` twin (`await client.health_async()`; use
-`async with` to close the connections). A method returns the parsed response
-model. When the API answers with an error status, it returns the parsed
+Each method has an `_async` twin (`await client.health_async()`). Use
+`async with` if you call them: it closes both the sync and the async
+connections, while a plain `with` can only close the sync ones. A method returns
+the parsed response model. When the API answers with an error status, it returns the parsed
 `ErrorBody` instead of raising, and an answer the API doesn't document comes
 back as `None`. Typed exceptions are planned (ALL-158). There are no retries or
 time limits yet (ALL-157), so a call to an unresponsive server can wait

@@ -32,6 +32,14 @@ def _argument_or_variable(argument: str | None, variable: str) -> str | None:
     return None
 
 
+def _is_http_url(url: str) -> bool:
+    try:
+        parts = urlsplit(url)
+    except ValueError:  # such as "http://[bad"
+        return False
+    return parts.scheme in ("http", "https") and bool(parts.netloc)
+
+
 def resolve_url_and_api_key(
     base_url: str | None, api_key: str | None
 ) -> tuple[str, str]:
@@ -41,15 +49,19 @@ def resolve_url_and_api_key(
     problems: list[str] = []
     if chosen_url is None:
         problems.append(f"No API URL: pass base_url= or set {URL_VARIABLE}.")
-    else:
-        parts = urlsplit(chosen_url)
-        if parts.scheme not in ("http", "https") or not parts.netloc:
-            problems.append(
-                "The API URL must start with http:// or https:// "
-                f"(from base_url= or {URL_VARIABLE})."
-            )
+    elif not _is_http_url(chosen_url):
+        problems.append(
+            "The API URL must start with http:// or https:// "
+            f"(from base_url= or {URL_VARIABLE})."
+        )
     if chosen_api_key is None:
         problems.append(f"No API key: pass api_key= or set {API_KEY_VARIABLE}.")
+    elif not (chosen_api_key.isascii() and chosen_api_key.isprintable()):
+        # Sending it would fail with an error that holds the whole header value.
+        problems.append(
+            "The API key has a character that can't be sent in an HTTP header "
+            f"(from api_key= or {API_KEY_VARIABLE})."
+        )
     if problems or chosen_url is None or chosen_api_key is None:
         raise GroundlineConfigError(" ".join(problems))
     return chosen_url, chosen_api_key

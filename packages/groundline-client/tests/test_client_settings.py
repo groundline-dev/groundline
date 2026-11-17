@@ -129,3 +129,30 @@ def test_a_url_that_is_not_http_or_https_fails_without_echoing_it(
         sdk.GroundlineClient(base_url=bad_url, api_key=api_key)
     assert URL_VARIABLE in str(raised.value)
     assert bad_url not in str(raised.value)
+
+
+def test_a_malformed_url_raises_a_config_error_without_echoing_it(api_key: str):
+    with pytest.raises(sdk.GroundlineConfigError) as raised:
+        sdk.GroundlineClient(base_url="http://[SENTINEL", api_key=api_key)
+    assert URL_VARIABLE in str(raised.value)
+    assert "SENTINEL" not in str(raised.value)
+
+
+@pytest.mark.parametrize("bad_key", ["kéy-SECRET", "ke\ny-SECRET"])
+def test_an_api_key_that_cannot_go_in_a_header_fails_at_creation_without_echoing_it(
+    bad_key: str, fake_server: FakeServer
+):
+    with pytest.raises(sdk.GroundlineConfigError) as raised:
+        sdk.GroundlineClient(base_url=fake_server.url, api_key=bad_key)
+    assert API_KEY_VARIABLE in str(raised.value)
+    assert "SECRET" not in str(raised.value)
+    assert "SECRET" not in repr(raised.value)
+
+
+def test_an_environment_api_key_that_cannot_go_in_a_header_also_fails_at_creation(
+    fake_server: FakeServer, monkeypatch: pytest.MonkeyPatch
+):
+    monkeypatch.setenv(API_KEY_VARIABLE, "kéy-SECRET")
+    with pytest.raises(sdk.GroundlineConfigError) as raised:
+        sdk.GroundlineClient(base_url=fake_server.url)
+    assert "SECRET" not in repr(raised.value)
