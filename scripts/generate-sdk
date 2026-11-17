@@ -6,13 +6,23 @@
 #
 # After changing the API, run this (make generate-sdk) and commit the changed
 # files. CI runs it too (make sdk-check) and fails if the committed copy differs.
+#
+# Usage: scripts/generate-sdk [output-folder]
+# With an output folder it writes openapi.json and _generated/ there and leaves
+# the repo alone; make sdk-check uses that to compare without changing files.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 package=packages/groundline-client
-generated=$package/src/groundline_client/_generated
+if [ $# -gt 0 ]; then
+  out="$1"
+else
+  out=""
+fi
+spec=${out:-$package}/openapi.json
+generated=${out:-$package/src/groundline_client}/_generated
 
-uv run python scripts/export_openapi.py
+uv run python scripts/export_openapi.py "$spec"
 
 # --overwrite only replaces the files the generator writes. Without clearing the
 # folder first, the module of an endpoint that was removed from the API would
@@ -21,7 +31,7 @@ rm -rf -- "${generated:?}"
 
 # The generator is a dev dependency of the SDK, pinned in uv.lock.
 uv run --package groundline-client openapi-python-client generate \
-  --path "$package/openapi.json" \
+  --path "$spec" \
   --config "$package/generator-config.yaml" \
   --meta none \
   --output-path "$generated"
@@ -36,4 +46,4 @@ and CI fails if the committed copy differs from what the generator produces.
 To change it, change the API and run `make generate-sdk` from the repository root.
 NOTICE
 
-echo "generated $generated from $package/openapi.json: commit the changed files"
+echo "generated $generated from $spec: commit the changed files"

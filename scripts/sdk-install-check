@@ -36,6 +36,25 @@ if grep -q "ruff_cache\|__pycache__" <<<"$listing"; then
   fail "the wheel holds cache folders: $(grep "ruff_cache\|__pycache__" <<<"$listing")"
 fi
 
+# What groundline-core would bring, read here, where it is installed, so the list
+# follows core: its server and cli packages, its own dependencies, and itself.
+not_wanted="$(uv run python - <<'PY'
+import re
+import tomllib
+from pathlib import Path
+
+from groundline_core.extras import CLI_PACKAGES, SERVER_PACKAGES
+
+requirements = tomllib.loads(Path("pyproject.toml").read_text())["project"]["dependencies"]
+dependencies = {
+    re.sub(r"[-_.]+", "-", re.split(r"[<>=!~\[ ;]", r, maxsplit=1)[0]).lower()
+    for r in requirements
+}
+print(" ".join(sorted(SERVER_PACKAGES | CLI_PACKAGES | dependencies | {"groundline-core"})))
+PY
+)"
+[ -n "$not_wanted" ] || fail "couldn't read groundline-core's packages"
+
 check() {
   local installer="$1" env="$2"
   local python="$env/bin/python" unwanted
@@ -45,16 +64,12 @@ from groundline_client._generated.api.v1 import evaluate_omissions
 from groundline_client._generated.client import AuthenticatedClient
 ' || fail "$installer: the SDK doesn't load"
 
-  unwanted="$("$python" -I - <<'PY'
+  unwanted="$("$python" -I - $not_wanted <<'PY'
+import sys
 from importlib.metadata import PackageNotFoundError, version
 
-# What groundline-core installs, and its server and cli extras.
-NOT_WANTED = [
-    "groundline-core", "anthropic", "pydantic-settings", "pyyaml",
-    "fastapi", "alembic", "psycopg", "sqlalchemy", "typer", "platformdirs",
-]
 found = []
-for name in NOT_WANTED:
+for name in sys.argv[1:]:
     try:
         version(name)
     except PackageNotFoundError:

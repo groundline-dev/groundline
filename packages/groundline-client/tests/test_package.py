@@ -19,10 +19,12 @@ def read_toml(path: Path) -> dict[str, Any]:
 
 
 def requirement_names(requirements: list[str]) -> set[str]:
-    return {
-        re.split(r"[<>=!~\[ ;]", requirement, maxsplit=1)[0]
-        for requirement in requirements
-    }
+    """The names of the requirements, normalized the way pip compares them."""
+    names: set[str] = set()
+    for requirement in requirements:
+        name = re.split(r"[<>=!~\[ ;]", requirement, maxsplit=1)[0]
+        names.add(re.sub(r"[-_.]+", "-", name).lower())
+    return names
 
 
 def test_the_package_is_groundline_client_for_python_313_and_later():

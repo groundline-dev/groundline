@@ -52,18 +52,16 @@ core-check:
 generate-sdk:
 	scripts/generate-sdk
 
-# Regenerate the SDK and fail if the result differs from the staged files (the
-# last commit, where nothing is staged). CI runs it on a clean checkout. Locally,
-# stage the result of make generate-sdk first.
-sdk-check: generate-sdk
-	@paths="packages/groundline-client/openapi.json \
-		packages/groundline-client/src/groundline_client/_generated"; \
-	changed="$$(git diff --name-only -- $$paths; git ls-files --others --exclude-standard -- $$paths)"; \
-	if [ -n "$$changed" ]; then \
-		echo "$$changed"; \
-		echo "sdk-check: the SDK is out of date. Run make generate-sdk and commit the result."; \
-		exit 1; \
-	fi
+# Regenerate the SDK into a temporary folder and fail if it differs from the
+# files on disk. It changes nothing in the working tree. CI runs it too.
+sdk-check:
+	@tmp="$$(mktemp -d)"; trap 'rm -rf "$$tmp"' EXIT; \
+	package=packages/groundline-client; \
+	scripts/generate-sdk "$$tmp" >/dev/null && \
+	diff -u "$$package/openapi.json" "$$tmp/openapi.json" && \
+	diff -ru -x __pycache__ -x .ruff_cache \
+		"$$package/src/groundline_client/_generated" "$$tmp/_generated" \
+	|| { echo "sdk-check: the SDK is out of date. Run make generate-sdk and commit the result."; exit 1; }
 
 # Install the built SDK into clean environments, with pip and with uv pip, and
 # check that it brings no pipeline, Anthropic or server packages. CI runs it.
