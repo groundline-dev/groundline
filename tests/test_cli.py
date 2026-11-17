@@ -125,7 +125,21 @@ def test_a_missing_key_exits_with_2_and_a_clear_message(
 
     assert result.exit_code == 2
     assert result.stderr.startswith("error: ANTHROPIC_API_KEY is not set.")
+    assert f"\n  File: {Path.cwd() / '.env'} (not found)\n" in result.stderr
     assert "Traceback" not in result.output
+
+
+def test_a_setup_error_names_a_file_that_exists_without_not_found(
+    files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+):
+    use_client(monkeypatch, None)  # use the real Anthropic client
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    Path(".env").write_text("OTHER_SETTING=x\n")
+
+    result = omissions(files)
+
+    assert result.exit_code == 2
+    assert result.stderr.endswith(f"\n  File: {Path.cwd() / '.env'}\n")
 
 
 def test_an_unusable_reply_exits_with_2(

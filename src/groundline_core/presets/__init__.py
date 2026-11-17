@@ -7,7 +7,7 @@ used a preset unchanged.
 
 from pathlib import Path
 
-from groundline_core._core.spec import PipelineSpec, load_spec
+from groundline_core._core.spec import PipelineSpec, SpecError, load_spec
 
 BUILTIN_DIR = Path(__file__).parent
 
@@ -18,7 +18,7 @@ def builtin_presets() -> list[str]:
 
 def load_preset(name: str) -> PipelineSpec:
     if name not in builtin_presets():
-        raise ValueError(
-            f"no built-in preset '{name}' (built in: {', '.join(builtin_presets())})"
+        raise SpecError(
+            [f"no built-in preset '{name}' (built in: {', '.join(builtin_presets())})"]
         )
     return load_spec(BUILTIN_DIR / f"{name}.yaml")

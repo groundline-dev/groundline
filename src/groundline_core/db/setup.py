@@ -31,10 +31,7 @@ CONNECT_TIMEOUT_SECONDS = 5
 
 class DatabaseSetupError(SetupError):
     """Raised only by the db-setup command, never while answering a request, so
-    its messages may name anything; an HTTP response would get a generic line."""
-
-    def __init__(self, message: str) -> None:
-        super().__init__(message, "Database setup failed; see the server log.")
+    its messages may name anything, such as a database login."""
 
 
 def setup_database(app_raw: str, admin_raw: str) -> None:

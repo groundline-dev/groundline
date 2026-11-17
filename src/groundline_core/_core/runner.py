@@ -2,7 +2,8 @@
 
 Stages that don't depend on each other run at the same time. If any stage fails,
 the others are canceled (so no further paid calls are made) and the run raises
-a `StageError` naming the failed step.
+the failure: a `ModelFailureError` naming the failed step, or whatever else the
+stage raised, unchanged (ADR 0020).
 
 With a cache, a stage whose cache key matches a stored entry isn't run: its
 output and call records come from the cache. A stage's key covers its
@@ -22,24 +23,11 @@ from pydantic import BaseModel, ValidationError
 from groundline_core._core.cache import Cache, stable_hash
 from groundline_core._core.calls import CallRecord, Usage, summarize_usage
 from groundline_core._core.deadline import raise_if_cancelling, remaining
-from groundline_core._core.errors import ModelTimeoutError, SetupError
+from groundline_core._core.errors import ModelFailureError, ModelTimeoutError
 from groundline_core._core.implementation import StageContext
 from groundline_core._core.inputs import Inputs
 from groundline_core._core.model_client import ModelClient
 from groundline_core._core.spec import Pipeline, PipelineStage
-
-
-class StageError(Exception):
-    """A stage failed. The original exception is kept as `__cause__`.
-
-    `calls` holds every live model call the run made before it stopped,
-    including those of the failed stage and of stages canceled because of it,
-    so a failed run's cost can still be reported."""
-
-    def __init__(self, step: str, message: str) -> None:
-        self.step = step
-        self.calls: tuple[CallRecord, ...] = ()
-        super().__init__(f"stage '{step}' failed: {message}")
 
 
 @dataclass(frozen=True)
@@ -134,10 +122,9 @@ async def run_pipeline(
                                 "calls": [c.model_dump() for c in stage_calls],
                             },
                         )
-        except (StageError, SetupError):
+        except ModelFailureError as error:
+            error.step = error.step or stage.step
             raise
-        except Exception as error:
-            raise StageError(stage.step, str(error)) from error
 
         outputs[stage.step] = output
         calls[stage.step] = stage_calls
@@ -166,7 +153,9 @@ async def run_pipeline(
         # Report the first failure; the other stages were canceled because of it.
         # Keep its original cause, and hide the task group's wrapper.
         first = failed.exceptions[0]
-        if isinstance(first, (StageError, ModelTimeoutError)):
+        if isinstance(first, ModelFailureError):
+            # Every live call the run made, including those of stages canceled
+            # because of this failure, so its cost can still be reported.
             first.calls = tuple(
                 call
                 for stage in pipeline.stages
@@ -185,10 +174,9 @@ async def run_pipeline(
 def _checked(stage: PipelineStage, output: BaseModel) -> BaseModel:
     """Every implementation of a step must return that step's output type."""
     if not isinstance(output, stage.output_type):
-        raise StageError(
-            stage.step,
-            f"{stage.implementation.name} returned {type(output).__name__}, "
-            f"expected {stage.output_type.__name__}",
+        raise TypeError(
+            f"stage '{stage.step}': {stage.implementation.name} returned "
+            f"{type(output).__name__}, expected {stage.output_type.__name__}"
         )
     return output
 

@@ -3,7 +3,6 @@ import re
 from collections.abc import Callable, Iterator
 from pathlib import Path
 
-import anthropic
 import httpx2
 import pytest
 from fastapi.testclient import TestClient
@@ -198,9 +197,7 @@ def test_a_missing_key_is_a_503_with_the_clis_message(
 
 def test_a_rejected_key_is_a_503():
     def rejected(prompt: str) -> str:
-        raise APIKeyRejectedError(
-            "ANTHROPIC_API_KEY was rejected", "ANTHROPIC_API_KEY was rejected"
-        )
+        raise APIKeyRejectedError("ANTHROPIC_API_KEY was rejected")
 
     use_client(rejected)
 
@@ -224,58 +221,73 @@ def test_an_unusable_reply_is_a_502_naming_the_stage_and_cost():
     assert "Recorded cost before stopping: $0." in detail and "· 2 calls" in detail
 
 
-def _api_request() -> httpx2.Request:
-    return httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
+def _bad_request(prompt: str) -> httpx2.Response:
+    return httpx2.Response(
+        400,
+        json={
+            "type": "error",
+            "error": {"type": "invalid_request_error", "message": SECRET},
+        },
+    )
+
+
+def _unreachable(prompt: str) -> httpx2.Response:
+    raise httpx2.ConnectError(SECRET)
 
 
 @pytest.mark.parametrize(
-    ("error", "detail"),
+    ("reply", "detail", "cause"),
     [
         (
-            anthropic.BadRequestError(
-                f"Error code: 400 - {SECRET}",
-                response=httpx2.Response(400, request=_api_request()),
-                body={"error": {"message": SECRET}},
-            ),
+            _bad_request,
             "stage 'extract' failed: the Anthropic API answered 400 (BadRequestError)",
+            "BadRequestError",
         ),
         (
-            anthropic.APIConnectionError(message=SECRET, request=_api_request()),
+            _unreachable,
             "stage 'extract' failed: the Anthropic API failed (APIConnectionError)",
+            "APIConnectionError",
         ),
     ],
     ids=["status", "connection"],
 )
 def test_an_anthropic_api_error_is_a_502_without_its_message(
-    error: anthropic.APIError, detail: str, caplog: pytest.LogCaptureFixture
+    reply: Callable[[str], httpx2.Response],
+    detail: str,
+    cause: str,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
 ):
-    def failing(prompt: str) -> str:
-        raise error
-
-    use_client(failing)
+    """The real Anthropic client, on a fake transport."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-not-a-real-key")
+    monkeypatch.setenv("GROUNDLINE_MODEL_MAX_ATTEMPTS", "1")
+    use_client(None)
+    fake_anthropic(monkeypatch, reply)
 
     with caplog.at_level(logging.INFO):
         response = http.post("/v1/omissions", json=check())
 
     assert response.status_code == 502
     assert response.json() == {"detail": detail}
-    assert type(error).__name__ in caplog.text
+    assert cause in caplog.text
     assert "tenofovir" not in caplog.text
 
 
-def test_an_anthropic_api_error_after_some_calls_says_what_they_cost():
+def test_an_anthropic_api_error_after_some_calls_says_what_they_cost(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """The real Anthropic client, on a fake transport."""
     script = Script(extract=EXTRACTED)
 
-    def failing_at_rank(prompt: str) -> str:
+    def failing_at_rank(prompt: str) -> str | httpx2.Response:
         if step_of(prompt) == "rank":
-            raise anthropic.InternalServerError(
-                SECRET,
-                response=httpx2.Response(500, request=_api_request()),
-                body=None,
-            )
+            return httpx2.Response(500, text=SECRET)
         return script(prompt)
 
-    use_client(failing_at_rank)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-not-a-real-key")
+    monkeypatch.setenv("GROUNDLINE_MODEL_MAX_ATTEMPTS", "1")
+    use_client(None)
+    fake_anthropic(monkeypatch, failing_at_rank)
 
     response = http.post("/v1/omissions", json=check())
 
@@ -302,8 +314,7 @@ def test_a_stage_failure_of_our_own_is_a_generic_500(
 
     assert response.status_code == 500
     assert response.json() == {"detail": "unexpected error; see the server log"}
-    assert "stage 'extract' failed" in caplog.text
-    assert "ValueError" in caplog.text and "StageError" in caplog.text
+    assert "unexpected ValueError" in caplog.text
     assert "tenofovir" not in response.text
     assert "tenofovir" not in caplog.text
 

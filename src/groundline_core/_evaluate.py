@@ -25,6 +25,7 @@ from groundline_core._core import (
     run_pipeline,
 )
 from groundline_core._core.deadline import check_deadline, has_deadline, remaining
+from groundline_core._core.errors import InvalidInputError, SetupError
 from groundline_core._evaluators.builtin import default_registry
 from groundline_core._evaluators.models import ALARM_STEP, AlarmOutput
 from groundline_core._findings import evaluation_type_of, findings_and_counts
@@ -64,7 +65,12 @@ async def evaluate(
 
     The pipeline must be a full check: the alarm step, plus the steps one check's
     findings are read from. Anything else is a `SpecError`, raised before the key
-    is looked up or any model is called.
+    is looked up or any model is called. A source or summary that isn't text, or
+    is empty or only whitespace, is an `InvalidInputError`, raised before that.
+
+    Every error groundline raises is a `GroundlineError`: a `SetupError`, an
+    `InvalidInputError` or a `ModelFailureError`. Anything else, such as an
+    exception from your own model client, comes out as it was raised.
 
     `profile` defaults to the built-in profile the spec names. `client` defaults
     to an Anthropic client using `anthropic_api_key`, or else ANTHROPIC_API_KEY
@@ -76,10 +82,12 @@ async def evaluate(
     (120 seconds by default), even with a supplied client.
     Provider configuration is loaded only when creating the default client.
     """
+    if client is not None and anthropic_api_key is not None:
+        raise SetupError("pass client or anthropic_api_key, not both")
+    _check_text("source", source)
+    _check_text("summary", summary)
     spec = spec or load_preset(DEFAULT_PRESET)
     evaluation_type = evaluation_type_of(spec)
-    if client is not None and anthropic_api_key is not None:
-        raise ValueError("pass client or anthropic_api_key, not both")
     seconds = (
         remaining()
         if has_deadline()
@@ -101,7 +109,7 @@ async def evaluate(
             client = own_client = AnthropicClient(
                 key.value.get_secret_value(),
                 key_name=key.name,
-                key_source=key.source,
+                key_path=key.path,
                 env_file=env_file,
             )
         try:
@@ -174,6 +182,15 @@ def evaluate_sync(
             env_file=env_file,
         )
     )
+
+
+def _check_text(name: str, value: object) -> None:
+    """A source or summary must be text with something in it. The error names
+    the argument, never its value."""
+    if not isinstance(value, str):
+        raise InvalidInputError(f"{name} must be text, not {type(value).__name__}")
+    if not value.strip():
+        raise InvalidInputError(f"{name} is empty or only whitespace")
 
 
 def model_users(pipeline: Pipeline) -> str:

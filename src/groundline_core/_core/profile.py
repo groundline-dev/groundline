@@ -16,9 +16,12 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from groundline_core._core.errors import SetupError
 
-class ProfileError(ValueError):
-    pass
+
+class ProfileError(SetupError, ValueError):
+    """A domain profile can't be loaded. `path` is its `profile.yaml`, if the
+    profile is a folder."""
 
 
 class Placeholders(BaseModel):
@@ -74,18 +77,21 @@ def load_profile(folder: str | Path) -> DomainProfile:
     """Load a profile folder, reading every text it lists."""
     folder = Path(folder)
     manifest = folder / "profile.yaml"
+    where = f"profile '{folder.name}'"
     if not manifest.exists():
-        raise ProfileError(f"{folder}: no profile.yaml")
+        raise ProfileError(f"{where} has no profile.yaml", path=manifest)
     try:
         spec = _ProfileFile.model_validate(yaml.safe_load(manifest.read_text()))
     except (yaml.YAMLError, ValidationError) as error:
-        raise ProfileError(f"{manifest}: {error}") from error
+        raise ProfileError(f"{where}: {error}", path=manifest) from error
 
     texts: dict[str, str] = {}
     for name, relative in spec.texts.items():
         path = folder / relative
         if not path.is_file():
-            raise ProfileError(f"{manifest}: text '{name}' file {relative} not found")
+            raise ProfileError(
+                f"{where}: text '{name}' file {relative} not found", path=manifest
+            )
         texts[name] = path.read_text()
 
     return DomainProfile(

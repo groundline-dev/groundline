@@ -22,16 +22,13 @@ import typer
 
 from groundline_core._core import (
     FileCache,
+    GroundlineError,
     ModelClient,
-    ProfileError,
-    SetupError,
-    SpecError,
-    StageError,
+    ModelFailureError,
     load_profile,
     load_spec,
     summarize_usage,
 )
-from groundline_core._core.errors import ModelTimeoutError
 from groundline_core._evaluate import (
     DEFAULT_COMMISSIONS_PRESET,
     DEFAULT_PRESET,
@@ -227,14 +224,17 @@ def _finish(run: Callable[[], int]) -> None:
     bug. Python's own exit code for an uncaught error is 1."""
     try:
         code = run()
-    except (StageError, ModelTimeoutError) as error:
+    except ModelFailureError as error:
         typer.echo(f"error: {error}", err=True)
         if error.calls:
             cost = usage_text(summarize_usage(error.calls))
             typer.echo(f"  Recorded cost before stopping: {cost}", err=True)
         code = EXIT_ERROR
-    except (SetupError, SpecError, ProfileError, ValueError, OSError) as error:
+    except (GroundlineError, ValueError, OSError) as error:
         typer.echo(f"error: {error}", err=True)
+        if path := getattr(error, "path", None):
+            missing = "" if path.exists() else " (not found)"
+            typer.echo(f"  File: {path}{missing}", err=True)
         code = EXIT_ERROR
     except Exception as error:
         typer.echo(

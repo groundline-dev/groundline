@@ -11,23 +11,20 @@ from collections.abc import AsyncGenerator, Generator
 from contextlib import contextmanager
 from typing import Annotated, Any
 
-import anthropic
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from groundline_core._core import (
     CallRecord,
     ModelClient,
-    ModelError,
+    ModelFailureError,
+    ModelTimeoutError,
     PipelineSpec,
-    ReplyError,
     SetupError,
-    StageError,
     build_pipeline,
     summarize_usage,
 )
 from groundline_core._core.deadline import check_deadline
-from groundline_core._core.errors import ModelTimeoutError
 from groundline_core._evaluate import default_registry, model_users
 from groundline_core._evaluators.report import usage_text
 from groundline_core._result import Alarm, Counts, Finding, Usage
@@ -41,15 +38,6 @@ from groundline_core.api.limits import BODY_TOO_LARGE, LIMITS
 from groundline_core.profiles import load_builtin_profile
 
 logger = logging.getLogger("groundline.api")
-
-# A stage can fail because the model timed out (504) or because the model or
-# Anthropic's API failed in another way (502). These exceptions cover both cases.
-# Unexpected stage failures are handled by the app and return 500.
-#
-# Groundline's model error messages are safe to include in the response.
-# Anthropic SDK messages may contain source or summary text, so the response
-# includes only the SDK error's type and HTTP status, when available.
-UPSTREAM_CAUSES = (ReplyError, ModelError, ModelTimeoutError, anthropic.APIError)
 
 
 class ApiModel(BaseModel):
@@ -222,11 +210,7 @@ def check_responses(spec: PipelineSpec) -> dict[int | str, dict[str, Any]]:
         ),
         anthropic_key_missing=(
             "Anthropic API key not set",
-            {
-                "detail": missing_key_error(
-                    model_users(pipeline), ENV_FILE
-                ).api_message()
-            },
+            {"detail": str(missing_key_error(model_users(pipeline), ENV_FILE))},
         ),
     )
     timeout = error_response(
@@ -332,58 +316,32 @@ def alarm_of[A: Alarm](alarm: Alarm, model: type[A]) -> A:
 
 @contextmanager
 def check_failures() -> Generator[None]:
-    """Turn what stops a check into the HTTP error it deserves: 503 when the
-    Anthropic API key is missing or rejected or the settings can't be read, and
-    502 when the model or Anthropic's API fails, and 504 for owned model/check
-    time limits. Anything else is a bug of ours:
-    it passes through, and the app-wide handler answers 500."""
+    """Turn what stops a check into the HTTP error it deserves: 503 for a setup
+    error (the Anthropic API key is missing or rejected, or the settings can't
+    be read), 504 when a time limit runs out, and 502 for any other model
+    failure. Groundline's error messages are safe to send (they never quote the
+    source, the summary, a key or Anthropic's own error text). Anything else is
+    a bug of ours: it passes through, and the app-wide handler answers 500."""
     try:
         yield
     except SetupError as error:
-        logger.warning("can't check: %s", error.api_message())
-        raise HTTPException(503, detail=error.api_message()) from error
+        logger.warning("can't check: %s", error)
+        raise HTTPException(503, detail=str(error)) from error
     except ModelTimeoutError as error:
         spent = _spent(error)
-        logger.warning("check timed out (reason=%s)%s", error.reason, spent)
+        what = f"stage '{error.step}'" if error.step else "check"
+        logger.warning("%s timed out (reason=%s)%s", what, error.reason, spent)
         raise HTTPException(504, detail=f"{error}{spent}") from None
-    except StageError as error:
+    except ModelFailureError as error:
         spent = _spent(error)
-        cause = error.__cause__
-        if isinstance(cause, (ModelTimeoutError, anthropic.APITimeoutError)):
-            reason = cause.reason if isinstance(cause, ModelTimeoutError) else "attempt"
-            logger.warning(
-                "stage '%s' timed out (reason=%s)%s", error.step, reason, spent
-            )
-        else:
-            logger.warning(
-                "stage '%s' failed (%s)%s", error.step, type(cause).__name__, spent
-            )
-        if not isinstance(error.__cause__, UPSTREAM_CAUSES):
-            raise
-        status = (
-            504
-            if isinstance(
-                error.__cause__, (ModelTimeoutError, anthropic.APITimeoutError)
-            )
-            else 502
+        cause = error.__cause__ or error
+        logger.warning(
+            "stage '%s' failed (%s)%s", error.step, type(cause).__name__, spent
         )
-        raise HTTPException(status, detail=f"{_failure(error)}{spent}") from error
+        raise HTTPException(502, detail=f"{error}{spent}") from error
 
 
-def _failure(error: StageError) -> str:
-    """What went wrong upstream. An SDK error is named, never quoted."""
-    cause = error.__cause__
-    if not isinstance(cause, anthropic.APIError):
-        return str(error)
-    if isinstance(cause, anthropic.APIStatusError):
-        what = f"answered {cause.status_code}"
-    else:
-        what = "failed"
-    name = type(cause).__name__
-    return f"stage '{error.step}' failed: the Anthropic API {what} ({name})"
-
-
-def _spent(error: StageError | ModelTimeoutError) -> str:
+def _spent(error: ModelFailureError) -> str:
     """What a failed check had cost, if it made any calls."""
     if not error.calls:
         return ""

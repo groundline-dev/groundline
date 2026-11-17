@@ -8,15 +8,22 @@ from groundline_core._core.calls import (
     Usage,
     summarize_usage,
 )
-from groundline_core._core.errors import APIKeyRejectedError, SetupError
+from groundline_core._core.errors import (
+    APIKeyRejectedError,
+    GroundlineError,
+    InvalidInputError,
+    ModelFailureError,
+    ModelTimeoutError,
+    SetupError,
+)
 from groundline_core._core.implementation import Implementation, StageContext
 from groundline_core._core.inputs import InputName, Inputs
 from groundline_core._core.model_client import (
     Effort,
     ModelClient,
-    ModelError,
     ModelRefusal,
     ModelReply,
+    UnusableReplyError,
 )
 from groundline_core._core.parsing import (
     ParseError,
@@ -42,7 +49,7 @@ from groundline_core._core.prompt_stage import (
     ReplyError,
 )
 from groundline_core._core.registry import Registry
-from groundline_core._core.runner import RunResult, StageError, StageRun, run_pipeline
+from groundline_core._core.runner import RunResult, StageRun, run_pipeline
 from groundline_core._core.spec import (
     Pipeline,
     PipelineSpec,
@@ -68,10 +75,13 @@ __all__ = [
     "Implementation",
     "InputName",
     "Inputs",
+    "GroundlineError",
+    "InvalidInputError",
     "ModelClient",
-    "ModelError",
+    "ModelFailureError",
     "ModelRefusal",
     "ModelReply",
+    "ModelTimeoutError",
     "ParseError",
     "Pipeline",
     "PipelineSpec",
@@ -86,9 +96,9 @@ __all__ = [
     "SetupError",
     "SpecError",
     "StageContext",
-    "StageError",
     "StageRun",
     "StageSpec",
+    "UnusableReplyError",
     "Usage",
     "as_object",
     "build_pipeline",

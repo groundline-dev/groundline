@@ -18,7 +18,6 @@ from groundline_core._core import (
     RunResult,
     SpecError,
     StageContext,
-    StageError,
     StageSpec,
     build_pipeline,
     load_profile,
@@ -108,7 +107,7 @@ def test_a_missing_text_is_caught_before_running():
 
 
 def test_a_stage_cannot_read_a_text_it_did_not_declare():
-    with pytest.raises(StageError, match="didn't declare it in `profile_texts`"):
+    with pytest.raises(LookupError, match="didn't declare it in `profile_texts`"):
         run({"step": "greet", "implementation": "greet.snoop"}, profile())
 
 

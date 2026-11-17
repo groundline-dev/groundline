@@ -7,7 +7,7 @@ from groundline_core._settings import (
     ENV_FILE,
     MissingAPIKeyError,
     Settings,
-    UnreadableSettingsError,
+    SettingsError,
     anthropic_key,
     read_check_settings,
     read_model_settings,
@@ -31,16 +31,13 @@ def isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     monkeypatch.chdir(tmp_path)
 
 
-FROM_ARGUMENT = "the anthropic_api_key argument"
-
-
 def test_reads_key_from_environment(monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-env")
 
     key = anthropic_key(None, env_file=None)
 
     assert key.value.get_secret_value() == "sk-env"
-    assert key.source == "the environment"
+    assert key.path is None
     assert key.name == "ANTHROPIC_API_KEY"
 
 
@@ -50,7 +47,7 @@ def test_reads_key_from_the_env_file_it_is_given():
     key = anthropic_key(None, env_file=ENV_FILE)
 
     assert key.value.get_secret_value() == "sk-dotenv"
-    assert key.source == str(Path.cwd() / ".env")
+    assert key.path == Path.cwd() / ".env"
 
 
 def test_an_env_file_can_be_anywhere(tmp_path: Path):
@@ -61,7 +58,7 @@ def test_an_env_file_can_be_anywhere(tmp_path: Path):
     key = anthropic_key(None, env_file=elsewhere)
 
     assert key.value.get_secret_value() == "sk-elsewhere"
-    assert key.source == str(elsewhere)
+    assert key.path == elsewhere
 
 
 def test_without_an_env_file_no_dotenv_is_read():
@@ -80,7 +77,7 @@ def test_environment_wins_over_env_file(monkeypatch: pytest.MonkeyPatch):
     key = anthropic_key(None, env_file=ENV_FILE)
 
     assert key.value.get_secret_value() == "sk-env"
-    assert key.source == "the environment"
+    assert key.path is None
 
 
 @pytest.mark.parametrize("argument", ["sk-arg", SecretStr("sk-arg")])
@@ -93,7 +90,7 @@ def test_the_argument_wins_over_environment_and_env_file(
     key = anthropic_key(argument, env_file=ENV_FILE)
 
     assert key.value.get_secret_value() == "sk-arg"
-    assert key.source == FROM_ARGUMENT
+    assert key.path is None
     assert key.name == "The Anthropic API key"
 
 
@@ -120,7 +117,6 @@ def test_a_blank_argument_says_so_even_with_an_env_file():
         "to use ANTHROPIC_API_KEY."
     )
     assert str(error.value) == expected
-    assert error.value.api_message() == expected
 
 
 def test_missing_key_raises_a_helpful_error():
@@ -160,18 +156,23 @@ def test_missing_key_message_says_what_needs_it_and_where_it_looked():
     message = str(error.value)
     assert message.startswith("ANTHROPIC_API_KEY is not set.")
     assert "Needed by: extract, rank (claude-opus-5-5)" in message
-    assert (
-        f"Looked in: the environment, and {Path.cwd() / '.env'} (not found)" in message
-    )
+    assert "Looked in: the environment, and .env\n" in message
     assert "copy .env.example to .env" in message
-    assert str(Path.cwd()) not in error.value.api_message()
+    assert str(Path.cwd()) not in message
+    assert error.value.path == Path.cwd() / ".env"
 
 
-def test_missing_key_message_notes_a_dotenv_file_without_the_key():
+def test_missing_key_message_does_not_say_whether_the_env_file_exists():
+    without_file = str(missing_key(ENV_FILE))
     Path(".env").write_text("OTHER_KEY=x\n")
 
-    with pytest.raises(MissingAPIKeyError, match=r"\.env \(found, but it has no"):
-        anthropic_key(None, env_file=ENV_FILE)
+    assert str(missing_key(ENV_FILE)) == without_file
+
+
+def missing_key(env_file: str) -> MissingAPIKeyError:
+    with pytest.raises(MissingAPIKeyError) as error:
+        anthropic_key(None, env_file=env_file)
+    return error.value
 
 
 def test_the_fix_names_the_env_file_the_caller_gave(tmp_path: Path):
@@ -191,29 +192,29 @@ def test_without_an_env_file_the_missing_key_message_names_no_path():
         "  Fix: pass anthropic_api_key=..., or set ANTHROPIC_API_KEY."
     )
     assert str(error.value) == expected
-    assert error.value.api_message() == expected
+    assert error.value.path is None
 
 
-def test_unreadable_settings_name_the_env_file_only_in_the_full_message():
+def test_unreadable_settings_name_the_env_file_only_in_path():
     Path(".env").write_bytes(b"ANTHROPIC_API_KEY=\xffsk-ant-sentinel")
 
-    with pytest.raises(UnreadableSettingsError) as error:
+    with pytest.raises(SettingsError) as error:
         read_settings(ENV_FILE)
 
-    assert str(Path.cwd() / ".env") in str(error.value)
-    assert str(Path.cwd()) not in error.value.api_message()
+    assert "check that .env is a readable UTF-8 text file" in str(error.value)
+    assert str(Path.cwd()) not in str(error.value)
+    assert error.value.path == Path.cwd() / ".env"
     assert "sentinel" not in str(error.value)
-    assert "sentinel" not in error.value.api_message()
 
 
 def test_unreadable_settings_without_an_env_file_name_no_file():
-    error = UnreadableSettingsError("ValidationError", None)
+    error = SettingsError("ValidationError", None)
 
     assert str(error) == (
         "can't read the settings (ValidationError).\n"
         "  Fix: check the environment variables groundline reads."
     )
-    assert error.api_message() == str(error)
+    assert error.path is None
 
 
 def test_reads_the_database_url_and_hides_it():

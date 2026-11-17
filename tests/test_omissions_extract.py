@@ -3,7 +3,7 @@ from pathlib import Path
 
 import pytest
 
-from groundline_core._core import FileCache, StageError
+from groundline_core._core import FileCache, ModelFailureError
 from groundline_core._evaluators.omissions.models import ExtractOutput, Fact
 from tests.fakes import CLINICAL
 from tests.omission_helpers import (
@@ -102,7 +102,7 @@ def test_malformed_json_is_retried_once():
 )
 def test_malformed_twice_fails_clearly(bad: str):
     with pytest.raises(
-        StageError, match="stage 'extract'.*after a request for correction"
+        ModelFailureError, match="stage 'extract'.*after a request for correction"
     ):
         run([EXTRACT], Script(extract=[bad, bad]))
 

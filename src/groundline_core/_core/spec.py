@@ -15,6 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from pydantic.json_schema import models_json_schema
 
 from groundline_core._core.cache import stable_hash
+from groundline_core._core.errors import SetupError
 from groundline_core._core.implementation import Implementation
 from groundline_core._core.profile import DomainProfile, Placeholders
 from groundline_core._core.registry import Registry
@@ -99,8 +100,12 @@ def load_spec(path: str | Path) -> PipelineSpec:
     path = Path(path)
     try:
         return PipelineSpec.model_validate(yaml.safe_load(path.read_text()))
-    except (OSError, yaml.YAMLError, ValidationError) as error:
-        raise ValueError(f"{path}: {error}") from error
+    except OSError as error:
+        # An OSError's text repeats the full path; its strerror doesn't.
+        reason = error.strerror or type(error).__name__
+        raise SpecError([f"{path.name}: {reason}"], path=path) from error
+    except (yaml.YAMLError, ValidationError) as error:
+        raise SpecError([f"{path.name}: {error}"], path=path) from error
 
 
 def with_settings(spec: PipelineSpec, step: str, **settings: Any) -> PipelineSpec:
@@ -141,12 +146,18 @@ class Pipeline:
         return self.profile.placeholders if self.profile else Placeholders()
 
 
-class SpecError(ValueError):
-    def __init__(self, problems: list[str]) -> None:
-        self.problems = problems
+class SpecError(SetupError, ValueError):
+    """The pipeline spec can't be used: it isn't a full check, names an unknown
+    preset, step or implementation, or its file can't be read. Raised before any
+    model is called. `path` is the spec's file, if it came from one."""
+
+    def __init__(self, problems: list[str], *, path: str | Path | None = None) -> None:
         super().__init__(
-            "invalid pipeline spec:\n" + "\n".join(f"- {p}" for p in problems)
+            "invalid pipeline spec:\n" + "\n".join(f"- {p}" for p in problems),
+            path=path,
         )
+        self.problems = problems
+        """Every problem found, one per line of the message."""
 
 
 def build_pipeline(

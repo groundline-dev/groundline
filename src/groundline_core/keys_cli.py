@@ -104,7 +104,7 @@ def _create(name: str | None, expires_in: str | None) -> None:
             f"API key {info.id} was created, but its output could not be written. "
             "Revoke it and create a replacement."
         )
-        raise SetupError(message, message) from None
+        raise SetupError(message) from None
 
 
 @app.command()

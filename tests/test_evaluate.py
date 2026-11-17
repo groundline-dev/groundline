@@ -21,7 +21,7 @@ from groundline_core._core import (
 from groundline_core._core.deadline import check_deadline
 from groundline_core._evaluators.models import AlarmOutput
 from groundline_core._evaluators.omissions.models import ScoreOutput
-from groundline_core._settings import MissingAPIKeyError, UnreadableSettingsError
+from groundline_core._settings import MissingAPIKeyError, SettingsError
 from groundline_core.profiles import load_builtin_profile
 from tests.core_fakes import make_registry
 from tests.fakes import FakeClient
@@ -74,8 +74,8 @@ def test_the_all_opus_preset_is_built_in():
     ]
 
 
-def test_an_unknown_preset_is_an_error():
-    with pytest.raises(ValueError, match="no built-in preset 'fastest'"):
+def test_an_unknown_preset_is_a_spec_error():
+    with pytest.raises(SpecError, match="no built-in preset 'fastest'"):
         load_preset("fastest")
 
 
@@ -239,12 +239,12 @@ def test_unreadable_settings_are_a_setup_error_without_their_text(
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".env").write_bytes(b"ANTHROPIC_API_KEY=\xffsk-ant-secret")
 
-    with pytest.raises(UnreadableSettingsError) as error:
+    with pytest.raises(SettingsError) as error:
         asyncio.run(evaluate(SOURCE, SUMMARY, env_file=".env"))
 
     message = str(error.value)
     assert message.startswith("can't read the settings (UnicodeDecodeError).")
-    assert str(tmp_path / ".env") in message
+    assert error.value.path == tmp_path / ".env"
     assert "secret" not in message
 
 
@@ -297,7 +297,7 @@ def test_injected_client_rejects_invalid_check_timeout_before_model_work(
     monkeypatch.setenv("GROUNDLINE_CHECK_TIMEOUT_SECONDS", "invalid-private-value")
     client = FakeClient(script())
 
-    with pytest.raises(UnreadableSettingsError) as error:
+    with pytest.raises(SettingsError) as error:
         asyncio.run(evaluate(SOURCE, SUMMARY, client=client))
 
     assert "invalid-private-value" not in str(error.value)

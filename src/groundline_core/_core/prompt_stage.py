@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 
+from groundline_core._core.errors import ModelFailureError
 from groundline_core._core.implementation import Implementation, StageContext
 from groundline_core._core.model_client import Effort
 from groundline_core._core.parsing import ParseError
@@ -12,7 +13,7 @@ RETRY_NOTE = (
 )
 
 
-class ReplyError(Exception):
+class ReplyError(ModelFailureError):
     """The model's reply remained unusable after a request for correction."""
 
 
