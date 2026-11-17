@@ -30,9 +30,15 @@ commit="$(git rev-parse --verify --quiet "$REF^{commit}")" || fail "$REF isn't a
   || fail "the server already runs ${commit:0:7}: choose another REF, so the upgrade changes something"
 require_running
 
+# https_check.py describes its checks on stderr, shown here only if it fails.
 certificate() {
-  uv run --no-project --quiet python scripts/https_check.py "$app_url" "$public_ip" --json \
-    | jq -r .sha256
+  local errors status=0
+  errors="$(mktemp)"
+  uv run --no-project --quiet python scripts/https_check.py "$app_url" "$public_ip" --json 2>"$errors" \
+    | jq -r .sha256 || status=$?
+  [ "$status" = 0 ] || cat "$errors" >&2
+  rm -f "$errors"
+  return "$status"
 }
 
 step "Before the upgrade"

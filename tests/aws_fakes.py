@@ -164,6 +164,14 @@ def _terraform(world: dict[str, Any], args: list[str]) -> int:
             return 1
         print(json.dumps(world[outputs_key][args[2]]))
         return 0
+    if args[:1] == ["console"]:
+        # Answers only what scripts/aws-common.sh asks: the saved app_settings,
+        # which real Terraform reads from infra/terraform.tfvars.
+        if "saved_app_settings" not in world:
+            print("Error: the fake has no saved app_settings", file=sys.stderr)
+            return 1
+        print(json.dumps(json.dumps(world["saved_app_settings"])))
+        return 0
     if args == ["version", "-json"]:
         print(json.dumps({"terraform_version": "1.17.1"}))
         return 0

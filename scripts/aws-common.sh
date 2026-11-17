@@ -257,6 +257,20 @@ save_setting() {
 # deployment_name: the deployment_name in infra/terraform.tfvars, or nothing.
 deployment_name() { tfvars_value deployment_name; }
 
+# saved_app_settings: the app_settings in infra/terraform.tfvars, as JSON with
+# sorted keys, such as {"GROUNDLINE_MAX_SOURCE_CHARS":150000}; nothing if
+# Terraform can't read them. Terraform parses the file, since it's HCL.
+saved_app_settings() {
+  local encoded
+  encoded="$(echo 'jsonencode(var.app_settings)' | terraform -chdir=infra console 2>/dev/null)" || return 0
+  jq -r . <<<"$encoded" 2>/dev/null | jq -cS . 2>/dev/null || true
+}
+
+# deployed_app_settings: the running server's app_settings, in the same form.
+deployed_app_settings() {
+  terraform -chdir=infra output -json app_settings 2>/dev/null | jq -cS . 2>/dev/null || echo '{}'
+}
+
 # Read one supported literal mode. Status 1 means absent; 2 means invalid.
 # This reader never changes settings or prints an interactive prompt.
 read_access_mode() {
@@ -616,7 +630,7 @@ what_next() {
     bullet "It's a lasting deployment, so it has no time limit and costs about \$18 a month."
     bullet "make aws-up upgrades it to another commit or settings. It keeps its data and address."
     bullet "make aws-destroy deletes the server and keeps its data and address, for about"
-    echo "    \$4.25 a month; make aws-destroy DATA=delete deletes those too."
+    echo "    \$4.05 a month; make aws-destroy DATA=delete deletes those too."
     echo
     return
   fi
@@ -724,7 +738,7 @@ describe_plan() {
         ;;
       aws_eip:create)
         echo "  · reserve its address, an Elastic IP, which stays the same when the server is replaced."
-        echo "    It costs about \$3.60 a month, in place of the server's own address."
+        echo "    It costs about \$3.65 a month, in place of the server's own address."
         ;;
       aws_ebs_volume:delete | aws_ebs_volume:delete+create | aws_ebs_volume:create+delete)
         echo "  · delete its data volume ($id): the database, its API keys and the HTTPS certificate."

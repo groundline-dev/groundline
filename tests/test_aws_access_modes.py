@@ -187,6 +187,47 @@ def test_keep_requires_matching_mode(
         assert "Keep your running server" not in result.stdout
 
 
+@pytest.mark.parametrize(
+    "saved,running,offered",
+    [
+        ({"GROUNDLINE_MAX_SOURCE_CHARS": 150000}, {}, False),
+        ({}, {"GROUNDLINE_MAX_SOURCE_CHARS": 150000}, False),
+        (
+            {"GROUNDLINE_MAX_SOURCE_CHARS": 150000},
+            {"GROUNDLINE_MAX_SOURCE_CHARS": 150000},
+            True,
+        ),
+    ],
+)
+def test_keep_is_offered_only_when_the_settings_match(
+    checkout: Path, saved: dict[str, int], running: dict[str, int], offered: bool
+):
+    settings(checkout, "restricted")
+    stub_children(checkout)
+    world = aws_fakes.new_world(
+        outputs={
+            "instance_id": "i-test",
+            "git_ref": "a" * 40,
+            "repository_url": "https://example.com/repo.git",
+            "access_mode": "restricted",
+            "allowed_cidr": "198.51.100.20/32",
+            "app_settings": running,
+        },
+        existing={"i-test": "running"},
+    )
+    world["saved_app_settings"] = saved
+
+    # Enter keeps a server that matches, and doesn't answer the review question.
+    result, _ = invoke(checkout, "aws-up", world, "\n\n2\n")
+
+    assert (result.returncode == 0) == offered, result.stdout + result.stderr
+    assert (checkout / "aws-smoke-test-called").exists() == offered
+    assert not (checkout / "aws-deploy-called").exists()
+    if not offered:
+        assert "app_settings in infra/terraform.tfvars differ" in result.stderr
+        assert "canceled: running server unchanged" in result.stderr
+
+
 def test_old_revision_cannot_be_deployed_in_https_mode(checkout: Path):
     settings(checkout, "restricted")
     result, world = invoke(

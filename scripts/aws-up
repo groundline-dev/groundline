@@ -107,7 +107,7 @@ if [ ! -f infra/terraform.tfvars ]; then
   budget=""
   if [ "$lifetime" = lasting ]; then
     echo
-    echo "A lasting deployment costs about \$18 a month while it runs, and about \$4.25 a"
+    echo "A lasting deployment costs about \$18 a month while it runs, and about \$4.05 a"
     echo "month for its data volume and address once make aws-destroy keeps them."
     bullet "The budget alert emails you when the project's costs this month pass half its"
     echo "    amount, and again at all of it."
@@ -169,7 +169,17 @@ if [ -n "$instance" ] \
   fi
   bullet "Deploying other code upgrades it in place. It keeps its data and address."
   running_mode="$(deployed_access_mode)"
-  if [ "$access_mode" != "$running_mode" ]; then
+  # Keeping the server applies nothing, so changed settings mean deploying.
+  saved_settings="$(saved_app_settings)"
+  running_settings="$(deployed_app_settings)"
+  if [ -n "$saved_settings" ] && [ "$saved_settings" != "$running_settings" ]; then
+    answer_warn "the app_settings in infra/terraform.tfvars differ from the running server's. Keeping this server would not apply them."
+    bullet "Applying them updates the server in place. It keeps its data and address."
+    echo "  1) Review a deployment plan"
+    echo "  2) Cancel and leave the running server unchanged"
+    choose "Review deployment changes? (1 review, 2 cancel)" 2
+    [ "$answer" = 1 ] || fail "canceled: running server unchanged"
+  elif [ "$access_mode" != "$running_mode" ]; then
     answer_warn "running access is $running_mode HTTPS; saved access is $access_mode HTTPS. Keeping this server would not apply your settings."
     bullet "Switching modes updates the server in place. It keeps its data and address."
     echo "  1) Review a deployment plan"
@@ -223,7 +233,7 @@ if [ -z "$keep" ]; then
       bullet "To keep it private, deploy to a project only you own."
       bullet "In a shared project, use a key from an Anthropic Console workspace with a"
       echo "    low spend limit, so anyone who copies it can't spend more than that."
-      [ -z "$others" ] || bullet "Test deployments running in this project now: $others."
+      [ -z "$others" ] || bullet "Other deployments running in this project now: $others."
     fi
     key=""
     for variable in AWS_ANTHROPIC_API_KEY ANTHROPIC_API_KEY; do
@@ -320,7 +330,11 @@ fi
 export REF REF_NAME
 answer_ok "step 1 done: deployment $name in $project, running ${REF:0:7}${REF_NAME:+ ($REF_NAME)}"
 if [ -z "$keep" ] && [ "$lifetime" = lasting ] && [ -n "${running_ref:-}" ]; then
-  bullet "It upgrades the lasting deployment $name from ${running_ref:0:7} to ${REF:0:7}, after a snapshot of its data."
+  if [ "$running_ref" = "$REF" ]; then
+    bullet "It applies your settings to the lasting deployment $name, after a snapshot of its data."
+  else
+    bullet "It upgrades the lasting deployment $name from ${running_ref:0:7} to ${REF:0:7}, after a snapshot of its data."
+  fi
 fi
 
 step "Step 2 of 3: deploy"
