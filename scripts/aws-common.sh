@@ -267,8 +267,12 @@ saved_app_settings() {
 }
 
 # deployed_app_settings: the running server's app_settings, in the same form.
+# {} when there's none, such as for a server deployed before app_settings.
 deployed_app_settings() {
-  terraform -chdir=infra output -json app_settings 2>/dev/null | jq -cS . 2>/dev/null || echo '{}'
+  local settings
+  settings="$(terraform -chdir=infra output -json app_settings 2>/dev/null | jq -cS . 2>/dev/null || true)"
+  [ -n "$settings" ] || settings='{}'
+  echo "$settings"
 }
 
 # Read one supported literal mode. Status 1 means absent; 2 means invalid.
