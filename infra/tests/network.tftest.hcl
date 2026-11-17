@@ -9,6 +9,19 @@ mock_provider "aws" {
   mock_data "aws_partition" {
     defaults = { partition = "aws" }
   }
+  # The data volume and the Elastic IP that infra/data/ makes.
+  mock_data "aws_ebs_volumes" {
+    defaults = { ids = ["vol-0123456789abcdef0"] }
+  }
+  mock_data "aws_ebs_volume" {
+    defaults = { availability_zone = "eu-north-1b" }
+  }
+  mock_data "aws_eips" {
+    defaults = { allocation_ids = ["eipalloc-0123456789abcdef0"], public_ips = ["203.0.113.10"] }
+  }
+  mock_data "aws_subnet" {
+    defaults = { id = "subnet-0123456789abcdef0", availability_zone = "eu-north-1b" }
+  }
 }
 
 variables {

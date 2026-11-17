@@ -42,6 +42,12 @@ esac
             source = source.replace(
                 "case", 'if [ "$1" = cat-file ]; then exit 1; fi\ncase', 1
             )
+        if name == "git" and world.get("missing_apply"):
+            source = source.replace(
+                "case",
+                'case "$*" in *infra/server/apply*) exit 1 ;; esac\ncase',
+                1,
+            )
         tool.write_text(source)
         tool.chmod(0o755)
     env = dict(
@@ -67,6 +73,13 @@ esac
     return result, json.loads(world_file.read_text())
 
 
+def server_plans(world: dict[str, Any]) -> list[list[str]]:
+    """The terraform plan calls for the server (infra/), not its data volume."""
+    return [
+        call for call in world["calls"] if "plan" in call and "-chdir=infra" in call
+    ]
+
+
 def settings(checkout: Path, mode: str | None):
     text = 'deployment_name = "alice"\nbudget_alert_email = "alerts@example.com"\n'
     if mode is not None:
@@ -85,7 +98,7 @@ def test_deploy_defaults_saves_and_discovers_only_the_restricted_tester(
     result, world = invoke(checkout, "aws-deploy", world)
     assert result.returncode == 0, result.stdout + result.stderr
     effective = "unrestricted" if mode == "unrestricted" else "restricted"
-    plans = [call for call in world["calls"] if "plan" in call]
+    plans = server_plans(world)
     assert len(plans) == 1
     assert f"access_mode={effective}" in plans[0]
     assert (checkout / "curl-calls").exists() == (effective == "restricted")
@@ -164,7 +177,7 @@ def test_keep_requires_matching_mode(
             "running access is unrestricted HTTPS; saved access is restricted HTTPS"
             in result.stderr
         )
-        assert "database and API keys" in result.stdout
+        assert "It keeps its data volume and address" in result.stdout
         assert "Keep your running server" not in result.stdout
 
 
@@ -348,7 +361,7 @@ def test_changed_ip_can_decline_keep_and_deploy_new_code(checkout: Path):
     # Confirm the project, decline keeping the server, and keep the stored key.
     result, world = invoke(checkout, "aws-up", world, "\nn\n\n")
     assert result.returncode == 0, result.stdout + result.stderr
-    plans = [call for call in world["calls"] if "plan" in call]
+    plans = server_plans(world)
     assert len(plans) == 1
     assert "git_ref=" + "a" * 40 in plans[0]
     assert "tester_cidr=198.51.100.20/32" in plans[0]
@@ -370,3 +383,81 @@ def test_unrestricted_keep_does_not_discover_tester_ip(checkout: Path):
     result, _ = invoke(checkout, "aws-up", world, "\n\n")
     assert result.returncode == 0, result.stdout + result.stderr
     assert not (checkout / "curl-calls").exists()
+
+
+def test_deploy_makes_the_data_volume_first_then_attaches_the_server(checkout: Path):
+    settings(checkout, "unrestricted")
+    with (checkout / "infra/terraform.tfvars").open("a") as tfvars:
+        tfvars.write('instance_type = "t4g.medium"\n')
+    world = aws_fakes.new_world(
+        outputs={"instance_id": "i-test", "auto_terminate_hours": "8"}
+    )
+
+    result, world = invoke(checkout, "aws-deploy", world)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    plans = [call for call in world["calls"] if "plan" in call]
+    assert ["-chdir=infra/data" in call for call in plans] == [True, False]
+    assert "deployment_name=alice" in plans[0]
+    assert "instance_type=t4g.medium" in plans[0]
+    assert "the data volume and address are unchanged" in result.stdout
+    # A disposable server's data volume goes with it when it terminates itself.
+    marks = [
+        call
+        for call in world["calls"]
+        if call[1:3] == ["ec2", "modify-instance-attribute"]
+    ]
+    assert len(marks) == 1
+    assert '"DeleteOnTermination":true' in " ".join(marks[0])
+
+
+def test_deploy_refuses_a_server_made_before_data_volumes(checkout: Path):
+    settings(checkout, "unrestricted")
+    world = aws_fakes.new_world(
+        outputs={"instance_id": "i-old", "auto_terminate_hours": "8"}, data_outputs={}
+    )
+
+    result, world = invoke(checkout, "aws-deploy", world)
+
+    assert result.returncode != 0
+    assert "Run make aws-destroy, then make aws-up" in result.stderr
+    assert not any("plan" in call or "apply" in call for call in world["calls"])
+
+
+def test_deploy_refuses_a_plan_that_would_delete_the_data_volume(checkout: Path):
+    settings(checkout, "unrestricted")
+    deleting: dict[str, Any] = {
+        "variables": {},
+        "resource_changes": [
+            {
+                "mode": "managed",
+                "type": "aws_ebs_volume",
+                "change": {
+                    "actions": ["delete", "create"],
+                    "before": {"id": "vol-0123456789abcdef0"},
+                },
+            }
+        ],
+    }
+    world = aws_fakes.new_world(
+        outputs={"instance_id": "i-test", "auto_terminate_hours": "8"},
+        data_plan=deleting,
+    )
+
+    result, world = invoke(checkout, "aws-deploy", world, "1\n")
+
+    assert result.returncode != 0
+    assert "would delete the deployment's data volume or address" in result.stderr
+    assert not any(call[1:2] == ["apply"] for call in world["calls"])
+    assert not world["data_destroyed"]
+
+
+def test_deploy_refuses_a_commit_without_infra_server_apply(checkout: Path):
+    settings(checkout, "unrestricted")
+    world = aws_fakes.new_world(missing_apply=True)
+
+    result, world = invoke(checkout, "aws-deploy", world)
+
+    assert result.returncode != 0
+    assert "too old to keep its data on a data volume" in result.stderr
+    assert not any("plan" in call for call in world["calls"])

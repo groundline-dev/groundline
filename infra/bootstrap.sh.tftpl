@@ -3,10 +3,12 @@
 # and cloud-init runs it once, as root, on the server's first boot. Shell
 # variables are written $name, without braces, so Terraform leaves them alone.
 #
-# It logs to /var/log/groundline-bootstrap.log, which scripts/aws-smoke-test
-# prints if the app doesn't start. At the end it leaves
-# /var/lib/groundline/bootstrap-done, or bootstrap-failed if a command failed.
-# -E makes the ERR trap fire inside functions too.
+# It installs what the server needs, mounts the data volume, clones the commit
+# and runs its infra/server/apply, which writes .env and starts the stack. It
+# logs to /var/log/groundline-bootstrap.log, which scripts/aws-smoke-test prints
+# if the app doesn't start. At the end it leaves /var/lib/groundline/bootstrap-done,
+# or bootstrap-failed if a command failed. -E makes the ERR trap fire inside
+# functions too.
 set -Eeuo pipefail
 
 log=/var/log/groundline-bootstrap.log
@@ -29,10 +31,20 @@ echo "groundline bootstrap: the server terminates itself at $(date -u -d "@$(cat
 cat >/usr/local/sbin/groundline-expire <<'EOF'
 #!/bin/sh
 # Shuts the server down once the time in /var/lib/groundline/terminate-at passes.
+# First it releases the Elastic IP, which would cost money with no server using
+# it; terminating deletes the data volume, which scripts/aws-deploy marks to go
+# with the server.
 set -eu
 deadline="$(cat /var/lib/groundline/terminate-at)"
 if [ "$(date +%s)" -ge "$deadline" ]; then
-  logger "groundline: the deadline passed, so the server is shutting down and terminating"
+  logger "groundline: the deadline passed, so the server is releasing its address and terminating"
+  association="$(aws ec2 describe-addresses --region ${region} --allocation-ids ${eip_allocation_id} \
+    --query 'Addresses[0].AssociationId' --output text 2>/dev/null || true)"
+  case "$association" in "" | None) ;; *)
+    aws ec2 disassociate-address --region ${region} --association-id "$association" || true ;;
+  esac
+  aws ec2 release-address --region ${region} --allocation-id ${eip_allocation_id} \
+    || logger "groundline: couldn't release the Elastic IP; make aws-destroy releases it"
   systemctl poweroff
 fi
 EOF
@@ -61,9 +73,69 @@ systemctl enable --now groundline-expire.timer
 
 %{ endif ~}
 
-# Docker starts at boot, so the containers come back after a reboot.
-dnf install -y docker git openssl
-systemctl enable --now docker
+# The Elastic IP is associated once Terraform sees the server running, which
+# replaces the address it starts with. Anything downloaded over that first
+# address would be cut off, so nothing is until the Elastic IP is in place.
+metadata=http://169.254.169.254/latest
+read_metadata() {
+  local token
+  token="$(curl --disable --fail --silent --noproxy '*' --max-time 5 --request PUT \
+    --header 'X-aws-ec2-metadata-token-ttl-seconds: 60' "$metadata/api/token")" || return 1
+  curl --disable --fail --silent --noproxy '*' --max-time 5 \
+    --header "X-aws-ec2-metadata-token: $token" "$metadata/meta-data/$1"
+}
+echo "groundline bootstrap: waiting for the Elastic IP"
+for attempt in $(seq 1 120); do
+  expected="$(read_metadata tags/instance/groundline-public-ip || true)"
+  [ -n "$expected" ] && [ "$(read_metadata public-ipv4 || true)" = "$expected" ] && break
+  [ "$attempt" -lt 120 ] || { echo "groundline bootstrap: the Elastic IP was never associated"; false; }
+  sleep 5
+done
+echo "groundline bootstrap: the server's address is $expected"
+
+dnf install -y docker git openssl xfsprogs
+
+# The data volume holds Docker's volumes (the database and the HTTPS
+# certificates) and the database passwords, so they outlive the server. It's
+# formatted only if it's new, and mounted before Docker first starts. Docker
+# needs the mount to start (the drop-in below), so a missing volume never gets
+# an empty database in its place.
+data=/srv/groundline-data
+device="${data_device}"
+echo "groundline bootstrap: waiting for the data volume"
+for attempt in $(seq 1 120); do
+  [ -e "$device" ] && break
+  [ "$attempt" -lt 120 ] || { echo "groundline bootstrap: the data volume never appeared at $device"; false; }
+  sleep 5
+done
+if ! blkid "$device" >/dev/null 2>&1; then
+  echo "groundline bootstrap: formatting the new data volume"
+  mkfs.xfs -q -L groundline-data "$device"
+fi
+uuid="$(blkid -s UUID -o value "$device")"
+mkdir -p "$data" /var/lib/docker/volumes
+echo "UUID=$uuid $data xfs defaults,nofail 0 2" >>/etc/fstab
+mount "$data"
+mkdir -p "$data/docker-volumes" "$data/secrets"
+chmod 700 "$data/secrets"
+echo "$data/docker-volumes /var/lib/docker/volumes none bind,nofail,x-systemd.requires-mounts-for=$data 0 0" >>/etc/fstab
+mount /var/lib/docker/volumes
+systemctl daemon-reload
+
+# Refresh the public IP before Docker can restart any containers. A failed
+# discovery prevents startup; it never falls back to HTTP or an internal CA.
+# The directory mount lets Caddy see an atomically replaced configuration.
+mkdir -p /etc/systemd/system/docker.service.d
+cat >/etc/systemd/system/docker.service.d/groundline-https.conf <<'EOF'
+[Unit]
+Wants=network-online.target
+After=network-online.target
+RequiresMountsFor=/var/lib/docker/volumes
+
+[Service]
+ExecStartPre=/opt/groundline/infra/https/refresh-address
+EOF
+systemctl daemon-reload
 
 # Amazon Linux doesn't package Compose or buildx (which Compose uses to build the
 # image), so install them at pinned versions and check their sha256.
@@ -86,51 +158,13 @@ git clone --quiet "${repository_url}" "$checkout"
 git -C "$checkout" checkout --quiet --detach "${git_ref}"
 cd "$checkout"
 
-# .env, readable only by root. Hex passwords are safe in a URL and in Compose.
-# Generated first, since a failed command inside echo "$(...)" wouldn't stop the script.
-postgres_password="$(openssl rand -hex 24)"
-groundline_db_password="$(openssl rand -hex 24)"
-umask 077
-{
-  echo "POSTGRES_PASSWORD=$postgres_password"
-  echo "GROUNDLINE_DB_PASSWORD=$groundline_db_password"
-  echo "COMPOSE_FILE=compose.yaml:compose.https.yaml"
-} >.env
-chmod 600 .env
-
-# The Anthropic API key is optional: without the parameter, the app starts and
-# answers everything except model calls. Any other error stops the startup.
-errors_file="$(mktemp)"
-if anthropic_api_key="$(aws ssm get-parameter --region "${region}" --name "${anthropic_parameter_name}" \
-  --with-decryption --query Parameter.Value --output text 2>"$errors_file")"; then
-  echo "ANTHROPIC_API_KEY=$anthropic_api_key" >>.env
-  echo "groundline bootstrap: read the Anthropic API key from ${anthropic_parameter_name}"
-elif grep --quiet ParameterNotFound "$errors_file"; then
-  echo "groundline bootstrap: ${anthropic_parameter_name} doesn't exist, so the app has no Anthropic API key"
-else
-  cat "$errors_file"
-  false
-fi
-rm -f "$errors_file"
-unset anthropic_api_key
-
 echo "groundline bootstrap: ${access_mode} HTTPS application access"
-# Refresh the public IP before Docker can restart any containers. A failed
-# discovery prevents startup; it never falls back to HTTP or an internal CA.
-# The directory mount lets Caddy see an atomically replaced configuration.
-mkdir -p /etc/systemd/system/docker.service.d
-cat >/etc/systemd/system/docker.service.d/groundline-https.conf <<'EOF'
-[Unit]
-Wants=network-online.target
-After=network-online.target
-
-[Service]
-ExecStartPre=/opt/groundline/infra/https/refresh-address
-EOF
-systemctl daemon-reload
-infra/https/refresh-address
-# Builds the image, then starts Postgres, setup and the app.
-docker compose up -d --quiet-pull
+# Docker starts at boot, so the containers come back after a reboot. The
+# drop-in above runs refresh-address first, which the checkout has now.
+systemctl enable --now docker
+# Writes .env, from the passwords on the data volume and the Anthropic API key,
+# then builds the image and starts Postgres, setup, the app and Caddy.
+infra/server/apply
 
 touch "$marker_dir/bootstrap-done"
 echo "groundline bootstrap: done at $(date -u); the app starts once setup finishes"

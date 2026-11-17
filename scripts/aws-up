@@ -128,11 +128,11 @@ if [ -n "$instance" ] \
   echo "Your deployment $name is already running in $project."
   [ -z "$running_ref" ] || bullet "It runs ${running_ref:0:7}, from $running_repository."
   bullet "It costs money until make aws-destroy, or until it terminates itself."
-  bullet "Deploying other code replaces it, and deletes its data."
+  bullet "Deploying other code replaces it. Its data volume and address move to the new one."
   running_mode="$(deployed_access_mode)"
   if [ "$access_mode" != "$running_mode" ]; then
     answer_warn "running access is $running_mode HTTPS; saved access is $access_mode HTTPS. Keeping this server would not apply your settings."
-    bullet "Switching modes replaces the server, deleting its database and API keys."
+    bullet "Switching modes replaces the server. It keeps its data volume and address."
     echo "  1) Review a deployment plan"
     echo "  2) Cancel and leave the running server unchanged"
     choose "Review deployment changes? (1 review, 2 cancel)" 2

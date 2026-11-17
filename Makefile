@@ -63,13 +63,16 @@ docker-smoke: docker-build
 https-smoke:
 	scripts/https-smoke-test
 
-# Formatting, validation and tests of the Terraform in infra/, against a mock AWS
-# provider: no AWS credentials, nothing created. Needs Terraform; CI runs it.
+# Formatting, validation and tests of the Terraform in infra/ and infra/data/,
+# against a mock AWS provider: no AWS credentials, nothing created. Needs
+# Terraform; CI runs it.
 infra-check:
 	terraform -chdir=infra fmt -check -recursive
-	terraform -chdir=infra init -input=false
-	terraform -chdir=infra validate
-	terraform -chdir=infra test
+	for root in infra infra/data; do \
+	  terraform -chdir=$$root init -input=false && \
+	  terraform -chdir=$$root validate && \
+	  terraform -chdir=$$root test || exit 1; \
+	done
 
 # Your AWS test deployment (see DEVELOPMENT.md, "Deploying to AWS"). It costs money
 # while it runs: make aws-destroy when you're done.

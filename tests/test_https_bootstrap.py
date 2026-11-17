@@ -21,11 +21,15 @@ case "$*" in
   *api/token*) echo test-token ;;
   *groundline-access-mode*) echo "$MODE" ;;
   *groundline-allowed-cidr*) echo "$ALLOWED" ;;
+  *groundline-public-ip*) echo "$ELASTIC_IP" ;;
   *public-ipv4*) [ "$ADDRESS" != unavailable ] || exit 22; echo "$ADDRESS" ;;
   *) exit 1 ;;
 esac
 """)
     curl.chmod(0o755)
+    sleep = tmp_path / "sleep"
+    sleep.write_text("#!/bin/sh\n")
+    sleep.chmod(0o755)
     return tmp_path
 
 
@@ -35,6 +39,7 @@ def refresh(
     mode: str = "restricted",
     allowed: str = "203.0.113.8/32",
     expected: tuple[str, ...] = (),
+    elastic_ip: str | None = None,
 ) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
         [str(host / "refresh-address"), *expected],
@@ -45,6 +50,8 @@ def refresh(
             ADDRESS=address,
             MODE=mode,
             ALLOWED=allowed,
+            ELASTIC_IP=address if elastic_ip is None else elastic_ip,
+            GROUNDLINE_ADDRESS_ATTEMPTS="2",
         ),
         text=True,
         capture_output=True,
@@ -117,3 +124,16 @@ def test_stale_metadata_cannot_replace_the_approved_live_configuration(host: Pat
     assert result.returncode != 0
     assert "does not yet match the approved deployment" in result.stderr
     assert (host / "runtime/Caddyfile").read_bytes() == saved
+
+
+def test_the_address_waits_for_the_elastic_ip(host: Path):
+    """Until the Elastic IP is associated, IMDS reports the server's first
+    address, which the certificate must never be issued for."""
+    assert refresh(host, "203.0.113.10").returncode == 0
+    before = (host / "runtime/Caddyfile").read_text()
+
+    result = refresh(host, "198.51.100.1", elastic_ip="203.0.113.10")
+
+    assert result.returncode != 0
+    assert "not its Elastic IP 203.0.113.10" in result.stderr
+    assert (host / "runtime/Caddyfile").read_text() == before

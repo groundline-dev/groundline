@@ -10,6 +10,9 @@ They answer only the calls the scripts make, the way the real tools answer:
 
 - `terraform output -raw NAME` prints an output until `terraform destroy`
   runs, or a destroy plan is applied, then fails as it does with no state.
+  `-chdir=infra/data` acts on the data volume's folder, whose outputs, plan
+  and destroyed flag are `data_outputs`, `data_plan` and `data_destroyed`; any
+  other folder is infra/, with `outputs`, `plan` and `destroyed`.
 - `terraform plan -destroy -out=FILE` writes a plan deleting each resource the
   outputs name, which `terraform show -json FILE` prints and `terraform apply
   FILE` carries out. `terraform show -no-color FILE` prints SHORT_PLAN_SAMPLE.
@@ -22,9 +25,10 @@ They answer only the calls the scripts make, the way the real tools answer:
   ParameterNotFound, or with `delete_parameter_error` when that is set.
 - `aws configure get region` prints `region`, and `aws account
   get-account-information` gives `account_name` as the project's name.
-- `aws ec2 describe-instances`, `describe-security-groups`, `aws iam get-role`,
-  `get-instance-profile` and `aws budgets describe-budget` find what `existing`
-  lists, or fail with that service's not-found error.
+- `aws ec2 describe-instances`, `describe-security-groups`, `describe-volumes`,
+  `describe-addresses`, `aws iam get-role`, `get-instance-profile` and `aws
+  budgets describe-budget` find what `existing` lists, or fail with that
+  service's not-found error. `aws ec2 modify-instance-attribute` is recorded.
 - With `error` set, every aws call fails with that error code, as with an
   expired sign-in.
 
@@ -65,12 +69,24 @@ SHORT_PLAN_SAMPLE = """Terraform will perform the following actions:
 Plan: 1 to add, 0 to change, 1 to destroy."""
 
 
+# What infra/data/ outputs for a deployment whose data volume and Elastic IP exist.
+DATA_OUTPUTS = {
+    "volume_id": "vol-0123456789abcdef0",
+    "availability_zone": "eu-north-1a",
+    "eip_allocation_id": "eipalloc-0123456789abcdef0",
+    "public_ip": "1.1.1.1",
+    "data_volume_gib": "5",
+}
+
+
 def new_world(**fields: Any) -> dict[str, Any]:
     """A world in which every resource is gone, the parameter exists and each
     SSM command succeeds with no output. Pass fields to change any of that."""
     world: dict[str, Any] = {
         "outputs": {},
         "destroyed": False,
+        "data_outputs": dict(DATA_OUTPUTS),
+        "data_destroyed": False,
         "calls": [],
         "commands": [],
         "ssm_replies": [],
@@ -115,27 +131,40 @@ def main(argv: list[str]) -> int:
 
 
 def _terraform(world: dict[str, Any], args: list[str]) -> int:
+    chdir = next(
+        (a.removeprefix("-chdir=") for a in args if a.startswith("-chdir=")), ""
+    )
     args = [arg for arg in args if not arg.startswith("-chdir=")]
+    if chdir.rstrip("/") == "infra/data":
+        prefix, kinds, required = "data_", _DATA_OUTPUT_TYPES, ("deployment_name",)
+    else:
+        prefix, kinds = "", _OUTPUT_TYPES
+        required = ("deployment_name", "budget_alert_email")
+    outputs_key, destroyed_key, plan_key = (
+        f"{prefix}outputs",
+        f"{prefix}destroyed",
+        f"{prefix}plan",
+    )
     if args == ["output", "-json"]:
-        print(json.dumps({k: {"value": v} for k, v in world["outputs"].items()}))
+        print(json.dumps({k: {"value": v} for k, v in world[outputs_key].items()}))
         return 0
     if args == ["version", "-json"]:
         print(json.dumps({"terraform_version": "1.17.1"}))
         return 0
     if args[:1] == ["plan"] and "-destroy" not in args:
         out = next(a.removeprefix("-out=") for a in args if a.startswith("-out="))
-        plan = world.get("plan", {"variables": {}, "resource_changes": []})
+        plan = world.get(plan_key, {"variables": {}, "resource_changes": []})
         Path(out).write_text(json.dumps(plan))
         return 2 if plan["resource_changes"] else 0
     if args[:2] == ["output", "-raw"] and len(args) == 3:
-        outputs: dict[str, str] = world["outputs"]
-        if world["destroyed"] or args[2] not in outputs:
+        outputs: dict[str, str] = world[outputs_key]
+        if world[destroyed_key] or args[2] not in outputs:
             print(f'Error: Output "{args[2]}" not found', file=sys.stderr)
             return 1
         sys.stdout.write(outputs[args[2]])
         return 0
     if args[:1] == ["destroy"]:
-        world["destroyed"] = True
+        world[destroyed_key] = True
         return 0
     if args[:1] == ["plan"] and "-destroy" in args:
         # Like real Terraform, fail when a required variable has no value. Real
@@ -145,13 +174,13 @@ def _terraform(world: dict[str, Any], args: list[str]) -> int:
             for i, arg in enumerate(args[:-1])
             if arg == "-var"
         }
-        for name in ("deployment_name", "budget_alert_email"):
+        for name in required:
             if name not in given:
                 print(
                     f'Error: No value for required variable "{name}"', file=sys.stderr
                 )
                 return 1
-        return _destroy_plan(world, args)
+        return _destroy_plan(world, args, outputs_key, destroyed_key, kinds)
     if args[:2] == ["show", "-json"] and len(args) == 3:
         sys.stdout.write(Path(args[2]).read_text())
         return 0
@@ -163,7 +192,7 @@ def _terraform(world: dict[str, Any], args: list[str]) -> int:
         return 0
     if args[:1] == ["apply"] and args[-1].endswith("tfplan"):
         if json.loads(Path(args[-1]).read_text())["resource_changes"]:
-            world["destroyed"] = True
+            world[destroyed_key] = True
         return 0
     if args[:1] in (["init"], ["apply"], ["version"]):
         return 0
@@ -179,21 +208,31 @@ _OUTPUT_TYPES = {
     "instance_profile_name": "aws_iam_instance_profile",
     "budget_name": "aws_budgets_budget",
 }
+_DATA_OUTPUT_TYPES = {
+    "volume_id": "aws_ebs_volume",
+    "eip_allocation_id": "aws_eip",
+}
 
 
-def _destroy_plan(world: dict[str, Any], args: list[str]) -> int:
+def _destroy_plan(
+    world: dict[str, Any],
+    args: list[str],
+    outputs_key: str,
+    destroyed_key: str,
+    kinds: dict[str, str],
+) -> int:
     """Write a plan that deletes each resource the outputs name, in the shape of
     `terraform show -json`, and exit as -detailed-exitcode does: 2 for changes,
     0 for none."""
     out = next(arg.removeprefix("-out=") for arg in args if arg.startswith("-out="))
-    outputs: dict[str, str] = {} if world["destroyed"] else world["outputs"]
+    outputs: dict[str, str] = {} if world[destroyed_key] else world[outputs_key]
     changes = [
         {
             "mode": "managed",
             "type": kind,
             "change": {"actions": ["delete"], "before": {"id": outputs[name]}},
         }
-        for name, kind in _OUTPUT_TYPES.items()
+        for name, kind in kinds.items()
         if name in outputs
     ]
     plan: dict[str, Any] = {"variables": {}, "resource_changes": changes}
@@ -325,6 +364,18 @@ def _reply(
             if "lifecycle" not in world:
                 return None
             world["lifecycle"]["reboots"] += 1
+            return {}
+        case ("ec2", "describe-volumes"):
+            volume_id = options.get("--volume-ids")
+            if str(volume_id) not in existing:
+                raise AWSError("InvalidVolume.NotFound", "DescribeVolumes")
+            return {"Volumes": [{"VolumeId": volume_id}]}
+        case ("ec2", "describe-addresses"):
+            allocation_id = options.get("--allocation-ids")
+            if str(allocation_id) not in existing:
+                raise AWSError("InvalidAllocationID.NotFound", "DescribeAddresses")
+            return {"Addresses": [{"AllocationId": allocation_id}]}
+        case ("ec2", "modify-instance-attribute"):
             return {}
         case ("ec2", "describe-security-groups"):
             group_id = options.get("--group-ids")

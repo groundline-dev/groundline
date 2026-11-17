@@ -398,12 +398,13 @@ remote_with() {
   https_url "$(git remote get-url "$(head -n 1 <<<"$remotes")")"
 }
 
-# The reminder for a server that terminated itself: terminating removes only the
-# instance, its disk and its public IP, so the rest is still there.
+# The reminder for a server that terminated itself: terminating removes the
+# instance and its disks, and the server releases its Elastic IP first, so the
+# rest is still there.
 gone_reminder() {
-  echo "Terminating removed only the server and its data. Run make aws-destroy to remove" >&2
-  echo "the security group, IAM role, instance profile and budget it left behind, or" >&2
-  echo "make aws-deploy for a new server." >&2
+  echo "Terminating removed the server, its data and its address. Run make aws-destroy to" >&2
+  echo "remove the security group, IAM role, instance profile and budget it left behind," >&2
+  echo "or make aws-deploy for a new server." >&2
 }
 
 # require_running: fail unless the instance is pending or running. A terminated
@@ -523,7 +524,7 @@ what_next() {
       bullet "make aws-status shows when it terminates itself."
       bullet "make aws-reset-deadline moves that to $hours hours from now."
       ;;
-    none) bullet "It has no time limit, so it costs about \$17 a month." ;;
+    none) bullet "It has no time limit, so it costs about \$18 a month." ;;
     *)
       bullet "It terminates itself, with its data, at $(describe_deadline "$deadline")."
       bullet "make aws-reset-deadline moves that to $hours hours from now."
@@ -556,6 +557,8 @@ friendly_name() {
     aws_iam_role_policy) echo "IAM policy" ;;
     aws_iam_instance_profile) echo "instance profile" ;;
     aws_budgets_budget) echo "budget alert" ;;
+    aws_volume_attachment) echo "data volume attachment" ;;
+    aws_eip_association) echo "address association" ;;
     *) echo "$1" ;;
   esac
 }
@@ -567,7 +570,7 @@ join_names() {
 }
 
 # describe_plan PLAN_JSON: say in plain words what applying the plan does, so no
-# one types yes without knowing it deletes the server and its data. Reads
+# one types yes without knowing it deletes the server or its data. Reads
 # $commit and $previous_instance where they're set.
 describe_plan() {
   local hours short="${commit:-}" created="" updated="" deleted="" limit
@@ -579,8 +582,22 @@ describe_plan() {
     limit="    It terminates itself, with its data, $hours hours after it starts.
     You can also delete it manually with make aws-destroy."
   fi
-  while IFS='|' read -r type actions id old_cidr new_cidr old_port new_port; do
+  while IFS='|' read -r type actions id old_cidr new_cidr old_port new_port size address; do
     case "$type:$actions" in
+      aws_ebs_volume:create)
+        echo "  · create its data volume ($size GiB, about \$$(awk -v gib="$size" 'BEGIN { printf "%.2f", gib * 0.08 }') a month), which keeps"
+        echo "    the database, its API keys and the HTTPS certificate when the server is replaced."
+        ;;
+      aws_eip:create)
+        echo "  · reserve its address, an Elastic IP, which stays the same when the server is replaced."
+        echo "    It costs about \$3.60 a month, in place of the server's own address."
+        ;;
+      aws_ebs_volume:delete | aws_ebs_volume:delete+create | aws_ebs_volume:create+delete)
+        echo "  · delete its data volume ($id): the database, its API keys and the HTTPS certificate."
+        ;;
+      aws_eip:delete | aws_eip:delete+create | aws_eip:create+delete)
+        echo "  · release its address${address:+, $address}. Callers would need a new one."
+        ;;
       aws_instance:create)
         if [ -n "${previous_instance:-}" ]; then
           echo "  · create a new server running $short, for about \$0.024 an hour, in place of"
@@ -591,13 +608,14 @@ describe_plan() {
         echo "$limit"
         ;;
       aws_instance:delete+create | aws_instance:create+delete)
-        echo "  · replace your server ($id) with a new one running $short."
-        echo "    This deletes the old server, database and API keys: Terraform shows \"Destroying...\""
-        echo "    for a minute or two while it does. The new server costs about \$0.024 an hour."
+        echo "  · replace your server ($id) with a new one running $short. Its data volume and"
+        echo "    address move to the new server, so it keeps its database, API keys and address."
+        echo "    Terraform shows \"Destroying...\" for a few minutes while the old one stops."
+        echo "    The new server costs about \$0.024 an hour."
         echo "$limit"
         ;;
       aws_instance:update) echo "  · update your server ($id) in place. It keeps its data." ;;
-      aws_instance:delete) echo "  · delete your server ($id) and its data." ;;
+      aws_instance:delete) echo "  · delete your server ($id)." ;;
       aws_vpc_security_group_ingress_rule:update | aws_vpc_security_group_ingress_rule:delete+create)
         echo "  · let requests from ${new_cidr%/32} reach the server on TCP $new_port, in place of ${old_cidr%/32} on TCP $old_port."
         ;;
@@ -608,9 +626,10 @@ describe_plan() {
     esac
   done < <(jq -r '.resource_changes[]
     | select(.mode == "managed" and .change.actions != ["no-op"])
-    | [.type, (.change.actions | join("+")), (.change.before.id // ""), (.change.before.cidr_ipv4 // ""), (.change.after.cidr_ipv4 // ""), (.change.before.from_port // ""), (.change.after.from_port // "")]
+    | [.type, (.change.actions | join("+")), (.change.before.id // ""), (.change.before.cidr_ipv4 // ""), (.change.after.cidr_ipv4 // ""), (.change.before.from_port // ""), (.change.after.from_port // ""), ((.change.after.size // .change.before.size // "") | tostring), (.change.before.public_ip // "")]
     | join("|")' <<<"$1")
-  # Everything here except the server is free; update this if that changes.
+  # Everything here except the server, the data volume and the address is free;
+  # update this if that changes.
   [ -z "$created" ] || echo "  · create its $(printf %s "$created" | join_names), which are free."
   [ -z "$updated" ] || echo "  · update its $(printf %s "$updated" | join_names)."
   [ -z "$deleted" ] || echo "  · delete its $(printf %s "$deleted" | join_names)."
@@ -633,44 +652,63 @@ show_plan() {
     | grep -E '^  # |forces replacement|^[[:space:]]+~ |^Plan: ' || true
 }
 
-# plan_and_apply ROOT NOTHING_TO_DO TERRAFORM_PLAN_ARGUMENTS...: plan the
-# Terraform folder ROOT, such as infra, say in plain words what applying the
-# plan does, ask, and apply exactly that plan. Prints NOTHING_TO_DO instead when
-# there's nothing to change. Sets $plan_changed to yes when it changed something
-# in AWS.
+# make_plan ROOT TERRAFORM_PLAN_ARGUMENTS...: plan the Terraform folder ROOT,
+# such as infra, and set $planned to the saved plan and $planned_summary to
+# what applying it does, in plain words. $planned is empty when there's nothing
+# to change. A plan that changes only outputs, such as one adding a new output,
+# changes nothing in AWS, so it's applied at once, without asking.
 plan_dirs=()
-plan_and_apply() {
-  local root="$1" nothing_to_do="$2" plan plan_dir status=0 summary
-  plan_changed=""
-  shift 2
+make_plan() {
+  local root="$1" plan plan_dir plan_json status=0
+  shift
+  planned="" planned_summary=""
   # A saved plan holds the variables' values, such as your email address and IP,
   # so it goes in a temporary folder that's deleted on exit, not in infra/. Each
-  # call's folder is kept in plan_dirs, so a second call doesn't leave the
+  # plan's folder is kept in plan_dirs, so a second plan doesn't leave the
   # first one's behind.
   plan_dir="$(mktemp -d)"
   plan_dirs+=("$plan_dir")
   trap 'rm -rf "${plan_dirs[@]}"' EXIT
   plan="$plan_dir/tfplan"
-  doing "Working out what will change"
   terraform -chdir="$root" plan -input=false -detailed-exitcode -out="$plan" "$@" \
     >"$plan_dir/plan.log" 2>&1 || status=$?
   case "$status" in
-    0)
-      echo
-      ok "$nothing_to_do"
-      return
-      ;;
+    0) return ;;
     2) ;;
     *)
       cat "$plan_dir/plan.log" >&2
-      fail "terraform plan failed"
+      fail "terraform plan failed in $root"
       ;;
   esac
-  summary="$(describe_plan "$(terraform -chdir="$root" show -json "$plan")")"
-  # A plan that changes only outputs, such as one adding a new output, changes
-  # nothing in AWS, so it's applied without asking.
-  if [ -z "$summary" ]; then
+  plan_json="$(terraform -chdir="$root" show -json "$plan")"
+  # The data volume and the address are deleted only when that's what the run
+  # is for: a disposable deployment's make aws-destroy, or DATA=delete. Any other
+  # plan that would delete or replace them, such as after a hand edit to
+  # infra/data/, stops here.
+  if [ "${allow_data_deletion:-}" != yes ] && jq -e '[.resource_changes[]?
+    | select(.mode == "managed" and (.type == "aws_ebs_volume" or .type == "aws_eip")
+      and (.change.actions | index("delete")))] | length > 0' <<<"$plan_json" >/dev/null; then
+    fail "this plan would delete the deployment's data volume or address, so nothing was changed. FULL_PLAN=1 shows Terraform's whole plan."
+  fi
+  planned_summary="$(describe_plan "$plan_json")"
+  if [ -z "$planned_summary" ]; then
     terraform -chdir="$root" apply -input=false "$plan" >/dev/null
+    return
+  fi
+  planned="$plan"
+}
+
+# apply_plans NOTHING_TO_DO SUMMARY ROOT PLAN [ROOT PLAN]...: say what applying
+# the plans does (SUMMARY, from make_plan), ask once, and apply exactly those
+# plans, in order. An empty PLAN is skipped. Prints NOTHING_TO_DO instead when
+# every PLAN is empty. Sets $plan_changed to yes when it changed something in
+# AWS.
+apply_plans() {
+  local nothing_to_do="$1" summary="$2" index
+  shift 2
+  local pairs=("$@")
+  plan_changed=""
+  if [ -z "$summary" ]; then
     echo
     ok "$nothing_to_do"
     return
@@ -686,7 +724,9 @@ plan_and_apply() {
   echo "  3) Cancel, changing nothing"
   choose "Make the changes above? (1 make them, 2 show the plan, 3 cancel)" 3
   if [ "$answer" = 2 ]; then
-    show_plan "$root" "$plan"
+    for ((index = 0; index + 1 < ${#pairs[@]}; index += 2)); do
+      [ -z "${pairs[index + 1]}" ] || show_plan "${pairs[index]}" "${pairs[index + 1]}"
+    done
     echo
     echo "  1) Make these changes"
     echo "  2) Cancel, changing nothing"
@@ -696,7 +736,19 @@ plan_and_apply() {
   [ "$answer" = 1 ] || fail "canceled: nothing changed"
   plan_changed=yes
   doing "Making the changes"
-  terraform -chdir="$root" apply -input=false "$plan"
+  for ((index = 0; index + 1 < ${#pairs[@]}; index += 2)); do
+    [ -z "${pairs[index + 1]}" ] || terraform -chdir="${pairs[index]}" apply -input=false "${pairs[index + 1]}"
+  done
+}
+
+# plan_and_apply ROOT NOTHING_TO_DO TERRAFORM_PLAN_ARGUMENTS...: make_plan and
+# apply_plans for one Terraform folder.
+plan_and_apply() {
+  local root="$1" nothing_to_do="$2"
+  shift 2
+  doing "Working out what will change"
+  make_plan "$root" "$@"
+  apply_plans "$nothing_to_do" "$planned_summary" "$root" "$planned"
 }
 
 # output NAME [ROOT]: read a required output of the Terraform folder ROOT

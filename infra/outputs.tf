@@ -12,7 +12,7 @@ output "region" {
 
 output "app_url" {
   description = "The HTTPS address; access_mode controls application access rather than transport."
-  value       = "https://${aws_instance.app.public_ip}"
+  value       = "https://${aws_eip_association.app.public_ip}"
 }
 
 output "access_mode" {
@@ -25,7 +25,8 @@ output "allowed_cidr" {
 }
 
 output "public_ip" {
-  value = aws_instance.app.public_ip
+  description = "The deployment's Elastic IP, from infra/data/."
+  value       = aws_eip_association.app.public_ip
 }
 
 # scripts/aws-destroy reads these before destroying, then checks each is gone.
