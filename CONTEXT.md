@@ -153,7 +153,7 @@ A source or summary that can't be checked, such as an empty one. It is reported 
 _Avoid_: bad request, validation error (the API's names for its own rejections)
 
 **Model failure**:
-A check stopped because the model couldn't give a usable answer in time: Anthropic's API kept failing, the model's reply stayed unusable, or the time limit ran out. Trying again later may work.
+A check stopped because the model couldn't give a usable answer in time: Anthropic's API kept failing, the model declined, its reply stayed unusable, or the time limit ran out. Trying again later may work.
 _Avoid_: upstream error, API error (the API is groundline's own)
 
 ## Running groundline

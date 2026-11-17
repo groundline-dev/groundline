@@ -20,7 +20,9 @@ from groundline_core._core import (
     ModelFailureError,
     ModelTimeoutError,
     PipelineSpec,
+    ProfileError,
     SetupError,
+    SpecError,
     build_pipeline,
     summarize_usage,
 )
@@ -321,11 +323,15 @@ def check_failures() -> Generator[None]:
     be read), 504 when a time limit runs out, and 502 for any other model
     failure. Groundline's error messages are safe to send (they never quote the
     source, the summary, a key or Anthropic's own error text). Anything else is
-    a bug of ours: it passes through, and the app-wide handler answers 500."""
+    a bug of ours: it passes through, and the app-wide handler answers 500. That
+    includes a spec or profile error, since the API runs only built-in ones."""
     try:
         yield
+    except (SpecError, ProfileError):
+        raise
     except SetupError as error:
-        logger.warning("can't check: %s", error)
+        file = f"\n  File: {error.path}" if error.path else ""
+        logger.warning("can't check: %s%s", error, file)
         raise HTTPException(503, detail=str(error)) from error
     except ModelTimeoutError as error:
         spent = _spent(error)

@@ -204,7 +204,7 @@ def anthropic_key(
     from_settings = read_settings(env_file).anthropic_api_key
     if from_settings is None:
         raise missing_key_error(needed_by, env_file)
-    from_file = not os.environ.get(ANTHROPIC_KEY_VARIABLE) and env_file is not None
+    from_file = env_file is not None and not os.environ.get(ANTHROPIC_KEY_VARIABLE)
     path = Path(env_file).absolute() if from_file and env_file is not None else None
     return AnthropicKey(from_settings, ANTHROPIC_KEY_VARIABLE, path)
 
@@ -226,7 +226,7 @@ def missing_key_error(needed_by: str | None, env_file: EnvFile) -> MissingAPIKey
             fix=f"pass {ANTHROPIC_KEY_PARAMETER}=..., or set {ANTHROPIC_KEY_VARIABLE}.",
         )
         return MissingAPIKeyError(message)
-    path = Path(env_file).absolute()
+    path = Path(env_file)
     headline = f"{ANTHROPIC_KEY_VARIABLE} is not set."
     fix = (
         f"export {ANTHROPIC_KEY_VARIABLE}=..., or copy .env.example to "

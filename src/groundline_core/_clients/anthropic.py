@@ -69,7 +69,7 @@ def retry_decision(
     return True, minimum
 
 
-def _described(error: anthropic.APIError) -> str:
+def _sdk_failure_text(error: anthropic.APIError) -> str:
     """What the Anthropic API did, named by status and error type. The SDK's own
     message is never quoted: it can repeat parts of the request."""
     if isinstance(error, anthropic.APIStatusError):
@@ -186,7 +186,7 @@ class AnthropicClient:
                 "or change the stage's model setting.",
             ) from error
         except anthropic.APIError as error:
-            raise ModelFailureError(_described(error)) from error
+            raise ModelFailureError(_sdk_failure_text(error)) from error
         text = "".join(block.text for block in message.content if block.type == "text")
         reply = ModelReply(
             text=text,

@@ -7,8 +7,8 @@ trying again later may work. Anything else that comes out of a check, such as
 an exception from the caller's own model client, is passed on as it was raised
 (ADR 0020).
 
-No message names a file's folder, a key, or text from the source or summary,
-so a message is safe to log or show to anyone. A file's full path is in
+No message from a check names a file's folder, a key, or text from the
+source or summary, so it is safe to log or show to anyone. A file's full path is in
 `SetupError.path` instead.
 """
 

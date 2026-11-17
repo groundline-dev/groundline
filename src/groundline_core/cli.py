@@ -25,6 +25,7 @@ from groundline_core._core import (
     GroundlineError,
     ModelClient,
     ModelFailureError,
+    SetupError,
     load_profile,
     load_spec,
     summarize_usage,
@@ -232,9 +233,9 @@ def _finish(run: Callable[[], int]) -> None:
         code = EXIT_ERROR
     except (GroundlineError, ValueError, OSError) as error:
         typer.echo(f"error: {error}", err=True)
-        if path := getattr(error, "path", None):
-            missing = "" if path.exists() else " (not found)"
-            typer.echo(f"  File: {path}{missing}", err=True)
+        if isinstance(error, SetupError) and error.path:
+            missing = "" if error.path.exists() else " (not found)"
+            typer.echo(f"  File: {error.path}{missing}", err=True)
         code = EXIT_ERROR
     except Exception as error:
         typer.echo(

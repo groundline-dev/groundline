@@ -80,7 +80,10 @@ def _database_url() -> str | None:
     try:
         settings = read_settings(ENV_FILE)
     except SettingsError as error:
-        api_logger.warning("%s\nChecks will answer 503 until it's fixed.", error)
+        file = f"\n  File: {error.path}" if error.path else ""
+        api_logger.warning(
+            "%s%s\nChecks will answer 503 until it's fixed.", error, file
+        )
         return None
     if settings.anthropic_api_key is None:
         api_logger.warning(

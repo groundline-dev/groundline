@@ -7,7 +7,7 @@ import httpx2
 import pytest
 from fastapi.testclient import TestClient
 
-from groundline_core._core import APIKeyRejectedError
+from groundline_core._core import APIKeyRejectedError, SpecError
 from groundline_core._evaluate import DEFAULT_PRESET
 from groundline_core.api import common
 
@@ -323,6 +323,10 @@ async def _evaluate_fails(*args: object, **kwargs: object) -> None:
     raise KeyError(SECRET)
 
 
+async def _spec_fails(*args: object, **kwargs: object) -> None:
+    raise SpecError([SECRET])
+
+
 def _preset_fails(name: str) -> None:
     raise ValueError(SECRET)
 
@@ -335,10 +339,16 @@ def _response_fails(*args: object, **fields: object) -> None:
     "target, broken, error",
     [
         ("evaluate", _evaluate_fails, "KeyError"),
+        ("evaluate", _spec_fails, "SpecError"),
         ("load_preset", _preset_fails, "ValueError"),
         ("alarm_of", _response_fails, "ValueError"),
     ],
-    ids=["while checking", "loading the preset", "building the response"],
+    ids=[
+        "while checking",
+        "a built-in spec is broken",
+        "loading the preset",
+        "building the response",
+    ],
 )
 def test_an_unexpected_error_is_a_generic_500(
     target: str,

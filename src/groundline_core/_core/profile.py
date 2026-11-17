@@ -77,20 +77,20 @@ def load_profile(folder: str | Path) -> DomainProfile:
     """Load a profile folder, reading every text it lists."""
     folder = Path(folder)
     manifest = folder / "profile.yaml"
-    where = f"profile '{folder.name}'"
+    label = f"profile '{folder.name}'"
     if not manifest.exists():
-        raise ProfileError(f"{where} has no profile.yaml", path=manifest)
+        raise ProfileError(f"{label} has no profile.yaml", path=manifest)
     try:
         spec = _ProfileFile.model_validate(yaml.safe_load(manifest.read_text()))
     except (yaml.YAMLError, ValidationError) as error:
-        raise ProfileError(f"{where}: {error}", path=manifest) from error
+        raise ProfileError(f"{label}: {error}", path=manifest) from error
 
     texts: dict[str, str] = {}
     for name, relative in spec.texts.items():
         path = folder / relative
         if not path.is_file():
             raise ProfileError(
-                f"{where}: text '{name}' file {relative} not found", path=manifest
+                f"{label}: text '{name}' file {relative} not found", path=manifest
             )
         texts[name] = path.read_text()
 

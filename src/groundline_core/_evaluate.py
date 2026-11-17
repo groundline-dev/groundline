@@ -68,7 +68,7 @@ async def evaluate(
     is looked up or any model is called. A source or summary that isn't text, or
     is empty or only whitespace, is an `InvalidInputError`, raised before that.
 
-    Every error groundline raises is a `GroundlineError`: a `SetupError`, an
+    Every error groundline raises on purpose is a `GroundlineError`: a `SetupError`, an
     `InvalidInputError` or a `ModelFailureError`. Anything else, such as an
     exception from your own model client, comes out as it was raised.
 
