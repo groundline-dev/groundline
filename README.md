@@ -211,7 +211,7 @@ Every error groundline raises on purpose is a `GroundlineError`, of one of three
 | `ModelFailureError` | Anthropic's API kept failing, the model declined, or its reply stayed unusable. `ModelTimeoutError`, a kind of `ModelFailureError`, means a time limit ran out. `step` names the step that failed. | Try again later. |
 
 ```python
-from groundline_core import GroundlineError, ModelFailureError, SetupError, evaluate_sync
+from groundline_core import InvalidInputError, ModelFailureError, SetupError, evaluate_sync
 
 try:
     result = evaluate_sync(transcript_text, note_text)
@@ -219,7 +219,7 @@ except ModelFailureError as error:
     ...  # error.step is the step that failed, such as "extract"
 except SetupError as error:
     ...  # error.path is the file at fault, or None
-except GroundlineError:
+except InvalidInputError:
     ...  # the source or summary can't be checked
 ```
 

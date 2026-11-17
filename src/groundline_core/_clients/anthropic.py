@@ -23,12 +23,13 @@ from groundline_core._clients.retry import retry_call
 from groundline_core._core import (
     APIKeyRejectedError,
     Effort,
+    ModelFailureError,
     ModelRefusal,
     ModelReply,
+    ModelTimeoutError,
     UnusableReplyError,
 )
 from groundline_core._core.deadline import raise_if_cancelling
-from groundline_core._core.errors import ModelFailureError, ModelTimeoutError
 from groundline_core._settings import EnvFile, read_model_settings
 
 logger = logging.getLogger("groundline.model")

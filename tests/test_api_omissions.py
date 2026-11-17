@@ -15,7 +15,13 @@ from groundline_core.api import common
 # (evaluate, load_preset and the response models) there, not in `common`.
 from groundline_core.api import omissions as api
 from groundline_core.app import app
-from tests.anthropic_helpers import fake_anthropic, keys_sent
+from tests.anthropic_helpers import (
+    bad_request,
+    fake_anthropic,
+    keys_sent,
+    unreachable,
+    use_real_anthropic,
+)
 from tests.auth_helpers import SECRET as API_KEY
 from tests.auth_helpers import FakeKeys
 from tests.fakes import FakeClient
@@ -221,30 +227,16 @@ def test_an_unusable_reply_is_a_502_naming_the_stage_and_cost():
     assert "Recorded cost before stopping: $0." in detail and "· 2 calls" in detail
 
 
-def _bad_request(prompt: str) -> httpx2.Response:
-    return httpx2.Response(
-        400,
-        json={
-            "type": "error",
-            "error": {"type": "invalid_request_error", "message": SECRET},
-        },
-    )
-
-
-def _unreachable(prompt: str) -> httpx2.Response:
-    raise httpx2.ConnectError(SECRET)
-
-
 @pytest.mark.parametrize(
     ("reply", "detail", "cause"),
     [
         (
-            _bad_request,
+            bad_request(SECRET),
             "stage 'extract' failed: the Anthropic API answered 400 (BadRequestError)",
             "BadRequestError",
         ),
         (
-            _unreachable,
+            unreachable(SECRET),
             "stage 'extract' failed: the Anthropic API failed (APIConnectionError)",
             "APIConnectionError",
         ),
@@ -259,10 +251,8 @@ def test_an_anthropic_api_error_is_a_502_without_its_message(
     monkeypatch: pytest.MonkeyPatch,
 ):
     """The real Anthropic client, on a fake transport."""
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-not-a-real-key")
-    monkeypatch.setenv("GROUNDLINE_MODEL_MAX_ATTEMPTS", "1")
     use_client(None)
-    fake_anthropic(monkeypatch, reply)
+    use_real_anthropic(monkeypatch, reply)
 
     with caplog.at_level(logging.INFO):
         response = http.post("/v1/omissions", json=check())
@@ -284,10 +274,8 @@ def test_an_anthropic_api_error_after_some_calls_says_what_they_cost(
             return httpx2.Response(500, text=SECRET)
         return script(prompt)
 
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-not-a-real-key")
-    monkeypatch.setenv("GROUNDLINE_MODEL_MAX_ATTEMPTS", "1")
     use_client(None)
-    fake_anthropic(monkeypatch, failing_at_rank)
+    use_real_anthropic(monkeypatch, failing_at_rank)
 
     response = http.post("/v1/omissions", json=check())
 

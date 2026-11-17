@@ -16,7 +16,11 @@ from groundline_core._evaluate import DEFAULT_COMMISSIONS_PRESET
 from groundline_core.api import commissions as api
 from groundline_core.api import common
 from groundline_core.app import app
-from tests.anthropic_helpers import fake_anthropic
+from tests.anthropic_helpers import (
+    bad_request,
+    unreachable,
+    use_real_anthropic,
+)
 from tests.auth_helpers import HEADERS, FakeKeys
 from tests.commissions_helpers import (
     DOSE,
@@ -276,31 +280,17 @@ def test_an_unusable_reply_is_a_502_naming_the_stage_and_cost():
     assert "Recorded cost before stopping: $0." in detail and "· 2 calls" in detail
 
 
-def _bad_request(prompt: str) -> httpx2.Response:
-    return httpx2.Response(
-        400,
-        json={
-            "type": "error",
-            "error": {"type": "invalid_request_error", "message": SECRET},
-        },
-    )
-
-
-def _unreachable(prompt: str) -> httpx2.Response:
-    raise httpx2.ConnectError(SECRET)
-
-
 @pytest.mark.parametrize(
     ("reply", "detail", "cause"),
     [
         (
-            _bad_request,
+            bad_request(SECRET),
             "stage 'commissions_check' failed: "
             "the Anthropic API answered 400 (BadRequestError)",
             "BadRequestError",
         ),
         (
-            _unreachable,
+            unreachable(SECRET),
             "stage 'commissions_check' failed: "
             "the Anthropic API failed (APIConnectionError)",
             "APIConnectionError",
@@ -316,10 +306,8 @@ def test_an_anthropic_api_error_is_a_502_without_its_message(
     monkeypatch: pytest.MonkeyPatch,
 ):
     """The real Anthropic client, on a fake transport."""
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-not-a-real-key")
-    monkeypatch.setenv("GROUNDLINE_MODEL_MAX_ATTEMPTS", "1")
     use_client(None)
-    fake_anthropic(monkeypatch, reply)
+    use_real_anthropic(monkeypatch, reply)
 
     with caplog.at_level(logging.INFO):
         response = http.post("/v1/commissions", json=check())

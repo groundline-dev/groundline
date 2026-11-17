@@ -149,7 +149,7 @@ Something about how groundline is set up stops a check, such as a pipeline spec 
 _Avoid_: configuration error, config error
 
 **Invalid input**:
-A source or summary that can't be checked, such as an empty one. It is reported before any model is called.
+A source or summary that can't be checked, such as an empty one.
 _Avoid_: bad request, validation error (the API's names for its own rejections)
 
 **Model failure**:

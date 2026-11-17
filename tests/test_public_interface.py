@@ -9,18 +9,9 @@ import textwrap
 from pydantic import BaseModel
 
 import groundline_core
+from tests.test_errors import PUBLIC_BASES
 
-PUBLIC_ERRORS = [
-    "APIKeyRejectedError",
-    "GroundlineError",
-    "InvalidInputError",
-    "MissingAPIKeyError",
-    "ModelFailureError",
-    "ModelTimeoutError",
-    "SettingsError",
-    "SetupError",
-    "SpecError",
-]
+PUBLIC_ERRORS = sorted(PUBLIC_BASES)
 
 PUBLIC_NAMES = [
     *PUBLIC_ERRORS,

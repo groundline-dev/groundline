@@ -189,7 +189,7 @@ def _check_text(name: str, value: object) -> None:
     the argument, never its value."""
     if not isinstance(value, str):
         raise InvalidInputError(f"{name} must be text, not {type(value).__name__}")
-    if not value.strip():
+    if not value or value.isspace():
         raise InvalidInputError(f"{name} is empty or only whitespace")
 
 

@@ -335,16 +335,19 @@ def check_failures() -> Generator[None]:
         raise HTTPException(503, detail=str(error)) from error
     except ModelTimeoutError as error:
         spent = _spent(error)
-        what = f"stage '{error.step}'" if error.step else "check"
-        logger.warning("%s timed out (reason=%s)%s", what, error.reason, spent)
+        logger.warning("%s timed out (reason=%s)%s", _where(error), error.reason, spent)
         raise HTTPException(504, detail=f"{error}{spent}") from None
     except ModelFailureError as error:
         spent = _spent(error)
         cause = error.__cause__ or error
-        logger.warning(
-            "stage '%s' failed (%s)%s", error.step, type(cause).__name__, spent
-        )
+        logger.warning("%s failed (%s)%s", _where(error), type(cause).__name__, spent)
         raise HTTPException(502, detail=f"{error}{spent}") from error
+
+
+def _where(error: ModelFailureError) -> str:
+    """Where a model failure happened, for the log: a stage, or the whole
+    check when it ran out of time between stages."""
+    return f"stage '{error.step}'" if error.step else "check"
 
 
 def _spent(error: ModelFailureError) -> str:

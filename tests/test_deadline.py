@@ -19,7 +19,7 @@ from groundline_core.api import common
 from groundline_core.app import app
 from tests.async_helpers import finish_before_watchdog
 from tests.auth_helpers import BODY, HEADERS, FakeKeys
-from tests.fakes import FakeClient
+from tests.fakes import FakeClient, HungClient
 from tests.omission_helpers import not_flagged_script
 
 
@@ -32,22 +32,6 @@ def isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     monkeypatch.setattr(app.state, "api_keys", FakeKeys(), raising=False)
     yield
     app.dependency_overrides.clear()
-
-
-class HungClient:
-    def __init__(self):
-        self.started = 0
-        self.cancelled = 0
-
-    async def complete(
-        self, prompt: str, *, model: str, effort: Any, max_tokens: int
-    ) -> ModelReply:
-        self.started += 1
-        try:
-            await asyncio.Event().wait()
-        finally:
-            self.cancelled += 1
-        raise AssertionError("hung fake unexpectedly returned")
 
 
 @pytest.mark.parametrize("route", ["/v1/omissions", "/v1/commissions"])

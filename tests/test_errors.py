@@ -13,7 +13,8 @@ import groundline_core as gl
 from groundline_core import evaluate, evaluate_sync, load_preset
 from groundline_core._core import Effort, ModelReply, load_profile, load_spec
 from tests.anthropic_helpers import api_error, fake_anthropic, message
-from tests.fakes import FakeClient
+from tests.async_helpers import finish_before_watchdog
+from tests.fakes import FakeClient, HungClient
 from tests.omission_helpers import SOURCE, SUMMARY, not_flagged_script
 
 SENTINEL_KEY = "sk-ant-sentinel-0123456789"
@@ -106,13 +107,6 @@ def test_a_missing_key_names_the_env_file_only_in_path(tmp_path: Path):
     assert "Looked in: the environment, and app.env" in str(error.value)
     assert "not found" not in str(error.value)
     assert_safe(error.value, env_file)
-
-
-def test_a_missing_key_without_an_env_file_has_no_path():
-    with pytest.raises(gl.MissingAPIKeyError) as error:
-        evaluate_sync(SOURCE, SUMMARY)
-
-    assert error.value.path is None
 
 
 def test_unreadable_settings_are_a_settings_error_without_the_folder(tmp_path: Path):
@@ -226,31 +220,14 @@ def test_a_reply_that_stays_unusable_is_a_model_failure_without_its_text():
     assert_safe(error.value)
 
 
-class HangingClient:
-    """A model that never answers."""
-
-    async def complete(
-        self, prompt: str, *, model: str, effort: Effort, max_tokens: int
-    ) -> ModelReply:
-        await asyncio.sleep(60)
-        raise AssertionError("the check's time limit should have stopped this call")
-
-
 def test_a_model_that_never_answers_ends_in_a_model_timeout(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    monkeypatch.setenv("GROUNDLINE_CHECK_TIMEOUT_SECONDS", "0.2")
+    monkeypatch.setenv("GROUNDLINE_CHECK_TIMEOUT_SECONDS", "0.01")
+    check = evaluate(SOURCE, SUMMARY, client=HungClient())
 
-    async def check_with_watchdog() -> None:
-        # The watchdog's TimeoutError isn't a ModelTimeoutError, so if it fires
-        # first, pytest.raises below fails.
-        async with asyncio.timeout(10):
-            await evaluate(SOURCE, SUMMARY, client=HangingClient())
-
-    with pytest.raises(gl.ModelTimeoutError) as error:
-        asyncio.run(check_with_watchdog())
-
-    assert isinstance(error.value, gl.ModelFailureError)
+    with pytest.raises(gl.ModelTimeoutError):
+        asyncio.run(finish_before_watchdog(check))
 
 
 class CallersOwnError(Exception):

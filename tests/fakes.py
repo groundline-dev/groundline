@@ -111,3 +111,21 @@ def run_stages(
         )
     )
     return result, client
+
+
+class HungClient:
+    """A model that never answers, counting the calls started and cancelled."""
+
+    def __init__(self):
+        self.started = 0
+        self.cancelled = 0
+
+    async def complete(
+        self, prompt: str, *, model: str, effort: Any, max_tokens: int
+    ) -> ModelReply:
+        self.started += 1
+        try:
+            await asyncio.Event().wait()
+        finally:
+            self.cancelled += 1
+        raise AssertionError("hung fake unexpectedly returned")
