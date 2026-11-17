@@ -171,8 +171,9 @@ memory to process requests, and several requests can arrive at once, so its tota
 memory use can exceed this limit.
 
 The running server's `/docs` (also `/api`) shows its current limits: body bytes
-in the 413 response description, and character limits in the `CheckRequest` schema.
-For AWS restrictions, see [deployment limits](docs/deploying-to-aws.md#request-size-limits).
+in the 413 response description, and character limits in the `OmissionsRequest` and
+`CommissionsRequest` schemas. To set them on AWS, see
+[app settings](docs/deploying-to-aws.md#app-settings).
 
 ## Running the whole stack in Docker
 
@@ -196,7 +197,7 @@ If you run the image with your own `docker run`, publish the port on `127.0.0.1`
 
 ## Deploying to AWS
 
-See the [deployment guide](docs/deploying-to-aws.md) for access modes, prerequisites and the disposable deployment lifecycle.
+See the [deployment guide](docs/deploying-to-aws.md) for access modes, prerequisites, and disposable and lasting deployments.
 
 **1. Once, before your first deployment:** get everything [Before you start](docs/deploying-to-aws.md#before-you-start) lists. The wizard can't do these for you:
 
@@ -351,10 +352,11 @@ src/groundline_core/
   cli.py, keys_cli.py      the groundline-core command and its keys subgroup
   extras.py                what to say when the server or cli extra isn't installed
   api/, app.py             the API's endpoints and the FastAPI app
-infra/                     Terraform for AWS test deployments, the startup script, and their tests
+infra/                     Terraform for AWS deployments (infra/data/: their data volume and
+                           address), the startup script, the server's apply script, and tests
 scripts/                   db-setup, the stack check behind make docker-smoke, the install check
                            behind make core-check, and the AWS
-                           scripts behind make aws-deploy, aws-smoke, aws-smoke-live and aws-destroy
+                           scripts behind make aws-deploy, aws-smoke, aws-upgrade-smoke and aws-destroy
 tests/                     the tests
 ```
 

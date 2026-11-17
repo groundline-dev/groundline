@@ -1,7 +1,7 @@
 # The Terraform and AWS provider versions, and the provider's settings.
-# State stays in this folder (terraform.tfstate, git-ignored): there's no
-# backend block, since each deployment is disposable and has one owner. Several
-# owners can share an AWS project, since resources are named after
+# State stays in this folder (terraform.tfstate.d/, git-ignored): there's no
+# backend block, since each deployment has one owner, the clone that made it.
+# Several owners can share an AWS project, since resources are named after
 # deployment_name.
 
 terraform {
