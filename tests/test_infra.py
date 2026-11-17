@@ -185,6 +185,7 @@ def test_the_lock_file_and_example_settings_are_committed(path: str):
         ("aws-deploy", "scripts/aws-deploy"),
         ("aws-smoke", "scripts/aws-smoke-test"),
         ("aws-smoke-live", "scripts/aws-smoke-test --live"),
+        ("aws-upgrade-smoke", "scripts/aws-upgrade-smoke-test"),
         ("aws-key", "scripts/aws-key"),
         ("aws-status", "scripts/aws-status"),
         ("aws-reset-deadline", "scripts/aws-reset-deadline"),

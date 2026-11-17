@@ -1,5 +1,5 @@
 .PHONY: setup dev db test-fast test-api test-db test-live check fix core-check docker-build docker-run docker-smoke https-smoke \
-	aws-https-smoke infra-check aws-up aws-project aws-deploy aws-smoke aws-smoke-live aws-key aws-status aws-reset-deadline aws-destroy
+	aws-https-smoke aws-upgrade-smoke infra-check aws-up aws-project aws-deploy aws-smoke aws-smoke-live aws-key aws-status aws-reset-deadline aws-destroy
 
 setup:
 	uv sync
@@ -97,6 +97,11 @@ aws-https-smoke:
 	scripts/aws-https-smoke-test $(if $(RESTART),--restart "$(RESTART)")
 
 # Also sends one real commission check, which costs under a cent.
+# Upgrades your running deployment to REF in place, and checks it kept its API
+# keys, server, address and HTTPS certificate.
+aws-upgrade-smoke:
+	scripts/aws-upgrade-smoke-test
+
 aws-smoke-live:
 	scripts/aws-smoke-test --live
 
