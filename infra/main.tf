@@ -263,10 +263,10 @@ resource "aws_instance" "app" {
     }
   }
 
-  # What the server runs and who may reach it. The server reads these through
-  # IMDS, so changing one updates the server in place instead of replacing it.
-  # They contain no secrets.
-  tags = {
+  # What the server runs, who may reach it and the app's settings. The server
+  # reads these through IMDS, so changing one updates the server in place
+  # instead of replacing it. They contain no secrets.
+  tags = merge({
     Name                      = "groundline-${var.deployment_name}"
     groundline-git-ref        = var.git_ref
     groundline-repository-url = var.repository_url
@@ -275,7 +275,9 @@ resource "aws_instance" "app" {
     # The Elastic IP, which the server waits for before it starts, so it never
     # serves HTTPS on the address it has for its first few seconds.
     groundline-public-ip = coalesce(local.public_ip, "none")
-  }
+    }, {
+    for name, value in var.app_settings : "groundline-setting-${name}" => tostring(value)
+  })
 
   lifecycle {
     # A newer AMI shouldn't replace a running server; the next deployment gets it.

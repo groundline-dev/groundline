@@ -82,3 +82,36 @@ variable "repository_url" {
   type        = string
   default     = "https://github.com/groundline-dev/groundline.git"
 }
+
+variable "app_settings" {
+  description = "The app's settings, by their .env names, such as { GROUNDLINE_CHECK_TIMEOUT_SECONDS = 180 }. A setting left out uses the app's default. They reach the server as tags, which infra/server/apply writes into its .env; changing one updates the running server in place."
+  type        = map(number)
+  default     = {}
+
+  validation {
+    # The settings compose.yaml forwards to the app; tests/test_compose.py
+    # keeps the two lists the same.
+    condition = alltrue([
+      for name in keys(var.app_settings) : contains([
+        "GROUNDLINE_CHECK_TIMEOUT_SECONDS",
+        "GROUNDLINE_MODEL_MAX_ATTEMPTS",
+        "GROUNDLINE_MAX_BODY_BYTES",
+        "GROUNDLINE_MAX_SOURCE_CHARS",
+        "GROUNDLINE_MAX_SUMMARY_CHARS",
+      ], name)
+    ])
+    error_message = "app_settings can set GROUNDLINE_CHECK_TIMEOUT_SECONDS, GROUNDLINE_MODEL_MAX_ATTEMPTS, GROUNDLINE_MAX_BODY_BYTES, GROUNDLINE_MAX_SOURCE_CHARS and GROUNDLINE_MAX_SUMMARY_CHARS."
+  }
+  validation {
+    condition     = alltrue([for value in values(var.app_settings) : value > 0])
+    error_message = "Each app setting must be above 0."
+  }
+  validation {
+    # Only the check time limit can be a fraction of a second.
+    condition = alltrue([
+      for name, value in var.app_settings :
+      name == "GROUNDLINE_CHECK_TIMEOUT_SECONDS" || floor(value) == value
+    ])
+    error_message = "GROUNDLINE_MODEL_MAX_ATTEMPTS and the request size limits must be whole numbers."
+  }
+}

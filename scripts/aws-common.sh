@@ -548,6 +548,21 @@ describe_deadline() {
   fi
 }
 
+# describe_settings PLAN_JSON: the app settings an update of the server
+# changes, one a line, from its groundline-setting-<NAME> tags.
+describe_settings() {
+  jq -r '.resource_changes[]
+    | select(.type == "aws_instance" and .change.actions == ["update"])
+    | (.change.before.tags // {}) as $before | (.change.after.tags // {}) as $after
+    | ([$before, $after] | map(keys) | add | unique)[]
+    | select(startswith("groundline-setting-")) as $tag
+    | select($before[$tag] != $after[$tag])
+    | ($tag | ltrimstr("groundline-setting-")) as $name
+    | if $after[$tag] == null then "    Its \($name) goes back to the default (it was \($before[$tag]))."
+      elif $before[$tag] == null then "    Its \($name) becomes \($after[$tag]) (it was the default)."
+      else "    Its \($name) becomes \($after[$tag]) (it was \($before[$tag]))." end' <<<"$1"
+}
+
 # friendly_name TYPE: what plan summaries call a Terraform resource type.
 friendly_name() {
   case "$1" in
@@ -614,7 +629,10 @@ describe_plan() {
         echo "    The new server costs about \$0.024 an hour."
         echo "$limit"
         ;;
-      aws_instance:update) echo "  · update your server ($id) in place. It keeps its data." ;;
+      aws_instance:update)
+        echo "  · update your server ($id) in place. It keeps its data."
+        describe_settings "$1"
+        ;;
       aws_instance:delete) echo "  · delete your server ($id)." ;;
       aws_vpc_security_group_ingress_rule:update | aws_vpc_security_group_ingress_rule:delete+create)
         echo "  · let requests from ${new_cidr%/32} reach the server on TCP $new_port, in place of ${old_cidr%/32} on TCP $old_port."

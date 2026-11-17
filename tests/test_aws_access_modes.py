@@ -531,3 +531,65 @@ def test_a_new_server_is_not_upgraded_over_ssm(checkout: Path):
     assert result.returncode == 0, result.stdout + result.stderr
     assert "created your server" in result.stdout
     assert not any("server/apply" in c["script"] for c in world["commands"])
+
+
+def test_a_settings_change_is_described_and_the_settings_are_listed(checkout: Path):
+    settings(checkout, "unrestricted")
+    before = {
+        "Name": "groundline-alice",
+        "groundline-setting-GROUNDLINE_MAX_BODY_BYTES": "1",
+    }
+    after = {
+        "Name": "groundline-alice",
+        "groundline-setting-GROUNDLINE_CHECK_TIMEOUT_SECONDS": "180",
+    }
+    world = aws_fakes.new_world(
+        outputs={
+            "instance_id": "i-test",
+            "auto_terminate_hours": "0",
+            "app_settings": {"GROUNDLINE_CHECK_TIMEOUT_SECONDS": 180},
+        },
+        plan={
+            "variables": {},
+            "resource_changes": [
+                {
+                    "mode": "managed",
+                    "type": "aws_instance",
+                    "change": {
+                        "actions": ["update"],
+                        "before": {"id": "i-test", "tags": before},
+                        "after": {"id": "i-test", "tags": after},
+                    },
+                }
+            ],
+        },
+    )
+
+    result, _ = invoke(checkout, "aws-deploy", world, "1\n")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "update your server (i-test) in place" in result.stdout
+    assert (
+        "Its GROUNDLINE_CHECK_TIMEOUT_SECONDS becomes 180 (it was the default)."
+        in result.stdout
+    )
+    assert "Its GROUNDLINE_MAX_BODY_BYTES goes back to the default (it was 1)." in (
+        result.stdout
+    )
+    assert "  · GROUNDLINE_CHECK_TIMEOUT_SECONDS = 180" in result.stdout
+
+
+def test_a_deploy_with_no_settings_says_it_uses_the_defaults(checkout: Path):
+    settings(checkout, "unrestricted")
+    world = aws_fakes.new_world(
+        outputs={
+            "instance_id": "i-test",
+            "auto_terminate_hours": "0",
+            "app_settings": {},
+        }
+    )
+
+    result, _ = invoke(checkout, "aws-deploy", world)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "It runs with the app's default settings" in result.stdout

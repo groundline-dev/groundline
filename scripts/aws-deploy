@@ -153,6 +153,18 @@ elif [ -n "$plan_changed" ]; then
   ok "created your server. It takes about 5 to 10 minutes to start."
 fi
 
+# The settings that differ from the app's defaults, so what the server runs
+# with is in view after every deploy.
+settings="$(terraform -chdir=infra output -json app_settings 2>/dev/null \
+  | jq -r 'to_entries[] | "\(.key) = \(.value)"' 2>/dev/null || true)"
+echo
+if [ -n "$settings" ]; then
+  echo "It runs with these app settings (app_settings in infra/terraform.tfvars):"
+  while IFS= read -r setting; do bullet "$setting"; done <<<"$settings"
+else
+  echo "It runs with the app's default settings (app_settings in infra/terraform.tfvars changes them)."
+fi
+
 # The deadline, as the server's deadline file would hold it. A new server's
 # clock starts when it first boots, about a minute from now. An existing one
 # keeps its deadline, which only the server knows.

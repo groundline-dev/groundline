@@ -370,3 +370,51 @@ run "https_discovers_the_ip_before_docker_and_keeps_disposable_storage" {
     error_message = "HTTPS must refresh its address before Docker starts, isolate app ports and preserve IMDS/disk/expiry behavior."
   }
 }
+
+run "app_settings_reach_the_server_as_tags" {
+  command = plan
+  variables {
+    app_settings = {
+      GROUNDLINE_CHECK_TIMEOUT_SECONDS = 180.5
+      GROUNDLINE_MAX_BODY_BYTES        = 1048576
+    }
+  }
+
+  assert {
+    condition = (
+      aws_instance.app.tags["groundline-setting-GROUNDLINE_CHECK_TIMEOUT_SECONDS"] == "180.5"
+      && aws_instance.app.tags["groundline-setting-GROUNDLINE_MAX_BODY_BYTES"] == "1048576"
+      && !contains(keys(aws_instance.app.tags), "groundline-setting-GROUNDLINE_MODEL_MAX_ATTEMPTS")
+    )
+    error_message = "Each app setting should be a groundline-setting-<NAME> tag, and an unset one no tag."
+  }
+  assert {
+    # A tag, not the startup script, so a change updates the server in place.
+    condition     = !strcontains(aws_instance.app.user_data, "GROUNDLINE_MAX_BODY_BYTES")
+    error_message = "App settings shouldn't be in user_data, which replaces the server when it changes."
+  }
+}
+
+run "an_unknown_app_setting_is_rejected" {
+  command = plan
+  variables {
+    app_settings = { GROUNDLINE_MAX_BODY_SIZE = 1048576 }
+  }
+  expect_failures = [var.app_settings]
+}
+
+run "an_app_setting_of_zero_is_rejected" {
+  command = plan
+  variables {
+    app_settings = { GROUNDLINE_MODEL_MAX_ATTEMPTS = 0 }
+  }
+  expect_failures = [var.app_settings]
+}
+
+run "a_fractional_attempt_count_is_rejected" {
+  command = plan
+  variables {
+    app_settings = { GROUNDLINE_MODEL_MAX_ATTEMPTS = 2.5 }
+  }
+  expect_failures = [var.app_settings]
+}

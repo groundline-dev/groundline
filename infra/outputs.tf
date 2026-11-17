@@ -65,3 +65,8 @@ output "repository_url" {
   description = "The repository the server clones git_ref from."
   value       = var.repository_url
 }
+
+output "app_settings" {
+  description = "The app settings the server has, besides the app's defaults. scripts/aws-deploy lists them."
+  value       = var.app_settings
+}

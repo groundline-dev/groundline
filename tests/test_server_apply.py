@@ -25,6 +25,10 @@ case "$last" in
   */api/token) echo token ;;
   */meta-data/placement/region) echo eu-north-1 ;;
   */meta-data/tags/instance/deployment) echo alice ;;
+  */meta-data/tags/instance) printf 'Name\ndeployment\n%s' "$SETTING_TAGS" ;;
+  */groundline-setting-GROUNDLINE_CHECK_TIMEOUT_SECONDS) echo 180.5 ;;
+  */groundline-setting-GROUNDLINE_MAX_BODY_BYTES) echo 1048576 ;;
+  */groundline-setting-GROUNDLINE_MODEL_MAX_ATTEMPTS) echo '5; rm' ;;
   *) echo "fake curl: unexpected $last" >&2; exit 22 ;;
 esac
 """,
@@ -60,7 +64,7 @@ def server(tmp_path: Path) -> Path:
 
 
 def apply(
-    server: Path, parameter: str = "sk-ant-test"
+    server: Path, parameter: str = "sk-ant-test", setting_tags: str = ""
 ) -> subprocess.CompletedProcess[str]:
     tmp_path = server.parents[1]
     env = dict(
@@ -68,6 +72,7 @@ def apply(
         PATH=f"{tmp_path / 'bin'}:{os.environ['PATH']}",
         CALLS=str(tmp_path / "calls"),
         FAKE_PARAMETER=parameter,
+        SETTING_TAGS=setting_tags,
         GROUNDLINE_DATA_DIR=str(tmp_path / "srv" / "groundline-data"),
     )
     return subprocess.run(
@@ -153,3 +158,43 @@ def test_any_other_parameter_error_stops_before_changing_env(server: Path):
     assert "AccessDeniedException" in result.stderr
     assert (server / ".env").read_text() == before
     assert not (server / ".env.new").exists()
+
+
+def test_setting_tags_become_env_lines_and_untagged_settings_use_defaults(
+    server: Path,
+):
+    tags = (
+        "groundline-setting-GROUNDLINE_CHECK_TIMEOUT_SECONDS\n"
+        "groundline-setting-GROUNDLINE_MAX_BODY_BYTES\n"
+        "groundline-access-mode\n"
+    )
+
+    result = apply(server, setting_tags=tags)
+
+    assert result.returncode == 0, result.stderr
+    lines = env_lines(server)
+    assert lines[-2:] == [
+        "GROUNDLINE_CHECK_TIMEOUT_SECONDS=180.5",
+        "GROUNDLINE_MAX_BODY_BYTES=1048576",
+    ]
+    assert not any(line.startswith("GROUNDLINE_MODEL") for line in lines)
+
+    # Removing a tag removes the setting, so the app goes back to its default.
+    assert apply(server).returncode == 0
+    assert not any(
+        line.startswith(("GROUNDLINE_CHECK", "GROUNDLINE_MAX"))
+        for line in env_lines(server)
+    )
+
+
+def test_a_setting_tag_that_isnt_a_number_stops_before_changing_env(server: Path):
+    assert apply(server).returncode == 0
+    before = (server / ".env").read_text()
+
+    result = apply(
+        server, setting_tags="groundline-setting-GROUNDLINE_MODEL_MAX_ATTEMPTS\n"
+    )
+
+    assert result.returncode != 0
+    assert "isn't a number" in result.stderr
+    assert (server / ".env").read_text() == before

@@ -151,6 +151,12 @@ def _terraform(world: dict[str, Any], args: list[str]) -> int:
     if args == ["output", "-json"]:
         print(json.dumps({k: {"value": v} for k, v in world[outputs_key].items()}))
         return 0
+    if args[:2] == ["output", "-json"] and len(args) == 3:
+        if world[destroyed_key] or args[2] not in world[outputs_key]:
+            print(f'Error: Output "{args[2]}" not found', file=sys.stderr)
+            return 1
+        print(json.dumps(world[outputs_key][args[2]]))
+        return 0
     if args == ["version", "-json"]:
         print(json.dumps({"terraform_version": "1.17.1"}))
         return 0

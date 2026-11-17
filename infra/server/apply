@@ -7,7 +7,10 @@
 # .env holds the database passwords from the data volume, made on the first
 # run and kept after that, since Postgres only takes a password when it creates
 # its database. It also holds the Anthropic API key, read from Parameter Store
-# on every run, so a new key reaches the app without replacing the server.
+# on every run, so a new key reaches the app without replacing the server, and
+# the app's settings, from the server's groundline-setting-<NAME> tags (the
+# app_settings in infra/terraform.tfvars). A setting without a tag isn't
+# written, so the app uses its default.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -24,6 +27,17 @@ read_metadata() {
 region="$(read_metadata placement/region)"
 deployment="$(read_metadata tags/instance/deployment)"
 parameter="/groundline/$deployment/anthropic-api-key"
+settings=""
+for tag in $(read_metadata tags/instance); do
+  case "$tag" in
+    groundline-setting-GROUNDLINE_*)
+      value="$(read_metadata "tags/instance/$tag")"
+      # Terraform checked these; this only keeps anything odd out of .env.
+      [[ "$value" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "groundline: $tag isn't a number: $value" >&2; exit 1; }
+      settings+="${tag#groundline-setting-}=$value"$'\n'
+      ;;
+  esac
+done
 
 # The database passwords: hex, so they're safe in a URL and in Compose.
 # Generated first, since a failed command inside echo "$(...)" wouldn't stop
@@ -62,6 +76,7 @@ fi
   cat "$secrets"
   echo "COMPOSE_FILE=compose.yaml:compose.https.yaml"
   [ -z "$anthropic_api_key" ] || echo "ANTHROPIC_API_KEY=$anthropic_api_key"
+  printf '%s' "$settings"
 } >.env.new
 unset anthropic_api_key
 chmod 600 .env.new
