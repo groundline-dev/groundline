@@ -50,3 +50,12 @@ def test_the_generator_is_pinned_to_one_version_and_not_a_runtime_dependency():
 def test_the_package_is_a_member_of_the_uv_workspace():
     workspace = read_toml(ROOT / "pyproject.toml")["tool"]["uv"]["workspace"]
     assert "packages/*" in workspace["members"]
+
+
+def test_the_package_carries_the_same_license_and_notice_as_the_repo():
+    project = read_toml(PACKAGE_DIR / "pyproject.toml")["project"]
+    assert project["license-files"] == ["LICENSE", "NOTICE"]
+    for name in project["license-files"]:
+        assert (PACKAGE_DIR / name).read_text() == (ROOT / name).read_text(), (
+            f"{name} differs from the repo's: copy it again"
+        )

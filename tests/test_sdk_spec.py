@@ -8,7 +8,9 @@ description, and that the generated folder is marked so nobody edits it by hand.
 
 import importlib.util
 import json
+import re
 from pathlib import Path
+from typing import Any, cast
 
 import pytest
 
@@ -29,10 +31,121 @@ def load_export_script():
 
 def test_the_committed_openapi_file_is_the_apps_current_description():
     committed = json.loads(SPEC.read_text())
-    # The description with the default limits, as the export builds it, so the
+    # The description as the export builds it: the default limits, so the
     # developer's own limits (shell or .env) can't change the result.
-    current = load_export_script().default_spec()
+    current = load_export_script().sdk_spec()
     assert committed == current, "run make generate-sdk and commit the result"
+
+
+def differences(raw: Any, stripped: Any, path: str = "") -> list[str]:
+    """Where the two descriptions differ, as paths."""
+    if isinstance(raw, dict) and isinstance(stripped, dict):
+        found: list[str] = []
+        keys = set(cast(dict[str, Any], raw)) | set(cast(dict[str, Any], stripped))
+        for key in sorted(keys):
+            where = f"{path}/{key}"
+            if key not in stripped:
+                found.append(where)
+            elif key not in raw:
+                found.append(f"{where} (added)")
+            else:
+                found.extend(differences(raw[key], stripped[key], where))
+        return found
+    return [] if raw == stripped else [path]
+
+
+def test_the_sdk_spec_differs_from_the_apps_only_by_the_request_defaults():
+    script = load_export_script()
+    changed = differences(script.default_spec(), script.sdk_spec())
+    assert changed, "the preset default should be left out of the SDK's copy"
+    assert all(
+        re.fullmatch(r"/components/schemas/\w+/properties/\w+/default", path)
+        for path in changed
+    ), changed
+    assert "/components/schemas/CommissionsRequest/properties/preset/default" in changed
+    assert not any("Response" in path for path in changed)
+
+
+def reachable_defaults(spec: dict[str, Any]) -> list[str]:
+    """Where a `default` sits in a schema that a request body reaches."""
+    schemas = spec["components"]["schemas"]
+    found: list[str] = []
+    seen: set[str] = set()
+
+    def walk(node: Any, where: str) -> None:
+        if isinstance(node, dict):
+            for key, value in cast(dict[str, Any], node).items():
+                if key == "default":
+                    found.append(where)
+                elif key == "$ref":
+                    name = str(value).rsplit("/", 1)[-1]
+                    if name not in seen:
+                        seen.add(name)
+                        walk(schemas[name], f"/components/schemas/{name}")
+                else:
+                    walk(value, f"{where}/{key}")
+        elif isinstance(node, list):
+            for index, value in enumerate(cast(list[Any], node)):
+                walk(value, f"{where}/{index}")
+
+    for path, item in spec["paths"].items():
+        for method in load_export_script().HTTP_METHODS:
+            if method not in item:
+                continue
+            content = item[method].get("requestBody", {}).get("content", {})
+            for media in content.values():
+                walk(media["schema"], f"{path} {method}")
+    return found
+
+
+def test_no_default_is_left_in_anything_a_request_body_reaches():
+    assert reachable_defaults(json.loads(SPEC.read_text())) == []
+
+
+def test_nested_defaults_go_and_a_path_item_may_hold_more_than_operations():
+    inner: dict[str, Any] = {"properties": {"mode": {"type": "string", "default": "x"}}}
+    replies_only: dict[str, Any] = {
+        "properties": {"n": {"type": "integer", "default": 1}}
+    }
+    outer: dict[str, Any] = {
+        "properties": {
+            "inner": {"$ref": "#/components/schemas/Inner"},
+            "options": {
+                "anyOf": [{"$ref": "#/components/schemas/Inner"}],
+                "default": None,
+            },
+            "flag": {"type": "boolean", "default": True},
+        }
+    }
+    request: dict[str, Any] = {
+        "content": {
+            "application/json": {"schema": {"$ref": "#/components/schemas/Outer"}}
+        }
+    }
+    spec: dict[str, Any] = {
+        "paths": {
+            "/a": {
+                "summary": "not an operation",
+                "parameters": [{"name": "x", "in": "query"}],
+                "post": {"requestBody": request, "responses": {}},
+            }
+        },
+        "components": {
+            "schemas": {"Outer": outer, "Inner": inner, "RepliesOnly": replies_only}
+        },
+    }
+    result = load_export_script().without_request_defaults(spec)
+    assert reachable_defaults(result) == []
+    # What no request reaches, and the input itself, are left alone.
+    assert result["components"]["schemas"]["RepliesOnly"] == replies_only
+    assert inner["properties"]["mode"]["default"] == "x"
+
+
+def test_the_generated_request_leaves_the_preset_to_the_server():
+    from groundline_client._generated.models import CommissionsRequest
+
+    body = CommissionsRequest.from_dict({"source": "a", "summary": "b"})
+    assert "preset" not in body.to_dict()
 
 
 def test_the_generated_folder_says_not_to_edit_it_by_hand():
@@ -51,9 +164,12 @@ def test_git_treats_the_generated_folder_and_file_as_generated():
 def test_local_limits_do_not_change_the_exported_description(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ):
+    # All three limits that can reach the spec: one in .env, one in the shell, one
+    # in the shell in lowercase (the settings ignore case).
     monkeypatch.chdir(tmp_path)
     (tmp_path / ".env").write_text("GROUNDLINE_MAX_SUMMARY_CHARS=4321\n")
     monkeypatch.setenv("GROUNDLINE_MAX_SOURCE_CHARS", "1234")
+    monkeypatch.setenv("groundline_max_body_bytes", "5678")
     spec = json.dumps(load_export_script().default_spec())
-    assert "1234" not in spec
-    assert "4321" not in spec
+    for value in ("1234", "4321", "5678"):
+        assert value not in spec

@@ -163,5 +163,5 @@ The separate package a developer installs to call a deployment's API from their 
 _Avoid_: library (that is `groundline-core`, which runs checks in-process), API client, wrapper
 
 **Client**:
-The one object a developer creates to use the SDK, given a deployment's address and an API key.
+The one object a developer creates to use the SDK, given a deployment's address and an API key. `groundline-client` is only the SDK's package name; it is not a **Client**.
 _Avoid_: connection, session, wrapper

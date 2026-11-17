@@ -57,9 +57,10 @@ generate-sdk:
 sdk-check:
 	@tmp="$$(mktemp -d)"; trap 'rm -rf "$$tmp"' EXIT; \
 	package=packages/groundline-client; \
-	scripts/generate-sdk "$$tmp" >/dev/null && \
-	diff -u "$$package/openapi.json" "$$tmp/openapi.json" && \
-	diff -ru -x __pycache__ -x .ruff_cache \
+	scripts/generate-sdk "$$tmp" \
+		|| { echo "sdk-check: couldn't generate the SDK (see the error above)."; exit 1; }; \
+	diff -u "$$package/openapi.json" "$$tmp/openapi.json" \
+	&& diff -ru -x __pycache__ -x .ruff_cache \
 		"$$package/src/groundline_client/_generated" "$$tmp/_generated" \
 	|| { echo "sdk-check: the SDK is out of date. Run make generate-sdk and commit the result."; exit 1; }
 

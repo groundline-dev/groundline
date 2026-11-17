@@ -3,7 +3,7 @@
 #   - `import groundline_client` works, and so do the generated functions
 #   - none of groundline-core's packages came with it: not groundline-core itself,
 #     the Anthropic SDK, the server or the command-line packages
-#   - the wheel holds the generated code
+#   - the wheel holds the generated code, the LICENSE and the NOTICE
 #
 # It builds the wheel, then installs it into two new, empty environments: one
 # with pip and one with uv pip, since users may install with either.
@@ -32,13 +32,19 @@ for member in groundline_client/py.typed \
   groundline_client/_generated/models/omissions_response.py; do
   grep -q " $member\$" <<<"$listing" || fail "the wheel doesn't hold $member"
 done
+for member in LICENSE NOTICE; do
+  grep -Eq " groundline_client-[^/]*\\.dist-info/licenses/$member\$" <<<"$listing" \
+    || fail "the wheel's dist-info doesn't hold $member"
+done
 if grep -q "ruff_cache\|__pycache__" <<<"$listing"; then
   fail "the wheel holds cache folders: $(grep "ruff_cache\|__pycache__" <<<"$listing")"
 fi
 
 # What groundline-core would bring, read here, where it is installed, so the list
-# follows core: its server and cli packages, its own dependencies, and itself.
-not_wanted="$(uv run python - <<'PY'
+# follows core. Two lists, because the names mean different things: the server and
+# cli extras are listed as import names (checked by importing), and core's own
+# dependencies and core itself are distribution names (checked in the metadata).
+names="$(uv run python - <<'PY'
 import re
 import tomllib
 from pathlib import Path
@@ -50,10 +56,14 @@ dependencies = {
     re.sub(r"[-_.]+", "-", re.split(r"[<>=!~\[ ;]", r, maxsplit=1)[0]).lower()
     for r in requirements
 }
-print(" ".join(sorted(SERVER_PACKAGES | CLI_PACKAGES | dependencies | {"groundline-core"})))
+print(" ".join(sorted(SERVER_PACKAGES | CLI_PACKAGES)))
+print(" ".join(sorted(dependencies | {"groundline-core"})))
 PY
 )"
-[ -n "$not_wanted" ] || fail "couldn't read groundline-core's packages"
+import_names="$(sed -n 1p <<<"$names")"
+distribution_names="$(sed -n 2p <<<"$names")"
+[ -n "$import_names" ] && [ -n "$distribution_names" ] \
+  || fail "couldn't read groundline-core's packages"
 
 check() {
   local installer="$1" env="$2"
@@ -64,12 +74,14 @@ from groundline_client._generated.api.v1 import evaluate_omissions
 from groundline_client._generated.client import AuthenticatedClient
 ' || fail "$installer: the SDK doesn't load"
 
-  unwanted="$("$python" -I - $not_wanted <<'PY'
+  unwanted="$("$python" -I - "$import_names" "$distribution_names" <<'PY'
 import sys
 from importlib.metadata import PackageNotFoundError, version
+from importlib.util import find_spec
 
-found = []
-for name in sys.argv[1:]:
+imports, distributions = (argument.split() for argument in sys.argv[1:3])
+found = [name for name in imports if find_spec(name) is not None]
+for name in distributions:
     try:
         version(name)
     except PackageNotFoundError:
