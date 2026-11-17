@@ -335,7 +335,9 @@ It writes the API's description to `packages/groundline-client/openapi.json`, cl
 
 CI guards the SDK with two jobs. `make sdk-check` regenerates the SDK into a temporary folder and fails if the result differs from the files on disk. It changes nothing in your working tree, so you can run it any time. `make sdk-install-check` builds the wheel, installs it into clean environments with pip and with uv pip, and fails if it pulls in `groundline-core`'s packages (the pipelines, the Anthropic SDK or the server). `tests/test_sdk_spec.py` checks that `openapi.json` is the app's current description, and the tests in `packages/groundline-client/tests/` check that every endpoint has a generated function and models.
 
-The generated code is exempt from ruff's style and formatting rules, since the generator formats it, and pyright checks it at the basic level. Only the hand-written code and the tests are checked in strict mode (`uv run pyright -p packages/groundline-client`, which pre-commit runs).
+The hand-written layer is `GroundlineClient` in `client.py` (the Client in `CONTEXT.md`). It reads the URL and API key from its arguments or from `GROUNDLINE_API_URL` and `GROUNDLINE_API_KEY`, and has a sync and an `_async` method for each operation. When you add an operation, add its two methods and export its models from `__init__.py`; `tests/test_client_requests.py` lists the operations. The generated client prints the API key in its `repr`, so `client.py` wraps it in a subclass that doesn't, and `tests/test_client_secrecy.py` checks that the key stays out of `repr`, errors, tracebacks and logs. The tests run against a fake server (`tests/conftest.py`), not the real API.
+
+The generated code is exempt from ruff's style and formatting rules, since the generator formats it, and pyright checks it at the basic level. Only the hand-written code (every module directly in `src/groundline_client/`) and the tests are checked in strict mode (`uv run pyright -p packages/groundline-client`, which pre-commit runs).
 
 ## Protecting an endpoint
 
