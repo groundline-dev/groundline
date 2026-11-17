@@ -221,17 +221,17 @@ resource "aws_instance" "app" {
   # from inside only stops it, so a long-lived deployment keeps its data.
   instance_initiated_shutdown_behavior = var.auto_terminate_hours > 0 ? "terminate" : "stop"
 
+  # The startup script runs only on first boot, so a change to it needs a new
+  # server. The commit and the access mode aren't in it: they're tags, which
+  # the server reads, so a new commit or mode is applied in place, by
+  # scripts/aws-deploy over SSM, and the server keeps running.
   user_data = templatefile("${path.module}/bootstrap.sh.tftpl", {
     region                 = var.region
-    repository_url         = var.repository_url
-    git_ref                = var.git_ref
     auto_terminate_seconds = var.auto_terminate_hours * 3600
-    access_mode            = var.access_mode
     # The volume's device name, as /dev/disk/by-id names it on Nitro instances.
     data_device       = "/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_${replace(coalesce(local.data_volume_id, "none"), "-", "")}"
     eip_allocation_id = coalesce(local.eip_allocation_id, "none")
   })
-  # The startup script runs only on first boot, so a change needs a new server.
   user_data_replace_on_change = true
 
   # A hop limit of 1 stops the metadata service's replies one hop out, so the
@@ -263,12 +263,15 @@ resource "aws_instance" "app" {
     }
   }
 
-  # Tags can be refreshed through IMDS without changing user_data/replacing
-  # the server when only the tester IP changes. These contain no secrets.
+  # What the server runs and who may reach it. The server reads these through
+  # IMDS, so changing one updates the server in place instead of replacing it.
+  # They contain no secrets.
   tags = {
-    Name                    = "groundline-${var.deployment_name}"
-    groundline-access-mode  = var.access_mode
-    groundline-allowed-cidr = var.access_mode == "restricted" ? var.tester_cidr : "0.0.0.0/0"
+    Name                      = "groundline-${var.deployment_name}"
+    groundline-git-ref        = var.git_ref
+    groundline-repository-url = var.repository_url
+    groundline-access-mode    = var.access_mode
+    groundline-allowed-cidr   = var.access_mode == "restricted" ? var.tester_cidr : "0.0.0.0/0"
     # The Elastic IP, which the server waits for before it starts, so it never
     # serves HTTPS on the address it has for its first few seconds.
     groundline-public-ip = coalesce(local.public_ip, "none")

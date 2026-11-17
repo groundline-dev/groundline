@@ -12,9 +12,9 @@
 # The AWS project is the one make aws-up or make aws-project last chose, and
 # the Region is that project's, or AWS_REGION. It first makes the deployment's
 # data volume and Elastic IP (infra/data/), which outlive its servers, then the
-# server (infra/). Rerunning it with the same commit after your IP changes
-# updates only the allowed source IP; another commit replaces the server, which
-# keeps its data on the data volume. Before changing anything, it says in plain
+# server (infra/). A server that's already running is upgraded in place over
+# SSM: it checks out the commit and rebuilds and restarts the stack, keeping
+# its data, address and certificate. Before changing anything, it says in plain
 # words what will change and asks.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -121,24 +121,36 @@ hours="$(terraform -chdir=infra output -raw auto_terminate_hours)"
 aws ec2 modify-instance-attribute --region "$region" --instance-id "$instance" \
   --block-device-mappings '[{"DeviceName":"/dev/sdf","Ebs":{"DeleteOnTermination":true}}]' \
   || fail "couldn't mark the data volume of $instance to be deleted with it; run make aws-deploy again"
-# A tester-IP-only tag update preserves the instance. Reconcile its live Caddy
-# config through SSM, even after retrying a previously interrupted deployment.
+# A server that was already running is upgraded in place: it waits for its
+# tags to show this run's access settings, checks out the commit, and runs the
+# new commit's infra/server/apply, which rewrites .env (reading the Anthropic
+# API key again), rebuilds the image and restarts what changed. Caddy reloads
+# its address and access settings. A disposable server's time limit starts
+# again, as a new server's would. Run every time, so a run that was
+# interrupted, or one that changes nothing in Terraform, still leaves the server
+# on this commit.
 if [ "$instance" = "$previous_instance" ]; then
-  doing "Refreshing HTTPS application access on the existing server"
-  on_server "set -eu; cd /opt/groundline; attempts=0
+  reset_deadline=""
+  [ "$hours" = 0 ] || reset_deadline="echo \$((\$(date +%s) + $hours * 3600)) >$deadline_file.new && mv $deadline_file.new $deadline_file"
+  doing "Upgrading your server ($instance) in place to ${commit:0:7}"
+  echo "It keeps its data, address and HTTPS certificate. This takes a few minutes."
+  upgraded="$(on_server "set -eu; cd /opt/groundline; attempts=0
 until infra/https/refresh-address '$access_mode' '$allowed_cidr'; do
   attempts=\$((attempts + 1)); [ \"\$attempts\" -lt 12 ] || exit 1; sleep 5
 done
-docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile" 300 \
-    || fail "couldn't apply HTTPS access on the server; do not report deployment success; retry make aws-deploy"
-fi
-if [ -n "$plan_changed" ]; then
+git fetch --quiet '$repository_url' '$commit'
+git checkout --quiet --detach '$commit'
+${reset_deadline}
+infra/server/apply
+docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile" 1800)" \
+    || fail "couldn't upgrade the server; do not report deployment success. Retry make aws-deploy, or run REF=<the previous commit> make aws-deploy to go back."
+  grep --quiet "groundline: running $commit" <<<"$upgraded" \
+    || fail "the server didn't report running ${commit:0:7} after the upgrade; retry make aws-deploy"
   echo
-  if [ "$instance" != "$previous_instance" ]; then
-    ok "created your server. It takes about 5 to 10 minutes to start."
-  else
-    ok "updated your server ($instance). It keeps its data."
-  fi
+  ok "upgraded your server ($instance) to ${commit:0:7}. It kept its data and address."
+elif [ -n "$plan_changed" ]; then
+  echo
+  ok "created your server. It takes about 5 to 10 minutes to start."
 fi
 
 # The deadline, as the server's deadline file would hold it. A new server's

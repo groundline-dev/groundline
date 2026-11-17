@@ -12,13 +12,16 @@ They answer only the calls the scripts make, the way the real tools answer:
   runs, or a destroy plan is applied, then fails as it does with no state.
   `-chdir=infra/data` acts on the data volume's folder, whose outputs, plan
   and destroyed flag are `data_outputs`, `data_plan` and `data_destroyed`; any
-  other folder is infra/, with `outputs`, `plan` and `destroyed`.
+  other folder is infra/, with `outputs`, `plan` and `destroyed`. Applying a
+  plan that isn't a destroy adds `pending_outputs` (or `data_pending_outputs`)
+  to the outputs, as creating its resources would.
 - `terraform plan -destroy -out=FILE` writes a plan deleting each resource the
   outputs name, which `terraform show -json FILE` prints and `terraform apply
   FILE` carries out. `terraform show -no-color FILE` prints SHORT_PLAN_SAMPLE.
 - `aws ssm send-command` records the command. `aws ssm wait command-executed`
   and `aws ssm get-command-invocation` report it with the status and output of
-  the first entry in `ssm_replies` whose `when` text it contains.
+  the first entry in `ssm_replies` whose `when` text it contains. With none, an
+  upgrade reports running the commit it checks out, as the server does.
 - `aws ssm get-parameter` finds the Anthropic parameter or fails with
   ParameterNotFound. With --with-decryption it fails the test run: no script
   may read the key. `aws ssm delete-parameter` deletes it, or fails with
@@ -191,8 +194,12 @@ def _terraform(world: dict[str, Any], args: list[str]) -> int:
         print("(the full Terraform plan)")
         return 0
     if args[:1] == ["apply"] and args[-1].endswith("tfplan"):
-        if json.loads(Path(args[-1]).read_text())["resource_changes"]:
+        plan = json.loads(Path(args[-1]).read_text())
+        if plan.get("destroy") and plan["resource_changes"]:
             world[destroyed_key] = True
+        elif plan["resource_changes"]:
+            # What creating the plan's resources would add to the outputs.
+            world[outputs_key].update(world.pop(f"{prefix}pending_outputs", {}))
         return 0
     if args[:1] in (["init"], ["apply"], ["version"]):
         return 0
@@ -235,7 +242,11 @@ def _destroy_plan(
         for name, kind in kinds.items()
         if name in outputs
     ]
-    plan: dict[str, Any] = {"variables": {}, "resource_changes": changes}
+    plan: dict[str, Any] = {
+        "variables": {},
+        "resource_changes": changes,
+        "destroy": True,
+    }
     Path(out).write_text(json.dumps(plan))
     return 2 if changes else 0
 
@@ -412,6 +423,12 @@ def _invocation(world: dict[str, Any], command_id: str | None) -> tuple[str, str
     for reply in replies:
         if reply["when"] in command["script"]:
             return reply.get("status", "Success"), reply.get("stdout", "")
+    # An upgrade reports the commit it checked out, as infra/server/apply does.
+    upgrade = re.search(
+        r"git checkout --quiet --detach '([0-9a-f]+)'", command["script"]
+    )
+    if upgrade:
+        return "Success", f"groundline: running {upgrade.group(1)}\n"
     return "Success", ""
 
 

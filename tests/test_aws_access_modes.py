@@ -177,7 +177,7 @@ def test_keep_requires_matching_mode(
             "running access is unrestricted HTTPS; saved access is restricted HTTPS"
             in result.stderr
         )
-        assert "It keeps its data volume and address" in result.stdout
+        assert "updates the server in place. It keeps its data" in result.stdout
         assert "Keep your running server" not in result.stdout
 
 
@@ -219,7 +219,9 @@ def test_failed_access_reload_is_not_success(checkout: Path):
     )
     result, _ = invoke(checkout, "aws-deploy", world)
     assert result.returncode != 0
-    assert "couldn't apply HTTPS access" in result.stderr
+    assert (
+        "couldn't upgrade the server; do not report deployment success" in result.stderr
+    )
     assert (
         "Terraform configuration is unchanged" in result.stdout
     )  # Terraform alone was not sufficient
@@ -461,3 +463,71 @@ def test_deploy_refuses_a_commit_without_infra_server_apply(checkout: Path):
     assert result.returncode != 0
     assert "too old to keep its data on a data volume" in result.stderr
     assert not any("plan" in call for call in world["calls"])
+
+
+@pytest.mark.parametrize("hours", ["8", "0"])
+def test_a_running_server_is_upgraded_in_place(checkout: Path, hours: str):
+    settings(checkout, "unrestricted")
+    world = aws_fakes.new_world(
+        outputs={"instance_id": "i-test", "auto_terminate_hours": hours}
+    )
+
+    result, world = invoke(checkout, "aws-deploy", world)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Upgrading your server (i-test) in place to aaaaaaa" in result.stdout
+    assert "It kept its data and address" in result.stdout
+    [upgrade] = [
+        c["script"] for c in world["commands"] if "server/apply" in c["script"]
+    ]
+    steps = json.loads(upgrade)["commands"][0]
+    commit = "a" * 40
+    assert "refresh-address 'unrestricted' '0.0.0.0/0'" in steps
+    assert (
+        steps.index("refresh-address")
+        < steps.index(
+            f"git fetch --quiet 'https://github.com/example/groundline.git' '{commit}'"
+        )
+        < steps.index(f"git checkout --quiet --detach '{commit}'")
+        < steps.index("infra/server/apply")
+        < steps.index("caddy reload")
+    )
+    # A disposable server's time limit starts again, as a new server's would.
+    assert ("3600)) >/var/lib/groundline/terminate-at.new" in steps) == (hours != "0")
+
+
+def test_an_upgrade_that_reports_another_commit_is_not_success(checkout: Path):
+    settings(checkout, "unrestricted")
+    world = aws_fakes.new_world(
+        outputs={"instance_id": "i-test", "auto_terminate_hours": "0"},
+        ssm_replies=[{"when": "server/apply", "stdout": "groundline: running bbbb\n"}],
+    )
+
+    result, _ = invoke(checkout, "aws-deploy", world)
+
+    assert result.returncode != 0
+    assert "didn't report running aaaaaaa" in result.stderr
+
+
+def test_a_new_server_is_not_upgraded_over_ssm(checkout: Path):
+    """It runs the commit from its first boot, so there's nothing to upgrade."""
+    settings(checkout, "unrestricted")
+    world = aws_fakes.new_world(
+        pending_outputs={"instance_id": "i-new", "auto_terminate_hours": "8"},
+        plan={
+            "variables": {},
+            "resource_changes": [
+                {
+                    "mode": "managed",
+                    "type": "aws_instance",
+                    "change": {"actions": ["create"], "before": None},
+                }
+            ],
+        },
+    )
+
+    result, world = invoke(checkout, "aws-deploy", world, "1\n")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "created your server" in result.stdout
+    assert not any("server/apply" in c["script"] for c in world["commands"])

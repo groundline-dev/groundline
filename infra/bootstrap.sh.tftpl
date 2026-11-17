@@ -92,6 +92,11 @@ for attempt in $(seq 1 120); do
   sleep 5
 done
 echo "groundline bootstrap: the server's address is $expected"
+# What to run: tags, not part of this script, so a new commit is applied in
+# place by an upgrade (scripts/aws-deploy) rather than by a new server.
+git_ref="$(read_metadata tags/instance/groundline-git-ref)"
+repository_url="$(read_metadata tags/instance/groundline-repository-url)"
+access_mode="$(read_metadata tags/instance/groundline-access-mode)"
 
 dnf install -y docker git openssl xfsprogs
 
@@ -154,11 +159,11 @@ install_plugin docker-buildx \
   https://github.com/docker/buildx/releases/download/v0.38.2/buildx-v0.38.2.linux-arm64 \
   46c0f334772de3cb0b341cc415caf7339fb5cfc8b8438ebcb5a10e7f23800d36
 
-git clone --quiet "${repository_url}" "$checkout"
-git -C "$checkout" checkout --quiet --detach "${git_ref}"
+git clone --quiet "$repository_url" "$checkout"
+git -C "$checkout" checkout --quiet --detach "$git_ref"
 cd "$checkout"
 
-echo "groundline bootstrap: ${access_mode} HTTPS application access"
+echo "groundline bootstrap: $access_mode HTTPS application access"
 # Docker starts at boot, so the containers come back after a reboot. The
 # drop-in above runs refresh-address first, which the checkout has now.
 systemctl enable --now docker

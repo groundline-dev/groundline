@@ -128,11 +128,11 @@ if [ -n "$instance" ] \
   echo "Your deployment $name is already running in $project."
   [ -z "$running_ref" ] || bullet "It runs ${running_ref:0:7}, from $running_repository."
   bullet "It costs money until make aws-destroy, or until it terminates itself."
-  bullet "Deploying other code replaces it. Its data volume and address move to the new one."
+  bullet "Deploying other code upgrades it in place. It keeps its data and address."
   running_mode="$(deployed_access_mode)"
   if [ "$access_mode" != "$running_mode" ]; then
     answer_warn "running access is $running_mode HTTPS; saved access is $access_mode HTTPS. Keeping this server would not apply your settings."
-    bullet "Switching modes replaces the server. It keeps its data volume and address."
+    bullet "Switching modes updates the server in place. It keeps its data and address."
     echo "  1) Review a deployment plan"
     echo "  2) Cancel and leave the running server unchanged"
     choose "Review deployment changes? (1 review, 2 cancel)" 2
@@ -202,9 +202,10 @@ if [ -z "$keep" ]; then
       printf '%s' "$key" | aws ssm put-parameter --region "$region" --name "$anthropic_parameter" \
         --type SecureString --value file:///dev/stdin ${stored:+--overwrite} >/dev/null
       answer_ok "stored your Anthropic API key; make aws-destroy deletes it"
-      # The server reads the key only when it starts.
+      # The server reads the key when it starts and when it's upgraded, which
+      # step 2 does.
       if [ -n "$stored" ] && running_deployments 2>/dev/null | grep -qx "$name"; then
-        answer_warn "your running server still uses the old key. It reads the key when it starts, so it uses the new one once it's replaced: deploy a different commit, or run make aws-destroy, then make aws-up."
+        bullet "Your running server switches to the new key when it's upgraded, in step 2."
       fi
     elif [ -n "$stored" ]; then
       answer_ok "kept the Anthropic API key you gave on an earlier run"

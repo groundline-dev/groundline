@@ -184,8 +184,15 @@ run "the_startup_script_installs_docker_and_starts_the_pinned_revision" {
     error_message = "The startup script should enable the Docker service so it starts at boot."
   }
   assert {
-    condition     = strcontains(aws_instance.app.user_data, var.repository_url) && strcontains(aws_instance.app.user_data, var.git_ref) && can(regex("git[^\n]*checkout", aws_instance.app.user_data))
-    error_message = "The startup script should clone repository_url and check out git_ref."
+    # From tags, so a new commit is an in-place upgrade, not a new server.
+    condition = (
+      aws_instance.app.tags["groundline-git-ref"] == var.git_ref
+      && aws_instance.app.tags["groundline-repository-url"] == var.repository_url
+      && !strcontains(aws_instance.app.user_data, var.git_ref)
+      && strcontains(aws_instance.app.user_data, "tags/instance/groundline-git-ref")
+      && can(regex("git[^\n]*checkout", aws_instance.app.user_data))
+    )
+    error_message = "The startup script should clone and check out the commit in the groundline-git-ref and groundline-repository-url tags, which aren't in user_data."
   }
   assert {
     # infra/server/apply writes .env and runs docker compose up, as each upgrade does.
