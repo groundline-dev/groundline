@@ -11,9 +11,9 @@ import pytest
 from sqlalchemy.ext.asyncio import AsyncEngine, create_async_engine
 
 from groundline_core import api_keys
+from groundline_core._core.deadline import check_deadline
+from groundline_core._settings import Settings
 from groundline_core.api_keys import APIKeys, APIKeyStorageError
-from groundline_core.core.deadline import check_deadline
-from groundline_core.settings import Settings
 from tests.async_helpers import finish_before_watchdog
 
 

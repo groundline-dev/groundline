@@ -329,7 +329,7 @@ def test_the_report_says_nothing_about_refute_when_it_is_off(
     assert "Cleared by refute" not in result.stdout
 
 
-def test_a_pipeline_without_the_report_steps_exits_with_2(
+def test_a_pipeline_that_is_not_a_full_check_exits_with_2(
     files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ):
     use_client(monkeypatch, Script(commissions_check=ISSUES))
@@ -342,8 +342,8 @@ def test_a_pipeline_without_the_report_steps_exits_with_2(
     result = commissions(files, "--pipeline", str(custom))
 
     assert result.exit_code == 2
-    assert "needs 'commissions_refute' and 'alarm' stages" in result.stderr
-    assert "for the commissions report" in result.stderr
+    assert "doesn't make a full check" in result.stderr
+    assert "commissions_refute (commissions)" in result.stderr
 
 
 def test_a_pipeline_that_is_not_a_commission_check_exits_with_2(
@@ -355,7 +355,8 @@ def test_a_pipeline_that_is_not_a_commission_check_exits_with_2(
     result = commissions(files, "--pipeline", str(omission))
 
     assert result.exit_code == 2
-    assert "needs 'commissions_refute' and 'alarm' stages" in result.stderr
+    assert "carries out the omission check" in result.stderr
+    assert "run it with groundline-core omissions" in result.stderr
 
 
 def test_help_lists_the_commissions_command():
@@ -519,7 +520,7 @@ def test_cli_reports_check_deadline_with_exit_code_2(
     import asyncio
     from typing import Any
 
-    from groundline_core.core import ModelReply
+    from groundline_core._core import ModelReply
 
     monkeypatch.setenv("GROUNDLINE_CHECK_TIMEOUT_SECONDS", "0.5")
     cancelled: list[bool] = []
