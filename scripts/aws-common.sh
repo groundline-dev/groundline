@@ -216,14 +216,46 @@ project_label() {
   fi
 }
 
-# deployment_name: the deployment_name in infra/terraform.tfvars, or nothing.
-# A missing file returns nothing too: GNU sed exits 2 on it, which pipefail
-# would pass on and set -e would stop the script for, without a message.
-deployment_name() {
+# tfvars_value KEY: KEY's value in infra/terraform.tfvars, without its quotes,
+# or nothing. The last line setting KEY wins, as in Terraform. A missing file
+# returns nothing too, so the scripts can call it before make aws-up writes it.
+tfvars_value() {
   [ -f infra/terraform.tfvars ] || return 0
-  sed -n 's/^[[:space:]]*deployment_name[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' \
-    infra/terraform.tfvars 2>/dev/null | tail -n 1
+  awk -v key="$1" '
+    $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
+      value = $0
+      sub(/^[^=]*=[[:space:]]*/, "", value)
+      if (value ~ /^"/) { sub(/^"/, "", value); sub(/".*/, "", value) }
+      else sub(/[[:space:]#].*/, "", value)
+      found = value
+    }
+    END { if (found != "") print found }
+  ' infra/terraform.tfvars 2>/dev/null
 }
+
+# save_setting KEY VALUE: set KEY = "VALUE" in infra/terraform.tfvars, in place
+# of the first line that sets it (keeping that line's comment), or at the end.
+# Later lines setting KEY are dropped, so the file says one thing.
+save_setting() {
+  local key="$1" value="$2" temporary
+  temporary="$(mktemp infra/terraform.tfvars.XXXXXX)"
+  if ! awk -v key="$key" -v value="$value" '
+    $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
+      comment=""
+      if (match($0, /"[[:space:]]*#/)) comment=substr($0, RSTART + 1)
+      if (!written) print key " = \"" value "\"" comment
+      written=1; next
+    }
+    { print }
+    END { if (!written) print key " = \"" value "\"" }
+  ' infra/terraform.tfvars >"$temporary" || ! mv "$temporary" infra/terraform.tfvars; then
+    rm -f "$temporary"
+    fail "could not save $key in infra/terraform.tfvars"
+  fi
+}
+
+# deployment_name: the deployment_name in infra/terraform.tfvars, or nothing.
+deployment_name() { tfvars_value deployment_name; }
 
 # Read one supported literal mode. Status 1 means absent; 2 means invalid.
 # This reader never changes settings or prints an interactive prompt.
@@ -239,22 +271,8 @@ read_access_mode() {
 }
 
 save_access_mode() {
-  local mode="$1" temporary
-  case "$mode" in restricted | unrestricted) ;; *) fail "unsupported access mode: $mode" ;; esac
-  temporary="$(mktemp infra/terraform.tfvars.XXXXXX)"
-  if ! awk -v mode="$mode" '
-    /^[[:space:]]*access_mode[[:space:]]*=/ {
-      comment=""
-      if (match($0, /"[[:space:]]*#/)) comment=" " substr($0, RSTART + 1)
-      if (!written) print "access_mode = \"" mode "\"" comment
-      written=1; next
-    }
-    { print }
-    END { if (!written) print "access_mode = \"" mode "\"" }
-  ' infra/terraform.tfvars >"$temporary" || ! mv "$temporary" infra/terraform.tfvars; then
-    rm -f "$temporary"
-    fail "could not save access_mode in infra/terraform.tfvars"
-  fi
+  case "$1" in restricted | unrestricted) ;; *) fail "unsupported access mode: $1" ;; esac
+  save_setting access_mode "$1"
 }
 
 # configured_access_mode [fail|ask]: print only the supported mode on stdout.
@@ -601,33 +619,40 @@ describe_plan() {
 # show_plan PLAN: show Terraform's plan, keeping only the lines worth checking:
 # which resources it creates, updates, replaces or deletes, each setting that
 # changes and which change forces a replacement, and the totals. FULL_PLAN=1
-# shows all of it, every setting of every resource.
+# shows all of it, every setting of every resource. ROOT is the Terraform folder
+# the plan is for, such as infra.
 show_plan() {
+  local root="$1" plan="$2"
   if [ -n "${FULL_PLAN:-}" ]; then
-    terraform -chdir=infra show "$1"
+    terraform -chdir="$root" show "$plan"
     return
   fi
   echo
   echo "Terraform's plan, short version (FULL_PLAN=1 shows all of it):"
-  terraform -chdir=infra show -no-color "$1" \
+  terraform -chdir="$root" show -no-color "$plan" \
     | grep -E '^  # |forces replacement|^[[:space:]]+~ |^Plan: ' || true
 }
 
-# plan_and_apply NOTHING_TO_DO TERRAFORM_PLAN_ARGUMENTS...: plan, say in plain
-# words what applying the plan does, ask, and apply exactly that plan. Prints
-# NOTHING_TO_DO instead when there's nothing to change. Sets $plan_changed to
-# yes when it changed something in AWS.
+# plan_and_apply ROOT NOTHING_TO_DO TERRAFORM_PLAN_ARGUMENTS...: plan the
+# Terraform folder ROOT, such as infra, say in plain words what applying the
+# plan does, ask, and apply exactly that plan. Prints NOTHING_TO_DO instead when
+# there's nothing to change. Sets $plan_changed to yes when it changed something
+# in AWS.
+plan_dirs=()
 plan_and_apply() {
-  local nothing_to_do="$1" plan status=0 summary
+  local root="$1" nothing_to_do="$2" plan plan_dir status=0 summary
   plan_changed=""
-  shift
+  shift 2
   # A saved plan holds the variables' values, such as your email address and IP,
-  # so it goes in a temporary folder that's deleted on exit, not in infra/.
+  # so it goes in a temporary folder that's deleted on exit, not in infra/. Each
+  # call's folder is kept in plan_dirs, so a second call doesn't leave the
+  # first one's behind.
   plan_dir="$(mktemp -d)"
-  trap 'rm -rf "$plan_dir"' EXIT
+  plan_dirs+=("$plan_dir")
+  trap 'rm -rf "${plan_dirs[@]}"' EXIT
   plan="$plan_dir/tfplan"
   doing "Working out what will change"
-  terraform -chdir=infra plan -input=false -detailed-exitcode -out="$plan" "$@" \
+  terraform -chdir="$root" plan -input=false -detailed-exitcode -out="$plan" "$@" \
     >"$plan_dir/plan.log" 2>&1 || status=$?
   case "$status" in
     0)
@@ -641,11 +666,11 @@ plan_and_apply() {
       fail "terraform plan failed"
       ;;
   esac
-  summary="$(describe_plan "$(terraform -chdir=infra show -json "$plan")")"
+  summary="$(describe_plan "$(terraform -chdir="$root" show -json "$plan")")"
   # A plan that changes only outputs, such as one adding a new output, changes
   # nothing in AWS, so it's applied without asking.
   if [ -z "$summary" ]; then
-    terraform -chdir=infra apply -input=false "$plan" >/dev/null
+    terraform -chdir="$root" apply -input=false "$plan" >/dev/null
     echo
     ok "$nothing_to_do"
     return
@@ -661,7 +686,7 @@ plan_and_apply() {
   echo "  3) Cancel, changing nothing"
   choose "Make the changes above? (1 make them, 2 show the plan, 3 cancel)" 3
   if [ "$answer" = 2 ]; then
-    show_plan "$plan"
+    show_plan "$root" "$plan"
     echo
     echo "  1) Make these changes"
     echo "  2) Cancel, changing nothing"
@@ -671,13 +696,14 @@ plan_and_apply() {
   [ "$answer" = 1 ] || fail "canceled: nothing changed"
   plan_changed=yes
   doing "Making the changes"
-  terraform -chdir=infra apply -input=false "$plan"
+  terraform -chdir="$root" apply -input=false "$plan"
 }
 
-# Read a required output; Terraform can succeed with an empty value.
+# output NAME [ROOT]: read a required output of the Terraform folder ROOT
+# (default infra); Terraform can succeed with an empty value.
 output() {
   local value
-  value="$(terraform -chdir=infra output -raw "$1")" && [ -n "$value" ] \
+  value="$(terraform -chdir="${2:-infra}" output -raw "$1")" && [ -n "$value" ] \
     || fail "no $1 in the Terraform state for $(project_label): run make aws-up first"
   printf '%s' "$value"
 }

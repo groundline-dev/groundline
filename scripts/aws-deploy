@@ -88,7 +88,7 @@ init_log="$(terraform -chdir=infra init -input=false 2>&1)" || {
 # Tells a new server from an updated one below, since only a new one gets a new deadline.
 previous_instance="$(terraform -chdir=infra output -raw instance_id 2>/dev/null || true)"
 
-plan_and_apply "Terraform configuration is unchanged for ${commit:0:7}; checking live HTTPS access next." \
+plan_and_apply infra "Terraform configuration is unchanged for ${commit:0:7}; checking live HTTPS access next." \
   -var "region=$region" ${tester_args[@]+"${tester_args[@]}"} -var "git_ref=$commit" \
   -var "access_mode=$access_mode" \
   -var "repository_url=$repository_url"

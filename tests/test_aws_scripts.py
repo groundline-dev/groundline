@@ -499,6 +499,73 @@ def test_deployment_name_is_empty_without_terraform_tfvars(tmp_path: Path):
     assert finished.stdout.strip() == "name="
 
 
+def _common(tmp_path: Path, script: str) -> subprocess.CompletedProcess[str]:
+    """Run SCRIPT in tmp_path after sourcing scripts/aws-common.sh."""
+    return subprocess.run(
+        [
+            "bash",
+            "-c",
+            f'set -euo pipefail; source "$1"; {script}',
+            "_",
+            str(ROOT / "scripts" / "aws-common.sh"),
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_tfvars_value_reads_quoted_and_bare_values_and_the_last_line_wins(
+    tmp_path: Path,
+):
+    (tmp_path / "infra").mkdir()
+    (tmp_path / "infra" / "terraform.tfvars").write_text(
+        'deployment_name = "alice" # who\n'
+        "auto_terminate_hours = 0 # no limit\n"
+        '# lifetime = "lasting"\n'
+        'access_mode = "restricted"\n'
+        'access_mode = "unrestricted"\n'
+    )
+
+    finished = _common(
+        tmp_path,
+        "for key in deployment_name auto_terminate_hours lifetime access_mode; do "
+        'echo "$key=$(tfvars_value "$key")"; done',
+    )
+
+    assert finished.returncode == 0, finished.stderr
+    assert finished.stdout.splitlines() == [
+        "deployment_name=alice",
+        "auto_terminate_hours=0",
+        "lifetime=",
+        "access_mode=unrestricted",
+    ]
+
+
+def test_save_setting_replaces_the_first_line_keeps_its_comment_and_drops_repeats(
+    tmp_path: Path,
+):
+    tfvars = tmp_path / "infra" / "terraform.tfvars"
+    tfvars.parent.mkdir()
+    tfvars.write_text(
+        'deployment_name = "alice"\n'
+        'lifetime = "disposable" # chosen once\n'
+        'lifetime = "lasting"\n'
+    )
+
+    finished = _common(
+        tmp_path, "save_setting lifetime lasting; save_setting budget_amount 35"
+    )
+
+    assert finished.returncode == 0, finished.stderr
+    assert tfvars.read_text() == (
+        'deployment_name = "alice"\n'
+        'lifetime = "lasting" # chosen once\n'
+        'budget_amount = "35"\n'
+    )
+    assert list(tfvars.parent.iterdir()) == [tfvars]
+
+
 @pytest.mark.parametrize(
     "remote",
     [
