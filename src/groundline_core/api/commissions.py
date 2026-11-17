@@ -30,7 +30,11 @@ from groundline_core.api.common import (
 from groundline_core.api.findings import EXPLANATIONS, commission_finding
 from groundline_core.auth import require_api_key
 from groundline_core.core import ModelClient
-from groundline_core.evaluate import DEFAULT_COMMISSIONS_PRESET, evaluate
+from groundline_core.evaluate import (
+    DEFAULT_COMMISSIONS_PRESET,
+    CommissionPreset,
+    evaluate,
+)
 from groundline_core.evaluators.commissions.models import (
     CommissionsRefuteOutput,
     ranked,
@@ -44,10 +48,6 @@ from groundline_core.settings import ENV_FILE
 logger = logging.getLogger("groundline.api")
 
 router = APIRouter()
-
-
-CommissionPreset = Literal["commission_quick", "commission_reverse_lean"]
-"""The commission presets a caller can choose."""
 
 
 def _preset_choices() -> str:

@@ -1,7 +1,7 @@
 """The `groundline-core` command line.
 
     uv run groundline-core omissions SOURCE SUMMARY [options]
-    uv run groundline-core commissions SOURCE SUMMARY [options]
+    uv run groundline-core commissions SOURCE SUMMARY [--preset NAME] [options]
 
 Exit codes: 0 = checked and not flagged, 1 = checked and flagged,
 2 = couldn't check (bad arguments or files, invalid pipeline or profile,
@@ -13,9 +13,9 @@ import json
 import os
 import time
 from collections.abc import Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, get_args
 
 import platformdirs
 import typer
@@ -36,6 +36,7 @@ from groundline_core.core.errors import ModelTimeoutError
 from groundline_core.evaluate import (
     DEFAULT_COMMISSIONS_PRESET,
     DEFAULT_PRESET,
+    CommissionPreset,
     EvaluationResult,
     evaluate_sync,
 )
@@ -106,10 +107,24 @@ CommissionsPipelineOpt = Annotated[
     typer.Option(
         exists=True,
         dir_okay=False,
+        help="A pipeline spec file to run instead of a preset.",
+    ),
+]
+COMMISSION_PRESETS: tuple[str, ...] = get_args(CommissionPreset)
+CommissionsPresetOpt = Annotated[
+    str | None,
+    typer.Option(
+        metavar="<name>",
         help=(
-            "A pipeline spec file to run instead of the "
-            f"{DEFAULT_COMMISSIONS_PRESET} preset."
+            "Which validated preset to run: "
+            + " or ".join(
+                f"{name} (the default)" if name == DEFAULT_COMMISSIONS_PRESET else name
+                for name in COMMISSION_PRESETS
+            )
+            + ". The lean preset isn't confirmed to its pre-registered standard "
+            "(see the README)."
         ),
+        show_default=False,
     ),
 ]
 ProfileOpt = Annotated[
@@ -176,6 +191,7 @@ def omissions(
 def commissions(
     source: SourceArg,
     summary: SummaryArg,
+    preset: CommissionsPresetOpt = None,
     pipeline: CommissionsPipelineOpt = None,
     profile: ProfileOpt = None,
     cache: CacheOpt = False,
@@ -185,9 +201,32 @@ def commissions(
     to flag it."""
     _finish(
         lambda: _check(
-            COMMISSIONS, source, summary, pipeline, profile, cache, json_path
+            _commissions_check(preset, pipeline),
+            source,
+            summary,
+            pipeline,
+            profile,
+            cache,
+            json_path,
         )
     )
+
+
+def _commissions_check(preset: str | None, pipeline: Path | None) -> Check:
+    """The commission check with the preset the caller chose, if any. Raises
+    before anything runs if it is unknown or comes with a pipeline spec file."""
+    if preset is None:
+        return COMMISSIONS
+    if pipeline:
+        raise ValueError(
+            "use --preset or --pipeline, not both: "
+            "a pipeline spec file replaces the preset."
+        )
+    if preset not in COMMISSION_PRESETS:
+        raise ValueError(
+            f"unknown preset '{preset}'. Use {' or '.join(COMMISSION_PRESETS)}."
+        )
+    return replace(COMMISSIONS, preset=preset)
 
 
 def _finish(run: Callable[[], int]) -> None:

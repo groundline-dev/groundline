@@ -36,7 +36,7 @@ groundline can also run the **lean commission check** (`commission_reverse_lean`
 3. **Commissions refute:** a second look at every flagged claim, whatever its severity, which can only clear one, and only with a verified quote from the source.
 4. **Alarm:** as above, with its own threshold level, `default`, at 0.80.
 
-Measured on 172 commission pairs, it caught 166, flagged 0 of 110 clean notes, and cost about $0.14 and 19 seconds per note. It matched the exact preset's catches, but failed both of its pre-registered tests, a paired-score margin less than two pairs wide and a false-alarm limit on notes from other sources, so it isn't confirmed to that standard (see [ADR 0017](docs/adr/0017-the-commission-check-also-offers-lean.md)). Those results hold only for the unchanged `commission_reverse_lean` preset. The CLI's `commissions` command runs quick unless you pass the lean preset's file with `--pipeline`.
+Measured on 172 commission pairs, it caught 166, flagged 0 of 110 clean notes, and cost about $0.14 and 19 seconds per note. It matched the exact preset's catches, but failed both of its pre-registered tests, a paired-score margin less than two pairs wide and a false-alarm limit on notes from other sources, so it isn't confirmed to that standard (see [ADR 0017](docs/adr/0017-the-commission-check-also-offers-lean.md)). Those results hold only for the unchanged `commission_reverse_lean` preset. The CLI's `commissions` command runs quick unless you pass `--preset commission_reverse_lean`.
 
 ## Setup
 
@@ -143,7 +143,7 @@ Not supported by the source (severity order):
 Cost              $0.0020 · 1 calls · 14,820 input / 1,040 output tokens · 4.1 s
 ```
 
-The [exit codes](#exit-codes) and [options](#options) are the same as for omissions. If the model's quote of the source passage isn't found word for word in the source, the report still shows it, marked `(not found word for word in the source)`. If a pipeline switches refute on, the report adds a `Cleared by refute` line.
+The [exit codes](#exit-codes) and [options](#options) are the same as for omissions, plus `--preset NAME`, which picks the validated preset to run: `commission_quick` (the default) or `commission_reverse_lean` (not confirmed to its pre-registered standard, as above). Use `--preset` or `--pipeline`, not both, since a pipeline spec file replaces the preset. An unknown name, or both options together, stops the command with exit code 2. If the model's quote of the source passage isn't found word for word in the source, the report still shows it, marked `(not found word for word in the source)`. If a pipeline switches refute on, the report adds a `Cleared by refute` line.
 
 ## Using it from Python
 

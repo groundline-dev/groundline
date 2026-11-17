@@ -7,6 +7,7 @@ read `.env`, and library callers name a `.env` file only if they want one.
 
 import asyncio
 import logging
+from typing import Literal
 
 from pydantic import SecretStr
 
@@ -40,7 +41,11 @@ logger = logging.getLogger("groundline.evaluate")
 DEFAULT_PRESET = "omission_all_opus"
 DEFAULT_COMMISSIONS_PRESET = "commission_quick"
 
+CommissionPreset = Literal["commission_quick", "commission_reverse_lean"]
+"""The commission presets a caller can choose, in the API and the CLI."""
+
 __all__ = [
+    "CommissionPreset",
     "DEFAULT_COMMISSIONS_PRESET",
     "DEFAULT_PRESET",
     "EvaluationResult",
