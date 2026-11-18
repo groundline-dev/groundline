@@ -1,0 +1,1169 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "groundline",
+    "description": "\ngroundline checks an AI-written summary, such as a clinical note, against the\nsource it was written from, such as a consultation transcript. It reports the\nfacts the summary leaves out (omissions) and the claims in it the source\ndoesn't support (commissions). It is research code, **not for clinical use**,\nand must not be used with real patient data yet.\n\n### Authentication\n\nBoth checks need a groundline API key, sent as `Authorization: Bearer gl_...`.\nCreate one with `groundline-core keys create`, then use **Authorize** below.\n`/health` and `/ready` are public.\n\nThe body-byte allowance applies to every HTTP path and method, including public\nand unknown routes. A declared oversized body can return **413 Content Too Large**\nbefore authentication or **404 Not Found** / **405 Method Not Allowed** responses.\nFor streamed bodies, the allowance is enforced as the application reads them;\nroutes that do not read a body do not buffer it to check its size.\n\n### Versions\n\nBoth checks are under `/v1`. groundline isn't public yet, so v1 can still\nchange in ways that break a caller, such as removing or renaming a field. Once\nthe API is public, v1 will only add: new endpoints, or new fields in a\nresponse. A change that could break a caller, such as removing or renaming a\nfield or changing a status code, will then get a new prefix, `/v2`. groundline\nis still pre-1.0, so it doesn't yet promise how long an old version stays\navailable after a new one ships. The version next to the title is groundline's\nrelease, not the API version.\n\nSee the [README](https://github.com/groundline-dev/groundline#using-the-api)\nfor more, including what each status means.\n",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/v1/omissions": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Omissions",
+        "description": "Find the facts a summary leaves out, and whether to flag it.\n\nRuns the validated all-Opus omission check, which costs about $0.21 for a\ntypical clinical note. Set the client timeout above the configured\nwhole-check limit, which defaults to 120 seconds, to allow time for request\nand response transfer. Answers 200 for every finished check, flagged or\nnot.",
+        "operationId": "evaluate_omissions",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OmissionsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OmissionsResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Content Too Large: the request body exceeds 5242880 bytes. This includes JSON structure and escaping. The request may be rejected before authentication or routing errors; reduce the upload size. The body allowance applies to every HTTP path and method.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "examples": {
+                  "body_too_large": {
+                    "summary": "Body size limit",
+                    "value": {
+                      "detail": "Request body exceeds the configured size limit"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body isn't valid UTF-8 text. Bytes that begin like UTF-16 or UTF-32 text are read as that, and answer 422 if they aren't JSON.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "examples": {
+                  "not_utf8": {
+                    "summary": "Not UTF-8",
+                    "value": {
+                      "detail": "There was an error parsing the body"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request is unusable: broken JSON, not a JSON object, a blank or too-long text, an unexpected field, or a value that isn't one of a field's choices, such as an unknown `preset`. The response never repeats the rejected value.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestBody"
+                },
+                "examples": {
+                  "blank_and_extra": {
+                    "summary": "A blank source and an extra field",
+                    "value": {
+                      "detail": [
+                        {
+                          "loc": [
+                            "body",
+                            "source"
+                          ],
+                          "msg": "String should have at least 1 character",
+                          "type": "string_too_short"
+                        },
+                        {
+                          "loc": [
+                            "body"
+                          ],
+                          "msg": "Extra inputs are not permitted",
+                          "type": "extra_forbidden"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unexpected error, a bug in groundline. The details are in the server log.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "examples": {
+                  "unexpected": {
+                    "summary": "Unexpected error",
+                    "value": {
+                      "detail": "unexpected error; see the server log"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is missing or invalid.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `Bearer`.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "examples": {
+                  "invalid_key": {
+                    "summary": "Invalid or missing key",
+                    "value": {
+                      "detail": "Invalid or missing API key"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The model returned an error or unusable output after the permitted outage retries or correction request. A retry wait (backoff or Retry-After) that cannot fit the remaining allowance also stops on the upstream error before deadline expiry; upstream status failures return 502.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "examples": {
+                  "unusable_reply": {
+                    "summary": "Unusable reply",
+                    "value": {
+                      "detail": "stage 'extract' failed: The model\u2019s reply remained unusable after a request for correction: no JSON object in the reply (the reply was 8 characters). Recorded cost before stopping: $0.0065 \u00b7 2 calls \u00b7 1,600 input / 4 output tokens"
+                    }
+                  },
+                  "anthropic_error": {
+                    "summary": "Anthropic API error",
+                    "value": {
+                      "detail": "stage 'extract' failed: the Anthropic API answered 529 (OverloadedError)"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authentication is unavailable, the Anthropic API key is missing or rejected, or the settings can't be read. Authentication timeouts return 503, including whole-check expiry during authentication.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "examples": {
+                  "authentication_unavailable": {
+                    "summary": "Authentication unavailable",
+                    "value": {
+                      "detail": "Authentication is unavailable"
+                    }
+                  },
+                  "anthropic_key_missing": {
+                    "summary": "Anthropic API key not set",
+                    "value": {
+                      "detail": "ANTHROPIC_API_KEY is not set.\n  Needed by: extract, rank, check, refute (claude-opus-5-5)\n  Fix: export ANTHROPIC_API_KEY=..., or copy .env.example to .env and add it there."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "The check deadline expired after authentication, or a model attempt or outage retry allowance expired. Recorded usage may exclude charges for interrupted provider requests.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "examples": {
+                  "model_timeout": {
+                    "summary": "Model time limit",
+                    "value": {
+                      "detail": "time limit expired while waiting for the model"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/v1/commissions": {
+      "post": {
+        "tags": [
+          "v1"
+        ],
+        "summary": "Commissions",
+        "description": "Find the claims a summary makes that its source doesn't support, and\nwhether to flag it.\n\nRuns a validated commission check (often called hallucination detection),\nchosen with `preset`: `commission_quick` by default, or\n`commission_reverse_lean`. The `preset` field says what each runs, how it was\nmeasured, what it costs and whether it is confirmed to its pre-registered\nstandard.\nEach preset flags at its own threshold, and both answer in the same shape. A\nclaim is a commission if the source contradicts it or never mentions it.\nAnswers 200 for every finished check, flagged or not.",
+        "operationId": "evaluate_commissions",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CommissionsRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CommissionsResponse"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Content Too Large: the request body exceeds 5242880 bytes. This includes JSON structure and escaping. The request may be rejected before authentication or routing errors; reduce the upload size. The body allowance applies to every HTTP path and method.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "examples": {
+                  "body_too_large": {
+                    "summary": "Body size limit",
+                    "value": {
+                      "detail": "Request body exceeds the configured size limit"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body isn't valid UTF-8 text. Bytes that begin like UTF-16 or UTF-32 text are read as that, and answer 422 if they aren't JSON.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "examples": {
+                  "not_utf8": {
+                    "summary": "Not UTF-8",
+                    "value": {
+                      "detail": "There was an error parsing the body"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "The request is unusable: broken JSON, not a JSON object, a blank or too-long text, an unexpected field, or a value that isn't one of a field's choices, such as an unknown `preset`. The response never repeats the rejected value.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvalidRequestBody"
+                },
+                "examples": {
+                  "blank_and_extra": {
+                    "summary": "A blank source and an extra field",
+                    "value": {
+                      "detail": [
+                        {
+                          "loc": [
+                            "body",
+                            "source"
+                          ],
+                          "msg": "String should have at least 1 character",
+                          "type": "string_too_short"
+                        },
+                        {
+                          "loc": [
+                            "body"
+                          ],
+                          "msg": "Extra inputs are not permitted",
+                          "type": "extra_forbidden"
+                        }
+                      ]
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "An unexpected error, a bug in groundline. The details are in the server log.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "examples": {
+                  "unexpected": {
+                    "summary": "Unexpected error",
+                    "value": {
+                      "detail": "unexpected error; see the server log"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "The API key is missing or invalid.",
+            "headers": {
+              "WWW-Authenticate": {
+                "description": "Always `Bearer`.",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "examples": {
+                  "invalid_key": {
+                    "summary": "Invalid or missing key",
+                    "value": {
+                      "detail": "Invalid or missing API key"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "The model returned an error or unusable output after the permitted outage retries or correction request. A retry wait (backoff or Retry-After) that cannot fit the remaining allowance also stops on the upstream error before deadline expiry; upstream status failures return 502.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "examples": {
+                  "unusable_reply": {
+                    "summary": "Unusable reply",
+                    "value": {
+                      "detail": "stage 'commissions_check' failed: The model\u2019s reply remained unusable after a request for correction: no JSON object in the reply (the reply was 8 characters). Recorded cost before stopping: $0.0002 \u00b7 2 calls \u00b7 1,600 input / 4 output tokens"
+                    }
+                  },
+                  "anthropic_error": {
+                    "summary": "Anthropic API error",
+                    "value": {
+                      "detail": "stage 'commissions_check' failed: the Anthropic API answered 529 (OverloadedError)"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Authentication is unavailable, the Anthropic API key is missing or rejected, or the settings can't be read. Authentication timeouts return 503, including whole-check expiry during authentication.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "examples": {
+                  "authentication_unavailable": {
+                    "summary": "Authentication unavailable",
+                    "value": {
+                      "detail": "Authentication is unavailable"
+                    }
+                  },
+                  "anthropic_key_missing": {
+                    "summary": "Anthropic API key not set",
+                    "value": {
+                      "detail": "ANTHROPIC_API_KEY is not set.\n  Needed by: commissions_check (claude-haiku-5-5)\n  Fix: export ANTHROPIC_API_KEY=..., or copy .env.example to .env and add it there."
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "504": {
+            "description": "The check deadline expired after authentication, or a model attempt or outage retry allowance expired. Recorded usage may exclude charges for interrupted provider requests.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "examples": {
+                  "model_timeout": {
+                    "summary": "Model time limit",
+                    "value": {
+                      "detail": "time limit expired while waiting for the model"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ]
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Health",
+        "description": "Whether the app is running. It never touches the database, so an outage\ndoesn't mark a working app unhealthy in Compose.",
+        "operationId": "get_health",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Get Health"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Content Too Large: the request body exceeds 5242880 bytes. This includes JSON structure and escaping. The request may be rejected before authentication or routing errors; reduce the upload size. The body allowance applies to every HTTP path and method.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "examples": {
+                  "body_too_large": {
+                    "summary": "Body size limit",
+                    "value": {
+                      "detail": "Request body exceeds the configured size limit"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ready": {
+      "get": {
+        "summary": "Ready",
+        "description": "Whether the app can serve requests that need the database.",
+        "operationId": "get_ready",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "title": "Response Get Ready"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Content Too Large: the request body exceeds 5242880 bytes. This includes JSON structure and escaping. The request may be rejected before authentication or routing errors; reduce the upload size. The body allowance applies to every HTTP path and method.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "examples": {
+                  "body_too_large": {
+                    "summary": "Body size limit",
+                    "value": {
+                      "detail": "Request body exceeds the configured size limit"
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database isn't answering.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                },
+                "examples": {
+                  "database_unavailable": {
+                    "summary": "The database isn't answering",
+                    "value": {
+                      "detail": "the database isn't available"
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "CommissionsAlarm": {
+        "properties": {
+          "score": {
+            "type": "number",
+            "title": "Score",
+            "description": "The highest unsupported confidence among the critical commissions; 0 if\nthere are none."
+          },
+          "threshold": {
+            "type": "number",
+            "title": "Threshold",
+            "description": "The alarm score at or above which the summary is flagged."
+          },
+          "level": {
+            "type": "string",
+            "title": "Level",
+            "description": "The threshold level used, such as strict."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "score",
+          "threshold",
+          "level"
+        ],
+        "title": "CommissionsAlarm"
+      },
+      "CommissionsMetadata": {
+        "properties": {
+          "pipeline": {
+            "type": "string",
+            "title": "Pipeline",
+            "description": "The pipeline that ran. It is a validated preset, whose measured results\napply to this run."
+          },
+          "alarm": {
+            "$ref": "#/components/schemas/CommissionsAlarm",
+            "description": "The alarm score, the threshold it was compared with, and the threshold\nlevel. The summary is flagged when the alarm score reaches the threshold."
+          },
+          "usage": {
+            "$ref": "#/components/schemas/Usage",
+            "description": "The model calls the check made, and what they cost."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "pipeline",
+          "alarm",
+          "usage"
+        ],
+        "title": "CommissionsMetadata"
+      },
+      "CommissionsRequest": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "maxLength": 200000,
+            "minLength": 1,
+            "title": "Source",
+            "description": "The original material, such as a consultation transcript."
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 200000,
+            "minLength": 1,
+            "title": "Summary",
+            "description": "The AI-written summary to check, such as a clinical note."
+          },
+          "preset": {
+            "type": "string",
+            "enum": [
+              "commission_quick",
+              "commission_reverse_lean"
+            ],
+            "title": "Preset",
+            "description": "Which validated preset to run.\n\n`commission_quick` (the default): Quick commission check (one Haiku call that lists the unsupported or contradicted claims, refute off, alarm). Measured on 172 held-out commission pairs: 151 caught, 1/110 clean notes flagged, about $0.001 per note. It passed its pre-registered test.\n\n`commission_reverse_lean`: Lean commission check (Opus claims, one Opus support check, Opus refute, alarm). Measured on 172 commission pairs: 166 caught, 0/110 clean notes flagged, about $0.14 per note. It matched the exact preset's catches, but failed both of its pre-registered tests, a paired-score margin less than two pairs wide and a false-alarm limit, so it isn't confirmed to that standard."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source",
+          "summary"
+        ],
+        "title": "CommissionsRequest",
+        "examples": [
+          {
+            "source": "Doctor: Any allergies? Patient: Penicillin, it gives me a rash. Doctor: Your knee is sprained. Take Motrin 600 mg every 6 hours for a week, and come back if it isn't better in two weeks.",
+            "summary": "Sprained knee. Allergic to penicillin. Motrin 800 mg every 6 hours for a week. Return if not improving in two weeks."
+          }
+        ]
+      },
+      "CommissionsResponse": {
+        "properties": {
+          "evaluation_type": {
+            "type": "string",
+            "const": "commissions",
+            "title": "Evaluation Type",
+            "description": "Which check made this response: `omissions` or `commissions`."
+          },
+          "flagged": {
+            "type": "boolean",
+            "title": "Flagged",
+            "description": "Whether the alarm score reached the threshold."
+          },
+          "score": {
+            "type": "number",
+            "title": "Score",
+            "description": "From 0 to 1. Higher is better. A score below 0.5 means the summary is\nflagged, and a summary passes at 0.5 or above; the flag is exactly the\nalarm's. The score is the alarm score turned around and rescaled around the\nalarm's threshold. A flag means a claim wasn't found in the source, for\na reviewer to check; the score doesn't say how good the summary is overall.\nA summary with no claims the source fails to support scores 1."
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/Finding"
+            },
+            "type": "array",
+            "title": "Findings",
+            "description": "The claims in the summary that the source doesn't support, most important\nfirst."
+          },
+          "counts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Counts"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How many of the source's facts the summary records, fully, partly or not at\nall. Null for a check that doesn't count facts, such as the commission check."
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/CommissionsMetadata",
+            "description": "How the check ran: the pipeline, the alarm behind the flag, and the usage."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "evaluation_type",
+          "flagged",
+          "score",
+          "findings",
+          "counts",
+          "metadata"
+        ],
+        "title": "CommissionsResponse",
+        "examples": [
+          {
+            "counts": null,
+            "evaluation_type": "commissions",
+            "findings": [
+              {
+                "confidence": 0.95,
+                "evidence_found": true,
+                "explanation": "The source says something different.",
+                "severity": "critical",
+                "source_evidence": "Take Motrin 600 mg every 6 hours",
+                "statement": "Motrin 800 mg every 6 hours for a week",
+                "summary_evidence": null,
+                "type": "commission",
+                "verdict": "contradicted"
+              }
+            ],
+            "flagged": true,
+            "metadata": {
+              "alarm": {
+                "level": "default",
+                "score": 0.95,
+                "threshold": 0.85
+              },
+              "pipeline": "commission_quick",
+              "usage": {
+                "calls": 1,
+                "cost_usd": 0.0012,
+                "input_tokens": 9800,
+                "output_tokens": 420
+              }
+            },
+            "score": 0.1667
+          }
+        ]
+      },
+      "Counts": {
+        "properties": {
+          "total": {
+            "type": "integer",
+            "title": "Total",
+            "description": "Facts found in the source."
+          },
+          "present": {
+            "type": "integer",
+            "title": "Present",
+            "description": "Facts the summary fully records."
+          },
+          "partial": {
+            "type": "integer",
+            "title": "Partial",
+            "description": "Facts the summary only partly records."
+          },
+          "absent": {
+            "type": "integer",
+            "title": "Absent",
+            "description": "Facts the summary leaves out."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "total",
+          "present",
+          "partial",
+          "absent"
+        ],
+        "title": "Counts",
+        "description": "How many of the source's facts the summary records."
+      },
+      "ErrorBody": {
+        "properties": {
+          "detail": {
+            "type": "string",
+            "title": "Detail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "ErrorBody",
+        "description": "The body of every error but a 422."
+      },
+      "Finding": {
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "omission",
+              "commission"
+            ],
+            "title": "Type",
+            "description": "`omission`: a fact from the source that the summary leaves out or only\npartly records. `commission`: a claim in the summary that the source doesn't\nsupport."
+          },
+          "severity": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "critical",
+                  "supporting",
+                  "peripheral"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Severity",
+            "description": "How much it would matter if the fact were left out, or the claim were wrong.\nNull when the check didn't grade it."
+          },
+          "verdict": {
+            "type": "string",
+            "enum": [
+              "partial",
+              "absent",
+              "unsupported",
+              "contradicted"
+            ],
+            "title": "Verdict",
+            "description": "For an omission, `partial` (the summary records only part of the fact) or\n`absent`. For a commission, `unsupported` (the source doesn't mention the\nclaim) or `contradicted` (the source says otherwise)."
+          },
+          "confidence": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Confidence",
+            "description": "From 0 to 1: how sure the check is. For an omission, that the fact is\nmissing; for a commission, that the source doesn't support the claim. Null\nwhen the check gave none."
+          },
+          "statement": {
+            "type": "string",
+            "title": "Statement",
+            "description": "The fact from the source that the summary leaves out, or the words in the\nsummary that make the claim, word for word."
+          },
+          "source_evidence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Evidence",
+            "description": "The passage of the source behind the finding. For an omission, the passage\nthe fact came from. For a contradicted commission, the passage the model quoted\nas contradicting the claim. Null for an unsupported commission, or if the model\nquoted none."
+          },
+          "summary_evidence": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Summary Evidence",
+            "description": "For a partial omission, the words in the summary that partly record the\nfact. Null otherwise."
+          },
+          "evidence_found": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Found",
+            "description": "Whether `source_evidence` appears in the source word for word, ignoring\ncase, punctuation and spacing. True means verified. False only means it\ncouldn't be matched, which a reworded quote or markup in the source, such as a\nscribe's tags, can cause; it doesn't mean the passage was invented. Null when\nthere is no evidence."
+          },
+          "explanation": {
+            "type": "string",
+            "title": "Explanation",
+            "description": "What kind of problem this is, in a fixed sentence for each type and verdict.\nIt is the same for every finding of that kind, so use the other fields for the\ndetails."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "type",
+          "severity",
+          "verdict",
+          "confidence",
+          "statement",
+          "source_evidence",
+          "summary_evidence",
+          "evidence_found",
+          "explanation"
+        ],
+        "title": "Finding",
+        "description": "One omission or one commission, as a check reports it. The same fields serve\nboth kinds, so a check that finds both can return them in one list."
+      },
+      "InvalidRequestBody": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/Problem"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "detail"
+        ],
+        "title": "InvalidRequestBody",
+        "description": "The body of a 422."
+      },
+      "OmissionsAlarm": {
+        "properties": {
+          "score": {
+            "type": "number",
+            "title": "Score",
+            "description": "The highest missing confidence among critical facts still flagged, with\npartials at half weight; 0 if there are none."
+          },
+          "threshold": {
+            "type": "number",
+            "title": "Threshold",
+            "description": "The alarm score at or above which the summary is flagged."
+          },
+          "level": {
+            "type": "string",
+            "title": "Level",
+            "description": "The threshold level used, such as strict."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "score",
+          "threshold",
+          "level"
+        ],
+        "title": "OmissionsAlarm"
+      },
+      "OmissionsMetadata": {
+        "properties": {
+          "pipeline": {
+            "type": "string",
+            "title": "Pipeline",
+            "description": "The pipeline that ran. It is a validated preset, whose measured results\napply to this run."
+          },
+          "alarm": {
+            "$ref": "#/components/schemas/OmissionsAlarm",
+            "description": "The alarm score, the threshold it was compared with, and the threshold\nlevel. The summary is flagged when the alarm score reaches the threshold."
+          },
+          "usage": {
+            "$ref": "#/components/schemas/Usage",
+            "description": "The model calls the check made, and what they cost."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "pipeline",
+          "alarm",
+          "usage"
+        ],
+        "title": "OmissionsMetadata"
+      },
+      "OmissionsRequest": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "maxLength": 200000,
+            "minLength": 1,
+            "title": "Source",
+            "description": "The original material, such as a consultation transcript."
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 200000,
+            "minLength": 1,
+            "title": "Summary",
+            "description": "The AI-written summary to check, such as a clinical note."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "source",
+          "summary"
+        ],
+        "title": "OmissionsRequest",
+        "examples": [
+          {
+            "source": "Doctor: Any allergies? Patient: Penicillin, it gives me a rash. Doctor: Your knee is sprained. Take Motrin 600 mg every 6 hours for a week, and come back if it isn't better in two weeks.",
+            "summary": "Sprained knee. Allergic to penicillin. Motrin 800 mg every 6 hours for a week. Return if not improving in two weeks."
+          }
+        ]
+      },
+      "OmissionsResponse": {
+        "properties": {
+          "evaluation_type": {
+            "type": "string",
+            "const": "omissions",
+            "title": "Evaluation Type",
+            "description": "Which check made this response: `omissions` or `commissions`."
+          },
+          "flagged": {
+            "type": "boolean",
+            "title": "Flagged",
+            "description": "Whether the alarm score reached the threshold."
+          },
+          "score": {
+            "type": "number",
+            "title": "Score",
+            "description": "From 0 to 1. Higher is better. A score below 0.5 means the summary is\nflagged, and a summary passes at 0.5 or above; the flag is exactly the\nalarm's. The score is the alarm score turned around and rescaled around the\nalarm's threshold. It shows whether a critical omission was found, not how\ngood the summary is overall. A source with no facts scores 1: nothing\ncritical was found, and `counts.total` is 0."
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/Finding"
+            },
+            "type": "array",
+            "title": "Findings",
+            "description": "The facts not fully recorded, most important first."
+          },
+          "counts": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Counts"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "How many of the source's facts the summary records, fully, partly or not at\nall. Null for a check that doesn't count facts, such as the commission check."
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/OmissionsMetadata",
+            "description": "How the check ran: the pipeline, the alarm behind the flag, and the usage."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "evaluation_type",
+          "flagged",
+          "score",
+          "findings",
+          "counts",
+          "metadata"
+        ],
+        "title": "OmissionsResponse",
+        "examples": [
+          {
+            "counts": {
+              "absent": 0,
+              "partial": 1,
+              "present": 3,
+              "total": 4
+            },
+            "evaluation_type": "omissions",
+            "findings": [
+              {
+                "confidence": 0.95,
+                "evidence_found": true,
+                "explanation": "The summary only partly records this fact.",
+                "severity": "critical",
+                "source_evidence": "take motrin 600 mg every 6 hours",
+                "statement": "Motrin 600 mg every 6 hours for a week.",
+                "summary_evidence": "Motrin 800 mg every 6 hours.",
+                "type": "omission",
+                "verdict": "partial"
+              }
+            ],
+            "flagged": false,
+            "metadata": {
+              "alarm": {
+                "level": "strict",
+                "score": 0.475,
+                "threshold": 0.9
+              },
+              "pipeline": "omission_all_opus",
+              "usage": {
+                "calls": 4,
+                "cost_usd": 0.29,
+                "input_tokens": 31620,
+                "output_tokens": 8140
+              }
+            },
+            "score": 0.7361
+          }
+        ]
+      },
+      "Problem": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Loc",
+            "description": "Where the problem is, such as [\"body\", \"source\"]."
+          },
+          "msg": {
+            "type": "string",
+            "title": "Msg"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "Problem",
+        "description": "One thing wrong with a request. It never repeats the rejected value."
+      },
+      "Usage": {
+        "properties": {
+          "calls": {
+            "type": "integer",
+            "title": "Calls",
+            "description": "Model calls made, including any answered from a cache."
+          },
+          "input_tokens": {
+            "type": "integer",
+            "title": "Input Tokens",
+            "description": "Tokens sent to the model, by calls not answered from a cache."
+          },
+          "output_tokens": {
+            "type": "integer",
+            "title": "Output Tokens",
+            "description": "Tokens the model wrote, by calls not answered from a cache."
+          },
+          "cost_usd": {
+            "type": "number",
+            "title": "Cost Usd",
+            "description": "What the calls not answered from a cache cost, in US dollars, at the prices\ngroundline knows. A model with no known price adds nothing."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "calls",
+          "input_tokens",
+          "output_tokens",
+          "cost_usd"
+        ],
+        "title": "Usage",
+        "description": "The model calls a check made, and what they cost."
+      }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "type": "http",
+        "scheme": "bearer"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "v1",
+      "description": "The checks, version 1. Each needs an API key."
+    }
+  ]
+}

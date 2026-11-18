@@ -282,7 +282,7 @@ Anthropic SDK DEBUG logging includes raw prompts. Privacy assertions capture gro
 
 ## Lint, format and type checks
 
-`make check` runs ruff, pyright in strict mode, the large-file check, secret checks and the tests, without changing files. CI runs it too, along with the database tests (`make test-db`), the Docker stack check (`make docker-smoke`), the Terraform checks (`make infra-check`) and the local certificate lifecycle checks (`make https-smoke`). `make infra-check` needs Terraform, but no AWS credentials: its tests plan against a mock AWS provider. Run it when you change `infra/`. `make fix` applies ruff's fixes and formatting. Pyright errors need fixing by hand.
+`make check` runs ruff, pyright in strict mode (the SDK's generated code is the exception, see [The SDK](#the-sdk)), the large-file check, secret checks and the tests, without changing files. CI runs it too, along with the database tests (`make test-db`), the SDK checks (`make sdk-check` and `make sdk-install-check`, see [The SDK](#the-sdk)), the Docker stack check (`make docker-smoke`), the Terraform checks (`make infra-check`) and the local certificate lifecycle checks (`make https-smoke`). `make infra-check` needs Terraform, but no AWS credentials: its tests plan against a mock AWS provider. Run it when you change `infra/`. `make fix` applies ruff's fixes and formatting. Pyright errors need fixing by hand.
 
 The `pre-commit` hook runs lint, format, type, large-file and secret checks on staged changes; it does not run pytest. If ruff fails, run `make fix` and stage the result.
 
@@ -321,6 +321,30 @@ uv run python -m groundline_core.presets.schema
 
 The docs page is generated from the request and response models in `src/groundline_core/api/`. Each model carries an example in `json_schema_extra`, and `tests/test_api_docs.py` checks that every example still fits its model. FastAPI leaves `null` values out of examples in the docs, so keep them out of the examples too. The app's `description` in `src/groundline_core/app.py` holds the versioning policy shown at the top of the page.
 
+## The SDK
+
+The SDK is the `groundline-client` package in `packages/groundline-client/`, a member of the repo's uv workspace. Most of its code is generated from the API's OpenAPI description by [openapi-python-client](https://github.com/openapi-generators/openapi-python-client), and committed in `src/groundline_client/_generated/`. Don't edit that folder by hand ([ADR 0019](docs/adr/0019-the-sdk-is-generated-with-openapi-python-client.md)).
+
+After changing a route, a model or anything else in the API's description, regenerate the SDK and commit the changed files:
+
+```sh
+make generate-sdk
+```
+
+It writes the API's description to `packages/groundline-client/openapi.json`, clears `_generated/`, and runs the generator, which is pinned in `uv.lock`. Changing the app's version also changes `openapi.json`, so regenerate then too. Upgrading the generator means changing its pin in `packages/groundline-client/pyproject.toml`, running `uv lock`, and regenerating, in one PR.
+
+CI guards the SDK with two jobs. `make sdk-check` regenerates the SDK into a temporary folder and fails if the result differs from the files on disk. It changes nothing in your working tree, so you can run it any time. `make sdk-install-check` builds the wheel, installs it into clean environments with pip and with uv pip, and fails if it pulls in `groundline-core`'s packages (the pipelines, the Anthropic SDK or the server). `tests/test_sdk_spec.py` checks that `openapi.json` is what the export writes from the app (the API's description with the default limits and without request-field defaults, so `/docs` shows defaults that the file doesn't), and the tests in `packages/groundline-client/tests/` check that every endpoint has a generated function and models.
+
+The hand-written layer is `GroundlineClient` in `client.py` (the Client in `CONTEXT.md`). It reads the URL and API key from its arguments or from `GROUNDLINE_API_URL` and `GROUNDLINE_API_KEY`, and has a sync and an `_async` method for each operation. To add an operation:
+
+1. Add its sync and `_async` methods to `GroundlineClient`, with the same parameters as the generated `sync` and `asyncio` functions.
+2. Export its models from `__init__.py` (the imports and `__all__`).
+3. Add it to the operation lists in `tests/test_client_requests.py` and `tests/test_endpoints.py`.
+
+Two tests fail if you miss a step: one for a generated operation with no method (and `_async` twin), and one for a method whose parameters differ from the generated function's. The generated client prints the API key in its `repr`, so `client.py` wraps it in a subclass that doesn't, and `tests/test_client_secrecy.py` checks that the key stays out of `repr`, errors, tracebacks (with their local variables) and logs. The tests run against a fake server (`tests/conftest.py`), not the real API.
+
+The generated code is exempt from ruff's style and formatting rules, since the generator formats it, and pyright checks it at the basic level. Only the hand-written code (every module directly in `src/groundline_client/`) and the tests are checked in strict mode (`uv run pyright -p packages/groundline-client`, which pre-commit runs).
+
 ## Protecting an endpoint
 
 To require an API key on a route, add `dependencies=[Depends(require_api_key)]` from `groundline_core.auth`, and `responses=PROTECTED_RESPONSES` from `groundline_core.api.common` to document the 401 and 503. `POST /v1/omissions` and `POST /v1/commissions` pass `responses=check_responses(...)` instead, which documents every error status a check can answer, with a labeled example of each. It builds the route's default preset, so the 502 examples name the first stage that calls a model, at that model's price, and the 503 example lists the stages that need the Anthropic API key. For `/v1/commissions` that is `commission_quick`; a `commission_reverse_lean` request names its own stages. To use the key's metadata in the handler, take it as a parameter instead: `api_key: Annotated[APIKeyInfo, Depends(require_api_key)]`.
@@ -355,8 +379,10 @@ src/groundline_core/       a leading underscore marks the library's internals (A
   extras.py                what to say when the server or cli extra isn't installed
   api/, app.py             the API's endpoints and the FastAPI app
 infra/                     Terraform for AWS test deployments, the startup script, and their tests
+packages/groundline-client/  the SDK: its pyproject.toml, openapi.json, src/ (the generated code is
+                           in _generated/) and tests/
 scripts/                   db-setup, the stack check behind make docker-smoke, the install check
-                           and sample library app behind make core-check, and the AWS
+                           behind make core-check, make generate-sdk and the SDK install check, and the AWS
                            scripts behind make aws-deploy, aws-smoke, aws-smoke-live and aws-destroy
 tests/                     the tests
 ```

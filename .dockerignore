@@ -7,6 +7,11 @@
 !LICENSE
 !NOTICE
 !src
+# Only each workspace member's pyproject.toml: uv checks that every member in
+# uv.lock exists, but the image installs none of them.
+!packages
+packages/**
+!packages/*/pyproject.toml
 
 # Drop local bytecode caches from src/ so they don't change the COPY layer.
 **/__pycache__
