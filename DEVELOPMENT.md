@@ -323,7 +323,7 @@ The docs page is generated from the request and response models in `src/groundli
 
 ## The SDK
 
-The SDK is the `groundline-client` package in `packages/groundline-client/`, a member of the repo's uv workspace. Most of its code is generated from the API's OpenAPI description by [openapi-python-client](https://github.com/openapi-generators/openapi-python-client), and committed in `src/groundline_client/_generated/`. Don't edit that folder by hand ([ADR 0018](docs/adr/0018-the-sdk-is-generated-with-openapi-python-client.md)).
+The SDK is the `groundline-client` package in `packages/groundline-client/`, a member of the repo's uv workspace. Most of its code is generated from the API's OpenAPI description by [openapi-python-client](https://github.com/openapi-generators/openapi-python-client), and committed in `src/groundline_client/_generated/`. Don't edit that folder by hand ([ADR 0019](docs/adr/0019-the-sdk-is-generated-with-openapi-python-client.md)).
 
 After changing a route, a model or anything else in the API's description, regenerate the SDK and commit the changed files:
 
