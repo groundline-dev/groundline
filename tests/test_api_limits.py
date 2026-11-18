@@ -21,11 +21,11 @@ from pydantic import ValidationError
 from starlette.exceptions import HTTPException
 from starlette.types import ASGIApp, Message, Scope
 
-from groundline_core import settings
+from groundline_core import _settings as settings
+from groundline_core._settings import APILimitsSettings
 from groundline_core.api import common
 from groundline_core.api.limits import BodyLimitMiddleware
 from groundline_core.app import app
-from groundline_core.settings import APILimitsSettings
 from tests.auth_helpers import ENDPOINTS, HEADERS, SECRET, Endpoint, FakeKeys
 from tests.fakes import FakeClient
 

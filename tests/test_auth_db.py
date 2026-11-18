@@ -14,10 +14,10 @@ from sqlalchemy.pool import AsyncAdaptedQueuePool
 from typer.testing import CliRunner
 
 from groundline_core import app as app_module
+from groundline_core._settings import Settings
 from groundline_core.cli import app as cli
 from groundline_core.db import api_keys
 from groundline_core.db.connection import make_engine
-from groundline_core.settings import Settings
 from tests.async_helpers import finish_before_watchdog
 from tests.auth_helpers import protected_app
 

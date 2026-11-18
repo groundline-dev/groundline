@@ -8,14 +8,14 @@ import httpx2
 import pytest
 from fastapi.testclient import TestClient
 
+from groundline_core._core import APIKeyRejectedError
+from groundline_core._evaluate import DEFAULT_PRESET
 from groundline_core.api import common
 
 # The route's module, imported as `api` because the tests patch the names it looks up
 # (evaluate, load_preset and the response models) there, not in `common`.
 from groundline_core.api import omissions as api
 from groundline_core.app import app
-from groundline_core.core import APIKeyRejectedError
-from groundline_core.evaluate import DEFAULT_PRESET
 from tests.anthropic_helpers import fake_anthropic, keys_sent
 from tests.auth_helpers import SECRET as API_KEY
 from tests.auth_helpers import FakeKeys
@@ -316,7 +316,7 @@ def _preset_fails(name: str) -> None:
     raise ValueError(SECRET)
 
 
-def _response_fails(**fields: object) -> None:
+def _response_fails(*args: object, **fields: object) -> None:
     raise ValueError(SECRET)
 
 
@@ -325,7 +325,7 @@ def _response_fails(**fields: object) -> None:
     [
         ("evaluate", _evaluate_fails, "KeyError"),
         ("load_preset", _preset_fails, "ValueError"),
-        ("Counts", _response_fails, "ValueError"),
+        ("alarm_of", _response_fails, "ValueError"),
     ],
     ids=["while checking", "loading the preset", "building the response"],
 )

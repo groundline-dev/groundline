@@ -38,9 +38,9 @@ from sqlalchemy import func, insert, or_, select, update
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
-from groundline_core.core.deadline import raise_if_cancelling, remaining
+from groundline_core._core.deadline import raise_if_cancelling, remaining
+from groundline_core._settings import ENV_FILE, read_settings
 from groundline_core.db import api_keys
-from groundline_core.settings import ENV_FILE, read_settings
 
 _ADJECTIVES = ("bright", "calm", "gentle", "nimble", "quiet", "swift", "warm", "wise")
 _NOUNS = (
