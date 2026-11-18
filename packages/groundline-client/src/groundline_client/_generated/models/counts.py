@@ -10,7 +10,8 @@ T = TypeVar("T", bound="Counts")
 
 @_attrs_define
 class Counts:
-    """
+    """How many of the source's facts the summary records.
+
     Attributes:
         total (int): Facts found in the source.
         present (int): Facts the summary fully records.

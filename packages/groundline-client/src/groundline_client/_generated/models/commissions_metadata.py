@@ -20,7 +20,7 @@ class CommissionsMetadata:
         pipeline (str): The pipeline that ran. It is a validated preset, whose measured results
             apply to this run.
         alarm (CommissionsAlarm):
-        usage (Usage):
+        usage (Usage): The model calls a check made, and what they cost.
     """
 
     pipeline: str
