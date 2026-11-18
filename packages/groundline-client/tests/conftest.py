@@ -1,12 +1,14 @@
-"""A fake groundline API on a local port, for the client's tests (ALL-156).
+"""A fake groundline API on a local port, for the client's tests.
 
 The fake answers each route with the example from openapi.json, records every
 request it receives, and can be told to answer a route differently, to answer
-the next requests from a script (ALL-157), or to never answer one. No test
+the next requests from a script, or to never answer one. No test
 reaches the real API.
 """
 
+import asyncio
 import json
+import random
 import socket
 import threading
 from collections.abc import Iterator
@@ -15,6 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+import groundline_client as sdk
 import pytest
 
 SPEC = json.loads((Path(__file__).resolve().parents[1] / "openapi.json").read_text())
@@ -165,3 +168,47 @@ def closed_port() -> int:
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         return probe.getsockname()[1]
+
+
+@pytest.fixture(autouse=True)
+def no_jitter(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make every backoff wait zero, so no test waits for a real retry."""
+    monkeypatch.setattr(random, "random", lambda: 0.0)
+
+
+# method name, HTTP method, path, request model, response model
+OPERATIONS = [
+    (
+        "evaluate_omissions",
+        "POST",
+        "/v1/omissions",
+        "OmissionsRequest",
+        "OmissionsResponse",
+    ),
+    (
+        "evaluate_commissions",
+        "POST",
+        "/v1/commissions",
+        "CommissionsRequest",
+        "CommissionsResponse",
+    ),
+    ("health", "GET", "/health", None, None),
+    ("ready", "GET", "/ready", None, None),
+]
+
+
+def make_client(fake_server: FakeServer, api_key: str, **options: Any) -> Any:
+    return sdk.GroundlineClient(base_url=fake_server.url, api_key=api_key, **options)
+
+
+def call(client: Any, operation: str, request: Any, *, is_async: bool) -> Any:
+    arguments = [] if request is None else [request]
+    if is_async:
+        return asyncio.run(getattr(client, f"{operation}_async")(*arguments))
+    return getattr(client, operation)(*arguments)
+
+
+def request_for(fake_server: FakeServer, request_model: str | None) -> Any:
+    if request_model is None:
+        return None
+    return getattr(sdk, request_model).from_dict(fake_server.examples[request_model])

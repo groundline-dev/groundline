@@ -82,11 +82,11 @@ client = GroundlineClient(max_attempts=1, timeout_seconds=60)
 ```
 
 Each attempt is also cut off at whatever is left of `max_retry_seconds`, and no
-retry starts with less than `connect_timeout_seconds` left (so a
-`connect_timeout_seconds` that is not shorter than `max_retry_seconds` means no
-retries). A value that isn't valid raises
-`GroundlineConfigError` when you create the client: `max_attempts` must be a
-whole number of 1 or more, and the other three a finite number above 0.
+retry starts with less than `connect_timeout_seconds` left. So if
+`connect_timeout_seconds` is as long as `max_retry_seconds` or longer, nothing
+is retried. A value that isn't valid raises `GroundlineConfigError` when you
+create the client: `max_attempts` must be a whole number of 1 or more, and the
+other three a finite number above 0.
 
 When the retries run out, you get what the last attempt gave: the parsed
 `ErrorBody` for an error answer (or `None` for one the API doesn't document), or
@@ -102,16 +102,17 @@ Things to know:
   If its operator raises `GROUNDLINE_CHECK_TIMEOUT_SECONDS`, raise
   `timeout_seconds` and `max_retry_seconds` too, or the client gives up first.
 - **Sync calls are limited per step.** A sync attempt is limited by `httpx2`'s
-  connect, send and wait-for-reply timeouts, each set to the time left. A server
-  that keeps sending a few bytes at a time can outlast `timeout_seconds` in a sync
-  call. Async calls are cut off at exactly that time, and need `asyncio`: they
-  don't work under `trio`.
+  connect, send and wait-for-reply timeouts, each set to the time left, so it can
+  run up to that time plus `connect_timeout_seconds`. A server that keeps sending
+  a few bytes at a time can outlast `timeout_seconds` in a sync call. Async calls
+  are cut off at exactly that time, and need `asyncio`: they don't work under
+  `trio`.
 - **Retries are logged.** Turn on `logging.basicConfig(level=logging.INFO)` to see
   one line per retry from the `groundline_client.retry` logger, such as
   `retry after attempt=1 status=503 wait_seconds=0.42`, or
-  `retry after attempt=2 error=ReadTimeout wait_seconds=1.35` after a timeout. A line holds only the
-  attempt, the status or the error's class, and the wait: never the URL, headers,
-  a body or the API key.
+  `retry after attempt=2 error=ReadTimeout wait_seconds=1.35` after a timeout. A
+  line holds only the attempt, the status or the error's class, and the wait:
+  never the URL, headers, a body or the API key.
 
 ## How it is built
 

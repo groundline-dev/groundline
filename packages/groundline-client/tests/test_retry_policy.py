@@ -21,9 +21,6 @@ def http_date(seconds_from_now: float) -> str:
     return format_datetime(moment, usegmt=True)
 
 
-# R1 (retry temporary errors)
-
-
 @pytest.mark.parametrize("status", [408, 429, 502, 503, 504])
 def test_temporary_statuses_are_retried(status: int):
     assert is_retryable_status(status)
@@ -37,7 +34,7 @@ def test_permanent_and_unlisted_statuses_are_not_retried(status: int):
 
 
 def test_a_flagged_summary_status_is_never_retried():
-    # R6 (flagged summary is final): a flagged summary is HTTP 200.
+    # A flagged summary is an ordinary HTTP 200.
     assert not is_retryable_status(200)
 
 
@@ -73,7 +70,7 @@ def test_other_errors_are_not_retried(error: BaseException):
     assert not is_retryable_error(error)
 
 
-# R2 (backoff with jitter)
+# Backoff with jitter
 
 
 @pytest.mark.parametrize(
@@ -98,7 +95,7 @@ def test_the_wait_is_a_random_share_of_the_cap(draw: float, expected: float):
     assert wait == pytest.approx(expected)
 
 
-# R3 (Retry-After)
+# Retry-After
 
 
 @pytest.mark.parametrize(
@@ -146,7 +143,7 @@ def test_a_short_retry_after_does_not_shorten_the_backoff():
     assert wait == 1.0
 
 
-# R4 (caps): when there is no time left for another attempt
+# When there is no time left for another attempt
 
 
 def test_no_retry_when_the_wait_does_not_fit_the_time_left():
