@@ -391,7 +391,7 @@ def test_an_unexpected_error_exits_with_2_not_1(
     result = commissions(files)
 
     assert result.exit_code == 2
-    assert result.stderr.startswith("error: unexpected KeyError: 'a bug'")
+    assert result.stderr.startswith("error: unexpected KeyError\n")
     assert "Traceback" not in result.output
 
 

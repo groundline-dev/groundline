@@ -179,7 +179,7 @@ def test_a_value_error_from_inside_groundline_is_reported_as_a_bug(
     result = omissions(files)
 
     assert result.exit_code == 2
-    assert result.stderr.startswith("error: unexpected ValueError: no verdict for f3")
+    assert result.stderr.startswith("error: unexpected ValueError\n")
     assert "This is a bug in groundline; please report it." in result.stderr
 
 
@@ -305,7 +305,7 @@ def test_an_unexpected_error_exits_with_2_not_1(
     result = omissions(files)
 
     assert result.exit_code == 2
-    assert result.stderr.startswith("error: unexpected KeyError: 'a bug'")
+    assert result.stderr.startswith("error: unexpected KeyError\n")
     assert "Traceback" not in result.output
 
 
@@ -366,19 +366,20 @@ def test_a_cache_that_cannot_be_written_warns_in_the_clis_own_style(
     assert "runner.py" not in result.stderr
 
 
-def test_an_unexpected_error_is_reported_without_a_key_in_it(
+def test_an_unexpected_error_is_reported_by_type_only(
     files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ):
+    # A bug's message is text groundline didn't write: a key from a caller's
+    # client, or a pydantic error quoting a model reply that repeats the source.
     def leaky(*args: object, **kwargs: object) -> None:
-        raise RuntimeError("upstream refused the key sk-ant-sentinel-0123456789")
+        raise RuntimeError(f"refused sk-ant-sentinel-0123456789 for {SOURCE}")
 
     monkeypatch.setattr(cli, "evaluate_sync", leaky)
 
     result = omissions(files)
 
     assert result.exit_code == 2
-    assert (
-        "error: unexpected RuntimeError: upstream refused the key <redacted key>"
-        in (result.stderr)
+    assert result.stderr == (
+        "error: unexpected RuntimeError\n"
+        "  This is a bug in groundline; please report it.\n"
     )
-    assert "sk-ant-sentinel" not in result.stderr

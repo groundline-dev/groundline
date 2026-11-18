@@ -115,7 +115,7 @@ Cost             $0.29 · 4 calls · 31,620 input / 8,140 output tokens · 48.3 
 
 - `0`: checked, not flagged.
 - `1`: checked and flagged.
-- `2`: couldn't check: bad arguments or files, an invalid pipeline or profile, a missing or rejected Anthropic API key, a failed stage, an unwritable `--json` path, or an unexpected error. The command prints an `error:` message, and if a stage failed after making model calls, what those calls cost. When a file is at fault, such as `.env`, a `File:` line gives its full path, marked `(not found)` if it doesn't exist. An unexpected error is a bug in groundline, and its message says so and asks you to report it. If the command can't load at all, it also exits 2: without the `cli` extra it prints which extra to install, and otherwise the error's traceback.
+- `2`: couldn't check: bad arguments or files, an invalid pipeline or profile, a missing or rejected Anthropic API key, a failed stage, an unwritable `--json` path, or an unexpected error. The command prints an `error:` message, and if a stage failed after making model calls, what those calls cost. When a file is at fault, such as `.env`, a `File:` line gives its full path, marked `(not found)` if it doesn't exist. An unexpected error is a bug in groundline: the command prints only its type, since its message wasn't written by groundline and could quote the source or summary, and asks you to report it. If the command can't load at all, it also exits 2: without the `cli` extra it prints which extra to install, and otherwise the error's traceback.
 
 ### Options
 

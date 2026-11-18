@@ -278,8 +278,10 @@ def _exit_code(run: Callable[[], int]) -> int:
             cost = usage_text(summarize_usage(error.calls))
             typer.echo(f"  Recorded cost before stopping: {cost}", err=True)
     except Exception as error:
+        # Only the type: a bug's message is text groundline didn't write, such as
+        # a pydantic error quoting the model's reply, which can repeat the source.
         typer.echo(
-            f"error: unexpected {type(error).__name__}: {redact_keys(str(error))}\n"
+            f"error: unexpected {type(error).__name__}\n"
             "  This is a bug in groundline; please report it.",
             err=True,
         )
