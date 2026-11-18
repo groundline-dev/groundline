@@ -5,13 +5,15 @@ import pytest
 from groundline_core import (
     DEFAULT_COMMISSIONS_PRESET,
     builtin_presets,
-    default_registry,
     evaluate,
     load_preset,
 )
-from groundline_core.core import PipelineSpec, SpecError, with_settings
-from groundline_core.evaluators.models import AlarmOutput
+from groundline_core._core import PipelineSpec, SpecError, with_settings
+from groundline_core._evaluate import default_registry
+from groundline_core._evaluators.models import AlarmOutput
 from tests.commissions_helpers import (
+    DOSE,
+    EXAM,
     ISSUES,
     SUMMARY,
     Script,
@@ -80,6 +82,25 @@ def test_an_unchanged_run_is_the_validated_preset():
     assert result.run.output("alarm", AlarmOutput).flagged is True
 
 
+def test_the_result_reports_the_commission_check_without_stage_outputs():
+    result = evaluate_with()
+
+    assert result.evaluation_type == "commissions"
+    assert result.flagged is True
+    assert result.score == pytest.approx(0.1667, abs=1e-4)
+    assert result.alarm.model_dump() == {
+        "score": 0.95,
+        "threshold": 0.85,
+        "level": "default",
+    }
+    assert result.counts is None
+    assert [(f.type, f.verdict, f.statement) for f in result.findings] == [
+        ("commission", "contradicted", DOSE),
+        ("commission", "unsupported", EXAM),
+    ]
+    assert result.usage.calls == 1
+
+
 def test_choosing_the_named_level_is_still_the_validated_preset():
     spec = with_settings(PRESET, "alarm", level="default")
 
@@ -106,7 +127,7 @@ def test_the_commission_and_omission_presets_do_not_match_each_other():
 def test_a_missing_key_is_reported_before_any_call(
     monkeypatch: pytest.MonkeyPatch, tmp_path: pytest.TempPathFactory
 ):
-    from groundline_core.settings import MissingAPIKeyError
+    from groundline_core._settings import MissingAPIKeyError
 
     monkeypatch.chdir(str(tmp_path))
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
@@ -117,9 +138,9 @@ def test_a_missing_key_is_reported_before_any_call(
 
 @pytest.mark.parametrize("order", ["omissions first", "commissions first", "alone"])
 def test_evaluators_can_be_registered_in_any_order_or_alone(order: str):
-    from groundline_core.core import Registry
-    from groundline_core.evaluators.commissions import register_commissions
-    from groundline_core.evaluators.omissions import register_omissions
+    from groundline_core._core import Registry
+    from groundline_core._evaluators.commissions import register_commissions
+    from groundline_core._evaluators.omissions import register_omissions
 
     registries = {
         "omissions first": [register_omissions, register_commissions],

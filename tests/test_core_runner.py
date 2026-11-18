@@ -4,7 +4,7 @@ from typing import Any
 
 import pytest
 
-from groundline_core.core import (
+from groundline_core._core import (
     Inputs,
     Pipeline,
     PipelineSpec,

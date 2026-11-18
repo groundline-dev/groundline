@@ -7,7 +7,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from groundline_core.core import (
+from groundline_core._core import (
     Effort,
     FileCache,
     Inputs,
