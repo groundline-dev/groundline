@@ -4,6 +4,7 @@ public package, as a caller would, and no test calls the real Anthropic API."""
 
 import asyncio
 import os
+import warnings
 from collections.abc import Callable
 from pathlib import Path
 
@@ -19,6 +20,7 @@ from groundline_core._core import (
     load_profile,
     load_spec,
 )
+from groundline_core._core.errors import file_line
 from tests.anthropic_helpers import api_error, fake_anthropic, message
 from tests.async_helpers import finish_before_watchdog
 from tests.fakes import FakeClient, HungClient
@@ -112,8 +114,16 @@ def test_a_profile_that_cannot_be_loaded_is_a_setup_error_with_its_path(
         f"name: mine\nstages: []\nnot_a_field: {SENTINEL_KEY}\n",
         f"name: [mine\n{SENTINEL_KEY}: 1\n",
         f"name: *{SENTINEL_KEY}\n",
+        f"name: mine\nstages: []\n{SENTINEL_KEY}: 1\n",
+        f"name: mine\nstages:\n- step: extract\n  {SENTINEL_KEY}: 1\n",
     ],
-    ids=["unexpected field", "invalid YAML", "undefined alias"],
+    ids=[
+        "unexpected field",
+        "invalid YAML",
+        "undefined alias",
+        "key as a field name",
+        "key as a field name in a stage",
+    ],
 )
 def test_a_spec_or_profile_error_never_repeats_what_the_file_holds(
     kind: str, text: str, tmp_path: Path
@@ -128,6 +138,48 @@ def test_a_spec_or_profile_error_never_repeats_what_the_file_holds(
         load(path if kind == "spec" else folder)
 
     assert_safe(error.value, path)
+
+
+def test_a_key_pasted_as_a_name_in_a_spec_is_redacted():
+    preset = load_preset("omission_all_opus")
+    stages = [
+        stage.model_copy(update={"implementation": SENTINEL_KEY})
+        if stage.step == "rank"
+        else stage
+        for stage in preset.stages
+    ]
+    spec = preset.model_copy(update={"stages": stages})
+
+    with pytest.raises(gl.SpecError) as error:
+        evaluate_sync(SOURCE, SUMMARY, spec=spec, client=FakeClient([]))
+
+    assert "unknown implementation '<redacted key>'" in str(error.value)
+    assert all(SENTINEL_KEY not in problem for problem in error.value.problems)
+    assert_safe(error.value)
+
+
+@pytest.mark.parametrize(
+    "name", ["extract_coarse_v1", "gl_short", "sk-ant", "my-stage_2"]
+)
+def test_names_that_are_not_key_shaped_are_kept(name: str):
+    assert str(gl.SetupError(f"unknown step '{name}'")) == f"unknown step '{name}'"
+
+
+def test_a_profile_text_file_that_is_missing_is_named_without_its_folders(
+    tmp_path: Path,
+):
+    folder = tmp_path / "mine"
+    folder.mkdir()
+    (folder / "profile.yaml").write_text(
+        "name: mine\nplaceholders: {source: a, summary: b}\n"
+        "texts: {a: ../private-folder-name/x.txt}\n"
+    )
+
+    with pytest.raises(gl.ProfileError) as error:
+        load_profile(folder)
+
+    assert "text 'a' file x.txt not found" in str(error.value)
+    assert "private-folder-name" not in str(error.value)
 
 
 def test_a_spec_error_names_the_field_at_fault(tmp_path: Path):
@@ -326,14 +378,15 @@ class FailingClient:
 
 @pytest.mark.skipif(os.geteuid() == 0, reason="root can write to any folder")
 def test_a_cache_that_cannot_be_written_warns_and_the_check_still_finishes(
-    tmp_path: Path,
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
 ):
     locked = tmp_path / "locked"
     locked.mkdir(mode=0o500)
     cache = FileCache(locked / "cache")
 
     try:
-        with pytest.warns(RuntimeWarning, match="couldn't write to the stage cache"):
+        with warnings.catch_warnings():
+            warnings.simplefilter("error")
             result = evaluate_sync(
                 SOURCE, SUMMARY, client=FakeClient(not_flagged_script()), cache=cache
             )
@@ -341,6 +394,7 @@ def test_a_cache_that_cannot_be_written_warns_and_the_check_still_finishes(
         locked.chmod(0o700)
 
     assert result.flagged is False
+    assert "couldn't write to the stage cache" in caplog.text
 
 
 def test_the_callers_own_exception_comes_out_unwrapped():
@@ -361,3 +415,14 @@ def test_a_callers_client_can_report_a_model_failure():
 
     assert error.value.step == "extract"
     assert str(error.value) == "stage 'extract' failed: my provider is down"
+
+
+def test_a_file_line_for_a_folder_that_cannot_be_searched_still_names_the_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    def unsearchable(self: Path) -> bool:
+        raise PermissionError(13, "Permission denied")
+
+    monkeypatch.setattr(Path, "exists", unsearchable)
+
+    assert file_line(tmp_path / ".env") == f"\n  File: {tmp_path / '.env'}"

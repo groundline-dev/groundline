@@ -160,7 +160,8 @@ def test_loads_a_profile_folder(tmp_path: Path):
 def test_a_missing_text_file_is_an_error(tmp_path: Path):
     folder = write_profile(tmp_path / "finance", GOOD_YAML, {})
 
-    with pytest.raises(ProfileError, match="extract_v1.*prompts/extract_v1.txt"):
+    missing = "text 'extract_v1' file extract_v1.txt not found"
+    with pytest.raises(ProfileError, match=missing):
         load_profile(folder)
 
 

@@ -331,7 +331,7 @@ def check_failures() -> Generator[None]:
     except (SpecError, ProfileError):
         raise
     except SetupError as error:
-        logger.warning("can't check: %s%s", error, file_line(error))
+        logger.warning("can't check: %s%s", error, file_line(error.path))
         raise HTTPException(503, detail=str(error)) from error
     except ModelTimeoutError as error:
         spent = _spent(error)

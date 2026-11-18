@@ -287,8 +287,10 @@ def test_an_unwritable_json_path_exits_with_2_not_1(
     result = omissions(files, "--json", str(out_path))
 
     assert result.exit_code == 2
-    assert result.stderr.startswith("error: couldn't write the JSON result")
-    assert "no-such-folder" not in result.stderr
+    assert result.stderr == (
+        "error: couldn't write the JSON result to result.json: "
+        f"No such file or directory\n  File: {out_path}\n"
+    )
     assert "Traceback" not in result.output
 
 

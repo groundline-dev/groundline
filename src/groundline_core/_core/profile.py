@@ -82,7 +82,8 @@ def _text(path: Path, label: str) -> str:
         problem = f"{label}: {path.name} isn't readable UTF-8 text"
         raise ProfileError(problem, path=path) from error
     except OSError as error:
-        problem = f"{label}: can't read {path.name} ({error.strerror or error})"
+        reason = error.strerror or type(error).__name__
+        problem = f"{label}: can't read {path.name} ({reason})"
         raise ProfileError(problem, path=path) from error
 
 
@@ -104,7 +105,8 @@ def load_profile(folder: str | Path) -> DomainProfile:
         path = folder / relative
         if not path.is_file():
             raise ProfileError(
-                f"{label}: text '{name}' file {relative} not found", path=manifest
+                f"{label}: text '{name}' file {Path(relative).name} not found",
+                path=manifest,
             )
         texts[name] = _text(path, label)
 

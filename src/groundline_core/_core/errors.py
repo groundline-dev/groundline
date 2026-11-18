@@ -8,19 +8,39 @@ an exception from the caller's own model client, is passed on as it was raised
 (ADR 0020).
 
 No message from a check names a file's folder, a key, or text from the
-source or summary, so it is safe to log or show to anyone. A file's full path is in
-`SetupError.path` instead, which the CLI prints on a `File:` line of its own.
+source or summary, so it is safe to log or show to anyone. Messages do quote
+names written in a spec or profile, such as an unknown step, so anything shaped
+like an API key is replaced with `<redacted key>` in case one was pasted there.
+A file's full path is in `SetupError.path` instead, which the CLI prints on a
+`File:` line of its own.
 """
 
+import re
 from pathlib import Path
 from typing import Literal
 
 from groundline_core._core.calls import CallRecord
 
+KEY_SHAPES = re.compile(r"sk-ant-[A-Za-z0-9_-]{8,}|gl_[A-Za-z0-9_-]{20,}")
+"""An Anthropic API key, or a groundline API key (see `api_keys.py`)."""
+
+
+def redact_keys(text: str) -> str:
+    """`text` with anything shaped like an API key replaced."""
+    return KEY_SHAPES.sub("<redacted key>", text)
+
 
 class GroundlineError(Exception):
     """The base of every error groundline raises on purpose. Catch it to handle
     a setup error, invalid input or a model failure together."""
+
+    def __init__(self, *args: object) -> None:
+        super().__init__(
+            *(redact_keys(arg) if isinstance(arg, str) else arg for arg in args)
+        )
+
+    def __str__(self) -> str:
+        return redact_keys(super().__str__())
 
 
 class SetupError(GroundlineError):
@@ -37,14 +57,21 @@ class SetupError(GroundlineError):
         only by its name."""
 
 
-def file_line(error: SetupError) -> str:
-    """The line the CLI prints and the API logs after a setup error's message:
-    the full path of the file at fault, and whether it exists. Empty when no
-    file is involved. The message itself names the file only by its name."""
-    if error.path is None:
+def file_line(path: Path | None, *, note_missing: bool = True) -> str:
+    """The line the CLI prints and the API logs after an error's message: the
+    full path of the file at fault, and whether it exists. Empty when no file is
+    involved. The message itself names the file only by its name."""
+    if path is None:
         return ""
-    missing = "" if error.path.exists() else " (not found)"
-    return f"\n  File: {error.path}{missing}"
+    missing = ""
+    if note_missing:
+        try:
+            missing = "" if path.exists() else " (not found)"
+        except OSError:
+            # A folder on the way that can't be searched: say nothing rather
+            # than fail while reporting another error.
+            pass
+    return f"\n  File: {path}{missing}"
 
 
 class APIKeyRejectedError(SetupError):
@@ -75,7 +102,9 @@ class ModelFailureError(GroundlineError):
 
     def __str__(self) -> str:
         message = super().__str__()
-        return f"stage '{self.step}' failed: {message}" if self.step else message
+        if self.step:
+            message = redact_keys(f"stage '{self.step}' failed: {message}")
+        return message
 
 
 class ModelTimeoutError(ModelFailureError):

@@ -15,7 +15,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from pydantic.json_schema import models_json_schema
 
 from groundline_core._core.cache import stable_hash
-from groundline_core._core.errors import SetupError
+from groundline_core._core.errors import SetupError, redact_keys
 from groundline_core._core.file_problems import file_problems
 from groundline_core._core.implementation import Implementation
 from groundline_core._core.profile import DomainProfile, Placeholders
@@ -161,7 +161,7 @@ class SpecError(SetupError, ValueError):
             "invalid pipeline spec:\n" + "\n".join(f"- {p}" for p in problems),
             path=path,
         )
-        self.problems = problems
+        self.problems = [redact_keys(problem) for problem in problems]
         """Every problem found, one per line of the message."""
 
 

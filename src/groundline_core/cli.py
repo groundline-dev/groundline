@@ -10,13 +10,13 @@ any unexpected error). Only a finished check that flags the summary exits with 1
 """
 
 import json
+import logging
 import os
 import time
-import warnings
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Annotated, TextIO, get_args
+from typing import Annotated, get_args
 
 import platformdirs
 import typer
@@ -213,7 +213,12 @@ class UsageError(Exception):
 
 class JSONWriteError(Exception):
     """The `--json` file couldn't be written. The check itself finished, and its
-    report has already been printed."""
+    report has already been printed. The message names the file; `path` is its
+    full path, which the CLI prints on a `File:` line of its own."""
+
+    def __init__(self, message: str, *, path: Path) -> None:
+        super().__init__(message)
+        self.path = path.absolute()
 
 
 def _commissions_check(preset: str | None, pipeline: Path | None) -> Check:
@@ -233,48 +238,56 @@ def _commissions_check(preset: str | None, pipeline: Path | None) -> Check:
     return replace(COMMISSIONS, preset=preset)
 
 
-def _show_warning(
-    message: Warning | str,
-    category: type[Warning],
-    filename: str,
-    lineno: int,
-    file: TextIO | None = None,
-    line: str | None = None,
-) -> None:
-    """Print a warning from the library the way the CLI prints its own, without
-    the file and line inside groundline that Python would otherwise show."""
-    typer.echo(f"warning: {message}", err=True)
+class _WarningLines(logging.Handler):
+    """Prints groundline's own warning log records, such as a cache that can't
+    be written, the way the CLI prints its own warnings."""
+
+    def __init__(self) -> None:
+        super().__init__(logging.WARNING)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        typer.echo(f"warning: {record.getMessage()}", err=True)
 
 
 def _finish(run: Callable[[], int]) -> None:
     """Run a check and exit with its code. Every error becomes exit code 2:
     exit code 1 means "flagged", so nothing else may end with it, not even a
     bug. Python's own exit code for an uncaught error is 1."""
+    library_logs = logging.getLogger("groundline")
+    handler = _WarningLines()
+    library_logs.addHandler(handler)
     try:
-        with warnings.catch_warnings():
-            warnings.showwarning = _show_warning
-            code = run()
+        code = _exit_code(run)
+    finally:
+        library_logs.removeHandler(handler)
+    raise typer.Exit(code)
+
+
+def _exit_code(run: Callable[[], int]) -> int:
+    """The check's exit code, or EXIT_ERROR after printing what stopped it."""
+    try:
+        return run()
     except ModelFailureError as error:
         typer.echo(f"error: {error}", err=True)
         if error.calls:
             cost = usage_text(summarize_usage(error.calls))
             typer.echo(f"  Recorded cost before stopping: {cost}", err=True)
-        code = EXIT_ERROR
-    except (UsageError, JSONWriteError) as error:
+    except UsageError as error:
         typer.echo(f"error: {error}", err=True)
-        code = EXIT_ERROR
-    except GroundlineError as error:
-        file = file_line(error) if isinstance(error, SetupError) else ""
+    except JSONWriteError as error:
+        # The file was never written, so "(not found)" would say nothing new.
+        file = file_line(error.path, note_missing=False)
         typer.echo(f"error: {error}{file}", err=True)
-        code = EXIT_ERROR
+    except GroundlineError as error:
+        file = file_line(error.path) if isinstance(error, SetupError) else ""
+        typer.echo(f"error: {error}{file}", err=True)
     except Exception as error:
         typer.echo(
             f"error: unexpected {type(error).__name__}: {error}\n"
             "  This is a bug in groundline; please report it.",
             err=True,
         )
-        code = EXIT_ERROR
-    raise typer.Exit(code)
+    return EXIT_ERROR
 
 
 def _check(
@@ -340,5 +353,5 @@ def _write_json(path: Path, result: EvaluationResult) -> None:
     except OSError as error:
         reason = error.strerror or type(error).__name__
         raise JSONWriteError(
-            f"couldn't write the JSON result to {path.name}: {reason}"
+            f"couldn't write the JSON result to {path.name}: {reason}", path=path
         ) from error

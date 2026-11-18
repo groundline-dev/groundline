@@ -6,12 +6,14 @@ summaries and what was extracted from them, so never cache sensitive data.
 
 import hashlib
 import json
+import logging
 import os
 import re
 import tempfile
-import warnings
 from pathlib import Path
 from typing import Any, Protocol, cast
+
+logger = logging.getLogger("groundline.cache")
 
 
 def stable_hash(value: Any) -> str:
@@ -36,6 +38,7 @@ class FileCache:
 
     def __init__(self, root: str | Path) -> None:
         self.root = Path(root)
+        self._write_failed = False
 
     def _path(self, step: str, key: str) -> Path:
         for name in (step, key):
@@ -62,20 +65,25 @@ class FileCache:
         interrupted write never leaves a half-written entry.
 
         The cache is only an optimization, so a write that fails (a full disk,
-        a folder that can't be written) warns and leaves the cache as it was,
-        rather than failing a check whose model calls are already paid for."""
+        a folder that can't be written) leaves the cache as it was, rather
+        than failing a check whose model calls are already paid for. The first
+        failure is logged as a warning; later ones would only repeat it.
+
+        It's a log record, not a Python warning, because a warnings filter set
+        to "error" would turn a warning into an exception that fails the check."""
         path = self._path(step, key)
         try:
             self._write(path, key, entry)
         except OSError as error:
-            # An OSError's text repeats the full path; its strerror doesn't.
-            reason = error.strerror or type(error).__name__
-            warnings.warn(
-                f"couldn't write to the stage cache ({reason}); "
-                "this run's results won't be cached",
-                RuntimeWarning,
-                stacklevel=2,
-            )
+            if not self._write_failed:
+                self._write_failed = True
+                # An OSError's text repeats the full path; its strerror doesn't.
+                reason = error.strerror or type(error).__name__
+                logger.warning(
+                    "couldn't write to the stage cache (%s); "
+                    "this run's results won't be cached",
+                    reason,
+                )
 
     def _write(self, path: Path, key: str, entry: dict[str, Any]) -> None:
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
