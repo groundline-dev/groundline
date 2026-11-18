@@ -10,7 +10,7 @@ from groundline_core import (
     evaluate_sync,
     load_preset,
 )
-from groundline_core.core import (
+from groundline_core._core import (
     DomainProfile,
     PipelineSpec,
     SpecError,
@@ -18,11 +18,11 @@ from groundline_core.core import (
     load_spec,
     with_settings,
 )
-from groundline_core.core.deadline import check_deadline
-from groundline_core.evaluators.models import AlarmOutput
-from groundline_core.evaluators.omissions.models import ScoreOutput
+from groundline_core._core.deadline import check_deadline
+from groundline_core._evaluators.models import AlarmOutput
+from groundline_core._evaluators.omissions.models import ScoreOutput
+from groundline_core._settings import MissingAPIKeyError, UnreadableSettingsError
 from groundline_core.profiles import load_builtin_profile
-from groundline_core.settings import MissingAPIKeyError, UnreadableSettingsError
 from tests.core_fakes import make_registry
 from tests.fakes import FakeClient
 from tests.omission_helpers import (
@@ -32,6 +32,7 @@ from tests.omission_helpers import (
     SUMMARY,
     Script,
     check_reply,
+    flagged_script,
     refute_reply,
 )
 
@@ -89,6 +90,81 @@ def test_runs_the_preset_by_default():
     assert result.run.output("score", ScoreOutput).total == 3
     assert result.run.output("alarm", AlarmOutput).flagged is False
     assert [c.step for c in result.run.calls] == ["extract", "rank", "check", "refute"]
+
+
+def test_the_result_reports_the_omission_check_without_stage_outputs():
+    result = asyncio.run(evaluate(SOURCE, SUMMARY, client=FakeClient(flagged_script())))
+
+    assert result.evaluation_type == "omissions"
+    assert result.flagged is True
+    assert result.score == pytest.approx(0.25)
+    assert result.alarm.model_dump() == {
+        "score": 0.95,
+        "threshold": 0.9,
+        "level": "strict",
+    }
+    assert result.counts is not None
+    assert result.counts.model_dump() == {
+        "total": 3,
+        "present": 0,
+        "partial": 1,
+        "absent": 2,
+    }
+    assert [(f.type, f.verdict, f.statement) for f in result.findings] == [
+        ("omission", "absent", "Motrin 600 mg every 6 hours for a week."),
+        ("omission", "partial", "Injured the finger skiing."),
+        ("omission", "absent", "Pain is worse with movement."),
+    ]
+    run_usage = result.run.usage
+    assert result.usage.model_dump() == {
+        "calls": 4,
+        "input_tokens": run_usage.input_tokens,
+        "output_tokens": run_usage.output_tokens,
+        "cost_usd": run_usage.cost_usd,
+    }
+
+
+@pytest.mark.parametrize(
+    "case, expected",
+    [
+        ("without its alarm", "alarm"),
+        ("without one of its check's steps", "the omission check's rank step"),
+        ("with both checks' steps", "both checks"),
+        ("with no check's steps", "alarm"),
+    ],
+)
+def test_a_spec_that_is_not_one_full_check_fails_before_the_key_lookup(
+    case: str, expected: str, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+):
+    # With no key anywhere, reaching the key lookup would raise MissingAPIKeyError.
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    registry = None
+    if case == "without its alarm":
+        spec = PRESET.model_copy(
+            update={"stages": [s for s in PRESET.stages if s.step != "alarm"]}
+        )
+    elif case == "without one of its check's steps":
+        spec = PRESET.model_copy(
+            update={"stages": [s for s in PRESET.stages if s.step != "rank"]}
+        )
+    elif case == "with both checks' steps":
+        omissions = [s for s in PRESET.stages if s.step != "alarm"]
+        commissions = load_preset("commission_quick").stages
+        spec = PRESET.model_copy(update={"stages": [*omissions, *commissions]})
+    else:
+        spec = PipelineSpec(
+            name="no-models",
+            stages=[StageSpec(step="upper", implementation="upper.basic")],
+        )
+        registry = make_registry()
+
+    with pytest.raises(SpecError) as error:
+        asyncio.run(evaluate(SOURCE, SUMMARY, spec=spec, registry=registry))
+
+    message = str(error.value)
+    assert spec.name in message, message
+    assert expected in message, message
 
 
 def test_the_unchanged_preset_is_recognized_as_validated():
@@ -186,20 +262,19 @@ def test_the_missing_key_message_names_the_stages_and_model(
     )
 
 
-def test_a_pipeline_that_calls_no_model_needs_no_key(
-    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
-):
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
-    monkeypatch.chdir(tmp_path)
-    monkeypatch.setenv("GROUNDLINE_MODEL_MAX_ATTEMPTS", "invalid-unused-policy")
+def test_a_pipeline_that_calls_no_model_needs_no_key():
+    # Every full check calls a model, so evaluate() can't run one that doesn't.
+    # The key is looked up only when this list of the stages that call a model
+    # isn't empty.
+    from groundline_core._core import build_pipeline
+    from groundline_core._evaluate import model_users
+
     spec = PipelineSpec(
         name="no-models",
         stages=[StageSpec(step="upper", implementation="upper.basic")],
     )
 
-    result = asyncio.run(evaluate(SOURCE, SUMMARY, spec=spec, registry=make_registry()))
-
-    assert result.run.stages["upper"].status == "ran"
+    assert model_users(build_pipeline(spec, make_registry(), None)) == ""
 
 
 def test_injected_client_ignores_invalid_model_configuration(

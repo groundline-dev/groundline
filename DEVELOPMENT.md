@@ -62,7 +62,7 @@ You need [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13 (0.1
 
 Set the two optional overrides below in `.env` or the shell; shell values take
 precedence. Leave them unset to use the defaults in
-[`settings.py`](src/groundline_core/settings.py).
+[`_settings.py`](src/groundline_core/_settings.py).
 
 ### Overall check limit
 
@@ -104,12 +104,12 @@ check runs out of time.
 
 Database operations also have their own time limits. The model and database
 limits are defined on the `Settings` class in
-[`src/groundline_core/settings.py`](src/groundline_core/settings.py).
+[`src/groundline_core/_settings.py`](src/groundline_core/_settings.py).
 
 See [API statuses and errors](README.md#statuses-and-errors) for response codes
 and the cost implications of failed checks. Python configuration behavior is
-documented on [`evaluate()`](src/groundline_core/evaluate.py) and
-[`AnthropicClient`](src/groundline_core/clients/anthropic.py).
+documented on [`evaluate()`](src/groundline_core/_evaluate.py) and
+[`AnthropicClient`](src/groundline_core/_clients/anthropic.py).
 
 ## Request size limits
 
@@ -259,7 +259,7 @@ There are three test suites. They differ in what they use for Postgres and Claud
 
 None of them starts the Docker stack, runs `terraform test` or touches AWS: `make docker-smoke`, `make infra-check` and `make aws-smoke` do that.
 
-`make core-check` builds the package and installs it with no extras, once with pip and once with uv pip, then checks that the library loads without the server or CLI packages and that the command and the API say which extra to install. Run it when you change the dependencies in `pyproject.toml` or what `groundline_core` imports when it loads. CI runs it on every PR.
+`make core-check` builds the package and installs it with no extras, once with pip and once with uv pip, then checks that the library loads without the server or CLI packages and that the command and the API say which extra to install. It also type-checks `scripts/library_typing_check.py`, a file that uses only the public names, with pyright strict against each install, so a public name or result field whose type callers can't see fails it. Run it when you change the dependencies in `pyproject.toml`, what `groundline_core` imports when it loads, or the public interface. CI runs it on every PR.
 
 CI runs the fast and database tests on every PR, but never the live tests.
 
@@ -335,17 +335,20 @@ Every route needs it except probes such as `/health` and `/ready` and the docs p
 .claude/skills/            links to .agents/skills/, so Claude Code finds the same skills
 Dockerfile                 the app image
 compose.yaml               the stack: Postgres, the setup service and the app
-src/groundline_core/
-  core/                    the pipeline framework: steps, registry, specs, runner, cache, costs
-  clients/                 the Anthropic client
+src/groundline_core/       a leading underscore marks the library's internals (ADR 0018)
+  _core/                   the pipeline framework: steps, registry, specs, runner, cache, costs
+  _clients/                the Anthropic client
   db/                      the database: tables, migrations, connection check, setup
-  evaluators/              what the checks share, and the registry of built-in checks
-  evaluators/omissions/    the omission check
-  evaluators/commissions/  the commission check
+  _evaluators/             what the checks share, and the registry of built-in checks
+  _evaluators/omissions/   the omission check
+  _evaluators/commissions/ the commission check
   profiles/clinical/       the clinical profile: prompts and severity rubric
   presets/                 validated pipeline specs (omission_all_opus, commission_quick,
                            commission_reverse_lean)
-  evaluate.py              evaluate(): the entry point the CLI and API share
+  __init__.py              the public interface: the names library callers import
+  _evaluate.py             evaluate(): the entry point the CLI and API share
+  _result.py, _findings.py the result evaluate() returns, and how findings are built from a run
+  _settings.py             secrets and settings, from the environment or a .env file
   api_keys.py              API-key creation, revocation and authentication
   auth.py                  the Bearer authentication dependency
   command.py               where the groundline-core command starts: checks for the cli extra
@@ -355,8 +358,9 @@ src/groundline_core/
 infra/                     Terraform for AWS deployments (infra/data/: their data volume and
                            address), the startup script, the server's apply script, and tests
 scripts/                   db-setup, the stack check behind make docker-smoke, the install check
-                           behind make core-check, and the AWS
-                           scripts behind make aws-deploy, aws-smoke, aws-upgrade-smoke and aws-destroy
+                           and sample library app behind make core-check, and the AWS
+                           scripts behind make aws-deploy, aws-smoke, aws-smoke-live,
+                           aws-upgrade-smoke and aws-destroy
 tests/                     the tests
 ```
 

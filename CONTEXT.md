@@ -130,6 +130,10 @@ _Avoid_: step (a step is the role; a stage is its use in one pipeline)
 The saved description of a pipeline: its domain profile and its stages.
 _Avoid_: config, recipe
 
+**Full check**:
+A pipeline that ends in a flag, a score and findings for one check: the alarm step plus the steps the check's findings come from. `evaluate` runs only full checks.
+_Avoid_: complete pipeline, valid spec
+
 **Preset**:
 A pipeline spec that ships with groundline.
 _Avoid_: template, default pipeline

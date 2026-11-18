@@ -15,10 +15,10 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine
 
 from groundline_core import app as app_module
+from groundline_core._settings import Settings
 from groundline_core.api_keys import APIKeyInfo, APIKeys, APIKeyStorageError
 from groundline_core.auth import require_api_key
 from groundline_core.db.connection import make_engine
-from groundline_core.settings import Settings
 from tests.auth_helpers import SECRET, FakeKeys, protected_app
 
 

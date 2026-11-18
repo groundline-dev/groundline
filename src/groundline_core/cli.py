@@ -20,8 +20,7 @@ from typing import Annotated, get_args
 import platformdirs
 import typer
 
-from groundline_core.command import EXIT_ERROR, EXIT_FLAGGED, EXIT_NOT_FLAGGED
-from groundline_core.core import (
+from groundline_core._core import (
     FileCache,
     ModelClient,
     ProfileError,
@@ -32,21 +31,23 @@ from groundline_core.core import (
     load_spec,
     summarize_usage,
 )
-from groundline_core.core.errors import ModelTimeoutError
-from groundline_core.evaluate import (
+from groundline_core._core.errors import ModelTimeoutError
+from groundline_core._evaluate import (
     DEFAULT_COMMISSIONS_PRESET,
     DEFAULT_PRESET,
     CommissionPreset,
     EvaluationResult,
     evaluate_sync,
 )
-from groundline_core.evaluators.commissions import report as commissions_report
-from groundline_core.evaluators.models import ALARM_STEP, AlarmOutput
-from groundline_core.evaluators.omissions import report as omissions_report
-from groundline_core.evaluators.report import require_steps, result_json, usage_text
+from groundline_core._evaluators.commissions import report as commissions_report
+from groundline_core._evaluators.omissions import report as omissions_report
+from groundline_core._evaluators.report import result_json, usage_text
+from groundline_core._findings import CHECK_NAMES, evaluation_type_of
+from groundline_core._result import EvaluationType
+from groundline_core._settings import ENV_FILE
+from groundline_core.command import EXIT_ERROR, EXIT_FLAGGED, EXIT_NOT_FLAGGED
 from groundline_core.keys_cli import app as keys_app
 from groundline_core.presets import load_preset
-from groundline_core.settings import ENV_FILE
 
 app = typer.Typer(
     help="Check AI-written summaries against their source.",
@@ -149,26 +150,17 @@ JsonOpt = Annotated[
 
 @dataclass(frozen=True)
 class Check:
-    """What differs between the checks: the preset they run, the steps their
-    report reads, and how it is written."""
+    """What differs between the checks: the preset they run, which check a
+    pipeline must carry out, and how the report is written."""
 
     preset: str
-    report_name: str
-    required_steps: tuple[str, ...]
+    evaluation_type: EvaluationType
     render: Callable[..., str]
 
 
-OMISSIONS = Check(
-    DEFAULT_PRESET,
-    "omissions",
-    omissions_report.REQUIRED_STEPS,
-    omissions_report.render_report,
-)
+OMISSIONS = Check(DEFAULT_PRESET, "omissions", omissions_report.render_report)
 COMMISSIONS = Check(
-    DEFAULT_COMMISSIONS_PRESET,
-    "commissions",
-    commissions_report.REQUIRED_STEPS,
-    commissions_report.render_report,
+    DEFAULT_COMMISSIONS_PRESET, "commissions", commissions_report.render_report
 )
 
 
@@ -265,7 +257,12 @@ def _check(
 ) -> int:
     """Run the check, print the report, and return the exit code."""
     spec = load_spec(pipeline) if pipeline else load_preset(check.preset)
-    require_steps(spec, check.required_steps, report=check.report_name)
+    evaluation_type = evaluation_type_of(spec)
+    if evaluation_type != check.evaluation_type:
+        raise ValueError(
+            f"pipeline '{spec.name}' carries out the {CHECK_NAMES[evaluation_type]}: "
+            f"run it with groundline-core {evaluation_type}"
+        )
     domain = load_profile(profile) if profile else None
 
     stage_cache = None
@@ -285,13 +282,12 @@ def _check(
     )
     seconds = time.perf_counter() - started
 
-    flagged = result.run.output(ALARM_STEP, AlarmOutput).flagged
     typer.echo(
         check.render(result, source=source.name, summary=summary.name, seconds=seconds)
     )
     if json_path:
         _write_json(json_path, result)
-    return EXIT_FLAGGED if flagged else EXIT_NOT_FLAGGED
+    return EXIT_FLAGGED if result.flagged else EXIT_NOT_FLAGGED
 
 
 def _write_json(path: Path, result: EvaluationResult) -> None:

@@ -7,8 +7,8 @@ from starlette.requests import ClientDisconnect
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
+from groundline_core._settings import APILimitsSettings
 from groundline_core.api import errors
-from groundline_core.settings import APILimitsSettings
 
 
 def _read_limits() -> APILimitsSettings:

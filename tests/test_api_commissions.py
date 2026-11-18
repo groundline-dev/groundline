@@ -9,14 +9,14 @@ import pytest
 from fastapi.testclient import TestClient
 
 from groundline_core import builtin_presets, load_preset
+from groundline_core._core import APIKeyRejectedError
+from groundline_core._evaluate import DEFAULT_COMMISSIONS_PRESET
 
 # The route's module, imported as `api` because the tests patch the names it looks up
 # (evaluate, load_preset and the response models) there, not in `common`.
 from groundline_core.api import commissions as api
 from groundline_core.api import common
 from groundline_core.app import app
-from groundline_core.core import APIKeyRejectedError
-from groundline_core.evaluate import DEFAULT_COMMISSIONS_PRESET
 from tests.auth_helpers import HEADERS, FakeKeys
 from tests.commissions_helpers import (
     DOSE,
@@ -355,7 +355,7 @@ def _response_fails(*args: object, **fields: object) -> None:
     [
         ("evaluate", _evaluate_fails, "KeyError"),
         ("load_preset", _preset_fails, "ValueError"),
-        ("commission_finding", _response_fails, "ValueError"),
+        ("alarm_of", _response_fails, "ValueError"),
     ],
     ids=["while checking", "loading the preset", "building the response"],
 )
