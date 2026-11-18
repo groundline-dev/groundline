@@ -96,12 +96,12 @@ aws-smoke:
 aws-https-smoke:
 	scripts/aws-https-smoke-test $(if $(RESTART),--restart "$(RESTART)")
 
-# Also sends one real commission check, which costs under a cent.
 # Upgrades your running deployment to REF in place, and checks it kept its API
 # keys, server, address and HTTPS certificate.
 aws-upgrade-smoke:
 	scripts/aws-upgrade-smoke-test
 
+# Also sends one real commission check, which costs under a cent.
 aws-smoke-live:
 	scripts/aws-smoke-test --live
 
