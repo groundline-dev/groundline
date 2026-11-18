@@ -10,6 +10,7 @@ any unexpected error). Only a finished check that flags the summary exits with 1
 """
 
 import json
+import logging
 import os
 import time
 from collections.abc import Callable
@@ -22,16 +23,17 @@ import typer
 
 from groundline_core._core import (
     FileCache,
+    GroundlineError,
+    InvalidInputError,
     ModelClient,
-    ProfileError,
-    SetupError,
-    SpecError,
-    StageError,
+    ModelFailureError,
+    file_line,
     load_profile,
     load_spec,
+    redact_keys,
     summarize_usage,
 )
-from groundline_core._core.errors import ModelTimeoutError
+from groundline_core._core.file_problems import os_reason, read_text
 from groundline_core._evaluate import (
     DEFAULT_COMMISSIONS_PRESET,
     DEFAULT_PRESET,
@@ -204,46 +206,89 @@ def commissions(
     )
 
 
+class UsageError(Exception):
+    """A mistake in how the command was run, such as two options that can't go
+    together. The message says how to run it instead. Only the CLI raises it,
+    so it isn't a `GroundlineError`."""
+
+
+class JSONWriteError(Exception):
+    """The `--json` file couldn't be written. The check itself finished, and its
+    report has already been printed. The message names the file; `path` is its
+    full path, which the CLI prints on a `File:` line of its own."""
+
+    def __init__(self, message: str, *, path: Path) -> None:
+        super().__init__(message)
+        self.path = path.absolute()
+
+
 def _commissions_check(preset: str | None, pipeline: Path | None) -> Check:
     """The commission check with the preset the caller chose, if any. Raises
     before anything runs if it is unknown or comes with a pipeline spec file."""
     if preset is None:
         return COMMISSIONS
     if pipeline:
-        raise ValueError(
+        raise UsageError(
             "use --preset or --pipeline, not both: "
             "a pipeline spec file replaces the preset."
         )
     if preset not in COMMISSION_PRESETS:
-        raise ValueError(
+        raise UsageError(
             f"unknown preset '{preset}'. Use {' or '.join(COMMISSION_PRESETS)}."
         )
     return replace(COMMISSIONS, preset=preset)
+
+
+class _WarningLines(logging.Handler):
+    """Prints groundline's own warning log records, such as a cache that can't
+    be written, the way the CLI prints its own warnings."""
+
+    def __init__(self) -> None:
+        super().__init__(logging.WARNING)
+
+    def emit(self, record: logging.LogRecord) -> None:
+        typer.echo(f"warning: {record.getMessage()}", err=True)
 
 
 def _finish(run: Callable[[], int]) -> None:
     """Run a check and exit with its code. Every error becomes exit code 2:
     exit code 1 means "flagged", so nothing else may end with it, not even a
     bug. Python's own exit code for an uncaught error is 1."""
+    library_logs = logging.getLogger("groundline")
+    handler = _WarningLines()
+    library_logs.addHandler(handler)
     try:
-        code = run()
-    except (StageError, ModelTimeoutError) as error:
-        typer.echo(f"error: {error}", err=True)
-        if error.calls:
+        code = _exit_code(run)
+    finally:
+        library_logs.removeHandler(handler)
+    raise typer.Exit(code)
+
+
+def _exit_code(run: Callable[[], int]) -> int:
+    """The check's exit code, or EXIT_ERROR after printing what stopped it."""
+    try:
+        return run()
+    except (GroundlineError, UsageError, JSONWriteError) as error:
+        # Every message is redacted here, including the CLI's own errors, which
+        # can quote a name from a spec file; file_line redacts its own line.
+        # SetupError and JSONWriteError carry the full path of the file at
+        # fault; the others have none. A --json file was never written, so it
+        # isn't marked "(not found)".
+        path: Path | None = getattr(error, "path", None)
+        file = file_line(path, note_missing=not isinstance(error, JSONWriteError))
+        typer.echo(f"error: {redact_keys(str(error))}{file}", err=True)
+        if isinstance(error, ModelFailureError) and error.calls:
             cost = usage_text(summarize_usage(error.calls))
             typer.echo(f"  Recorded cost before stopping: {cost}", err=True)
-        code = EXIT_ERROR
-    except (SetupError, SpecError, ProfileError, ValueError, OSError) as error:
-        typer.echo(f"error: {error}", err=True)
-        code = EXIT_ERROR
     except Exception as error:
+        # Only the type: a bug's message is text groundline didn't write, such as
+        # a pydantic error quoting the model's reply, which can repeat the source.
         typer.echo(
-            f"error: unexpected {type(error).__name__}: {error}\n"
+            f"error: unexpected {type(error).__name__}\n"
             "  This is a bug in groundline; please report it.",
             err=True,
         )
-        code = EXIT_ERROR
-    raise typer.Exit(code)
+    return EXIT_ERROR
 
 
 def _check(
@@ -259,7 +304,7 @@ def _check(
     spec = load_spec(pipeline) if pipeline else load_preset(check.preset)
     evaluation_type = evaluation_type_of(spec)
     if evaluation_type != check.evaluation_type:
-        raise ValueError(
+        raise UsageError(
             f"pipeline '{spec.name}' carries out the {CHECK_NAMES[evaluation_type]}: "
             f"run it with groundline-core {evaluation_type}"
         )
@@ -272,8 +317,8 @@ def _check(
 
     started = time.perf_counter()
     result = evaluate_sync(
-        source.read_text(),
-        summary.read_text(),
+        _input_text(source),
+        _input_text(summary),
         spec=spec,
         profile=domain,
         cache=stage_cache,
@@ -290,10 +335,17 @@ def _check(
     return EXIT_FLAGGED if result.flagged else EXIT_NOT_FLAGGED
 
 
+def _input_text(path: Path) -> str:
+    """A source or summary file's text. One that can't be read is invalid input,
+    named by its file name only, as every groundline error message is."""
+    return read_text(path, InvalidInputError)
+
+
 def _write_json(path: Path, result: EvaluationResult) -> None:
     try:
         path.write_text(json.dumps(result_json(result), indent=2) + "\n")
     except OSError as error:
-        raise OSError(
-            f"couldn't write the JSON result to {path}: {error.strerror or error}"
-        ) from error
+        raise JSONWriteError(
+            f"couldn't write the JSON result to {path.name}: {os_reason(error)}",
+            path=path,
+        ) from None

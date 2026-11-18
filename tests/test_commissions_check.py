@@ -1,6 +1,6 @@
 import pytest
 
-from groundline_core._core import StageError
+from groundline_core._core import ModelFailureError
 from groundline_core._evaluators.commissions.models import CommissionsCheckOutput
 from tests.commissions_helpers import (
     CHECK,
@@ -100,7 +100,7 @@ def test_a_quote_that_is_not_in_the_summary_gets_one_retry():
 
 
 def test_an_unusable_reply_after_the_retry_is_an_error():
-    with pytest.raises(StageError, match="commissions_check"):
+    with pytest.raises(ModelFailureError, match="commissions_check"):
         check("not json")
 
 

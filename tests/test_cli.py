@@ -6,9 +6,9 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner, Result
 
-from groundline_core import cli
+from groundline_core import GroundlineError, cli
 from tests.anthropic_helpers import fake_anthropic, keys_sent
-from tests.fakes import FakeClient
+from tests.fakes import FakeClient, unwritable_folder
 from tests.omission_helpers import (
     SOURCE,
     SUMMARY,
@@ -125,7 +125,21 @@ def test_a_missing_key_exits_with_2_and_a_clear_message(
 
     assert result.exit_code == 2
     assert result.stderr.startswith("error: ANTHROPIC_API_KEY is not set.")
+    assert f"\n  File: {Path.cwd() / '.env'} (not found)\n" in result.stderr
     assert "Traceback" not in result.output
+
+
+def test_a_setup_error_names_a_file_that_exists_without_not_found(
+    files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+):
+    use_client(monkeypatch, None)  # use the real Anthropic client
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    Path(".env").write_text("OTHER_SETTING=x\n")
+
+    result = omissions(files)
+
+    assert result.exit_code == 2
+    assert result.stderr.endswith(f"\n  File: {Path.cwd() / '.env'}\n")
 
 
 def test_an_unusable_reply_exits_with_2(
@@ -140,6 +154,33 @@ def test_an_unusable_reply_exits_with_2(
     assert re.search(
         r"Recorded cost before stopping: \$0\.\d{4} · 2 calls · ", result.stderr
     )
+
+
+def test_a_summary_that_is_not_utf8_is_invalid_input_not_a_bug(
+    files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+):
+    use_client(monkeypatch, not_flagged_script())
+    files[1].write_bytes(b"Knee pain \xff")
+
+    result = omissions(files)
+
+    assert result.exit_code == 2
+    assert result.stderr == f"error: {files[1].name} isn't readable UTF-8 text\n"
+
+
+def test_a_value_error_from_inside_groundline_is_reported_as_a_bug(
+    files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+):
+    def broken(*args: object, **kwargs: object) -> None:
+        raise ValueError("no verdict for f3")
+
+    monkeypatch.setattr(cli, "evaluate_sync", broken)
+
+    result = omissions(files)
+
+    assert result.exit_code == 2
+    assert result.stderr.startswith("error: unexpected ValueError\n")
+    assert "This is a bug in groundline; please report it." in result.stderr
 
 
 def test_a_missing_input_file_exits_with_2(
@@ -246,7 +287,10 @@ def test_an_unwritable_json_path_exits_with_2_not_1(
     result = omissions(files, "--json", str(out_path))
 
     assert result.exit_code == 2
-    assert result.stderr.startswith("error: couldn't write the JSON result")
+    assert result.stderr == (
+        "error: couldn't write the JSON result to result.json: "
+        f"No such file or directory\n  File: {out_path}\n"
+    )
     assert "Traceback" not in result.output
 
 
@@ -261,7 +305,7 @@ def test_an_unexpected_error_exits_with_2_not_1(
     result = omissions(files)
 
     assert result.exit_code == 2
-    assert result.stderr.startswith("error: unexpected KeyError: 'a bug'")
+    assert result.stderr.startswith("error: unexpected KeyError\n")
     assert "Traceback" not in result.output
 
 
@@ -298,3 +342,63 @@ def test_cli_reports_check_deadline_with_exit_code_2(
         word in result.output.lower()
         for word in ("timed out", "time limit", "deadline", "timeout")
     )
+
+
+def test_the_clis_own_errors_are_not_groundline_errors():
+    # A library caller who catches GroundlineError never sees these, so they
+    # stay out of the three kinds the library documents.
+    for error in (cli.UsageError, cli.JSONWriteError):
+        assert not issubclass(error, GroundlineError)
+
+
+def test_a_cache_that_cannot_be_written_warns_in_the_clis_own_style(
+    files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+):
+    use_client(monkeypatch, not_flagged_script())
+    cache_dir = unwritable_folder(files[0].parent)
+    monkeypatch.setenv("GROUNDLINE_CACHE_DIR", str(cache_dir))
+
+    result = omissions(files, "--cache")
+
+    assert result.exit_code == 0, result.output
+    assert "\nwarning: couldn't write to the stage cache (" in result.stderr
+    assert "RuntimeWarning" not in result.stderr
+    assert "runner.py" not in result.stderr
+
+
+def test_an_unexpected_error_is_reported_by_type_only(
+    files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+):
+    # A bug's message is text groundline didn't write: a key from a caller's
+    # client, or a pydantic error quoting a model reply that repeats the source.
+    def leaky(*args: object, **kwargs: object) -> None:
+        raise RuntimeError(f"refused sk-ant-sentinel-0123456789 for {SOURCE}")
+
+    monkeypatch.setattr(cli, "evaluate_sync", leaky)
+
+    result = omissions(files)
+
+    assert result.exit_code == 2
+    assert result.stderr == (
+        "error: unexpected RuntimeError\n"
+        "  This is a bug in groundline; please report it.\n"
+    )
+
+
+@pytest.mark.parametrize("option", ["--json", "--pipeline"])
+def test_a_key_shaped_file_name_is_redacted_on_both_lines(
+    option: str, files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+):
+    use_client(monkeypatch, not_flagged_script())
+    key_named = files[0].parent / "sk-ant-sentinel-0123456789.yaml"
+    if option == "--pipeline":
+        key_named.write_text("name: [broken\n")
+    else:
+        key_named = files[0].parent / "no-such-folder" / key_named.name
+
+    result = omissions(files, option, str(key_named))
+
+    assert result.exit_code == 2
+    assert "sk-ant-sentinel" not in result.stderr
+    assert "\n  File: " in result.stderr
+    assert result.stderr.count("<redacted key>") == 2

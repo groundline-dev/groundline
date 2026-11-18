@@ -13,6 +13,7 @@ import logging
 import math
 import time
 from email.utils import parsedate_to_datetime
+from pathlib import Path
 
 import anthropic
 import httpx2
@@ -22,12 +23,14 @@ from groundline_core._clients.retry import retry_call
 from groundline_core._core import (
     APIKeyRejectedError,
     Effort,
-    ModelError,
+    ModelFailureError,
     ModelRefusal,
     ModelReply,
+    ModelTimeoutError,
+    SetupError,
+    UnusableReplyError,
 )
 from groundline_core._core.deadline import raise_if_cancelling
-from groundline_core._core.errors import ModelTimeoutError
 from groundline_core._settings import EnvFile, read_model_settings
 
 logger = logging.getLogger("groundline.model")
@@ -68,12 +71,22 @@ def retry_decision(
     return True, minimum
 
 
+def _sdk_failure_text(error: anthropic.APIError) -> str:
+    """What the Anthropic API did, named by status and error type. The SDK's own
+    message is never quoted: it can repeat parts of the request."""
+    if isinstance(error, anthropic.APIStatusError):
+        what = f"answered {error.status_code}"
+    else:
+        what = "failed"
+    return f"the Anthropic API {what} ({type(error).__name__})"
+
+
 class AnthropicClient:
     def __init__(
         self,
         api_key: str,
         *,
-        key_source: str = "ANTHROPIC_API_KEY",
+        key_path: Path | None = None,
         key_name: str = "ANTHROPIC_API_KEY",
         env_file: EnvFile = None,
         max_retries: int | None = None,
@@ -81,11 +94,12 @@ class AnthropicClient:
     ) -> None:
         """Read model policy only; `api_key` is supplied by the caller.
 
-        `key_source` names its source for errors. `max_retries=N` allows N+1
+        `key_path` is the `.env` file the key came from, if any, for a rejected
+        key's error to point at. `max_retries=N` allows N+1
         total groundline attempts, bounded by model and enclosing check limits.
         SDK retries are disabled so all attempts and waits share those limits.
         """
-        self._key_source = key_source
+        self._key_path = key_path
         self._key_name = key_name
         self._settings = read_model_settings(env_file)
         self._max_attempts = (
@@ -99,12 +113,9 @@ class AnthropicClient:
         )
 
     def _rejected(self, what: str, fix: str) -> APIKeyRejectedError:
-        """The error for a key that was refused. Where the key came from can be a
-        path on the server, so only the full message names it, not an HTTP response."""
-        return APIKeyRejectedError(
-            f"{what}\n  Key from: {self._key_source}\n  Fix: {fix}",
-            f"{what}\n  Fix: {fix}",
-        )
+        """The error for a key that was refused. The file the key came from is in
+        the error's `path`, never in its message."""
+        return APIKeyRejectedError(f"{what}\n  Fix: {fix}", path=self._key_path)
 
     async def complete(
         self, prompt: str, *, model: str, effort: Effort, max_tokens: int
@@ -168,14 +179,23 @@ class AnthropicClient:
                 f"({error.status_code}).",
                 "check the key is complete, hasn't been revoked, "
                 "and belongs to the workspace you expect.",
-            ) from error
+            ) from None
         except anthropic.PermissionDeniedError as error:
             raise self._rejected(
                 f"{self._key_name} doesn't have access to {model} "
                 f"({error.status_code}).",
                 "use a key from a workspace that can use this model, "
                 "or change the stage's model setting.",
-            ) from error
+            ) from None
+        except anthropic.NotFoundError as error:
+            # The model named in the spec doesn't exist, or has been retired:
+            # trying again won't help until the spec changes.
+            raise SetupError(
+                f"the Anthropic API has no model {model} ({error.status_code}).\n"
+                "  Fix: change the stage's model setting in the pipeline spec."
+            ) from None
+        except anthropic.APIError as error:
+            raise ModelFailureError(_sdk_failure_text(error)) from None
         text = "".join(block.text for block in message.content if block.type == "text")
         reply = ModelReply(
             text=text,
@@ -195,7 +215,7 @@ class AnthropicClient:
                 reply=reply,
             )
         if message.stop_reason == "max_tokens":
-            raise ModelError(
+            raise UnusableReplyError(
                 f"reply cut off at max_tokens={max_tokens}; "
                 "raise the stage's max_tokens",
                 reply=reply,

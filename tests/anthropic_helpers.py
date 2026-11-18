@@ -69,3 +69,28 @@ def keys_sent(sent: list[httpx2.Request]) -> set[str]:
     return {
         request.headers["authorization"].removeprefix("Bearer ") for request in sent
     }
+
+
+def bad_request(text: str) -> Callable[[str], httpx2.Response]:
+    """Every call answers 400, with `text` as Anthropic's error message."""
+    response = httpx2.Response(400, json=api_error("invalid_request_error", text))
+    return lambda prompt: response
+
+
+def unreachable(text: str) -> Callable[[str], httpx2.Response]:
+    """Every call fails to connect, with `text` as the connection error."""
+
+    def fail(prompt: str) -> httpx2.Response:
+        raise httpx2.ConnectError(text)
+
+    return fail
+
+
+def use_real_anthropic(
+    monkeypatch: pytest.MonkeyPatch, replies: Callable[[str], str | httpx2.Response]
+) -> list[httpx2.Request]:
+    """Like `fake_anthropic`, with a dummy key set and one attempt per call, so
+    an error stops the check at once instead of waiting to retry."""
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-not-a-real-key")
+    monkeypatch.setenv("GROUNDLINE_MODEL_MAX_ATTEMPTS", "1")
+    return fake_anthropic(monkeypatch, replies)

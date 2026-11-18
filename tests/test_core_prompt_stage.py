@@ -10,7 +10,7 @@ from groundline_core._core import (
     InputName,
     Inputs,
     ModelClient,
-    ModelError,
+    ModelFailureError,
     ModelReply,
     ParseError,
     PipelineSpec,
@@ -18,8 +18,8 @@ from groundline_core._core import (
     Registry,
     RunResult,
     StageContext,
-    StageError,
     StageSpec,
+    UnusableReplyError,
     build_pipeline,
     fill,
     parse_json_object,
@@ -118,7 +118,7 @@ def test_gives_up_after_one_retry_without_showing_the_reply():
     # A reply can quote the source, so its text stays out of error messages.
     reply = '{"value": "the patient said x"}'
     with pytest.raises(
-        StageError,
+        ModelFailureError,
         match="The model’s reply remained unusable after a request for correction",
     ) as error:
         run(FakeClient(['{"value": "x"}', reply]))
@@ -128,7 +128,7 @@ def test_gives_up_after_one_retry_without_showing_the_reply():
 
 
 def test_a_stage_that_calls_a_model_needs_a_client():
-    with pytest.raises(StageError, match="no model client"):
+    with pytest.raises(RuntimeError, match="no model client"):
         run(None)
 
 
@@ -162,11 +162,11 @@ class CutOffClient:
         self, prompt: str, *, model: str, effort: Effort, max_tokens: int
     ) -> ModelReply:
         reply = ModelReply(text="", model=model, input_tokens=7, output_tokens=900)
-        raise ModelError("reply cut off at max_tokens", reply=reply)
+        raise UnusableReplyError("reply cut off at max_tokens", reply=reply)
 
 
 def test_a_billed_call_that_fails_is_still_recorded():
-    with pytest.raises(StageError) as error:
+    with pytest.raises(ModelFailureError) as error:
         run(CutOffClient())
 
     assert [(c.step, c.output_tokens) for c in error.value.calls] == [("answer", 900)]

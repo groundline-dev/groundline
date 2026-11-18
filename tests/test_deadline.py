@@ -19,7 +19,7 @@ from groundline_core.api import common
 from groundline_core.app import app
 from tests.async_helpers import finish_before_watchdog
 from tests.auth_helpers import BODY, HEADERS, FakeKeys
-from tests.fakes import FakeClient
+from tests.fakes import FakeClient, HungClient
 from tests.omission_helpers import not_flagged_script
 
 
@@ -34,24 +34,8 @@ def isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path):
     app.dependency_overrides.clear()
 
 
-class HungClient:
-    def __init__(self):
-        self.started = 0
-        self.cancelled = 0
-
-    async def complete(
-        self, prompt: str, *, model: str, effort: Any, max_tokens: int
-    ) -> ModelReply:
-        self.started += 1
-        try:
-            await asyncio.Event().wait()
-        finally:
-            self.cancelled += 1
-        raise AssertionError("hung fake unexpectedly returned")
-
-
 @pytest.mark.parametrize("route", ["/v1/omissions", "/v1/commissions"])
-def test_hung_model_is_cancelled_and_answers_safe_504(route: str):
+def test_hung_model_is_canceled_and_answers_safe_504(route: str):
     async def run():
         model = HungClient()
         app.dependency_overrides[common.model_client] = lambda: model
@@ -65,7 +49,7 @@ def test_hung_model_is_cancelled_and_answers_safe_504(route: str):
             assert response.status_code == 504
             assert set(response.json()) == {"detail"}
             assert BODY["source"] not in response.text
-            assert model.started == model.cancelled == 1
+            assert model.started == model.canceled == 1
 
     asyncio.run(run())
 
@@ -79,7 +63,7 @@ def test_existing_python_entry_points_bound_caller_supplied_clients(sync: bool):
             await finish_before_watchdog(
                 evaluate("private source", "private summary", client=model)
             )
-        assert model.started == model.cancelled == 1
+        assert model.started == model.canceled == 1
 
     if not sync:
         asyncio.run(run())
@@ -99,7 +83,7 @@ def test_existing_python_entry_points_bound_caller_supplied_clients(sync: bool):
         model = WatchdogClient()
         with pytest.raises(ModelTimeoutError):
             evaluate_sync("private source", "private summary", client=model)
-        assert model.cancelled == 1
+        assert model.canceled == 1
 
 
 def test_external_cancellation_propagates_without_another_call():
@@ -111,7 +95,7 @@ def test_external_cancellation_propagates_without_another_call():
         task.cancel()
         with pytest.raises(asyncio.CancelledError):
             await task
-        assert model.started == model.cancelled == 1
+        assert model.started == model.canceled == 1
 
     asyncio.run(run())
 
@@ -142,7 +126,7 @@ def test_independent_evaluations_do_not_inherit_an_expired_deadline():
         finally:
             guard.cancel()
             await asyncio.gather(guard, return_exceptions=True)
-        assert model.started == model.cancelled == 1
+        assert model.started == model.canceled == 1
         result = await evaluate(
             BODY["source"],
             BODY["summary"],
@@ -167,14 +151,14 @@ def test_authentication_timeout_is_503_without_model_work(
     )
 
     class HungKeys(FakeKeys):
-        cancelled = False
+        canceled = False
 
         async def authenticate(self, credential: str):
             self.calls.append(credential)
             try:
                 await asyncio.Event().wait()
             finally:
-                self.cancelled = True
+                self.canceled = True
 
     async def run():
         keys = HungKeys()
@@ -190,7 +174,7 @@ def test_authentication_timeout_is_503_without_model_work(
             )
             assert response.status_code == 503
             assert response.json() == {"detail": "Authentication is unavailable"}
-            assert keys.cancelled
+            assert keys.canceled
             assert len(keys.calls) == 1
             assert model.started == 0
 
@@ -241,7 +225,7 @@ def test_shared_deadline_preserves_known_usage_across_calls(corrective: bool):
             )
             assert response.status_code == 504
             assert model.started == 2
-            assert model.cancelled == 1
+            assert model.canceled == 1
             assert "recorded" in response.json()["detail"].lower()
             assert "12,345" in response.text or "12345" in response.text
 
@@ -260,13 +244,13 @@ def test_authentication_time_is_part_of_check_allowance(
             return await super().authenticate(credential)
 
     class SlowModel:
-        cancelled = False
+        canceled = False
 
         async def complete(self, prompt: str, **kwargs: Any) -> ModelReply:
             try:
                 await asyncio.sleep(0.2)
             except asyncio.CancelledError:
-                self.cancelled = True
+                self.canceled = True
                 raise
             return ModelReply(
                 text='{"issues": []}',
@@ -285,7 +269,7 @@ def test_authentication_time_is_part_of_check_allowance(
         ) as http:
             response = await http.post("/v1/commissions", headers=HEADERS, json=BODY)
         assert response.status_code == 504
-        assert model.cancelled, (
+        assert model.canceled, (
             "evaluation must not restart the allowance after authentication"
         )
 
@@ -329,7 +313,7 @@ def test_overlapping_requests_have_independent_deadlines():
             assert done == tasks, "each request must enforce its own deadline"
             assert first.result().status_code == 504
             assert second.result().status_code == 200
-            assert first_model.cancelled == 1
+            assert first_model.canceled == 1
 
     asyncio.run(run())
 
@@ -361,7 +345,7 @@ def test_cleanup_failure_preserves_timeout_or_owner_cancellation(owner_cancels: 
                 assert done, "the application deadline must beat the watchdog"
                 with pytest.raises(ModelTimeoutError):
                     task.result()
-            assert model.started == model.cancelled == 1
+            assert model.started == model.canceled == 1
         finally:
             task.cancel()
             await asyncio.gather(task, return_exceptions=True)

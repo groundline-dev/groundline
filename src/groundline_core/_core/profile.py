@@ -16,9 +16,13 @@ from typing import Any
 import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from groundline_core._core.errors import SetupError
+from groundline_core._core.file_problems import file_problems, os_reason, read_text
 
-class ProfileError(ValueError):
-    pass
+
+class ProfileError(SetupError, ValueError):
+    """A domain profile can't be loaded. `path` is its `profile.yaml`, if the
+    profile is a folder."""
 
 
 class Placeholders(BaseModel):
@@ -70,23 +74,46 @@ def profile_file_schema() -> dict[str, Any]:
     return _ProfileFile.model_json_schema()
 
 
+def _text(path: Path, label: str) -> str:
+    """A profile file's text, or a `ProfileError` naming the file by name."""
+    return read_text(
+        path, lambda problem: ProfileError(f"{label}: {problem}", path=path)
+    )
+
+
+def _is_file(path: Path, label: str) -> bool:
+    """Whether `path` is a file, or a `ProfileError` if a folder on the way
+    can't be searched."""
+    try:
+        return path.is_file()
+    except OSError as error:
+        problem = f"{label}: can't read {path.name} ({os_reason(error)})"
+        raise ProfileError(problem, path=path) from None
+
+
 def load_profile(folder: str | Path) -> DomainProfile:
     """Load a profile folder, reading every text it lists."""
     folder = Path(folder)
     manifest = folder / "profile.yaml"
-    if not manifest.exists():
-        raise ProfileError(f"{folder}: no profile.yaml")
+    # A folder given as "." or "/" has no name of its own.
+    label = f"profile '{folder.absolute().name or folder}'"
+    if not _is_file(manifest, label):
+        raise ProfileError(f"{label} has no profile.yaml", path=manifest)
     try:
-        spec = _ProfileFile.model_validate(yaml.safe_load(manifest.read_text()))
+        spec = _ProfileFile.model_validate(yaml.safe_load(_text(manifest, label)))
     except (yaml.YAMLError, ValidationError) as error:
-        raise ProfileError(f"{manifest}: {error}") from error
+        problems = "; ".join(file_problems(error))
+        raise ProfileError(f"{label}: {problems}", path=manifest) from None
 
     texts: dict[str, str] = {}
     for name, relative in spec.texts.items():
         path = folder / relative
-        if not path.is_file():
-            raise ProfileError(f"{manifest}: text '{name}' file {relative} not found")
-        texts[name] = path.read_text()
+        if not _is_file(path, label):
+            raise ProfileError(
+                f"{label}: text '{name}' file {Path(relative).name} not found",
+                path=path,
+            )
+        texts[name] = _text(path, label)
 
     return DomainProfile(
         name=spec.name,

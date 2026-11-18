@@ -3,7 +3,6 @@ from collections.abc import Callable, Iterator
 from pathlib import Path
 from typing import get_args
 
-import anthropic
 import httpx2
 import pytest
 from fastapi.testclient import TestClient
@@ -17,6 +16,11 @@ from groundline_core._evaluate import DEFAULT_COMMISSIONS_PRESET
 from groundline_core.api import commissions as api
 from groundline_core.api import common
 from groundline_core.app import app
+from tests.anthropic_helpers import (
+    bad_request,
+    unreachable,
+    use_real_anthropic,
+)
 from tests.auth_helpers import HEADERS, FakeKeys
 from tests.commissions_helpers import (
     DOSE,
@@ -240,9 +244,7 @@ def test_a_missing_key_is_a_503_with_the_clis_message(
 
 def test_a_rejected_key_is_a_503():
     def rejected(prompt: str) -> str:
-        raise APIKeyRejectedError(
-            "ANTHROPIC_API_KEY was rejected", "ANTHROPIC_API_KEY was rejected"
-        )
+        raise APIKeyRejectedError("ANTHROPIC_API_KEY was rejected")
 
     use_client(rejected)
 
@@ -278,44 +280,41 @@ def test_an_unusable_reply_is_a_502_naming_the_stage_and_cost():
     assert "Recorded cost before stopping: $0." in detail and "· 2 calls" in detail
 
 
-def _api_request() -> httpx2.Request:
-    return httpx2.Request("POST", "https://api.anthropic.com/v1/messages")
-
-
 @pytest.mark.parametrize(
-    ("error", "detail"),
+    ("reply", "detail", "cause"),
     [
         (
-            anthropic.BadRequestError(
-                f"Error code: 400 - {SECRET}",
-                response=httpx2.Response(400, request=_api_request()),
-                body={"error": {"message": SECRET}},
-            ),
+            bad_request(SECRET),
             "stage 'commissions_check' failed: "
             "the Anthropic API answered 400 (BadRequestError)",
+            "BadRequestError",
         ),
         (
-            anthropic.APIConnectionError(message=SECRET, request=_api_request()),
+            unreachable(SECRET),
             "stage 'commissions_check' failed: "
             "the Anthropic API failed (APIConnectionError)",
+            "APIConnectionError",
         ),
     ],
     ids=["status", "connection"],
 )
 def test_an_anthropic_api_error_is_a_502_without_its_message(
-    error: anthropic.APIError, detail: str, caplog: pytest.LogCaptureFixture
+    reply: Callable[[str], httpx2.Response],
+    detail: str,
+    cause: str,
+    caplog: pytest.LogCaptureFixture,
+    monkeypatch: pytest.MonkeyPatch,
 ):
-    def failing(prompt: str) -> str:
-        raise error
-
-    use_client(failing)
+    """The real Anthropic client, on a fake transport."""
+    use_client(None)
+    use_real_anthropic(monkeypatch, reply)
 
     with caplog.at_level(logging.INFO):
         response = http.post("/v1/commissions", json=check())
 
     assert response.status_code == 502
     assert response.json() == {"detail": detail}
-    assert type(error).__name__ in caplog.text
+    assert cause in caplog.text
     assert "tenofovir" not in caplog.text
 
 
@@ -332,8 +331,7 @@ def test_a_stage_failure_of_our_own_is_a_generic_500(
 
     assert response.status_code == 500
     assert response.json() == {"detail": "unexpected error; see the server log"}
-    assert "stage 'commissions_check' failed" in caplog.text
-    assert "ValueError" in caplog.text and "StageError" in caplog.text
+    assert "unexpected ValueError" in caplog.text
     assert "tenofovir" not in response.text
     assert "tenofovir" not in caplog.text
 

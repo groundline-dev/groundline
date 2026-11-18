@@ -14,10 +14,10 @@ try:
     from fastapi.responses import HTMLResponse
     from sqlalchemy.ext.asyncio import AsyncEngine
 
-    from groundline_core._core.errors import SetupError
+    from groundline_core._core.errors import SetupError, file_line
     from groundline_core._settings import (
         ENV_FILE,
-        UnreadableSettingsError,
+        SettingsError,
         read_settings,
     )
     from groundline_core.api import commissions, common, errors, omissions
@@ -79,8 +79,12 @@ def _database_url() -> str | None:
     leaves checks or API-key storage unavailable."""
     try:
         settings = read_settings(ENV_FILE)
-    except UnreadableSettingsError as error:
-        api_logger.warning("%s\nChecks will answer 503 until it's fixed.", error)
+    except SettingsError as error:
+        api_logger.warning(
+            "%s%s\nChecks will answer 503 until it's fixed.",
+            error,
+            file_line(error.path),
+        )
         return None
     if settings.anthropic_api_key is None:
         api_logger.warning(

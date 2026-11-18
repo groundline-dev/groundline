@@ -3,7 +3,7 @@ from typing import Any
 
 import pytest
 
-from groundline_core._core import StageError
+from groundline_core._core import ModelFailureError
 from groundline_core._evaluators.omissions.models import CheckOutput, Verdict
 from tests.omission_helpers import (
     CHECK,
@@ -66,13 +66,13 @@ def test_a_reply_missing_a_fact_is_retried_then_fails():
     short = json.loads(check_reply())
     short["facts"] = short["facts"][:2]
 
-    with pytest.raises(StageError, match="no verdict for f2"):
+    with pytest.raises(ModelFailureError, match="no verdict for f2"):
         verdicts([json.dumps(short)] * 2)
 
 
 @pytest.mark.parametrize("bad", [-1, 101, "high", None, True])
 def test_confidence_must_be_0_to_100(bad: Any):
-    with pytest.raises(StageError, match="missing_confidence"):
+    with pytest.raises(ModelFailureError, match="missing_confidence"):
         verdicts([check_reply({"f1": bad})] * 2)
 
 
@@ -80,5 +80,7 @@ def test_a_present_or_partial_verdict_needs_a_quote():
     reply = json.loads(check_reply())
     reply["facts"][0]["quote"] = None
 
-    with pytest.raises(StageError, match='f3: a "present" verdict needs a quote'):
+    with pytest.raises(
+        ModelFailureError, match='f3: a "present" verdict needs a quote'
+    ):
         verdicts([json.dumps(reply)] * 2)

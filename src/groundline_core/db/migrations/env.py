@@ -4,7 +4,7 @@ DATABASE_URL when alembic is run directly."""
 from alembic import context
 from sqlalchemy import URL, create_engine, make_url
 
-from groundline_core._core.errors import SetupError
+from groundline_core._core.errors import SetupError, file_line
 from groundline_core._settings import ENV_FILE, read_settings
 from groundline_core.db.tables import metadata
 
@@ -16,7 +16,7 @@ def _url() -> URL:
     try:
         raw = read_settings(ENV_FILE).database_url
     except SetupError as error:
-        raise SystemExit(f"error: {error}") from None
+        raise SystemExit(f"error: {error}{file_line(error.path)}") from None
     if raw is None:
         raise SystemExit("error: DATABASE_URL is not set")
     return make_url(raw.get_secret_value())

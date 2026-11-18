@@ -18,7 +18,6 @@ from groundline_core._core import (
     RunResult,
     SpecError,
     StageContext,
-    StageError,
     StageSpec,
     build_pipeline,
     load_profile,
@@ -108,7 +107,7 @@ def test_a_missing_text_is_caught_before_running():
 
 
 def test_a_stage_cannot_read_a_text_it_did_not_declare():
-    with pytest.raises(StageError, match="didn't declare it in `profile_texts`"):
+    with pytest.raises(LookupError, match="didn't declare it in `profile_texts`"):
         run({"step": "greet", "implementation": "greet.snoop"}, profile())
 
 
@@ -161,7 +160,8 @@ def test_loads_a_profile_folder(tmp_path: Path):
 def test_a_missing_text_file_is_an_error(tmp_path: Path):
     folder = write_profile(tmp_path / "finance", GOOD_YAML, {})
 
-    with pytest.raises(ProfileError, match="extract_v1.*prompts/extract_v1.txt"):
+    missing = "text 'extract_v1' file extract_v1.txt not found"
+    with pytest.raises(ProfileError, match=missing):
         load_profile(folder)
 
 
@@ -204,3 +204,9 @@ def test_the_clinical_profile_is_built_in():
 def test_an_unknown_built_in_profile_is_an_error():
     with pytest.raises(ProfileError, match="no built-in profile 'finance'"):
         load_builtin_profile("finance")
+
+
+@pytest.mark.parametrize("name", ["../presets", "/etc", "clinical/"])
+def test_a_profile_name_is_never_used_as_a_path(name: str):
+    with pytest.raises(ProfileError, match="no built-in profile"):
+        load_builtin_profile(name)

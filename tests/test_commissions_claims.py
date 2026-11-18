@@ -2,7 +2,7 @@
 
 import pytest
 
-from groundline_core._core import StageError
+from groundline_core._core import ModelFailureError
 from groundline_core._evaluators.commissions.models import CommissionsClaimsOutput
 from tests.commissions_helpers import (
     CLAIMS,
@@ -82,5 +82,5 @@ def test_an_unusable_reply_is_asked_again(bad: str):
 def test_two_unusable_replies_stop_the_run():
     bad = claims_reply(("A made-up claim", "words not in the note"))
 
-    with pytest.raises(StageError, match="commissions_claims"):
+    with pytest.raises(ModelFailureError, match="commissions_claims"):
         claims([bad, bad])

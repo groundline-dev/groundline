@@ -7,18 +7,26 @@ used a preset unchanged.
 
 from pathlib import Path
 
-from groundline_core._core.spec import PipelineSpec, load_spec
+from groundline_core._core.spec import PipelineSpec, SpecError, load_spec
 
 BUILTIN_DIR = Path(__file__).parent
 
 
+def _builtin_files() -> dict[str, Path]:
+    """Each built-in preset's file, by preset name."""
+    return {p.stem: p for p in BUILTIN_DIR.glob("*.yaml")}
+
+
 def builtin_presets() -> list[str]:
-    return sorted(p.stem for p in BUILTIN_DIR.glob("*.yaml"))
+    return sorted(_builtin_files())
 
 
 def load_preset(name: str) -> PipelineSpec:
-    if name not in builtin_presets():
-        raise ValueError(
-            f"no built-in preset '{name}' (built in: {', '.join(builtin_presets())})"
+    # The path comes from the shipped files, never from `name`, which the API
+    # takes from a request.
+    path = _builtin_files().get(name)
+    if path is None:
+        raise SpecError(
+            [f"no built-in preset '{name}' (built in: {', '.join(builtin_presets())})"]
         )
-    return load_spec(BUILTIN_DIR / f"{name}.yaml")
+    return load_spec(path)

@@ -190,7 +190,7 @@
                   "anthropic_key_missing": {
                     "summary": "Anthropic API key not set",
                     "value": {
-                      "detail": "ANTHROPIC_API_KEY is not set.\n  Needed by: extract, rank, check, refute (claude-opus-5-5)\n  Fix: export ANTHROPIC_API_KEY=..., or copy .env.example to .env and add it there."
+                      "detail": "ANTHROPIC_API_KEY is not set.\n  Needed by: extract, rank, check, refute (claude-opus-5-5)\n  Looked in: the environment, and .env\n  Fix: export ANTHROPIC_API_KEY=..., or copy .env.example to .env and add it there."
                     }
                   }
                 }
@@ -407,7 +407,7 @@
                   "anthropic_key_missing": {
                     "summary": "Anthropic API key not set",
                     "value": {
-                      "detail": "ANTHROPIC_API_KEY is not set.\n  Needed by: commissions_check (claude-haiku-5-5)\n  Fix: export ANTHROPIC_API_KEY=..., or copy .env.example to .env and add it there."
+                      "detail": "ANTHROPIC_API_KEY is not set.\n  Needed by: commissions_check (claude-haiku-5-5)\n  Looked in: the environment, and .env\n  Fix: export ANTHROPIC_API_KEY=..., or copy .env.example to .env and add it there."
                     }
                   }
                 }

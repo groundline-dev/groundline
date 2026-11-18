@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 from groundline_core._clients import anthropic as adapter
 from groundline_core._clients.anthropic import AnthropicClient
-from groundline_core._core import CallRecord, StageError
+from groundline_core._core import CallRecord
 from groundline_core._core.errors import ModelTimeoutError
 from groundline_core._settings import ModelSettings
 from groundline_core.api import common, errors
@@ -113,7 +113,11 @@ def test_a_body_that_is_not_utf8_is_a_400_that_repeats_nothing(body: bytes):
     ("status", "kind"), [(401, "authentication_error"), (403, "permission_error")]
 )
 def test_a_rejected_anthropic_key_is_a_503_without_the_servers_env_path(
-    route: str, status: int, kind: str, tmp_path: Path
+    route: str,
+    status: int,
+    kind: str,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
 ):
     """The real client, as it runs when the key came from a `.env` file: its error
     names that file, which a response must not."""
@@ -125,7 +129,7 @@ def test_a_rejected_anthropic_key_is_a_503_without_the_servers_env_path(
     def real_client() -> AnthropicClient:
         return AnthropicClient(
             "sk-ant-not-a-real-key",
-            key_source=str(env_file),
+            key_path=env_file,
             http_client=DefaultAsyncHttpxClient(transport=httpx2.MockTransport(reject)),
         )
 
@@ -138,6 +142,8 @@ def test_a_rejected_anthropic_key_is_a_503_without_the_servers_env_path(
     assert detail.startswith("ANTHROPIC_API_KEY ")
     assert str(tmp_path) not in detail
     assert "Key from" not in detail
+    # The server's own log names the file in full, as the CLI does.
+    assert f"\n  File: {env_file.absolute()} (not found)" in caplog.text
 
 
 def test_an_error_outside_a_route_is_a_structured_500(
@@ -299,10 +305,10 @@ def test_final_model_stopping_reason_controls_http_status(
 
 
 @pytest.mark.parametrize("reason", ["check", "attempt", "retry"])
-@pytest.mark.parametrize("stage_wrapped", [False, True])
+@pytest.mark.parametrize("in_a_stage", [False, True])
 def test_timeout_logging_names_reason_and_recorded_usage(
     reason: Literal["check", "attempt", "retry"],
-    stage_wrapped: bool,
+    in_a_stage: bool,
     caplog: pytest.LogCaptureFixture,
 ):
     """Exercise log/HTTP mapping; real deadline enforcement is tested separately."""
@@ -316,19 +322,14 @@ def test_timeout_logging_names_reason_and_recorded_usage(
             seconds=0.3,
         ),
     )
-    failure: Exception = timeout
-    if stage_wrapped:
-        stage_error = StageError("extract", str(timeout))
-        stage_error.__cause__ = timeout
-        stage_error.calls = calls
-        failure = stage_error
-    else:
-        timeout.calls = calls
+    timeout.calls = calls
+    if in_a_stage:
+        timeout.step = "extract"
 
     with caplog.at_level(logging.WARNING, logger="groundline.api"):
         with pytest.raises(HTTPException) as response:
             with common.check_failures():
-                raise failure
+                raise timeout
     assert response.value.status_code == 504
     records = [r for r in caplog.records if r.name == "groundline.api"]
     assert len(records) == 1
@@ -336,7 +337,7 @@ def test_timeout_logging_names_reason_and_recorded_usage(
     assert f"reason={reason}" in logged
     assert "Recorded cost before stopping:" in logged
     assert "12,345 input / 300 output tokens" in logged
-    if stage_wrapped:
+    if in_a_stage:
         assert "stage 'extract'" in logged
     for secret in (SECRET, API_KEY, PRIVATE):
         assert secret not in logged + str(response.value.detail)
