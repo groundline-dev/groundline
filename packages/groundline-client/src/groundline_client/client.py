@@ -1,9 +1,10 @@
 """The one object a developer creates to call a groundline deployment's API."""
 
+import math
 import os
 import warnings
 from types import TracebackType
-from typing import Self
+from typing import Any, Self
 
 import httpx2
 
@@ -20,7 +21,15 @@ from ._generated.models import (
     OmissionsRequest,
     OmissionsResponse,
 )
+from ._http import AsyncRetryingClient, RetryingClient
 from .errors import GroundlineConfigError
+
+# Retries and time limits (see the README). An attempt may take 150 s because the
+# server allows a check 120 s; the whole call, retries included, 180 s.
+DEFAULT_MAX_ATTEMPTS = 3
+DEFAULT_MAX_RETRY_SECONDS = 180.0
+DEFAULT_CONNECT_TIMEOUT_SECONDS = 5.0
+DEFAULT_TIMEOUT_SECONDS = 150.0
 
 URL_VARIABLE = "GROUNDLINE_API_URL"
 API_KEY_VARIABLE = "GROUNDLINE_API_KEY"
@@ -65,15 +74,45 @@ def _choose(
     return os.environ.get(variable, "").strip() or None
 
 
+def _option_problems(
+    max_attempts: Any,
+    max_retry_seconds: Any,
+    connect_timeout_seconds: Any,
+    timeout_seconds: Any,
+) -> list[str]:
+    """One message per bad retry or time-limit option. Never holds a value."""
+    problems: list[str] = []
+    if (
+        not isinstance(max_attempts, int)
+        or isinstance(max_attempts, bool)
+        or max_attempts < 1
+    ):
+        problems.append("max_attempts= must be a whole number of 1 or more.")
+    seconds = {
+        "max_retry_seconds": max_retry_seconds,
+        "connect_timeout_seconds": connect_timeout_seconds,
+        "timeout_seconds": timeout_seconds,
+    }
+    for name, value in seconds.items():
+        if (
+            not isinstance(value, (int, float))
+            or isinstance(value, bool)
+            or not math.isfinite(value)
+            or value <= 0
+        ):
+            problems.append(f"{name}= must be a number of seconds above 0.")
+    return problems
+
+
 def _resolve_url_and_api_key(
-    base_url: str | None, api_key: str | None
+    base_url: str | None, api_key: str | None, problems: list[str]
 ) -> tuple[str, str] | GroundlineConfigError:
     """The URL and API key to use, or the error to raise, saying which is wrong.
 
-    The error is returned, not raised, so the API key is no longer a local
+    `problems` holds what is already known to be wrong, and the error lists it
+    too. The error is returned, not raised, so the API key is no longer a local
     variable of any frame in its traceback.
     """
-    problems: list[str] = []
     chosen_url = _choose(base_url, URL_VARIABLE, "base_url", problems)
     chosen_api_key = _choose(api_key, API_KEY_VARIABLE, "api_key", problems)
     if chosen_url is None:
@@ -100,14 +139,47 @@ def _resolve_url_and_api_key(
 
 
 class _ApiKeyHidingClient(AuthenticatedClient):
-    """The generated client, whose `repr` would otherwise print the API key.
+    """The generated client, with retries and time limits and a `repr` hiding the key.
 
-    It shows the API key twice: as `token`, and in its headers after the first
-    call. Tools that dump a traceback's local variables call `repr` on it.
+    The generated client builds a plain `httpx2` client on first use; this one
+    builds the retrying ones from `_http.py` instead, with the same arguments.
+    Its `repr` would otherwise print the API key twice: as `token`, and in its
+    headers after the first call. Tools that dump a traceback's local variables
+    call `repr` on it.
     """
+
+    def __init__(self, *, limits: dict[str, Any], **arguments: Any) -> None:
+        super().__init__(**arguments)
+        self._limits = limits
 
     def __repr__(self) -> str:
         return f"AuthenticatedClient(base_url={self._base_url!r}, token=<hidden>)"
+
+    def _httpx_arguments(self) -> dict[str, Any]:
+        self._headers[self.auth_header_name] = (
+            f"{self.prefix} {self.token}" if self.prefix else self.token
+        )
+        return {
+            "base_url": self._base_url,
+            "cookies": self._cookies,
+            "headers": self._headers,
+            "timeout": self._timeout,
+            "verify": self._verify_ssl,
+            "follow_redirects": self._follow_redirects,
+            **self._httpx_args,
+        }
+
+    def get_httpx_client(self) -> httpx2.Client:
+        if self._client is None:
+            self._client = RetryingClient(**self._limits, **self._httpx_arguments())
+        return self._client
+
+    def get_async_httpx_client(self) -> httpx2.AsyncClient:
+        if self._async_client is None:
+            self._async_client = AsyncRetryingClient(
+                **self._limits, **self._httpx_arguments()
+            )
+        return self._async_client
 
 
 class GroundlineClient:
@@ -118,14 +190,33 @@ class GroundlineClient:
     over its variable. A missing, blank or unusable value raises
     `GroundlineConfigError` here, before any request is made.
 
+    A temporary failure (a 408, 429, 502, 503 or 504 answer, a timeout or a
+    connection error) is retried with a growing, randomised wait, honoring a
+    `Retry-After` header. `max_attempts` counts the first request, so 1 turns
+    retries off. `max_retry_seconds` limits the whole call, retries included, and
+    `timeout_seconds` one attempt; `connect_timeout_seconds` limits setting up the
+    connection. Retrying a check can repeat paid model work.
+
     Each operation has a sync method and an `_async` one. Use the client in a
     `with` block (or `async with`) to close its connections when you are done.
     An error answer comes back as the parsed error body, and an answer the API
     doesn't document comes back as None.
     """
 
-    def __init__(self, base_url: str | None = None, api_key: str | None = None) -> None:
-        outcome = _resolve_url_and_api_key(base_url, api_key)
+    def __init__(
+        self,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        *,
+        max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+        max_retry_seconds: float = DEFAULT_MAX_RETRY_SECONDS,
+        connect_timeout_seconds: float = DEFAULT_CONNECT_TIMEOUT_SECONDS,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+    ) -> None:
+        problems = _option_problems(
+            max_attempts, max_retry_seconds, connect_timeout_seconds, timeout_seconds
+        )
+        outcome = _resolve_url_and_api_key(base_url, api_key, problems)
         # Tools that print a traceback's local variables would show the API key
         # in this frame, so drop the argument before raising.
         del api_key
@@ -133,7 +224,14 @@ class GroundlineClient:
             raise outcome
         self._base_url, resolved_api_key = outcome
         self._client = _ApiKeyHidingClient(
-            base_url=self._base_url, token=resolved_api_key
+            base_url=self._base_url,
+            token=resolved_api_key,
+            limits={
+                "max_attempts": max_attempts,
+                "max_retry_seconds": max_retry_seconds,
+                "timeout_seconds": timeout_seconds,
+                "connect_timeout_seconds": connect_timeout_seconds,
+            },
         )
 
     def __repr__(self) -> str:

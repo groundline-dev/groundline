@@ -1,7 +1,8 @@
 """A fake groundline API on a local port, for the client's tests (ALL-156).
 
 The fake answers each route with the example from openapi.json, records every
-request it receives, and can be told to answer a route differently. No test
+request it receives, and can be told to answer a route differently, to answer
+the next requests from a script (ALL-157), or to never answer one. No test
 reaches the real API.
 """
 
@@ -23,6 +24,15 @@ API_KEY_VARIABLE = "GROUNDLINE_API_KEY"
 
 
 @dataclass(frozen=True)
+class Step:
+    """One scripted answer: a status, a JSON body and optional response headers."""
+
+    status: int
+    body: Any
+    headers: dict[str, str] | None = None
+
+
+@dataclass(frozen=True)
 class RecordedRequest:
     method: str
     path: str
@@ -38,20 +48,40 @@ class FakeServer:
             for name, schema in SPEC["components"]["schemas"].items()
             if "examples" in schema
         }
-        self._replies: dict[tuple[str, str], tuple[int, Any]] = {
-            ("POST", "/v1/omissions"): (200, examples["OmissionsResponse"]),
-            ("POST", "/v1/commissions"): (200, examples["CommissionsResponse"]),
-            ("GET", "/health"): (200, PROBE_REPLY),
-            ("GET", "/ready"): (200, PROBE_REPLY),
+        self._replies: dict[tuple[str, str], Step] = {
+            ("POST", "/v1/omissions"): Step(200, examples["OmissionsResponse"]),
+            ("POST", "/v1/commissions"): Step(200, examples["CommissionsResponse"]),
+            ("GET", "/health"): Step(200, PROBE_REPLY),
+            ("GET", "/ready"): Step(200, PROBE_REPLY),
         }
+        # Scripted answers are used first, one per request, then the route's
+        # usual reply. A route in `_hung` never answers.
+        self._scripts: dict[tuple[str, str], list[Step]] = {}
+        self._hung: set[tuple[str, str]] = set()
+        self.release = threading.Event()  # set at teardown, so hung requests end
         self.examples = examples
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), self._handler())
         self._server.daemon_threads = True
         self.url = f"http://127.0.0.1:{self._server.server_port}"
 
-    def reply(self, method: str, path: str, status: int, body: Any) -> None:
+    def reply(
+        self,
+        method: str,
+        path: str,
+        status: int,
+        body: Any,
+        headers: dict[str, str] | None = None,
+    ) -> None:
         """Answer this route with this status and JSON body from now on."""
-        self._replies[(method, path)] = (status, body)
+        self._replies[(method, path)] = Step(status, body, headers)
+
+    def script(self, method: str, path: str, steps: list[Step]) -> None:
+        """Answer the next requests to this route with these steps, in order."""
+        self._scripts[(method, path)] = list(steps)
+
+    def hang(self, method: str, path: str) -> None:
+        """Accept requests to this route and never answer them."""
+        self._hung.add((method, path))
 
     def _handler(self) -> type[BaseHTTPRequestHandler]:
         fake = self
@@ -68,12 +98,25 @@ class FakeServer:
                         body=json.loads(raw) if raw else None,
                     )
                 )
-                status, body = fake._replies.get(
-                    (self.command, self.path), (404, {"detail": "no such route"})
+                route = (self.command, self.path)
+                if route in fake._hung:
+                    # Long enough for any limit a test sets; short enough that a
+                    # client without a limit fails the test instead of hanging it.
+                    fake.release.wait(timeout=5)
+                    return
+                scripted = fake._scripts.get(route)
+                step = (
+                    scripted.pop(0)
+                    if scripted
+                    else fake._replies.get(
+                        route, Step(404, {"detail": "no such route"})
+                    )
                 )
-                payload = json.dumps(body).encode()
-                self.send_response(status)
+                payload = json.dumps(step.body).encode()
+                self.send_response(step.status)
                 self.send_header("Content-Type", "application/json")
+                for name, value in (step.headers or {}).items():
+                    self.send_header(name, value)
                 self.send_header("Content-Length", str(len(payload)))
                 self.end_headers()
                 self.wfile.write(payload)
@@ -97,6 +140,7 @@ def fake_server() -> Iterator[FakeServer]:
     )
     thread.start()
     yield server
+    server.release.set()
     server._server.shutdown()  # pyright: ignore[reportPrivateUsage]
     server._server.server_close()  # pyright: ignore[reportPrivateUsage]
 
