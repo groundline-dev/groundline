@@ -159,3 +159,13 @@ _Avoid_: test server, dev server, staging (a staging deployment serves callers a
 **Access mode**:
 Who may access a deployment's application: restricted limits callers to the developer's public IP address; unrestricted allows callers without an IP restriction.
 _Avoid_: deployment mode, network mode
+
+## Calling groundline
+
+**SDK**:
+The separate package a developer installs to call a deployment's API from their own code. It is built from the API's description, so it can't disagree with the API.
+_Avoid_: library (that is `groundline-core`, which runs checks in-process), API client, wrapper
+
+**Client**:
+The one object a developer creates to use the SDK, given a deployment's address and an API key. `groundline-client` is only the SDK's package name; it is not a **Client**.
+_Avoid_: connection, session, wrapper

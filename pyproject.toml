@@ -50,6 +50,7 @@ build-backend = "uv_build"
 # plain `uv sync` still sets up everything for development.
 dev = [
     "groundline-core[server,cli]",
+    "groundline-client",
     "pre-commit>=4.7.0",
     "jsonschema>=4.26.0",
     "pyright>=1.1.414",
@@ -60,15 +61,37 @@ dev = [
     "openapi-spec-validator>=0.9.0",
 ]
 
+[tool.uv.workspace]
+# The SDK, and later the DeepEval package, live under packages/.
+members = ["packages/*"]
+
+[tool.uv.sources]
+groundline-client = { workspace = true }
+
 [tool.uv]
 # The uv versions allowed for local development, CI (setup-uv reads this setting)
 # and the Dockerfile's build image. Pinned to one minor so all three resolve, lock
 # and build the same way: a new uv minor can change how it resolves or writes uv.lock.
 required-version = ">=0.13.7,<0.14"
 
+# Pre-commit hands ruff file names, and ruff skips an excluded file named that
+# way only with this on.
+[tool.ruff]
+force-exclude = true
+
+# The SDK's generated code is the generator's to format; make generate-sdk
+# rebuilds it, and make sdk-check fails if the committed copy differs.
+[tool.ruff.format]
+exclude = ["packages/*/src/*/_generated/**"]
+
 [tool.ruff.lint]
 # pycodestyle errors and warnings, pyflakes, and import sorting.
 select = ["E", "W", "F", "I"]
+
+# In generated code only pyflakes (unused imports, undefined names) can find a
+# real mistake. Line length and import order are the generator's choice.
+[tool.ruff.lint.per-file-ignores]
+"packages/*/src/*/_generated/**" = ["E", "W", "I"]
 
 [tool.fastapi]
 entrypoint = "groundline_core.app:app"

@@ -1,0 +1,7 @@
+# Settings for openapi-python-client (see scripts/generate-sdk).
+# The generator formats its own output with ruff's default settings, not the
+# repo's: this folder is excluded from the repo's formatting rules. No cache,
+# or the built wheel would hold ruff's cache folder.
+post_hooks:
+  - "ruff check . --isolated --no-cache --select F,I --fix-only"
+  - "ruff format . --isolated --no-cache"

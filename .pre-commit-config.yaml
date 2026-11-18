@@ -51,3 +51,10 @@ repos:
         language: system
         types_or: [python, pyi]
         pass_filenames: false
+      - id: pyright-sdk
+        name: pyright (SDK)
+        entry: uv run pyright -p packages/groundline-client
+        language: system
+        files: ^packages/groundline-client/
+        types_or: [python, pyi]
+        pass_filenames: false
