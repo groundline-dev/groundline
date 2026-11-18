@@ -9,6 +9,13 @@ from conftest import API_KEY_VARIABLE, URL_VARIABLE, FakeServer
 PUBLIC_NAMES = [
     "GroundlineClient",
     "GroundlineConfigError",
+    "GroundlineError",
+    "AuthenticationError",
+    "RateLimitError",
+    "InvalidRequestError",
+    "RequestTooLargeError",
+    "ServerUnavailableError",
+    "GroundlineTimeoutError",
     "OmissionsRequest",
     "OmissionsResponse",
     "CommissionsRequest",

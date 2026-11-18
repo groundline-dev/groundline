@@ -7,7 +7,6 @@ import pkgutil
 from typing import Any
 
 import groundline_client as sdk
-import httpx2
 import pytest
 from conftest import PROBE_REPLY, FakeServer
 
@@ -94,41 +93,21 @@ def test_every_call_sends_the_api_key_as_a_bearer_token(
 
 
 @pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
-def test_an_error_answer_comes_back_as_a_parsed_error_body(
+def test_an_error_answer_raises_instead_of_returning_the_error_body(
     is_async: bool, fake_server: FakeServer, api_key: str
 ):
     fake_server.reply("POST", "/v1/omissions", 401, {"detail": "Invalid API key."})
     client: Any = sdk.GroundlineClient(base_url=fake_server.url, api_key=api_key)
 
-    result = call(
-        client,
-        "evaluate_omissions",
-        request_for(fake_server, "OmissionsRequest"),
-        is_async=is_async,
-    )
+    with pytest.raises(sdk.AuthenticationError) as raised:
+        call(
+            client,
+            "evaluate_omissions",
+            request_for(fake_server, "OmissionsRequest"),
+            is_async=is_async,
+        )
 
-    assert isinstance(result, sdk.ErrorBody)
-    assert result.detail == "Invalid API key."
-
-
-def test_an_undocumented_status_comes_back_as_none(
-    fake_server: FakeServer, api_key: str
-):
-    fake_server.reply("GET", "/health", 418, {"detail": "teapot"})
-    client: Any = sdk.GroundlineClient(base_url=fake_server.url, api_key=api_key)
-
-    assert client.health() is None
-
-
-def test_a_server_that_is_not_listening_raises_a_connection_error(
-    api_key: str, closed_port: int
-):
-    client: Any = sdk.GroundlineClient(
-        base_url=f"http://127.0.0.1:{closed_port}", api_key=api_key
-    )
-
-    with pytest.raises(httpx2.ConnectError):
-        client.health()
+    assert raised.value.detail == "Invalid API key."
 
 
 # The generated operations whose client method has a different name.

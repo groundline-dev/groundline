@@ -3,6 +3,7 @@
 import math
 import os
 import warnings
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 from types import TracebackType
 from typing import Any, Self
@@ -15,15 +16,13 @@ from ._generated.client import AuthenticatedClient
 from ._generated.models import (
     CommissionsRequest,
     CommissionsResponse,
-    ErrorBody,
     GetHealthResponseGetHealth,
     GetReadyResponseGetReady,
-    InvalidRequestBody,
     OmissionsRequest,
     OmissionsResponse,
 )
-from ._http import AsyncRetryingClient, Limits, RetryingClient
-from .errors import GroundlineConfigError
+from ._http import AsyncErrorRaisingClient, ErrorRaisingClient, Limits
+from .errors import GroundlineConfigError, GroundlineError
 
 # Retries and time limits (see the README). An attempt may take 150 s because the
 # server allows a check 120 s; the whole call, retries included, 180 s.
@@ -73,6 +72,45 @@ def _choose(
         )
         return None
     return os.environ.get(variable, "").strip() or None
+
+
+# What the generated code raises when a 2xx body isn't what it expects.
+_UNREADABLE = (ValueError, KeyError, TypeError, AttributeError)
+_UNREADABLE_ANSWER = "The API's answer was not in the expected form."
+
+
+def _expect[Result](result: object, model: type[Result]) -> Result:
+    """`result`, if the generated code parsed it as `model`; else an error.
+
+    By now the answer was a 2xx. The generated code returns None for a 2xx it
+    doesn't document, such as a 202.
+    """
+    if not isinstance(result, model):
+        raise GroundlineError(_UNREADABLE_ANSWER)
+    return result
+
+
+def _call[Result](
+    operation: Callable[..., object], model: type[Result], **arguments: Any
+) -> Result:
+    try:
+        result = operation(**arguments)
+    except _UNREADABLE:
+        # Raised below, outside this block, so the error has no `__context__`.
+        result = None
+    return _expect(result, model)
+
+
+async def _call_async[Result](
+    operation: Callable[..., Awaitable[object]],
+    model: type[Result],
+    **arguments: Any,
+) -> Result:
+    try:
+        result = await operation(**arguments)
+    except _UNREADABLE:
+        result = None
+    return _expect(result, model)
 
 
 def _is_positive_finite_number(value: Any) -> bool:
@@ -176,14 +214,14 @@ class _ApiKeyHidingClient(AuthenticatedClient):
 
     def get_httpx_client(self) -> httpx2.Client:
         if self._client is None:
-            self._client = RetryingClient(
+            self._client = ErrorRaisingClient(
                 **asdict(self._limits), **self._httpx_arguments()
             )
         return self._client
 
     def get_async_httpx_client(self) -> httpx2.AsyncClient:
         if self._async_client is None:
-            self._async_client = AsyncRetryingClient(
+            self._async_client = AsyncErrorRaisingClient(
                 **asdict(self._limits), **self._httpx_arguments()
             )
         return self._async_client
@@ -206,8 +244,10 @@ class GroundlineClient:
 
     Each operation has a sync method and an `_async` one. Use the client in a
     `with` block (or `async with`) to close its connections when you are done.
-    An error answer comes back as the parsed error body, and an answer the API
-    doesn't document comes back as None.
+    A method returns the parsed result, and raises a `GroundlineError` (or one of
+    its subclasses, see `errors.py`) for an error answer, a timeout, a
+    connection failure, or an answer it can't read. A flagged summary is a
+    result, not an error.
     """
 
     def __init__(
@@ -282,42 +322,59 @@ class GroundlineClient:
             if self._client._client is not None:  # pyright: ignore[reportPrivateUsage]
                 self._client.__exit__(exc_type, exc, traceback)
 
-    def evaluate_omissions(
-        self, body: OmissionsRequest
-    ) -> ErrorBody | InvalidRequestBody | OmissionsResponse | None:
+    def evaluate_omissions(self, body: OmissionsRequest) -> OmissionsResponse:
         """Find the facts a summary leaves out (`POST /v1/omissions`)."""
-        return evaluate_omissions.sync(client=self._client, body=body)
+        return _call(
+            evaluate_omissions.sync, OmissionsResponse, client=self._client, body=body
+        )
 
     async def evaluate_omissions_async(
         self, body: OmissionsRequest
-    ) -> ErrorBody | InvalidRequestBody | OmissionsResponse | None:
+    ) -> OmissionsResponse:
         """Find the facts a summary leaves out (`POST /v1/omissions`)."""
-        return await evaluate_omissions.asyncio(client=self._client, body=body)
+        return await _call_async(
+            evaluate_omissions.asyncio,
+            OmissionsResponse,
+            client=self._client,
+            body=body,
+        )
 
-    def evaluate_commissions(
-        self, body: CommissionsRequest
-    ) -> ErrorBody | InvalidRequestBody | CommissionsResponse | None:
+    def evaluate_commissions(self, body: CommissionsRequest) -> CommissionsResponse:
         """Find the claims the source doesn't support (`POST /v1/commissions`)."""
-        return evaluate_commissions.sync(client=self._client, body=body)
+        return _call(
+            evaluate_commissions.sync,
+            CommissionsResponse,
+            client=self._client,
+            body=body,
+        )
 
     async def evaluate_commissions_async(
         self, body: CommissionsRequest
-    ) -> ErrorBody | InvalidRequestBody | CommissionsResponse | None:
+    ) -> CommissionsResponse:
         """Find the claims the source doesn't support (`POST /v1/commissions`)."""
-        return await evaluate_commissions.asyncio(client=self._client, body=body)
+        return await _call_async(
+            evaluate_commissions.asyncio,
+            CommissionsResponse,
+            client=self._client,
+            body=body,
+        )
 
-    def health(self) -> ErrorBody | GetHealthResponseGetHealth | None:
+    def health(self) -> GetHealthResponseGetHealth:
         """Whether the app is running (`GET /health`)."""
-        return get_health.sync(client=self._client)
+        return _call(get_health.sync, GetHealthResponseGetHealth, client=self._client)
 
-    async def health_async(self) -> ErrorBody | GetHealthResponseGetHealth | None:
+    async def health_async(self) -> GetHealthResponseGetHealth:
         """Whether the app is running (`GET /health`)."""
-        return await get_health.asyncio(client=self._client)
+        return await _call_async(
+            get_health.asyncio, GetHealthResponseGetHealth, client=self._client
+        )
 
-    def ready(self) -> ErrorBody | GetReadyResponseGetReady | None:
+    def ready(self) -> GetReadyResponseGetReady:
         """Whether the app can serve checks (`GET /ready`)."""
-        return get_ready.sync(client=self._client)
+        return _call(get_ready.sync, GetReadyResponseGetReady, client=self._client)
 
-    async def ready_async(self) -> ErrorBody | GetReadyResponseGetReady | None:
+    async def ready_async(self) -> GetReadyResponseGetReady:
         """Whether the app can serve checks (`GET /ready`)."""
-        return await get_ready.asyncio(client=self._client)
+        return await _call_async(
+            get_ready.asyncio, GetReadyResponseGetReady, client=self._client
+        )

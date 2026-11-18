@@ -93,7 +93,8 @@ def test_logs_at_debug_level_never_contain_the_key(
     client.health()
     asyncio.run(client.ready_async())
     fake_server.reply("GET", "/health", 500, {"detail": "boom"})
-    client.health()
+    with pytest.raises(sdk.ServerUnavailableError):
+        client.health()
 
     assert api_key not in caplog.text
 

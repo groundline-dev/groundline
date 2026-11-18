@@ -5,6 +5,13 @@ the environment, redirects and connection reuse work as they do in a plain
 `httpx2` client. The rules are in `_retry.py`; the options are the ones
 `GroundlineClient` takes. `clock`, `sleep` and `random` can be replaced so the
 tests don't wait for real.
+
+`ErrorRaisingClient` and its async twin wrap those two and turn every answer
+that isn't a success, and every failure to get an answer, into the SDK's error
+(`_error_mapping.py`), after the retries have run out. The generated code then
+only ever sees a 2xx. The error is raised outside any `except` block, so it
+has no `__context__`: the `httpx2` error it replaces carries the request, and
+the request's headers hold the API key.
 """
 
 import asyncio
@@ -17,6 +24,7 @@ from typing import Any
 
 import httpx2
 
+from ._error_mapping import error_for_failure, error_for_status
 from ._retry import (
     is_retryable_error,
     is_retryable_status,
@@ -239,3 +247,64 @@ class AsyncRetryingClient(httpx2.AsyncClient):
             call.log_retry(wait, status=response.status_code, error=None)
             await response.aclose()
             await self._sleep(wait)
+
+
+class ErrorRaisingClient(RetryingClient):
+    """A `RetryingClient` that raises the SDK's error for a final failure."""
+
+    def send(
+        self,
+        request: httpx2.Request,
+        *,
+        stream: bool = False,
+        auth: Any = httpx2.USE_CLIENT_DEFAULT,
+        follow_redirects: Any = httpx2.USE_CLIENT_DEFAULT,
+    ) -> httpx2.Response:
+        try:
+            response = super().send(
+                request, stream=stream, auth=auth, follow_redirects=follow_redirects
+            )
+        except Exception as caught:
+            failure = error_for_failure(caught)
+            if failure is None:
+                raise
+        else:
+            response.read()
+            if response.is_success:
+                return response
+            failure = error_for_status(
+                response.status_code, response.headers, response.content
+            )
+            response.close()
+        # Outside the `except` block, so the error has no `__context__`.
+        raise failure
+
+
+class AsyncErrorRaisingClient(AsyncRetryingClient):
+    """An `AsyncRetryingClient` that raises the SDK's error for a final failure."""
+
+    async def send(
+        self,
+        request: httpx2.Request,
+        *,
+        stream: bool = False,
+        auth: Any = httpx2.USE_CLIENT_DEFAULT,
+        follow_redirects: Any = httpx2.USE_CLIENT_DEFAULT,
+    ) -> httpx2.Response:
+        try:
+            response = await super().send(
+                request, stream=stream, auth=auth, follow_redirects=follow_redirects
+            )
+        except Exception as caught:
+            failure = error_for_failure(caught)
+            if failure is None:
+                raise
+        else:
+            await response.aread()
+            if response.is_success:
+                return response
+            failure = error_for_status(
+                response.status_code, response.headers, response.content
+            )
+            await response.aclose()
+        raise failure
