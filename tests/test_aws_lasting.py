@@ -11,6 +11,8 @@ import json
 from pathlib import Path
 from typing import Any
 
+import pytest
+
 from tests import aws_fakes
 from tests.test_aws_access_modes import checkout, invoke, stub_children
 
@@ -182,7 +184,9 @@ def test_a_disposable_deployment_warns_when_a_lasting_one_shares_its_project(
 
 def test_an_upgrade_takes_a_snapshot_first_and_keeps_only_the_newest(checkout: Path):
     lasting(checkout)
-    world = aws_fakes.new_world(outputs=RUNNING, snapshots=["snap-old"])
+    world = aws_fakes.new_world(
+        outputs=RUNNING, snapshots=["snap-old"], newer_commit=True
+    )
 
     result, world = invoke(checkout, "aws-deploy", world)
 
@@ -194,10 +198,13 @@ def test_an_upgrade_takes_a_snapshot_first_and_keeps_only_the_newest(checkout: P
     # Before the upgrade's migrations run.
     order = [" ".join(call) for call in world["calls"]]
     snapshot_at = next(i for i, c in enumerate(order) if "create-snapshot" in c)
+    waited_at = next(i for i, c in enumerate(order) if "wait snapshot-completed" in c)
+    deleted_at = next(i for i, c in enumerate(order) if "delete-snapshot" in c)
     upgrade_at = next(
         i for i, c in enumerate(order) if "send-command" in c and "server/apply" in c
     )
-    assert snapshot_at < upgrade_at
+    # The older snapshot goes only once the new one is complete.
+    assert snapshot_at < waited_at < deleted_at < upgrade_at
     # A lasting deployment's data volume never goes with its server.
     [marked] = calls(world, "ec2", "modify-instance-attribute")
     assert '"DeleteOnTermination":false' in " ".join(marked)
@@ -217,12 +224,113 @@ def test_a_disposable_upgrade_takes_no_snapshot(checkout: Path):
 
 def test_a_failed_snapshot_stops_the_upgrade(checkout: Path):
     lasting(checkout)
-    world = aws_fakes.new_world(outputs=RUNNING, data_outputs={"volume_id": ""})
+    world = aws_fakes.new_world(
+        outputs=RUNNING, data_outputs={"volume_id": ""}, newer_commit=True
+    )
 
     result, world = invoke(checkout, "aws-deploy", world)
 
     assert result.returncode != 0
     assert not any("server/apply" in c["script"] for c in world["commands"])
+
+
+def test_a_snapshot_that_doesnt_complete_keeps_the_older_one_and_stops(
+    checkout: Path,
+):
+    lasting(checkout)
+    world = aws_fakes.new_world(
+        outputs=RUNNING, snapshots=["snap-old"], newer_commit=True, snapshot_fails=True
+    )
+
+    result, world = invoke(checkout, "aws-deploy", world)
+
+    assert result.returncode != 0
+    assert "didn't complete, so the server wasn't upgraded" in result.stderr
+    assert "snap-old" in world["snapshots"]
+    assert not calls(world, "ec2", "delete-snapshot")
+    assert not any("server/apply" in c["script"] for c in world["commands"])
+
+
+def test_the_same_commit_keeps_the_snapshot(checkout: Path):
+    # A settings change or a retry: the server already runs this commit, and
+    # its data may already be migrated.
+    lasting(checkout)
+    world = aws_fakes.new_world(
+        outputs=RUNNING, snapshots=["snap-old"], server_commit="a" * 40
+    )
+
+    result, world = invoke(checkout, "aws-deploy", world)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not calls(world, "ec2", "create-snapshot")
+    assert world["snapshots"] == ["snap-old"]
+    assert "the server already runs aaaaaaa, so its pre-upgrade snapshot is kept" in (
+        result.stdout
+    )
+    assert any("server/apply" in c["script"] for c in world["commands"])
+
+
+def test_a_rollback_keeps_the_snapshot_from_before_the_newer_commit(checkout: Path):
+    # The fake git says the deployed commit is older than the server's.
+    lasting(checkout)
+    world = aws_fakes.new_world(
+        outputs=RUNNING, snapshots=["snap-old"], server_commit="b" * 40
+    )
+
+    result, world = invoke(checkout, "aws-deploy", world)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert not calls(world, "ec2", "create-snapshot")
+    assert world["snapshots"] == ["snap-old"]
+    assert "this rolls back from bbbbbbb" in result.stdout
+
+
+def test_an_upgrade_stops_if_the_server_cant_say_what_it_runs(checkout: Path):
+    lasting(checkout)
+    world = aws_fakes.new_world(
+        outputs=RUNNING,
+        snapshots=["snap-old"],
+        newer_commit=True,
+        ssm_replies=[{"when": "rev-parse HEAD", "status": "Failed", "stdout": ""}],
+    )
+
+    result, world = invoke(checkout, "aws-deploy", world)
+
+    assert result.returncode != 0
+    assert "couldn't ask the server which commit it runs" in result.stderr
+    assert not calls(world, "ec2", "create-snapshot")
+    assert not any("server/apply" in c["script"] for c in world["commands"])
+
+
+@pytest.mark.parametrize(
+    ("running", "newer", "says"),
+    [
+        ("a" * 40, False, "It already runs aaaaaaa, so no snapshot is taken."),
+        ("b" * 40, False, "back from bbbbbbb to aaaaaaa, keeping the snapshot"),
+        ("b" * 40, True, "from bbbbbbb to aaaaaaa, after a snapshot of its data"),
+    ],
+)
+def test_aws_up_says_whether_an_upgrade_takes_a_snapshot(
+    checkout: Path, running: str, newer: bool, says: str
+):
+    lasting(checkout)
+    stub_children(checkout)
+    world = aws_fakes.new_world(
+        outputs=dict(
+            RUNNING,
+            git_ref=running,
+            repository_url="https://example.com/repo.git",
+            access_mode="unrestricted",
+        ),
+        existing={"i-test": "running"},
+        newer_commit=newer,
+    )
+
+    # Project, don't keep the server, keep the stored key; main is the only code.
+    result, _ = invoke(checkout, "aws-up", world, "\nn\n\n")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert says in result.stdout
 
 
 def test_a_lasting_deployment_runs_main_unless_you_type_its_name(checkout: Path):

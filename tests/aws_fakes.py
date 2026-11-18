@@ -36,7 +36,10 @@ They answer only the calls the scripts make, the way the real tools answer:
   {"name": ..., "lifetime": ...}, as servers with those tags.
 - `aws ec2 create-snapshot` adds to `snapshots` (the ids of the deployment's
   pre-upgrade snapshots), `describe-snapshots` lists them and
-  `delete-snapshot` removes one.
+  `delete-snapshot` removes one. `aws ec2 wait snapshot-completed` succeeds,
+  or fails when `snapshot_fails` is set.
+- An SSM command asking the server which commit it runs (`rev-parse HEAD`)
+  gets `server_commit`, by default a commit the checkout doesn't know.
 - With `error` set, every aws call fails with that error code, as with an
   expired sign-in.
 
@@ -398,6 +401,10 @@ def _reply(
             return {"SnapshotId": snapshot_id, "VolumeId": options.get("--volume-id")}
         case ("ec2", "describe-snapshots"):
             return {"Snapshots": [{"SnapshotId": i} for i in world["snapshots"]]}
+        case ("ec2", "wait"):
+            if world.get("snapshot_fails"):
+                raise AWSError("Waiter SnapshotCompleted failed", "DescribeSnapshots")
+            return ""
         case ("ec2", "delete-snapshot"):
             world["snapshots"].remove(options.get("--snapshot-id"))
             return {}
@@ -464,6 +471,8 @@ def _invocation(world: dict[str, Any], command_id: str | None) -> tuple[str, str
     for reply in replies:
         if reply["when"] in command["script"]:
             return reply.get("status", "Success"), reply.get("stdout", "")
+    if "rev-parse HEAD" in command["script"]:
+        return "Success", world.get("server_commit", "c" * 40) + "\n"
     # An upgrade reports the commit it checked out, as infra/server/apply does.
     upgrade = re.search(
         r"git checkout --quiet --detach '([0-9a-f]+)'", command["script"]

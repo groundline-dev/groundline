@@ -66,6 +66,12 @@ broken = json.loads(os.environ['BROKEN'])
 w['outputs']['git_ref'] = subprocess.check_output(
     ['git', 'rev-parse', os.environ['REF']], text=True).strip()
 w['outputs'].update(broken.get('outputs', {}))
+# A lasting upgrade to a newer commit replaces the pre-upgrade snapshot; a
+# rollback keeps it.
+if not broken.get('rollback'):
+    w['snapshots'] = ['snap-new']
+if 'snapshots_after' in broken:
+    w['snapshots'] = broken['snapshots_after']
 w['deployed'] = True
 p.write_text(json.dumps(w))
 """,
@@ -89,7 +95,12 @@ else:
     print(200, end='')
 """,
         "bin/sleep": "raise SystemExit(0)\n",
-        "bin/git": f"print('{COMMIT}')\n",
+        # merge-base --is-ancestor says whether REF is older than the server's.
+        "bin/git": f"""import json, os, sys
+if sys.argv[1] == 'merge-base':
+    raise SystemExit(0 if json.loads(os.environ['BROKEN']).get('rollback') else 1)
+print('{COMMIT}')
+""",
     }.items():
         path = tmp_path / name
         path.write_text(f"#!{sys.executable}\n" + source)
@@ -125,11 +136,20 @@ def test_an_upgrade_that_keeps_everything_passes(tmp_path: Path):
     assert revoked(world)
 
 
-def test_a_lasting_upgrade_checks_one_snapshot_is_kept(tmp_path: Path):
+def test_a_lasting_upgrade_checks_the_snapshot_was_replaced(tmp_path: Path):
     result, _ = run(tmp_path, lifetime="lasting")
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "kept one pre-upgrade snapshot" in result.stdout
+    assert (
+        "replaced the pre-upgrade snapshot with a new one (snap-new)" in result.stdout
+    )
+
+
+def test_a_lasting_rollback_checks_the_snapshot_was_kept(tmp_path: Path):
+    result, _ = run(tmp_path, lifetime="lasting", rollback=True)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "the rollback kept the pre-upgrade snapshot (snap-1)" in result.stdout
 
 
 @pytest.mark.parametrize(
@@ -143,7 +163,15 @@ def test_a_lasting_upgrade_checks_one_snapshot_is_kept(tmp_path: Path):
             {"source_limit": 1000, "settings": {}},
             "not the 200000 app_settings asks for",
         ),
-        ({"snapshots": ["snap-1", "snap-2"], "lasting": True}, "not 1"),
+        ({"snapshots_after": ["snap-1"], "lasting": True}, "one new pre-upgrade"),
+        (
+            {"snapshots_after": ["snap-1", "snap-new"], "lasting": True},
+            "one new pre-upgrade",
+        ),
+        (
+            {"snapshots_after": [], "rollback": True, "lasting": True},
+            "the rollback changed the pre-upgrade snapshots",
+        ),
     ],
 )
 def test_an_upgrade_that_loses_something_fails_and_revokes_the_key(

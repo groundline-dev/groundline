@@ -152,7 +152,7 @@ git worktree add ../groundline-staging   # then make aws-up there, choosing last
 
 **Who can manage it.** Terraform's state is in the folder that made the deployment (`infra/terraform.tfstate.d/` and `infra/data/terraform.tfstate.d/`), next to `infra/terraform.tfvars`. Only that folder can upgrade or delete the deployment. To hand it to someone else, copy those three to their checkout of the repository, and stop using yours. If the folder is lost, the deployment keeps running and its data stays safe in AWS, but the scripts can't manage it any more. Keep a copy of those files somewhere safe.
 
-**Its data.** The data volume holds the database, with every API key, the HTTPS certificate and the database passwords. Each upgrade first takes a snapshot of it, and only the newest is kept, as a way back from one upgrade ([Upgrading](#upgrading)). There's no backup beyond that: if the data volume is lost, every API key has to be issued again.
+**Its data.** The data volume holds the database, with every API key, the HTTPS certificate and the database passwords. Each upgrade to a newer commit first takes a snapshot of it, and only the newest is kept, as a way back from one upgrade ([Upgrading](#upgrading)). There's no backup beyond that: if the data volume is lost, every API key has to be issued again.
 
 ### Budgets
 
@@ -223,9 +223,9 @@ A new server takes about 5 to 10 minutes to build the image and start.
 
 Deploying another commit to a running server upgrades it in place, over SSM. The server checks out the commit, rewrites its `.env` (reading the Anthropic API key again), rebuilds the image, restarts what changed, runs any database migrations and reloads Caddy. It keeps its data, API keys, address and HTTPS certificate. An upgrade takes a few minutes, during which the API may not answer; if the image doesn't build, the old version keeps running. `make aws-deploy` checks that the server reports running the new commit.
 
-On a lasting deployment, each upgrade first takes a snapshot of the data volume, tagged `groundline-pre-upgrade`, and deletes the older one. The plan says which commit the server moves to.
+On a lasting deployment, each upgrade to a newer commit first takes a snapshot of the data volume, tagged `groundline-pre-upgrade`, waits for it to complete, then deletes the older one. A run that doesn't move to a newer commit keeps the snapshot it has: one that changes only settings, a retry of an upgrade that failed after checking out the commit, and a rollback, since its snapshot of the data from before the newer commit is the one to restore. `make aws-deploy` asks the server which commit it runs to tell these apart. The plan says which commit the server moves to.
 
-**Rolling back.** To go back to an earlier commit, deploy it: `REF=<commit> make aws-deploy`. The plan warns that it's older than the running commit. If the newer commit ran a database migration the older one doesn't understand, restore the pre-upgrade snapshot first:
+**Rolling back.** To go back to an earlier commit, deploy it: `REF=<commit> make aws-deploy`. The plan warns that it's older than the running commit, and the rollback keeps the pre-upgrade snapshot. If the newer commit ran a database migration the older one doesn't understand, restore that snapshot first:
 
 1. In the EC2 console, create a volume from the snapshot, in the data volume's Availability Zone (`terraform -chdir=infra/data output -raw availability_zone`).
 2. Run `make aws-destroy`, which keeps a lasting deployment's data volume.
@@ -303,7 +303,7 @@ Both smoke tests check only that the server is set up correctly and, for `make a
 - it runs `REF`,
 - the API key made before the upgrade still gets past auth (422 on an empty request),
 - it uses the source length limit `app_settings` asks for,
-- for a lasting deployment, exactly one pre-upgrade snapshot is kept.
+- for a lasting deployment, an upgrade to a newer commit replaced the pre-upgrade snapshot with one new one, and a rollback kept the one it had.
 
 `REF` has to differ from the running commit, be on GitHub, and include data volume support. It revokes the API key even when a check fails, and leaves the server running `REF`. It doesn't call the model.
 

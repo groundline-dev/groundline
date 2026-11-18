@@ -330,8 +330,11 @@ fi
 export REF REF_NAME
 answer_ok "step 1 done: deployment $name in $project, running ${REF:0:7}${REF_NAME:+ ($REF_NAME)}"
 if [ -z "$keep" ] && [ "$lifetime" = lasting ] && [ -n "${running_ref:-}" ]; then
+  # scripts/aws-deploy decides from what the server runs; this says what to expect.
   if [ "$running_ref" = "$REF" ]; then
-    bullet "It applies your settings to the lasting deployment $name, after a snapshot of its data."
+    bullet "It applies your settings to the lasting deployment $name. It already runs ${REF:0:7}, so no snapshot is taken."
+  elif git merge-base --is-ancestor "$REF" "$running_ref" 2>/dev/null; then
+    bullet "It rolls the lasting deployment $name back from ${running_ref:0:7} to ${REF:0:7}, keeping the snapshot from before ${running_ref:0:7}, for restoring."
   else
     bullet "It upgrades the lasting deployment $name from ${running_ref:0:7} to ${REF:0:7}, after a snapshot of its data."
   fi

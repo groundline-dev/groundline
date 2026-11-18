@@ -131,28 +131,46 @@ aws ec2 modify-instance-attribute --region "$region" --instance-id "$instance" \
 if [ "$instance" = "$previous_instance" ]; then
   reset_deadline=""
   [ "$hours" = 0 ] || reset_deadline="echo \$((\$(date +%s) + $hours * 3600)) >$deadline_file.new && mv $deadline_file.new $deadline_file"
-  # A lasting deployment's data is copied first, so a bad database migration
-  # can be undone: restore this snapshot, then deploy the older commit. Only the
-  # newest is kept; it's a way back from one upgrade, not a backup.
+  # A lasting deployment's data is copied before it moves to a newer commit, so
+  # a bad database migration can be undone: restore the snapshot, then deploy
+  # the older commit. Only the newest is kept; it's a way back from one
+  # upgrade, not a backup. So a run that doesn't move forward (the same commit,
+  # for settings or a retry, or a rollback) keeps it rather than replacing it
+  # with a copy of data the newer commit may already have migrated.
   if [ "$lifetime" = lasting ]; then
-    doing "Taking a snapshot of the data volume"
-    volume="$(output volume_id infra/data)"
-    snapshot="$(aws ec2 create-snapshot --region "$region" --volume-id "$volume" \
-      --description "groundline $(deployment_name), before upgrading to ${commit:0:7}" \
-      --tag-specifications "ResourceType=snapshot,Tags=[{Key=app,Value=groundline},{Key=deployment,Value=$(deployment_name)},{Key=groundline-pre-upgrade,Value=${commit:0:7}}]" \
-      --query SnapshotId --output text)" \
-      || fail "couldn't take a snapshot of the data volume $volume, so the server wasn't upgraded"
-    check_ok "took $snapshot of $volume"
-    for old in $(aws ec2 describe-snapshots --region "$region" --owner-ids self \
-      --filters "Name=tag:deployment,Values=$(deployment_name)" Name=tag-key,Values=groundline-pre-upgrade \
-      --query 'Snapshots[].SnapshotId' --output text); do
-      [ "$old" != "$snapshot" ] || continue
-      if aws ec2 delete-snapshot --region "$region" --snapshot-id "$old"; then
-        check_ok "deleted the older snapshot $old"
-      else
-        check_warn "couldn't delete the older snapshot $old; delete it in the AWS console"
-      fi
-    done
+    # What the server runs: Terraform has already moved the tag, and an
+    # upgrade that failed partway leaves a tag the server never reached.
+    server_commit="$(on_server "git -C /opt/groundline rev-parse HEAD" | tr -d '[:space:]')" \
+      && [[ "$server_commit" =~ ^[0-9a-f]{40}$ ]] \
+      || fail "couldn't ask the server which commit it runs, so it wasn't upgraded; run make aws-deploy again"
+    if [ "$server_commit" = "$commit" ]; then
+      check_ok "no snapshot: the server already runs ${commit:0:7}, so its pre-upgrade snapshot is kept"
+    elif git merge-base --is-ancestor "$commit" "$server_commit" 2>/dev/null; then
+      check_ok "no snapshot: this rolls back from ${server_commit:0:7}, so the snapshot from before it is kept, for restoring"
+    else
+      doing "Taking a snapshot of the data volume"
+      echo "It waits until the snapshot is complete, which takes a minute or more."
+      volume="$(output volume_id infra/data)"
+      snapshot="$(aws ec2 create-snapshot --region "$region" --volume-id "$volume" \
+        --description "groundline $(deployment_name), before upgrading to ${commit:0:7}" \
+        --tag-specifications "ResourceType=snapshot,Tags=[{Key=app,Value=groundline},{Key=deployment,Value=$(deployment_name)},{Key=groundline-pre-upgrade,Value=${commit:0:7}}]" \
+        --query SnapshotId --output text)" \
+        || fail "couldn't take a snapshot of the data volume $volume, so the server wasn't upgraded"
+      # The older snapshots go only once this one is usable.
+      aws ec2 wait snapshot-completed --region "$region" --snapshot-ids "$snapshot" \
+        || fail "the snapshot $snapshot of $volume didn't complete, so the server wasn't upgraded. The older snapshots are kept; run make aws-deploy again"
+      check_ok "took $snapshot of $volume"
+      for old in $(aws ec2 describe-snapshots --region "$region" --owner-ids self \
+        --filters "Name=tag:deployment,Values=$(deployment_name)" Name=tag-key,Values=groundline-pre-upgrade \
+        --query 'Snapshots[].SnapshotId' --output text); do
+        [ "$old" != "$snapshot" ] || continue
+        if aws ec2 delete-snapshot --region "$region" --snapshot-id "$old"; then
+          check_ok "deleted the older snapshot $old"
+        else
+          check_warn "couldn't delete the older snapshot $old; delete it in the AWS console"
+        fi
+      done
+    fi
   fi
   doing "Upgrading your server ($instance) in place to ${commit:0:7}"
   echo "It keeps its data, address and HTTPS certificate. This takes a few minutes."
