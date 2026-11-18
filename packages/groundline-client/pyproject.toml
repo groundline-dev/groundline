@@ -40,4 +40,4 @@ venvPath = "../.."
 venv = ".venv"
 pythonVersion = "3.13"
 typeCheckingMode = "basic"
-strict = ["src/groundline_client/__init__.py", "tests"]
+strict = ["src/groundline_client/*.py", "tests"]
