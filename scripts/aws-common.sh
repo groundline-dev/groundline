@@ -268,6 +268,59 @@ kept_data_cost() {
   awk -v volume="$(volume_cost "${1:-5}")" -v address="$(address_cost)" 'BEGIN { printf "%.2f", volume + address }'
 }
 
+# server_hourly_cost and running_monthly_cost: a running server, with its data
+# volume and address, as the plan and What next quote it.
+server_hourly_cost() { echo 0.024; }
+running_monthly_cost() { echo 18; }
+
+# optional_output NAME [ROOT]: output NAME of ROOT (infra by default), or
+# nothing if there's no such output, as with nothing deployed. output, below,
+# fails instead.
+optional_output() { terraform -chdir="${2:-infra}" output -raw "$1" 2>/dev/null || true; }
+
+# deployed_lifetime: the lifetime the deployment was made with, from its state.
+# infra/data/ still says once make aws-destroy has kept a lasting deployment's
+# data; with neither, the one in infra/terraform.tfvars.
+deployed_lifetime() {
+  local lifetime
+  lifetime="$(optional_output lifetime)"
+  lifetime="${lifetime:-$(optional_output lifetime infra/data)}"
+  echo "${lifetime:-$(configured_lifetime)}"
+}
+
+# pre_upgrade_snapshots NAME: the ids of deployment NAME's pre-upgrade
+# snapshots, one a line, sorted; nothing if there are none.
+pre_upgrade_snapshots() {
+  aws ec2 describe-snapshots --region "$region" --owner-ids self \
+    --filters "Name=tag:deployment,Values=$1" Name=tag-key,Values=groundline-pre-upgrade \
+    --query 'Snapshots[].SnapshotId' --output text \
+    | tr '\t ' '\n\n' | { grep -v -e '^None$' -e '^$' || true; } | sort
+}
+
+# commit_change FROM TO: same, rollback (TO is older than FROM) or forward,
+# which is also the answer when git doesn't know FROM. A lasting deployment
+# takes a snapshot only before moving forward.
+commit_change() {
+  if [ "$1" = "$2" ]; then
+    echo same
+  elif git merge-base --is-ancestor "$2" "$1" 2>/dev/null; then
+    echo rollback
+  else
+    echo forward
+  fi
+}
+
+# review_or_cancel WARNING EFFECT: say why keeping the running server would
+# leave the saved settings unapplied, and ask to review a plan or stop.
+review_or_cancel() {
+  answer_warn "$1 Keeping this server would not apply them."
+  bullet "$2"
+  echo "  1) Review a deployment plan"
+  echo "  2) Cancel and leave the running server unchanged"
+  choose "Review deployment changes? (1 review, 2 cancel)" 2
+  [ "$answer" = 1 ] || fail "canceled: running server unchanged"
+}
+
 # init_roots: terraform init in both folders, printing Terraform's output only
 # if it fails. A checkout that has never deployed from this version has no
 # infra/data/.terraform, and destroying needs it as much as deploying does.
@@ -286,6 +339,11 @@ init_roots() {
 # Terraform can't read them. Terraform parses the file, since it's HCL.
 saved_app_settings() {
   local encoded
+  # Terraform's default is none, and console takes a few seconds.
+  if ! grep --quiet '^[[:space:]]*app_settings[[:space:]]*=' infra/terraform.tfvars 2>/dev/null; then
+    echo '{}'
+    return
+  fi
   encoded="$(echo 'jsonencode(var.app_settings)' | terraform -chdir=infra console 2>/dev/null)" || return 0
   jq -r . <<<"$encoded" 2>/dev/null | jq -cS . 2>/dev/null || true
 }
@@ -350,14 +408,10 @@ configured_access_mode() {
 # $access_mode. DEFAULT is 1 (IP-restricted, for testing) or 2 (unrestricted,
 # which a lasting deployment's callers need).
 choose_access_mode() {
-  local default="${1:-1}"
-  if [ "$default" = 1 ]; then
-    echo "  1) IP-restricted HTTPS for testing from this computer (recommended)"
-    echo "  2) Unrestricted HTTPS for callers from any IP"
-  else
-    echo "  1) IP-restricted HTTPS for testing from this computer"
-    echo "  2) Unrestricted HTTPS for callers from any IP (recommended)"
-  fi
+  local default="${1:-1}" first="" second=" (recommended)"
+  [ "$default" != 1 ] || { first=" (recommended)" second=""; }
+  echo "  1) IP-restricted HTTPS for testing from this computer$first"
+  echo "  2) Unrestricted HTTPS for callers from any IP$second"
   bullet "Both use automatic certificates; protected API endpoints require API keys."
   choose "Who may access the HTTPS application? (1 IP-restricted, 2 unrestricted)" 2 "$default"
   access_mode=restricted
@@ -426,20 +480,13 @@ running_lifetimes() {
     | sort -u
 }
 
-# running_deployments: the deployment names of the groundline servers starting
-# or running in this project, one a line, from their deployment tags.
-running_deployments() {
-  running_lifetimes | cut -d' ' -f1 | sort -u
-}
-
 # shared_project_warning NAME LIFETIME: warn when deployment NAME shares this
 # project with deployments of the other kind. Budget alerts cover the whole
 # project, so a lasting deployment's cost sets off the $5 disposable alerts,
 # and theirs counts toward its budget. It warns, since some have only one
 # project.
 shared_project_warning() {
-  local name="$1" lifetime="$2" running others lasting
-  running="$(running_lifetimes 2>/dev/null)" || return 0
+  local name="$1" lifetime="$2" running="$3" others lasting
   others="$(awk -v name="$name" '$1 != name { print $1 }' <<<"$running" | join_names)"
   lasting="$(awk -v name="$name" '$1 != name && $2 == "lasting" { print $1 }' <<<"$running" | join_names)"
   if [ "$lifetime" = lasting ] && [ -n "$others" ]; then
@@ -486,9 +533,7 @@ folder_lasting_deployments() {
 # else. A disposable deployment can't become lasting either: a lasting one
 # starts with its own data and API keys.
 guard_lasting_folder() {
-  local name lifetime held_account held_name held_lifetime
-  name="$(deployment_name)"
-  lifetime="$(configured_lifetime)"
+  local name="$1" lifetime="$2" held_account held_name held_lifetime
   while read -r held_account held_name held_lifetime; do
     [ -n "$held_account" ] || continue
     if [ "$held_lifetime" = lasting ]; then
@@ -645,7 +690,7 @@ what_next() {
   echo "To try your server, at $app_url:"
   bullet "make aws-key creates an API key, for trying requests at $app_url/docs."
   bullet "make aws-smoke-live sends one real commission check, which costs under a cent."
-  mode="$(terraform -chdir=infra output -raw access_mode 2>/dev/null || true)"
+  mode="$(optional_output access_mode)"
   case "$mode" in
     restricted) bullet "IP-restricted HTTPS: only the configured tester IP can access application routes, including health and docs." ;;
     unrestricted) bullet "Unrestricted HTTPS: any caller IP can reach health/docs; protected endpoints require an API key." ;;
@@ -654,11 +699,11 @@ what_next() {
   echo "    and an API key from make aws-key. See docs/deploying-to-aws.md, \"Calling it from your app\"."
   echo
   echo "Your server is still running and costing money."
-  if [ "$(terraform -chdir=infra output -raw lifetime 2>/dev/null || true)" = lasting ]; then
-    bullet "It's a lasting deployment, so it has no time limit and costs about \$18 a month."
+  if [ "$(deployed_lifetime)" = lasting ]; then
+    bullet "It's a lasting deployment, so it has no time limit and costs about \$$(running_monthly_cost) a month."
     bullet "make aws-up upgrades it to another commit or settings. It keeps its data and address."
     bullet "make aws-destroy deletes the server and keeps its data and address, for about"
-    echo "    \$$(kept_data_cost "$(terraform -chdir=infra/data output -raw data_volume_gib 2>/dev/null || true)") a month; make aws-destroy DATA=delete deletes those too."
+    echo "    \$$(kept_data_cost "$(optional_output data_volume_gib infra/data)") a month; make aws-destroy DATA=delete deletes those too."
     echo
     return
   fi
@@ -668,7 +713,7 @@ what_next() {
       bullet "make aws-status shows when it terminates itself."
       bullet "make aws-reset-deadline moves that to $hours hours from now."
       ;;
-    none) bullet "It has no time limit, so it costs about \$18 a month." ;;
+    none) bullet "It has no time limit, so it costs about \$$(running_monthly_cost) a month." ;;
     *)
       bullet "It terminates itself, with its data, at $(describe_deadline "$deadline")."
       bullet "make aws-reset-deadline moves that to $hours hours from now."
@@ -703,7 +748,7 @@ describe_commit() {
     | .change.after.tags["groundline-git-ref"] // empty][0] // empty' <<<"$1")"
   [ -n "$from" ] && [ -n "$to" ] && [ "$from" != "$to" ] || return 0
   echo "    It's upgraded from ${from:0:7} to ${to:0:7}."
-  if git merge-base --is-ancestor "$to" "$from" 2>/dev/null; then
+  if [ "$(commit_change "$from" "$to")" = rollback ]; then
     echo "    ${to:0:7} is older than ${from:0:7}, so this rolls it back. If a database"
     echo "    migration ran since, restore the pre-upgrade snapshot first (docs/deploying-to-aws.md)."
   fi
@@ -784,10 +829,10 @@ describe_plan() {
         ;;
       aws_instance:create)
         if [ -n "${previous_instance:-}" ]; then
-          echo "  · create a new server running $short, for about \$0.024 an hour, in place of"
+          echo "  · create a new server running $short, for about \$$(server_hourly_cost) an hour, in place of"
           echo "    $previous_instance, which has terminated."
         else
-          echo "  · create your server, running $short, for about \$0.024 an hour."
+          echo "  · create your server, running $short, for about \$$(server_hourly_cost) an hour."
         fi
         echo "$limit"
         ;;
@@ -795,7 +840,7 @@ describe_plan() {
         echo "  · replace your server ($id) with a new one running $short. Its data volume and"
         echo "    address move to the new server, so it keeps its database, API keys and address."
         echo "    Terraform shows \"Destroying...\" for a few minutes while the old one stops."
-        echo "    The new server costs about \$0.024 an hour."
+        echo "    The new server costs about \$$(server_hourly_cost) an hour."
         echo "$limit"
         ;;
       aws_instance:update)

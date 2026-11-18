@@ -40,7 +40,7 @@ def held(checkout: Path, name: str, lifetime: str, account: str = ACCOUNT):
     state = checkout / "infra/data/terraform.tfstate.d" / account / "terraform.tfstate"
     state.parent.mkdir(parents=True, exist_ok=True)
     outputs = {
-        "volume_id": "vol-0123456789abcdef0",
+        "volume_id": aws_fakes.DATA_OUTPUTS["volume_id"],
         "deployment_name": name,
         "lifetime": lifetime,
     }

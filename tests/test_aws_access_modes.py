@@ -203,6 +203,10 @@ def test_keep_is_offered_only_when_the_settings_match(
     checkout: Path, saved: dict[str, int], running: dict[str, int], offered: bool
 ):
     settings(checkout, "restricted")
+    if saved:
+        # Real Terraform reads it from here; the fake console answers from the world.
+        with (checkout / "infra/terraform.tfvars").open("a") as tfvars:
+            tfvars.write("app_settings = { GROUNDLINE_MAX_SOURCE_CHARS = 150000 }\n")
     stub_children(checkout)
     world = aws_fakes.new_world(
         outputs={
@@ -214,8 +218,8 @@ def test_keep_is_offered_only_when_the_settings_match(
             "app_settings": running,
         },
         existing={"i-test": "running"},
+        saved_app_settings=saved,
     )
-    world["saved_app_settings"] = saved
 
     # Enter keeps a server that matches, and doesn't answer the review question.
     result, _ = invoke(checkout, "aws-up", world, "\n\n2\n")
@@ -684,3 +688,28 @@ def test_a_larger_data_volume_is_described_as_growing(checkout: Path):
         result.stdout
     )
     assert "filesystem grows when the server is upgraded" in result.stdout
+
+
+def test_settings_are_compared_without_terraform_console_when_none_are_saved(
+    checkout: Path,
+):
+    # Terraform's default is no settings, and console takes a few seconds.
+    settings(checkout, "restricted")
+    stub_children(checkout)
+    world = aws_fakes.new_world(
+        outputs={
+            "instance_id": "i-test",
+            "git_ref": "a" * 40,
+            "repository_url": "https://example.com/repo.git",
+            "access_mode": "restricted",
+            "allowed_cidr": "198.51.100.20/32",
+            "app_settings": {},
+        },
+        existing={"i-test": "running"},
+    )
+
+    result, world = invoke(checkout, "aws-up", world, "\n\n")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (checkout / "aws-smoke-test-called").exists()
+    assert not any("console" in call for call in world["calls"])

@@ -88,7 +88,6 @@ if anthropic_api_key="$(aws ssm get-parameter --region "$region" --name "$parame
   --with-decryption --query Parameter.Value --output text 2>"$errors_file")"; then
   echo "groundline: read the Anthropic API key from $parameter"
 elif grep --quiet ParameterNotFound "$errors_file"; then
-  anthropic_api_key=""
   echo "groundline: $parameter doesn't exist, so the app has no Anthropic API key"
 else
   cat "$errors_file" >&2

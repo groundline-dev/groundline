@@ -16,15 +16,16 @@ source scripts/aws-common.sh
 
 use_project
 # With nothing deployed, terraform output exits 0 and prints nothing.
-instance="$(terraform -chdir=infra output -raw instance_id 2>/dev/null || true)"
+instance="$(optional_output instance_id)"
 if [ -z "$instance" ]; then
   other_deployments
   # make aws-destroy keeps a lasting deployment's data and address. A
   # disposable deployment has them without a server only if its first deploy
   # stopped after making them.
-  if kept="$(terraform -chdir=infra/data output -raw public_ip 2>/dev/null)" && [ -n "$kept" ]; then
-    monthly="$(kept_data_cost "$(terraform -chdir=infra/data output -raw data_volume_gib 2>/dev/null || true)")"
-    if [ "$(terraform -chdir=infra/data output -raw lifetime 2>/dev/null || true)" = lasting ]; then
+  kept="$(optional_output public_ip infra/data)"
+  if [ -n "$kept" ]; then
+    monthly="$(kept_data_cost "$(optional_output data_volume_gib infra/data)")"
+    if [ "$(optional_output lifetime infra/data)" = lasting ]; then
       fail "your lasting deployment has no server in $(project_label), but its data and address ($kept) are kept, for about \$$monthly a month: make aws-up brings it back, and make aws-destroy DATA=delete deletes them"
     fi
     fail "your deployment has no server in $(project_label), but a data volume and address ($kept) are left from a deploy that didn't finish, for about \$$monthly a month: make aws-up uses them, and make aws-destroy deletes them"
@@ -36,8 +37,8 @@ trap other_deployments EXIT
 
 require_running
 echo "The server ($instance) is running in $(project_label) at $(terraform -chdir=infra output -raw app_url)"
-lifetime="$(terraform -chdir=infra output -raw lifetime 2>/dev/null || echo disposable)"
-running="$(terraform -chdir=infra output -raw git_ref 2>/dev/null || true)"
+lifetime="$(deployed_lifetime)"
+running="$(optional_output git_ref)"
 echo "It's a $lifetime deployment${running:+, running ${running:0:7}}."
 
 deadline="$(on_server "cat $deadline_file 2>/dev/null || echo none" | tr -d '[:space:]')" \

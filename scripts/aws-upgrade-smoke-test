@@ -25,20 +25,14 @@ instance="$(output instance_id)"
 app_url="$(output app_url)"
 public_ip="$(output public_ip)"
 running="$(output git_ref)"
-lifetime="$(terraform -chdir=infra output -raw lifetime 2>/dev/null || echo disposable)"
+lifetime="$(deployed_lifetime)"
 commit="$(git rev-parse --verify --quiet "$REF^{commit}")" || fail "$REF isn't a commit"
 [ "$commit" != "$running" ] \
   || fail "the server already runs ${commit:0:7}: choose another REF, so the upgrade changes something"
 require_running
 
-# pre_upgrade_snapshots: the deployment's pre-upgrade snapshots, sorted.
-pre_upgrade_snapshots() {
-  aws ec2 describe-snapshots --region "$region" --owner-ids self \
-    --filters "Name=tag:deployment,Values=$(deployment_name)" Name=tag-key,Values=groundline-pre-upgrade \
-    --query 'Snapshots[].SnapshotId' --output text | tr '\t ' '\n\n' | grep -v '^None$' | grep . | sort || true
-}
 before_snapshots=""
-[ "$lifetime" != lasting ] || before_snapshots="$(pre_upgrade_snapshots)"
+[ "$lifetime" != lasting ] || before_snapshots="$(pre_upgrade_snapshots "$(deployment_name)")"
 
 # https_check.py describes its checks on stderr, shown here only if it fails.
 certificate() {
@@ -118,8 +112,7 @@ expect 422 "the API key made before the upgrade still gets past auth: the empty 
 
 # The source length limit, which the API documents, is the one set in
 # app_settings, or the app's default.
-want_source="$(terraform -chdir=infra output -json app_settings 2>/dev/null \
-  | jq -r '.GROUNDLINE_MAX_SOURCE_CHARS // 200000 | floor')"
+want_source="$(deployed_app_settings | jq -r '.GROUNDLINE_MAX_SOURCE_CHARS // 200000 | floor')"
 got_source="$(curl --disable --proto '=https' --silent --show-error --fail --max-time "$request_timeout" \
   "$app_url/openapi.json" | jq -r '.components.schemas.OmissionsRequest.properties.source.maxLength')" \
   || fail "couldn't read $app_url/openapi.json"
@@ -128,8 +121,8 @@ got_source="$(curl --disable --proto '=https' --silent --show-error --fail --max
 check_ok "it uses the source length limit app_settings asks for ($want_source characters)"
 
 if [ "$lifetime" = lasting ]; then
-  after_snapshots="$(pre_upgrade_snapshots)"
-  if git merge-base --is-ancestor "$commit" "$running" 2>/dev/null; then
+  after_snapshots="$(pre_upgrade_snapshots "$(deployment_name)")"
+  if [ "$(commit_change "$running" "$commit")" = rollback ]; then
     [ "$after_snapshots" = "$before_snapshots" ] \
       || fail "the rollback changed the pre-upgrade snapshots (${before_snapshots//$'\n'/ } before, ${after_snapshots//$'\n'/ } after), so the one for restoring may be gone"
     check_ok "the rollback kept the pre-upgrade snapshot (${after_snapshots:-none})"

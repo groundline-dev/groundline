@@ -32,8 +32,9 @@ grep --quiet '^[[:space:]]*deployment_name[[:space:]]*=' infra/terraform.tfvars 
 use_project
 access_mode="$(configured_access_mode)"
 lifetime="$(configured_lifetime)"
-guard_lasting_folder
-anthropic_parameter="$(anthropic_parameter "$(deployment_name)")"
+name="$(deployment_name)"
+guard_lasting_folder "$name" "$lifetime"
+anthropic_parameter="$(anthropic_parameter "$name")"
 
 ref="${REF:-HEAD}"
 commit="$(git rev-parse --verify --quiet "$ref^{commit}")" || fail "$ref isn't a commit"
@@ -88,16 +89,15 @@ if ! errors="$(aws ssm get-parameter --region "$region" --name "$anthropic_param
 fi
 init_roots
 # Tells a new server from an updated one below, since only a new one gets a new deadline.
-previous_instance="$(terraform -chdir=infra output -raw instance_id 2>/dev/null || true)"
+previous_instance="$(optional_output instance_id)"
 # A server made before deployments had a data volume keeps its database on its
 # own disk. Its data is disposable, so it's replaced rather than moved.
-if [ -n "$previous_instance" ] \
-  && [ -z "$(terraform -chdir=infra/data output -raw volume_id 2>/dev/null || true)" ]; then
+if [ -n "$previous_instance" ] && [ -z "$(optional_output volume_id infra/data)" ]; then
   fail "your server ($previous_instance) was made before deployments kept their data on a data volume. Run make aws-destroy, then make aws-up for a new one."
 fi
 
 # The data volume and the address first: the server is attached to them.
-data_args=(-var "region=$region" -var "deployment_name=$(deployment_name)" -var "lifetime=$lifetime")
+data_args=(-var "region=$region" -var "deployment_name=$name" -var "lifetime=$lifetime")
 for setting in instance_type data_volume_gib; do
   value="$(tfvars_value "$setting")"
   [ -z "$value" ] || data_args+=(-var "$setting=$value")
@@ -107,17 +107,18 @@ plan_and_apply infra/data "the data volume and address are unchanged." "${data_a
 # Cancelling the server's plan leaves the volume and address made above, and
 # they cost money, so it says so. (The server's plan can't come first: the
 # server finds them by their tags.)
-if [ -z "$previous_instance" ] \
-  && [ -n "$(terraform -chdir=infra/data output -raw volume_id 2>/dev/null || true)" ]; then
-  cancel_message="canceled: no server was created. Its data volume and address stay, for about \$$(kept_data_cost "$(terraform -chdir=infra/data output -raw data_volume_gib 2>/dev/null || true)") a month: make aws-deploy uses them, and make aws-destroy deletes them."
+canceled=""
+if [ -z "$previous_instance" ] && [ -n "$(optional_output volume_id infra/data)" ]; then
+  canceled="canceled: no server was created. Its data volume and address stay, for about \$$(kept_data_cost "$(optional_output data_volume_gib infra/data)") a month: make aws-deploy uses them, and make aws-destroy deletes them."
 fi
-plan_and_apply infra "Terraform configuration is unchanged for ${commit:0:7}; checking live HTTPS access next." \
+cancel_message="$canceled" plan_and_apply infra "Terraform configuration is unchanged for ${commit:0:7}; checking live HTTPS access next." \
   -var "region=$region" ${tester_args[@]+"${tester_args[@]}"} -var "git_ref=$commit" \
   -var "access_mode=$access_mode" \
   -var "repository_url=$repository_url"
 
 instance="$(terraform -chdir=infra output -raw instance_id)"
 hours="$(terraform -chdir=infra output -raw auto_terminate_hours)"
+app_settings="$(deployed_app_settings)"
 # A disposable server's data volume goes with it when it terminates itself, so
 # a forgotten one leaves nothing that costs money; a lasting one's never does.
 # Terraform can't set this for an attached volume, so it's set here; it's the
@@ -127,6 +128,51 @@ delete_on_termination=true
 aws ec2 modify-instance-attribute --region "$region" --instance-id "$instance" \
   --block-device-mappings "[{\"DeviceName\":\"/dev/sdf\",\"Ebs\":{\"DeleteOnTermination\":$delete_on_termination}}]" \
   || fail "couldn't set whether the data volume of $instance goes with it; run make aws-deploy again"
+# snapshot_before_upgrade: copy a lasting deployment's data before it moves to
+# a newer commit, so a bad database migration can be undone: restore the
+# snapshot, then deploy the older commit. Only the newest is kept; it's a way
+# back from one upgrade, not a backup. So a run that doesn't move forward (the
+# same commit, for settings or a retry, or a rollback) keeps it rather than
+# replacing it with a copy of data the newer commit may already have migrated.
+snapshot_before_upgrade() {
+  local server_commit volume snapshot old
+  # What the server runs: Terraform has already moved the tag, and an upgrade
+  # that failed partway leaves a tag the server never reached.
+  server_commit="$(on_server "git -C /opt/groundline rev-parse HEAD" | tr -d '[:space:]')" \
+    && [[ "$server_commit" =~ ^[0-9a-f]{40}$ ]] \
+    || fail "couldn't ask the server which commit it runs, so it wasn't upgraded; run make aws-deploy again"
+  case "$(commit_change "$server_commit" "$commit")" in
+    same)
+      check_ok "no snapshot: the server already runs ${commit:0:7}, so its pre-upgrade snapshot is kept"
+      return
+      ;;
+    rollback)
+      check_ok "no snapshot: this rolls back from ${server_commit:0:7}, so the snapshot from before it is kept, for restoring"
+      return
+      ;;
+  esac
+  doing "Taking a snapshot of the data volume"
+  echo "It waits until the snapshot is complete, which takes a minute or more."
+  volume="$(output volume_id infra/data)"
+  snapshot="$(aws ec2 create-snapshot --region "$region" --volume-id "$volume" \
+    --description "groundline $name, before upgrading to ${commit:0:7}" \
+    --tag-specifications "ResourceType=snapshot,Tags=[{Key=app,Value=groundline},{Key=deployment,Value=$name},{Key=groundline-pre-upgrade,Value=${commit:0:7}}]" \
+    --query SnapshotId --output text)" \
+    || fail "couldn't take a snapshot of the data volume $volume, so the server wasn't upgraded"
+  # The older snapshots go only once this one is usable.
+  aws ec2 wait snapshot-completed --region "$region" --snapshot-ids "$snapshot" \
+    || fail "the snapshot $snapshot of $volume didn't complete, so the server wasn't upgraded. The older snapshots are kept; run make aws-deploy again"
+  check_ok "took $snapshot of $volume"
+  for old in $(pre_upgrade_snapshots "$name"); do
+    [ "$old" != "$snapshot" ] || continue
+    if aws ec2 delete-snapshot --region "$region" --snapshot-id "$old"; then
+      check_ok "deleted the older snapshot $old"
+    else
+      check_warn "couldn't delete the older snapshot $old; delete it in the AWS console"
+    fi
+  done
+}
+
 # A server that was already running is upgraded in place: it waits for its
 # tags to show this run's access settings, checks out the commit, and runs the
 # new commit's infra/server/apply, which rewrites .env (reading the Anthropic
@@ -138,51 +184,11 @@ aws ec2 modify-instance-attribute --region "$region" --instance-id "$instance" \
 if [ "$instance" = "$previous_instance" ]; then
   reset_deadline=""
   [ "$hours" = 0 ] || reset_deadline="echo \$((\$(date +%s) + $hours * 3600)) >$deadline_file.new && mv $deadline_file.new $deadline_file"
-  # A lasting deployment's data is copied before it moves to a newer commit, so
-  # a bad database migration can be undone: restore the snapshot, then deploy
-  # the older commit. Only the newest is kept; it's a way back from one
-  # upgrade, not a backup. So a run that doesn't move forward (the same commit,
-  # for settings or a retry, or a rollback) keeps it rather than replacing it
-  # with a copy of data the newer commit may already have migrated.
-  if [ "$lifetime" = lasting ]; then
-    # What the server runs: Terraform has already moved the tag, and an
-    # upgrade that failed partway leaves a tag the server never reached.
-    server_commit="$(on_server "git -C /opt/groundline rev-parse HEAD" | tr -d '[:space:]')" \
-      && [[ "$server_commit" =~ ^[0-9a-f]{40}$ ]] \
-      || fail "couldn't ask the server which commit it runs, so it wasn't upgraded; run make aws-deploy again"
-    if [ "$server_commit" = "$commit" ]; then
-      check_ok "no snapshot: the server already runs ${commit:0:7}, so its pre-upgrade snapshot is kept"
-    elif git merge-base --is-ancestor "$commit" "$server_commit" 2>/dev/null; then
-      check_ok "no snapshot: this rolls back from ${server_commit:0:7}, so the snapshot from before it is kept, for restoring"
-    else
-      doing "Taking a snapshot of the data volume"
-      echo "It waits until the snapshot is complete, which takes a minute or more."
-      volume="$(output volume_id infra/data)"
-      snapshot="$(aws ec2 create-snapshot --region "$region" --volume-id "$volume" \
-        --description "groundline $(deployment_name), before upgrading to ${commit:0:7}" \
-        --tag-specifications "ResourceType=snapshot,Tags=[{Key=app,Value=groundline},{Key=deployment,Value=$(deployment_name)},{Key=groundline-pre-upgrade,Value=${commit:0:7}}]" \
-        --query SnapshotId --output text)" \
-        || fail "couldn't take a snapshot of the data volume $volume, so the server wasn't upgraded"
-      # The older snapshots go only once this one is usable.
-      aws ec2 wait snapshot-completed --region "$region" --snapshot-ids "$snapshot" \
-        || fail "the snapshot $snapshot of $volume didn't complete, so the server wasn't upgraded. The older snapshots are kept; run make aws-deploy again"
-      check_ok "took $snapshot of $volume"
-      for old in $(aws ec2 describe-snapshots --region "$region" --owner-ids self \
-        --filters "Name=tag:deployment,Values=$(deployment_name)" Name=tag-key,Values=groundline-pre-upgrade \
-        --query 'Snapshots[].SnapshotId' --output text); do
-        [ "$old" != "$snapshot" ] || continue
-        if aws ec2 delete-snapshot --region "$region" --snapshot-id "$old"; then
-          check_ok "deleted the older snapshot $old"
-        else
-          check_warn "couldn't delete the older snapshot $old; delete it in the AWS console"
-        fi
-      done
-    fi
-  fi
+  [ "$lifetime" != lasting ] || snapshot_before_upgrade
   # The settings Terraform just tagged, which infra/server/apply waits to see.
   # A commit from before it waited ignores them.
-  expected_settings="$(terraform -chdir=infra output -json app_settings 2>/dev/null \
-    | jq -r 'to_entries | sort_by(.key)[] | "\(.key)=\(.value)"' 2>/dev/null | tr '\n' ' ' | sed 's/ $//' || true)"
+  expected_settings="$(jq -r 'to_entries | sort_by(.key)[] | "\(.key)=\(.value)"' <<<"$app_settings" \
+    | tr '\n' ' ' | sed 's/ $//')"
   doing "Upgrading your server ($instance) in place to ${commit:0:7}"
   echo "It keeps its data, address and HTTPS certificate. This takes a few minutes."
   upgraded="$(on_server "set -eu; cd /opt/groundline; attempts=0
@@ -206,8 +212,7 @@ fi
 
 # The settings that differ from the app's defaults, so what the server runs
 # with is in view after every deploy.
-settings="$(terraform -chdir=infra output -json app_settings 2>/dev/null \
-  | jq -r 'to_entries[] | "\(.key) = \(.value)"' 2>/dev/null || true)"
+settings="$(jq -r 'to_entries[] | "\(.key) = \(.value)"' <<<"$app_settings")"
 echo
 if [ -n "$settings" ]; then
   echo "It runs with these app settings (app_settings in infra/terraform.tfvars):"
@@ -217,15 +222,14 @@ else
 fi
 
 # The deadline, as the server's deadline file would hold it. A new server's
-# clock starts when it first boots, about a minute from now. An existing one
-# keeps its deadline, which only the server knows.
+# clock starts when it first boots, about a minute from now; an upgraded one's
+# started again during the upgrade.
 if [ "$hours" = 0 ]; then
   deadline=none
 elif [ "$instance" != "$previous_instance" ]; then
   deadline=$(($(date +%s) + hours * 3600 + 60))
 else
-  deadline="$(on_server "cat $deadline_file" 2>/dev/null | tr -d '[:space:]' || true)"
-  [[ "$deadline" =~ ^[0-9]+$ ]] || deadline=""
+  deadline=$(($(date +%s) + hours * 3600))
 fi
 # Run directly, What next says when it terminates itself. Run by make aws-up,
 # which shows What next only at the end, it's said here.
@@ -233,7 +237,7 @@ if top_level; then
   what_next "$deadline"
 elif [ "$deadline" = none ]; then
   echo
-  echo "It has no time limit, so it costs about \$18 a month until you run make aws-destroy."
+  echo "It has no time limit, so it costs about \$$(running_monthly_cost) a month until you run make aws-destroy."
 elif [ -n "$deadline" ]; then
   echo
   echo "It terminates itself, with its data, at $(describe_deadline "$deadline")."

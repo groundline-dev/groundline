@@ -35,27 +35,22 @@ init_roots
 
 # Read before destroying: the outputs are gone afterwards. A deployment that
 # failed partway may lack some, so a missing one is checked below, not here.
-output() { terraform -chdir="${2:-infra}" output -raw "$1" 2>/dev/null || true; }
-instance="$(output instance_id)"
-group="$(output security_group_id)"
-role="$(output iam_role_name)"
-profile="$(output instance_profile_name)"
-budget="$(output budget_name)"
-anthropic_parameter="$(output anthropic_parameter_name)"
-volume="$(output volume_id infra/data)"
-address="$(output eip_allocation_id infra/data)"
+instance="$(optional_output instance_id)"
+group="$(optional_output security_group_id)"
+role="$(optional_output iam_role_name)"
+profile="$(optional_output instance_profile_name)"
+budget="$(optional_output budget_name)"
+anthropic_parameter="$(optional_output anthropic_parameter_name)"
+volume="$(optional_output volume_id infra/data)"
+address="$(optional_output eip_allocation_id infra/data)"
 # The deployment's name, from its state if it has a data volume: the server's
 # Terraform finds the volume and address by it, so destroying needs it.
-name="$(output deployment_name infra/data)"
+name="$(optional_output deployment_name infra/data)"
 name="${name:-$(deployment_name)}"
 anthropic_parameter="${anthropic_parameter:-${name:+$(anthropic_parameter "$name")}}"
-# The lifetime the deployment was made with, from its state; infra/data/ still
-# says once make aws-destroy has kept a lasting deployment's data.
-lifetime="$(output lifetime)"
-lifetime="${lifetime:-$(output lifetime infra/data)}"
-lifetime="${lifetime:-$(configured_lifetime)}"
-size="$(output data_volume_gib infra/data)"
-public_ip="$(output public_ip infra/data)"
+lifetime="$(deployed_lifetime)"
+size="$(optional_output data_volume_gib infra/data)"
+public_ip="$(optional_output public_ip infra/data)"
 
 keep_data=""
 if [ "$lifetime" = lasting ] && [ -z "$delete_data" ]; then
@@ -97,19 +92,34 @@ changed="$plan_changed"
 
 leftover=0
 
+# check_instance_gone: whether the server is terminated or gone. A terminated
+# instance stays visible for about an hour, so terminated counts as gone.
+check_instance_gone() {
+  local state
+  if [ -z "$instance" ]; then
+    gone instance ""
+  elif state="$(aws ec2 describe-instances --region "$region" --instance-ids "$instance" \
+    --query 'Reservations[0].Instances[0].State.Name' --output text 2>&1)"; then
+    if [ "$state" = terminated ]; then
+      check_ok "instance $instance is terminated"
+    else
+      check_error "instance $instance is $state, not terminated"
+      leftover=1
+    fi
+  else
+    case "$state" in
+      *NotFound*) check_ok "instance $instance is gone" ;;
+      *) check_error "couldn't check instance $instance: $state"; leftover=1 ;;
+    esac
+  fi
+}
+
 # A kept lasting deployment's server is gone, and the rest stays for make
 # aws-up. Only the server's resources are checked.
 if [ -n "$keep_data" ]; then
   if [ -n "$changed" ] || [ -n "$instance$group$role$profile$budget" ]; then
     doing "Checking that the server is gone"
-    if [ -n "$instance" ] && instance_state="$(aws ec2 describe-instances --region "$region" \
-      --instance-ids "$instance" --query 'Reservations[0].Instances[0].State.Name' --output text 2>&1)" \
-      && [ "$instance_state" != terminated ]; then
-      check_error "instance $instance is $instance_state, not terminated"
-      leftover=1
-    else
-      check_ok "instance ${instance:-of this deployment} is gone"
-    fi
+    if [ -n "$instance" ]; then check_instance_gone; else check_ok "the server of this deployment is gone"; fi
   fi
   [ "$leftover" = 0 ] || {
     echo
@@ -127,11 +137,7 @@ fi
 
 # A deployment's pre-upgrade snapshots go with its data.
 if [ -n "$name" ]; then
-  snapshots="$(aws ec2 describe-snapshots --region "$region" --owner-ids self \
-    --filters "Name=tag:deployment,Values=$name" Name=tag-key,Values=groundline-pre-upgrade \
-    --query 'Snapshots[].SnapshotId' --output text 2>/dev/null || true)"
-  for snapshot in $snapshots; do
-    [ "$snapshot" != None ] || continue
+  for snapshot in $(pre_upgrade_snapshots "$name" 2>/dev/null || true); do
     doing "Deleting the pre-upgrade snapshot $snapshot"
     if aws ec2 delete-snapshot --region "$region" --snapshot-id "$snapshot"; then
       check_ok "deleted $snapshot"
@@ -204,23 +210,7 @@ gone() {
 if [ -z "$instance$group$role$profile$budget" ] && [ -n "$volume$address" ]; then
   check_ok "there was no server left to check: it was already deleted, or never made"
 else
-  # A terminated instance stays visible for about an hour, so terminated counts as gone.
-  if [ -z "$instance" ]; then
-    gone instance ""
-  elif instance_state="$(aws ec2 describe-instances --region "$region" --instance-ids "$instance" \
-    --query 'Reservations[0].Instances[0].State.Name' --output text 2>&1)"; then
-    if [ "$instance_state" = terminated ]; then
-      check_ok "instance $instance is terminated"
-    else
-      check_error "instance $instance is $instance_state, not terminated"
-      leftover=1
-    fi
-  else
-    case "$instance_state" in
-      *NotFound*) check_ok "instance $instance is gone" ;;
-      *) check_error "couldn't check instance $instance: $instance_state"; leftover=1 ;;
-    esac
-  fi
+  check_instance_gone
   gone "security group" "$group" aws ec2 describe-security-groups --region "$region" --group-ids "$group"
   gone "IAM role" "$role" aws iam get-role --role-name "$role"
   gone "instance profile" "$profile" aws iam get-instance-profile --instance-profile-name "$profile"

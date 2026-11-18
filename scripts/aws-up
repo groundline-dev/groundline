@@ -104,10 +104,11 @@ if [ ! -f infra/terraform.tfvars ]; then
   email="$answer"
   echo
   choose_lifetime
-  budget=""
+  budget="" access_default=1
   if [ "$lifetime" = lasting ]; then
+    access_default=2
     echo
-    echo "A lasting deployment costs about \$18 a month while it runs, and about \$$(kept_data_cost "$(tfvars_value data_volume_gib)") a"
+    echo "A lasting deployment costs about \$$(running_monthly_cost) a month while it runs, and about \$$(kept_data_cost "$(tfvars_value data_volume_gib)") a"
     echo "month for its data volume and address once make aws-destroy keeps them."
     bullet "The budget alert emails you when the project's costs this month pass half its"
     echo "    amount, and again at all of it."
@@ -119,12 +120,9 @@ if [ ! -f infra/terraform.tfvars ]; then
       echo "  Enter a whole number of dollars, such as 35."
     done
     budget="$answer"
-    echo
-    choose_access_mode 2
-  else
-    echo
-    choose_access_mode
   fi
+  echo
+  choose_access_mode "$access_default"
   # Written only once every question is answered, so stopping partway saves nothing.
   awk -v name="$name" -v email="$email" '
     /^deployment_name[[:space:]]*=/ { print "deployment_name = \"" name "\""; next }
@@ -143,8 +141,10 @@ name="$(deployment_name)"
 access_mode="$(configured_access_mode ask)"
 [ -n "$name" ] || fail "infra/terraform.tfvars has no deployment_name: add one, such as deployment_name = \"alice\""
 lifetime="$(configured_lifetime)"
-guard_lasting_folder
-shared_project_warning "$name" "$lifetime"
+guard_lasting_folder "$name" "$lifetime"
+# The groundline servers running in this project, as "name lifetime" lines.
+running="$(running_lifetimes 2>/dev/null || true)"
+shared_project_warning "$name" "$lifetime" "$running"
 
 # --- A server of yours that's already running ---
 
@@ -152,13 +152,13 @@ shared_project_warning "$name" "$lifetime"
 # git_ref output says which commit it runs; servers deployed before that output
 # existed don't have it, so they can't be kept from here.
 keep=""
-instance="$(terraform -chdir=infra output -raw instance_id 2>/dev/null || true)"
+instance="$(optional_output instance_id)"
 if [ -n "$instance" ] \
   && instance_state="$(aws ec2 describe-instances --region "$region" --instance-ids "$instance" \
     --query 'Reservations[0].Instances[0].State.Name' --output text 2>/dev/null)" \
   && [[ "$instance_state" =~ ^(pending|running)$ ]]; then
-  running_ref="$(terraform -chdir=infra output -raw git_ref 2>/dev/null || true)"
-  running_repository="$(terraform -chdir=infra output -raw repository_url 2>/dev/null || true)"
+  running_ref="$(optional_output git_ref)"
+  running_repository="$(optional_output repository_url)"
   echo
   echo "Your deployment $name is already running in $project."
   [ -z "$running_ref" ] || bullet "It runs ${running_ref:0:7}, from $running_repository."
@@ -173,19 +173,11 @@ if [ -n "$instance" ] \
   saved_settings="$(saved_app_settings)"
   running_settings="$(deployed_app_settings)"
   if [ -n "$saved_settings" ] && [ "$saved_settings" != "$running_settings" ]; then
-    answer_warn "the app_settings in infra/terraform.tfvars differ from the running server's. Keeping this server would not apply them."
-    bullet "Applying them updates the server in place. It keeps its data and address."
-    echo "  1) Review a deployment plan"
-    echo "  2) Cancel and leave the running server unchanged"
-    choose "Review deployment changes? (1 review, 2 cancel)" 2
-    [ "$answer" = 1 ] || fail "canceled: running server unchanged"
+    review_or_cancel "the app_settings in infra/terraform.tfvars differ from the running server's." \
+      "Applying them updates the server in place. It keeps its data and address."
   elif [ "$access_mode" != "$running_mode" ]; then
-    answer_warn "running access is $running_mode HTTPS; saved access is $access_mode HTTPS. Keeping this server would not apply your settings."
-    bullet "Switching modes updates the server in place. It keeps its data and address."
-    echo "  1) Review a deployment plan"
-    echo "  2) Cancel and leave the running server unchanged"
-    choose "Review deployment changes? (1 review, 2 cancel)" 2
-    [ "$answer" = 1 ] || fail "canceled: running server unchanged"
+    review_or_cancel "running access is $running_mode HTTPS; saved access is $access_mode HTTPS." \
+      "Switching modes updates the server in place. It keeps its data and address."
   else
     if [ -n "$running_ref" ] && confirm "Keep your running server and check it?"; then
       if [ "$running_mode" = restricted ]; then
@@ -221,7 +213,7 @@ if [ -z "$keep" ]; then
     esac
   fi
   if [ -n "$replace" ]; then
-    others="$(running_deployments 2>/dev/null | grep -vx "$name" | join_names)" || others=""
+    others="$(awk -v name="$name" '$1 != name { print $1 }' <<<"$running" | join_names)"
     echo
     echo "Your server needs an Anthropic API key to call Claude."
     if [ "$lifetime" = lasting ]; then
@@ -259,7 +251,7 @@ if [ -z "$keep" ]; then
       answer_ok "stored your Anthropic API key; make aws-destroy deletes it"
       # The server reads the key when it starts and when it's upgraded, which
       # step 2 does.
-      if [ -n "$stored" ] && running_deployments 2>/dev/null | grep -qx "$name"; then
+      if [ -n "$stored" ] && cut -d' ' -f1 <<<"$running" | grep -qx "$name"; then
         bullet "Your running server switches to the new key when it's upgraded, in step 2."
       fi
     elif [ -n "$stored" ]; then
@@ -331,13 +323,11 @@ export REF REF_NAME
 answer_ok "step 1 done: deployment $name in $project, running ${REF:0:7}${REF_NAME:+ ($REF_NAME)}"
 if [ -z "$keep" ] && [ "$lifetime" = lasting ] && [ -n "${running_ref:-}" ]; then
   # scripts/aws-deploy decides from what the server runs; this says what to expect.
-  if [ "$running_ref" = "$REF" ]; then
-    bullet "It applies your settings to the lasting deployment $name. It already runs ${REF:0:7}, so no snapshot is taken."
-  elif git merge-base --is-ancestor "$REF" "$running_ref" 2>/dev/null; then
-    bullet "It rolls the lasting deployment $name back from ${running_ref:0:7} to ${REF:0:7}, keeping the snapshot from before ${running_ref:0:7}, for restoring."
-  else
-    bullet "It upgrades the lasting deployment $name from ${running_ref:0:7} to ${REF:0:7}, after a snapshot of its data."
-  fi
+  case "$(commit_change "$running_ref" "$REF")" in
+    same) bullet "It applies your settings to the lasting deployment $name. It already runs ${REF:0:7}, so no snapshot is taken." ;;
+    rollback) bullet "It rolls the lasting deployment $name back from ${running_ref:0:7} to ${REF:0:7}, keeping the snapshot from before ${running_ref:0:7}, for restoring." ;;
+    forward) bullet "It upgrades the lasting deployment $name from ${running_ref:0:7} to ${REF:0:7}, after a snapshot of its data." ;;
+  esac
 fi
 
 step "Step 2 of 3: deploy"

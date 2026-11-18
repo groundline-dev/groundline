@@ -96,7 +96,6 @@ echo "groundline bootstrap: the server's address is $expected"
 # place by an upgrade (scripts/aws-deploy) rather than by a new server.
 git_ref="$(read_metadata tags/instance/groundline-git-ref)"
 repository_url="$(read_metadata tags/instance/groundline-repository-url)"
-access_mode="$(read_metadata tags/instance/groundline-access-mode)"
 
 dnf install -y docker git openssl xfsprogs
 
@@ -125,7 +124,6 @@ mkdir -p "$data/docker-volumes" "$data/secrets"
 chmod 700 "$data/secrets"
 echo "$data/docker-volumes /var/lib/docker/volumes none bind,nofail,x-systemd.requires-mounts-for=$data 0 0" >>/etc/fstab
 mount /var/lib/docker/volumes
-systemctl daemon-reload
 
 # Refresh the public IP before Docker can restart any containers. A failed
 # discovery prevents startup; it never falls back to HTTP or an internal CA.
@@ -163,7 +161,6 @@ git clone --quiet "$repository_url" "$checkout"
 git -C "$checkout" checkout --quiet --detach "$git_ref"
 cd "$checkout"
 
-echo "groundline bootstrap: $access_mode HTTPS application access"
 # Docker starts at boot, so the containers come back after a reboot. The
 # drop-in above runs refresh-address first, which the checkout has now.
 systemctl enable --now docker
