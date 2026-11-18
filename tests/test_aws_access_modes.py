@@ -653,3 +653,32 @@ def test_a_deploy_with_no_settings_says_it_uses_the_defaults(checkout: Path):
         "GROUNDLINE_EXPECTED_SETTINGS='' infra/server/apply" in c["script"]
         for c in world["commands"]
     )
+
+
+def test_a_larger_data_volume_is_described_as_growing(checkout: Path):
+    settings(checkout, "unrestricted")
+    world = aws_fakes.new_world(
+        outputs={"instance_id": "i-test", "auto_terminate_hours": "0"},
+        data_plan={
+            "variables": {},
+            "resource_changes": [
+                {
+                    "mode": "managed",
+                    "type": "aws_ebs_volume",
+                    "change": {
+                        "actions": ["update"],
+                        "before": {"id": "vol-1", "size": 5},
+                        "after": {"id": "vol-1", "size": 20},
+                    },
+                }
+            ],
+        },
+    )
+
+    result, _ = invoke(checkout, "aws-deploy", world, "1\n")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "grow its data volume from 5 to 20 GiB, about $1.60 a month" in (
+        result.stdout
+    )
+    assert "filesystem grows when the server is upgraded" in result.stdout

@@ -747,11 +747,19 @@ describe_plan() {
     limit="    It terminates itself, with its data, $hours hours after it starts.
     You can also delete it manually with make aws-destroy."
   fi
-  while IFS='|' read -r type actions id old_cidr new_cidr old_port new_port size address; do
+  while IFS='|' read -r type actions id old_cidr new_cidr old_port new_port size address old_size; do
     case "$type:$actions" in
       aws_ebs_volume:create)
         echo "  · create its data volume ($size GiB, about \$$(awk -v gib="$size" 'BEGIN { printf "%.2f", gib * 0.08 }') a month), which keeps"
         echo "    the database, its API keys and the HTTPS certificate when the server is replaced."
+        ;;
+      aws_ebs_volume:update)
+        if [ -n "$old_size" ] && [ "$size" != "$old_size" ]; then
+          echo "  · grow its data volume from $old_size to $size GiB, about \$$(awk -v gib="$size" 'BEGIN { printf "%.2f", gib * 0.08 }') a month. Its"
+          echo "    filesystem grows when the server is upgraded. A volume can't shrink again."
+        else
+          updated+="$(friendly_name "$type")"$'\n'
+        fi
         ;;
       aws_eip:create)
         echo "  · reserve its address, an Elastic IP, which stays the same when the server is replaced."
@@ -795,7 +803,7 @@ describe_plan() {
     esac
   done < <(jq -r '.resource_changes[]
     | select(.mode == "managed" and .change.actions != ["no-op"])
-    | [.type, (.change.actions | join("+")), (.change.before.id // ""), (.change.before.cidr_ipv4 // ""), (.change.after.cidr_ipv4 // ""), (.change.before.from_port // ""), (.change.after.from_port // ""), ((.change.after.size // .change.before.size // "") | tostring), (.change.before.public_ip // "")]
+    | [.type, (.change.actions | join("+")), (.change.before.id // ""), (.change.before.cidr_ipv4 // ""), (.change.after.cidr_ipv4 // ""), (.change.before.from_port // ""), (.change.after.from_port // ""), ((.change.after.size // .change.before.size // "") | tostring), (.change.before.public_ip // ""), ((.change.before.size // "") | tostring)]
     | join("|")' <<<"$1")
   # Everything here except the server, the data volume and the address is free;
   # update this if that changes.

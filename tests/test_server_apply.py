@@ -50,6 +50,9 @@ case "$FAKE_PARAMETER" in
 esac
 """,
     "docker": '#!/bin/sh\necho "docker $*" >>"$CALLS"\n',
+    # The data volume counts as mounted only when MOUNTED is set.
+    "mountpoint": '#!/bin/sh\n[ -n "${MOUNTED:-}" ]\n',
+    "xfs_growfs": '#!/bin/sh\necho "xfs_growfs $*" >>"$CALLS"\n',
     "git": "#!/bin/sh\necho aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\n",
 }
 
@@ -295,3 +298,21 @@ def test_the_first_boot_reads_the_tags_once(server: Path):
     assert "GROUNDLINE_MAX_BODY_BYTES=1048576" in env_lines(server)
     tag_reads = server.parents[1] / "tag-reads"
     assert tag_reads.read_text().count("read") == 1
+
+
+def test_a_mounted_data_volume_has_its_filesystem_grown(server: Path):
+    result = apply(server, MOUNTED="yes")
+
+    assert result.returncode == 0, result.stderr
+    calls = (server.parents[1] / "calls").read_text()
+    data = server.parents[1] / "srv" / "groundline-data"
+    assert f"xfs_growfs {data}" in calls
+    # Before the stack starts on it.
+    assert calls.index("xfs_growfs") < calls.index("docker compose up")
+
+
+def test_nothing_is_grown_without_a_mounted_data_volume(server: Path):
+    result = apply(server)
+
+    assert result.returncode == 0, result.stderr
+    assert "xfs_growfs" not in (server.parents[1] / "calls").read_text()

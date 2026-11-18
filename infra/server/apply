@@ -105,6 +105,13 @@ unset anthropic_api_key
 chmod 600 .env.new
 mv .env.new .env
 
+# A larger data_volume_gib grows the volume; this grows its filesystem to
+# match. It changes nothing when they're already the same size.
+if mountpoint -q "$data" 2>/dev/null; then
+  xfs_growfs "$data" >/dev/null \
+    || echo "groundline: couldn't grow the data volume's filesystem; the next upgrade tries again" >&2
+fi
+
 infra/https/refresh-address
 # Builds the image for this commit, then starts or updates Postgres, setup, the
 # app and Caddy. Old images would fill the disk over many upgrades.

@@ -27,7 +27,7 @@ variable "instance_type" {
 }
 
 variable "data_volume_gib" {
-  description = "The data volume's size in GiB. It holds the database, the HTTPS certificates and the database passwords, which take well under 1 GiB. It can grow later, but not shrink."
+  description = "The data volume's size in GiB. It holds the database, the HTTPS certificates and the database passwords, which take well under 1 GiB. A larger size takes effect on the next make aws-up, which grows the volume and then, through infra/server/apply, its filesystem. It can't shrink."
   type        = number
   default     = 5
 

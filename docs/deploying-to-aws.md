@@ -175,7 +175,7 @@ The alert covers the whole AWS project, so it counts every deployment in it. A l
 | `budget_amount` | `5` for disposable, `35` for lasting | `infra/terraform.tfvars` |
 | `app_settings` | The app's defaults | `infra/terraform.tfvars` ([App settings](#app-settings)) |
 | `instance_type` | `t4g.small` | `infra/terraform.tfvars` |
-| `data_volume_gib` | `5` | `infra/terraform.tfvars`; it can grow later, but not shrink |
+| `data_volume_gib` | `5` | `infra/terraform.tfvars`; a larger size takes effect on the next `make aws-up`, which grows the volume and its filesystem. It can't shrink |
 | `REF` | The commit you have checked out | `REF=<branch, tag or commit> make aws-deploy`; `make aws-up` asks instead |
 | `REPOSITORY_URL` | The GitHub remote that has the commit; `main` comes from groundline-dev/groundline | `REPOSITORY_URL=<https URL> make aws-deploy` |
 | `AWS_ANTHROPIC_API_KEY` | `ANTHROPIC_API_KEY` from `.env`, or a key you paste | `.env` ([step 4](#4-store-your-anthropic-api-key)) |
