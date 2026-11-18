@@ -91,3 +91,13 @@ def test_every_bad_option_is_reported_together(fake_server: FakeServer, api_key:
     message = str(refused.value)
     assert "max_attempts=" in message
     assert "timeout_seconds=" in message
+
+
+@pytest.mark.parametrize("name", SECONDS_OPTIONS)
+def test_a_whole_number_too_big_for_a_float_is_refused_with_a_config_error(
+    name: str, fake_server: FakeServer, api_key: str
+):
+    with pytest.raises(sdk.GroundlineConfigError) as refused:
+        make_client(fake_server, api_key, **{name: 10**400})
+
+    assert f"{name}=" in str(refused.value)

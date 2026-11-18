@@ -369,6 +369,31 @@ def test_an_async_call_that_never_answers_is_cut_off_at_the_total_timeout():
     assert time.monotonic() - started < 2.0
 
 
+class FailsWhileCancelled(httpx2.AsyncBaseTransport):
+    """Never answers, and fails with its own error when the time limit cancels it."""
+
+    async def handle_async_request(self, request: httpx2.Request) -> httpx2.Response:
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            raise RuntimeError("cleanup failed") from None
+        raise AssertionError("a hung call never answers")
+
+
+def test_an_error_that_is_not_a_timeout_is_not_relabelled_as_one():
+    client = AsyncRetryingClient(
+        transport=FailsWhileCancelled(),
+        max_attempts=1,
+        max_retry_seconds=5.0,
+        timeout_seconds=0.1,
+        connect_timeout_seconds=0.05,
+    )
+    request = httpx2.Request("GET", "http://api.test/health")
+
+    with pytest.raises(RuntimeError, match="cleanup failed"):
+        asyncio.run(asyncio.wait_for(client.send(request), timeout=5))
+
+
 # R8 (retry logging)
 
 

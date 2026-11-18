@@ -66,7 +66,11 @@ class _RetryBudget:
         return self._limits.max_retry_seconds - (self._clock() - self._started)
 
     def start_attempt(self, request: httpx2.Request) -> float:
-        """Limit this attempt to the time the budget has left; return that limit."""
+        """Limit this attempt to the time the budget has left; return that limit.
+
+        This replaces any timeout already on the request: the client's options are
+        the only way to set one.
+        """
         self.attempt += 1
         # Sleeping can overshoot the budget a little; an attempt then gets a sliver
         # of time, fails at once, and the call ends with that failure.
@@ -214,11 +218,11 @@ class AsyncRetryingClient(httpx2.AsyncClient):
                         follow_redirects=follow_redirects,
                     )
             except Exception as caught:
-                error = (
-                    httpx2.TimeoutException(_TIMED_OUT)
-                    if boundary.expired()
-                    else caught
-                )
+                # The event loop's timeout raises a TimeoutError. Any other error
+                # that happens to arrive as the timer fires is a different problem
+                # and is kept as it is.
+                timed_out = boundary.expired() and isinstance(caught, TimeoutError)
+                error = httpx2.TimeoutException(_TIMED_OUT) if timed_out else caught
                 wait = (
                     call.wait_before_retry(None) if is_retryable_error(error) else None
                 )

@@ -75,6 +75,15 @@ def _choose(
     return os.environ.get(variable, "").strip() or None
 
 
+def _is_positive_finite_number(value: Any) -> bool:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(value) and value > 0
+    except OverflowError:  # a whole number too big to convert to a float
+        return False
+
+
 def _option_problems(
     max_attempts: Any,
     max_retry_seconds: Any,
@@ -95,12 +104,7 @@ def _option_problems(
         "timeout_seconds": timeout_seconds,
     }
     for name, value in seconds.items():
-        if (
-            not isinstance(value, (int, float))
-            or isinstance(value, bool)
-            or not math.isfinite(value)
-            or value <= 0
-        ):
+        if not _is_positive_finite_number(value):
             problems.append(f"{name}= must be a number of seconds above 0.")
     return problems
 
