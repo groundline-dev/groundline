@@ -361,6 +361,41 @@ def test_data_delete_deletes_everything_once_the_name_is_typed(checkout: Path):
     assert all("deployment_name=staging" in plan for plan in plans), plans
 
 
+def test_data_delete_after_keeping_the_data_reports_no_leftovers(checkout: Path):
+    # make aws-destroy deleted the server and kept the data; DATA=delete now
+    # finds no server outputs, and nothing of the server to check.
+    lasting(checkout)
+    world = aws_fakes.new_world(
+        outputs={},
+        data_outputs=dict(
+            aws_fakes.DATA_OUTPUTS, deployment_name="staging", lifetime="lasting"
+        ),
+        snapshots=["snap-1"],
+    )
+
+    result, world = destroy(checkout, world, "staging\n1\n", "--data", "delete")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert world["data_destroyed"]
+    assert world["snapshots"] == []
+    assert "couldn't check" not in result.stdout + result.stderr
+    assert "no server left to check" in result.stdout
+    assert "data volume vol-0123456789abcdef0 is gone" in result.stdout
+
+
+def test_a_partly_recorded_server_still_reports_what_it_cant_check(checkout: Path):
+    lasting(checkout, lifetime="disposable")
+    world = aws_fakes.new_world(
+        outputs={"instance_id": "i-test", "lifetime": "disposable"},
+        existing={"i-test": "terminated"},
+    )
+
+    result, _ = destroy(checkout, world, "1\n")
+
+    assert result.returncode != 0
+    assert "couldn't check the security group" in result.stderr
+
+
 def test_destroy_rejects_other_arguments(checkout: Path):
     lasting(checkout)
 

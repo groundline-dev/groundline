@@ -198,27 +198,34 @@ gone() {
   esac
 }
 
-# A terminated instance stays visible for about an hour, so terminated counts as gone.
-if [ -z "$instance" ]; then
-  gone instance ""
-elif instance_state="$(aws ec2 describe-instances --region "$region" --instance-ids "$instance" \
-  --query 'Reservations[0].Instances[0].State.Name' --output text 2>&1)"; then
-  if [ "$instance_state" = terminated ]; then
-    check_ok "instance $instance is terminated"
-  else
-    check_error "instance $instance is $instance_state, not terminated"
-    leftover=1
-  fi
+# A lasting deployment whose server an earlier make aws-destroy deleted has no
+# server outputs left, and nothing of its server to check. A deployment that
+# failed partway has some, and each missing one is reported.
+if [ -z "$instance$group$role$profile$budget" ] && [ -n "$volume$address" ]; then
+  check_ok "there was no server left to check: it was already deleted, or never made"
 else
-  case "$instance_state" in
-    *NotFound*) check_ok "instance $instance is gone" ;;
-    *) check_error "couldn't check instance $instance: $instance_state"; leftover=1 ;;
-  esac
+  # A terminated instance stays visible for about an hour, so terminated counts as gone.
+  if [ -z "$instance" ]; then
+    gone instance ""
+  elif instance_state="$(aws ec2 describe-instances --region "$region" --instance-ids "$instance" \
+    --query 'Reservations[0].Instances[0].State.Name' --output text 2>&1)"; then
+    if [ "$instance_state" = terminated ]; then
+      check_ok "instance $instance is terminated"
+    else
+      check_error "instance $instance is $instance_state, not terminated"
+      leftover=1
+    fi
+  else
+    case "$instance_state" in
+      *NotFound*) check_ok "instance $instance is gone" ;;
+      *) check_error "couldn't check instance $instance: $instance_state"; leftover=1 ;;
+    esac
+  fi
+  gone "security group" "$group" aws ec2 describe-security-groups --region "$region" --group-ids "$group"
+  gone "IAM role" "$role" aws iam get-role --role-name "$role"
+  gone "instance profile" "$profile" aws iam get-instance-profile --instance-profile-name "$profile"
+  gone budget "$budget" aws budgets describe-budget --account-id "$account" --budget-name "$budget"
 fi
-gone "security group" "$group" aws ec2 describe-security-groups --region "$region" --group-ids "$group"
-gone "IAM role" "$role" aws iam get-role --role-name "$role"
-gone "instance profile" "$profile" aws iam get-instance-profile --instance-profile-name "$profile"
-gone budget "$budget" aws budgets describe-budget --account-id "$account" --budget-name "$budget"
 # A server made before deployments had a data volume has neither.
 if [ -n "$volume$address" ]; then
   gone "data volume" "$volume" aws ec2 describe-volumes --region "$region" --volume-ids "$volume"
