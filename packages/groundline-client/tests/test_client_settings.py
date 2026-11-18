@@ -140,6 +140,8 @@ def test_a_url_that_is_not_http_or_https_fails_without_echoing_it(
         "http://SENTINEL host",  # a space in the host
         "http://user:SENTINEL@host",  # a password in the URL; betterleaks:allow a dummy
         "http://SENTINEL@host",  # a user name in the URL
+        "https://host/?x=SENTINEL",  # a query string
+        "https://host/#SENTINEL",  # a fragment
     ],
 )
 def test_a_url_that_a_request_would_reject_fails_at_creation_without_echoing_it(

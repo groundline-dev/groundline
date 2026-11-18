@@ -35,7 +35,7 @@ If the URL or API key is missing, blank, or can't be used, creating the client
 fails at once with a message naming the setting. A blank argument is an error: it
 doesn't fall back to the environment variable, because a blank value usually
 means a secret that didn't load. The URL must be an `http://` or `https://`
-address with a host, and no user name or password.
+address with a host, and no user name, password, query string or fragment.
 
 The client doesn't print the API key in its `repr`, its error messages or its
 tracebacks, including the local variables that tools such as pytest
@@ -50,6 +50,9 @@ if you call them: it closes both the sync and the async connections. A plain
 `with` can only close the sync ones, and warns if an async connection is left
 open. A client can't be used in a `with` block after it has made a call, or after
 its block has ended, so make the calls inside the block.
+
+`health()` and `ready()` send the API key too, though those two routes are public
+and don't need it.
 
 A method returns the parsed response model. When the API answers with an error
 status, it returns the parsed `ErrorBody` instead of raising, and an answer the

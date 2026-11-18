@@ -27,7 +27,10 @@ API_KEY_VARIABLE = "GROUNDLINE_API_KEY"
 
 
 def _is_usable_url(url: str) -> bool:
-    """http or https, with a valid host and no user name or password."""
+    """http or https, a valid host, no user name, password, query or fragment.
+
+    A path such as `/api` is fine: the client adds each route after it.
+    """
     try:
         parts = httpx2.URL(url)
     except (httpx2.InvalidURL, ValueError):
@@ -39,6 +42,8 @@ def _is_usable_url(url: str) -> bool:
         and bool(parts.host)
         and "%" not in parts.host
         and not parts.userinfo
+        and not parts.query
+        and not parts.fragment
     )
 
 
@@ -77,7 +82,8 @@ def _resolve_url_and_api_key(
     elif not _is_usable_url(chosen_url):
         problems.append(
             "The API URL must be an http:// or https:// address with a valid host "
-            f"and no user name or password (from base_url= or {URL_VARIABLE})."
+            "and no user name, password, query or fragment "
+            f"(from base_url= or {URL_VARIABLE})."
         )
     if chosen_api_key is None:
         if api_key is None:
