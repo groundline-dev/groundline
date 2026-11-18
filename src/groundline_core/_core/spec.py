@@ -16,7 +16,7 @@ from pydantic.json_schema import models_json_schema
 
 from groundline_core._core.cache import stable_hash
 from groundline_core._core.errors import SetupError, redact_keys
-from groundline_core._core.file_problems import file_problems
+from groundline_core._core.file_problems import file_problems, read_text
 from groundline_core._core.implementation import Implementation
 from groundline_core._core.profile import DomainProfile, Placeholders
 from groundline_core._core.registry import Registry
@@ -99,15 +99,9 @@ def spec_json_schema(registry: Registry) -> dict[str, Any]:
 def load_spec(path: str | Path) -> PipelineSpec:
     """Load a spec from a YAML or JSON file (JSON is valid YAML)."""
     path = Path(path)
+    text = read_text(path, lambda problem: SpecError([problem], path=path))
     try:
-        return PipelineSpec.model_validate(yaml.safe_load(path.read_text()))
-    except OSError as error:
-        # An OSError's text repeats the full path; its strerror doesn't.
-        reason = error.strerror or type(error).__name__
-        raise SpecError([f"{path.name}: {reason}"], path=path) from None
-    except UnicodeDecodeError:
-        problem = f"{path.name}: not readable UTF-8 text"
-        raise SpecError([problem], path=path) from None
+        return PipelineSpec.model_validate(yaml.safe_load(text))
     except (yaml.YAMLError, ValidationError) as error:
         problems = [f"{path.name}: {problem}" for problem in file_problems(error)]
         raise SpecError(problems, path=path) from None

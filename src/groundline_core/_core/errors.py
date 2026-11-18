@@ -42,12 +42,11 @@ class GroundlineError(Exception):
     a setup error, invalid input or a model failure together."""
 
     def __init__(self, *args: object) -> None:
+        # Redacted here, so `str`, `repr` and `args` are all clean. A subclass
+        # that adds text in its own `__str__` redacts that text itself.
         super().__init__(
             *(redact_keys(arg) if isinstance(arg, str) else arg for arg in args)
         )
-
-    def __str__(self) -> str:
-        return redact_keys(super().__str__())
 
 
 class SetupError(GroundlineError):
@@ -64,20 +63,18 @@ class SetupError(GroundlineError):
         only by its name."""
 
 
-def file_line(path: Path | None, *, note_missing: bool = True) -> str:
+def file_line(path: Path | None) -> str:
     """The line the CLI prints and the API logs after an error's message: the
     full path of the file at fault, and whether it exists. Empty when no file is
     involved. The message itself names the file only by its name."""
     if path is None:
         return ""
-    missing = ""
-    if note_missing:
-        try:
-            missing = "" if path.exists() else " (not found)"
-        except OSError:
-            # A folder on the way that can't be searched: say nothing rather
-            # than fail while reporting another error.
-            pass
+    try:
+        missing = "" if path.exists() else " (not found)"
+    except OSError:
+        # A folder on the way that can't be searched: say nothing rather than
+        # fail while reporting another error.
+        missing = ""
     return f"\n  File: {path}{missing}"
 
 
@@ -116,7 +113,8 @@ class ModelFailureError(GroundlineError):
 
 class ModelTimeoutError(ModelFailureError):
     """The check's time limit ran out while waiting for the model, or a model
-    call used up its attempts or its time.
+    call ran out of time: one attempt took too long, or its retries did. A
+    call that used up its attempts on errors is a plain `ModelFailureError`.
 
     Interrupted requests may still be billed, so the cost groundline records
     can be lower than the provider's bill."""

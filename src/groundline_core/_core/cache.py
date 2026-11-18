@@ -13,6 +13,8 @@ import tempfile
 from pathlib import Path
 from typing import Any, Protocol, cast
 
+from groundline_core._core.file_problems import os_reason
+
 logger = logging.getLogger("groundline.cache")
 
 
@@ -77,12 +79,10 @@ class FileCache:
         except OSError as error:
             if not self._write_failed:
                 self._write_failed = True
-                # An OSError's text repeats the full path; its strerror doesn't.
-                reason = error.strerror or type(error).__name__
                 logger.warning(
                     "couldn't write to the stage cache (%s); "
                     "this run's results won't be cached",
-                    reason,
+                    os_reason(error),
                 )
 
     def _write(self, path: Path, key: str, entry: dict[str, Any]) -> None:

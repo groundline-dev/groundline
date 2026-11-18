@@ -20,7 +20,7 @@ from psycopg import sql
 from sqlalchemy import URL, make_url
 from sqlalchemy.exc import ArgumentError, SQLAlchemyError
 
-from groundline_core._core.errors import SetupError
+from groundline_core._core.errors import SetupError, file_line
 from groundline_core._settings import ENV_FILE, read_settings
 from groundline_core.db.config import DRIVERS
 from groundline_core.db.connection import scrub
@@ -172,7 +172,7 @@ def main() -> None:
     try:
         settings = read_settings(ENV_FILE)
     except SetupError as error:
-        sys.exit(f"error: {error}")
+        sys.exit(f"error: {error}{file_line(error.path)}")
     if settings.database_url is None:
         sys.exit(
             "error: DATABASE_URL is not set.\n"

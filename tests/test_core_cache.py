@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 
 from groundline_core._core import FileCache, stable_hash
+from tests.fakes import unwritable_folder
 
 
 def test_stores_and_returns_entries(tmp_path: Path):
@@ -88,9 +89,7 @@ def test_names_cannot_reach_outside_the_cache_folder(
 def test_a_failed_write_names_neither_the_folder_nor_the_entry(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ):
-    blocker = tmp_path / "private-folder"
-    blocker.write_text("a file where the cache folder should be")
-    cache = FileCache(blocker / "cache")
+    cache = FileCache(unwritable_folder(tmp_path, "private-folder"))
 
     cache.put("extract", "abc", {"output": {"facts": []}, "calls": []})
 
@@ -102,9 +101,7 @@ def test_a_failed_write_names_neither_the_folder_nor_the_entry(
 def test_only_the_first_failed_write_is_logged(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ):
-    blocker = tmp_path / "not-a-folder"
-    blocker.write_text("a file where the cache folder should be")
-    cache = FileCache(blocker / "cache")
+    cache = FileCache(unwritable_folder(tmp_path))
 
     for step in ("extract", "rank", "check"):
         cache.put(step, "abc", {"output": {}, "calls": []})
@@ -115,9 +112,9 @@ def test_only_the_first_failed_write_is_logged(
 def test_a_failed_write_is_not_a_python_warning(tmp_path: Path):
     # A warnings filter set to "error" would turn a warning into an exception
     # that fails the check, so a failed write must not warn at all.
-    blocker = tmp_path / "not-a-folder"
-    blocker.write_text("a file where the cache folder should be")
 
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        FileCache(blocker / "cache").put("extract", "abc", {"output": {}, "calls": []})
+        FileCache(unwritable_folder(tmp_path)).put(
+            "extract", "abc", {"output": {}, "calls": []}
+        )

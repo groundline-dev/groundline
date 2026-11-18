@@ -8,7 +8,7 @@ from typer.testing import CliRunner, Result
 
 from groundline_core import GroundlineError, cli
 from tests.anthropic_helpers import fake_anthropic, keys_sent
-from tests.fakes import FakeClient
+from tests.fakes import FakeClient, unwritable_folder
 from tests.omission_helpers import (
     SOURCE,
     SUMMARY,
@@ -289,7 +289,7 @@ def test_an_unwritable_json_path_exits_with_2_not_1(
     assert result.exit_code == 2
     assert result.stderr == (
         "error: couldn't write the JSON result to result.json: "
-        f"No such file or directory\n  File: {out_path}\n"
+        f"No such file or directory\n  File: {out_path} (not found)\n"
     )
     assert "Traceback" not in result.output
 
@@ -355,9 +355,8 @@ def test_a_cache_that_cannot_be_written_warns_in_the_clis_own_style(
     files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ):
     use_client(monkeypatch, not_flagged_script())
-    blocker = files[0].parent / "not-a-folder"
-    blocker.write_text("a file where the cache folder should be")
-    monkeypatch.setenv("GROUNDLINE_CACHE_DIR", str(blocker / "cache"))
+    cache_dir = unwritable_folder(files[0].parent)
+    monkeypatch.setenv("GROUNDLINE_CACHE_DIR", str(cache_dir))
 
     result = omissions(files, "--cache")
 

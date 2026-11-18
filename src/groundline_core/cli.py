@@ -27,13 +27,13 @@ from groundline_core._core import (
     InvalidInputError,
     ModelClient,
     ModelFailureError,
-    SetupError,
     file_line,
     load_profile,
     load_spec,
     redact_keys,
     summarize_usage,
 )
+from groundline_core._core.file_problems import os_reason, read_text
 from groundline_core._evaluate import (
     DEFAULT_COMMISSIONS_PRESET,
     DEFAULT_PRESET,
@@ -268,20 +268,15 @@ def _exit_code(run: Callable[[], int]) -> int:
     """The check's exit code, or EXIT_ERROR after printing what stopped it."""
     try:
         return run()
-    except ModelFailureError as error:
-        typer.echo(f"error: {error}", err=True)
-        if error.calls:
+    except (GroundlineError, UsageError, JSONWriteError) as error:
+        # Every message is redacted here, including the CLI's own errors, which
+        # can quote a name from a spec file. SetupError and JSONWriteError carry
+        # the full path of the file at fault; the others have none.
+        path: Path | None = getattr(error, "path", None)
+        typer.echo(f"error: {redact_keys(str(error))}{file_line(path)}", err=True)
+        if isinstance(error, ModelFailureError) and error.calls:
             cost = usage_text(summarize_usage(error.calls))
             typer.echo(f"  Recorded cost before stopping: {cost}", err=True)
-    except UsageError as error:
-        typer.echo(f"error: {error}", err=True)
-    except JSONWriteError as error:
-        # The file was never written, so "(not found)" would say nothing new.
-        file = file_line(error.path, note_missing=False)
-        typer.echo(f"error: {error}{file}", err=True)
-    except GroundlineError as error:
-        file = file_line(error.path) if isinstance(error, SetupError) else ""
-        typer.echo(f"error: {error}{file}", err=True)
     except Exception as error:
         typer.echo(
             f"error: unexpected {type(error).__name__}: {redact_keys(str(error))}\n"
@@ -338,21 +333,14 @@ def _check(
 def _input_text(path: Path) -> str:
     """A source or summary file's text. One that can't be read is invalid input,
     named by its file name only, as every groundline error message is."""
-    try:
-        return path.read_text()
-    except UnicodeDecodeError:
-        raise InvalidInputError(f"{path.name} isn't readable UTF-8 text") from None
-    except OSError as error:
-        # An OSError's text repeats the full path; its strerror doesn't.
-        reason = error.strerror or type(error).__name__
-        raise InvalidInputError(f"can't read {path.name}: {reason}") from None
+    return read_text(path, InvalidInputError)
 
 
 def _write_json(path: Path, result: EvaluationResult) -> None:
     try:
         path.write_text(json.dumps(result_json(result), indent=2) + "\n")
     except OSError as error:
-        reason = error.strerror or type(error).__name__
         raise JSONWriteError(
-            f"couldn't write the JSON result to {path.name}: {reason}", path=path
+            f"couldn't write the JSON result to {path.name}: {os_reason(error)}",
+            path=path,
         ) from None

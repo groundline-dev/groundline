@@ -214,7 +214,7 @@ Every error groundline raises on purpose is a `GroundlineError`, of one of three
 |---|---|---|
 | `SetupError` | The setup stops the check: an invalid spec (`SpecError`) or a domain profile it can't load (`ProfileError`), a missing key (`MissingAPIKeyError`), a rejected key (`APIKeyRejectedError`), a model the Anthropic API doesn't have, settings that can't be read (`SettingsError`), or both `client` and `anthropic_api_key` passed. | Fix the setup. Trying again won't help. |
 | `InvalidInputError` | The source or summary isn't text, or is empty or only whitespace. It's raised before the key is looked up or a model is called. | Fix the input. |
-| `ModelFailureError` | Anthropic's API kept failing, the model declined, or its reply stayed unusable. `ModelTimeoutError`, a kind of `ModelFailureError`, means a time limit ran out. `step` names the step that failed. | Try again later. |
+| `ModelFailureError` | Anthropic's API kept failing, the model declined, or its reply stayed unusable. `ModelTimeoutError`, a kind of `ModelFailureError`, means a time limit ran out. `step` names the step that failed, or is `None` when the whole check ran out of time between steps. | Try again later. |
 
 ```python
 from groundline_core import InvalidInputError, ModelFailureError, SetupError, evaluate_sync
@@ -229,7 +229,7 @@ except InvalidInputError:
     ...  # the source or summary can't be checked
 ```
 
-A message is safe to log or show: it never quotes the source, the summary, the key or Anthropic's own error text, and it names a file only by its name. It does quote names from a spec or profile, such as an unknown step, with anything shaped like an Anthropic or groundline API key replaced by `<redacted key>`; other kinds of secret aren't recognized. A traceback doesn't print the error groundline's error came from, since its text could quote a file or the request. `SetupError.path` holds the file's full path, and the CLI prints it on a `File:` line of its own. `SpecError`, `ProfileError` and `InvalidInputError` are also `ValueError`s, but `ModelTimeoutError` isn't a `TimeoutError`.
+A message is safe to log or show: it never quotes the source, the summary, the key or Anthropic's own error text, and it names a file only by its name. It does quote names from a spec or profile, such as an unknown step, with anything shaped like an Anthropic or groundline API key replaced by `<redacted key>`; other kinds of secret aren't recognized. When groundline's error comes from another library's error, such as YAML's, pydantic's or the Anthropic SDK's, a traceback doesn't print that original, since its text could quote a file, a setting or the request. `SetupError.path` holds the file's full path, and the CLI prints it on a `File:` line of its own. `SpecError`, `ProfileError` and `InvalidInputError` are also `ValueError`s, but `ModelTimeoutError` isn't a `TimeoutError`.
 
 An exception from your own `client`, or from a bug in groundline, comes out as it was raised rather than as a `GroundlineError` ([ADR 0020](docs/adr/0020-only-groundlines-own-failures-are-groundline-errors.md)), and it doesn't say what the check had spent. To report your model's failure as a `ModelFailureError`, your client can raise one itself.
 

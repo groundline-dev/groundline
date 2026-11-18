@@ -17,7 +17,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from groundline_core._core.errors import SetupError
-from groundline_core._core.file_problems import file_problems
+from groundline_core._core.file_problems import file_problems, os_reason, read_text
 
 
 class ProfileError(SetupError, ValueError):
@@ -76,15 +76,9 @@ def profile_file_schema() -> dict[str, Any]:
 
 def _text(path: Path, label: str) -> str:
     """A profile file's text, or a `ProfileError` naming the file by name."""
-    try:
-        return path.read_text()
-    except UnicodeDecodeError:
-        problem = f"{label}: {path.name} isn't readable UTF-8 text"
-        raise ProfileError(problem, path=path) from None
-    except OSError as error:
-        reason = error.strerror or type(error).__name__
-        problem = f"{label}: can't read {path.name} ({reason})"
-        raise ProfileError(problem, path=path) from None
+    return read_text(
+        path, lambda problem: ProfileError(f"{label}: {problem}", path=path)
+    )
 
 
 def _is_file(path: Path, label: str) -> bool:
@@ -93,17 +87,16 @@ def _is_file(path: Path, label: str) -> bool:
     try:
         return path.is_file()
     except OSError as error:
-        reason = error.strerror or type(error).__name__
-        raise ProfileError(
-            f"{label}: can't read {path.name} ({reason})", path=path
-        ) from None
+        problem = f"{label}: can't read {path.name} ({os_reason(error)})"
+        raise ProfileError(problem, path=path) from None
 
 
 def load_profile(folder: str | Path) -> DomainProfile:
     """Load a profile folder, reading every text it lists."""
     folder = Path(folder)
     manifest = folder / "profile.yaml"
-    label = f"profile '{folder.name}'"
+    # A folder given as "." or "/" has no name of its own.
+    label = f"profile '{folder.absolute().name or folder}'"
     if not _is_file(manifest, label):
         raise ProfileError(f"{label} has no profile.yaml", path=manifest)
     try:
@@ -118,7 +111,7 @@ def load_profile(folder: str | Path) -> DomainProfile:
         if not _is_file(path, label):
             raise ProfileError(
                 f"{label}: text '{name}' file {Path(relative).name} not found",
-                path=manifest,
+                path=path,
             )
         texts[name] = _text(path, label)
 

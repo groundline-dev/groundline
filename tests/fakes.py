@@ -5,6 +5,7 @@ scripted replies."""
 import asyncio
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 from groundline_core._core import (
@@ -114,11 +115,11 @@ def run_stages(
 
 
 class HungClient:
-    """A model that never answers, counting the calls started and cancelled."""
+    """A model that never answers, counting the calls started and canceled."""
 
     def __init__(self):
         self.started = 0
-        self.cancelled = 0
+        self.canceled = 0
 
     async def complete(
         self, prompt: str, *, model: str, effort: Any, max_tokens: int
@@ -127,5 +128,13 @@ class HungClient:
         try:
             await asyncio.Event().wait()
         finally:
-            self.cancelled += 1
+            self.canceled += 1
         raise AssertionError("hung fake unexpectedly returned")
+
+
+def unwritable_folder(parent: Path, name: str = "not-a-folder") -> Path:
+    """A path under which nothing can be written: `parent / name` is a file, so
+    any folder below it can't be created, even by root."""
+    blocker = parent / name
+    blocker.write_text("a file where a folder should be")
+    return blocker / "cache"

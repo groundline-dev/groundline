@@ -14,7 +14,7 @@ try:
     from fastapi.responses import HTMLResponse
     from sqlalchemy.ext.asyncio import AsyncEngine
 
-    from groundline_core._core.errors import SetupError
+    from groundline_core._core.errors import SetupError, file_line
     from groundline_core._settings import (
         ENV_FILE,
         SettingsError,
@@ -80,9 +80,10 @@ def _database_url() -> str | None:
     try:
         settings = read_settings(ENV_FILE)
     except SettingsError as error:
-        file = f"\n  File: {error.path}" if error.path else ""
         api_logger.warning(
-            "%s%s\nChecks will answer 503 until it's fixed.", error, file
+            "%s%s\nChecks will answer 503 until it's fixed.",
+            error,
+            file_line(error.path),
         )
         return None
     if settings.anthropic_api_key is None:
