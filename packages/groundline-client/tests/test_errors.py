@@ -4,6 +4,7 @@ These tests build errors and call the mapping directly, with no server. The
 client tests in `test_client_errors.py` show the same rules through a call.
 """
 
+import json
 import secrets
 
 import groundline_client as sdk
@@ -213,6 +214,35 @@ def test_a_retry_after_date_in_the_past_means_no_wait():
 
     assert isinstance(error, sdk.RateLimitError)
     assert error.retry_after == 0.0
+
+
+@pytest.mark.parametrize(
+    "location",
+    [[{"a": 1}], [["nested"]], [None], [1.5], [True, "x"]],
+    ids=["dict", "list", "none", "float", "bool"],
+)
+def test_a_422_location_that_is_not_names_and_positions_gives_no_detail(
+    location: list[object],
+):
+    body = json.dumps({"detail": [{"loc": location, "msg": "m", "type": "t"}]})
+
+    error = error_for_status(422, {}, body.encode())
+
+    assert type(error) is sdk.InvalidRequestError
+    assert error.detail is None
+
+
+def test_a_credential_in_the_servers_detail_is_replaced():
+    body = b'{"detail": "echo Bearer abcdef123456 and abcdef123456"}'
+
+    error = error_for_status(502, {}, body, ("Bearer abcdef123456", "abcdef123456"))
+
+    assert error.detail == "echo <redacted key> and <redacted key>"
+
+
+def test_a_credential_too_short_to_be_a_key_is_left_alone():
+    error = error_for_status(502, {}, b'{"detail": "a key x here"}', ("x",))
+    assert error.detail == "a key x here"
 
 
 def test_only_a_rate_limit_error_has_a_wait_time():

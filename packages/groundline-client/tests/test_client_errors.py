@@ -235,6 +235,15 @@ def test_a_success_status_the_api_does_not_document_raises_a_plain_error(
     assert type(error) is sdk.GroundlineError
 
 
+@SYNC_AND_ASYNC
+def test_a_success_status_with_absurdly_nested_json_raises_a_plain_error(
+    is_async: bool, fake_server: FakeServer, api_key: str
+):
+    error = raised_by(fake_server, api_key, is_async, 200, b"[" * 200_000)
+
+    assert type(error) is sdk.GroundlineError
+
+
 # A flagged summary is a result (R3): see test_client_retries.py,
 # test_a_flagged_summary_is_a_normal_result_and_is_not_retried.
 

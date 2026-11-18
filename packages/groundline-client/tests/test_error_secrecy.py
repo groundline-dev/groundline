@@ -144,6 +144,26 @@ def test_a_key_in_the_servers_detail_is_redacted_in_the_error(
 
 
 @SYNC_AND_ASYNC
+@pytest.mark.parametrize(
+    "echo", [SECRET_KEY, f"Bearer {SECRET_KEY}"], ids=["key", "header"]
+)
+def test_the_clients_own_key_echoed_in_the_servers_detail_is_redacted(
+    echo: str, is_async: bool, fake_server: FakeServer
+):
+    # The key isn't one of the shapes `redact_keys` knows, so only the client's
+    # own knowledge of it can hide it.
+    fake_server.reply("GET", "/health", 502, {"detail": f"upstream echoed {echo}"})
+    client = sdk.GroundlineClient(
+        base_url=fake_server.url, api_key=SECRET_KEY, max_attempts=1
+    )
+
+    error = trigger(client, "health", is_async)
+
+    assert error.detail == "upstream echoed <redacted key>"
+    assert_safe(error)
+
+
+@SYNC_AND_ASYNC
 def test_a_key_in_a_proxys_error_page_never_reaches_the_error(
     is_async: bool, fake_server: FakeServer
 ):

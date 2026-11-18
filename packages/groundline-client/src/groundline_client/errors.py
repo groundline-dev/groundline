@@ -13,9 +13,11 @@ to anyone: it never holds the source, the summary, the API key or the server's
 own text. That text is in `detail`, with anything shaped like an API key
 replaced by `<redacted key>`. Only the two key shapes below are recognised.
 
-An error never chains the `httpx2` error it replaces, and holds no request or
-response. The `httpx2` error carries its request, and the request's headers
-hold the API key.
+An error never chains the `httpx2` error it replaces, and has no request or
+response attribute. The `httpx2` error carries its request, and the request's
+headers hold the API key. The frames of the error's own traceback can still
+reach the request, so a tool that prints a frame's local variables relies on
+`repr`, which never shows the headers.
 """
 
 import re

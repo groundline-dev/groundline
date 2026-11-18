@@ -74,8 +74,9 @@ def _choose(
     return os.environ.get(variable, "").strip() or None
 
 
-# What the generated code raises when a 2xx body isn't what it expects.
-_UNREADABLE = (ValueError, KeyError, TypeError, AttributeError)
+# What the generated code raises when a 2xx body isn't what it expects (a
+# RecursionError is deeply nested JSON).
+_PARSE_ERRORS = (ValueError, KeyError, TypeError, AttributeError, RecursionError)
 _UNREADABLE_ANSWER = "The API's answer was not in the expected form."
 
 
@@ -95,7 +96,7 @@ def _call[Result](
 ) -> Result:
     try:
         result = operation(**arguments)
-    except _UNREADABLE:
+    except _PARSE_ERRORS:
         # Raised below, outside this block, so the error has no `__context__`.
         result = None
     return _expect(result, model)
@@ -108,7 +109,7 @@ async def _call_async[Result](
 ) -> Result:
     try:
         result = await operation(**arguments)
-    except _UNREADABLE:
+    except _PARSE_ERRORS:
         result = None
     return _expect(result, model)
 

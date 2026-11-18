@@ -7,7 +7,7 @@ request's headers do). The classes are in `errors.py`; `_http.py` calls these.
 
 import json
 import time
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from typing import cast
 
 import httpx2
@@ -40,6 +40,7 @@ _BY_STATUS: dict[int, tuple[type[GroundlineError], str]] = {
     504: (GroundlineTimeoutError, "The API ran out of time"),
 }
 _UNEXPECTED = "The API gave an answer the SDK doesn't recognise"
+_SHORTEST_CREDENTIAL = 8
 
 
 def _problem_text(problem: object) -> str | None:
@@ -51,10 +52,17 @@ def _problem_text(problem: object) -> str | None:
     if not isinstance(location, list) or not isinstance(message, str):
         return None
     parts = cast(list[object], location)
+    # The server's locations are field names and list positions. Anything else
+    # is not the documented shape, and isn't copied into `detail`.
+    if not all(
+        isinstance(part, str) or (isinstance(part, int) and not isinstance(part, bool))
+        for part in parts
+    ):
+        return None
     return f"{'.'.join(str(part) for part in parts)}: {message}"
 
 
-def _detail(content: bytes) -> str | None:
+def _detail_from_body(content: bytes) -> str | None:
     """The server's `detail`, if the body is the documented shape; else None.
 
     Documented shapes: `{"detail": "text"}` and a 422's list of problems.
@@ -76,13 +84,37 @@ def _detail(content: bytes) -> str | None:
     return None
 
 
+def _without_credentials(text: str | None, credentials: Iterable[str]) -> str | None:
+    """`text` with each credential, such as the API key a proxy echoed, replaced.
+
+    A credential under `_SHORTEST_CREDENTIAL` characters isn't replaced: it would
+    also match ordinary words.
+    """
+    if text is None:
+        return None
+    for credential in credentials:
+        if len(credential) >= _SHORTEST_CREDENTIAL:
+            text = text.replace(credential, "<redacted key>")
+    return text
+
+
 def error_for_status(
-    status: int, headers: Mapping[str, str], content: bytes
+    status: int,
+    headers: Mapping[str, str],
+    content: bytes,
+    credentials: Iterable[str] = (),
 ) -> GroundlineError:
-    """The error for an answer with this status, headers and body."""
-    error_class, wording = _BY_STATUS.get(status, (GroundlineError, _UNEXPECTED))
-    message = f"{wording} (status {status})."
-    detail = _detail(content)
+    """The error for an answer with this status, headers and body.
+
+    `credentials` are the texts to hide from `detail`, beyond the key shapes
+    `GroundlineError` already redacts: the client's own API key, in case the
+    server or a proxy echoes it. List the longest first.
+    """
+    error_class, start_of_message = _BY_STATUS.get(
+        status, (GroundlineError, _UNEXPECTED)
+    )
+    message = f"{start_of_message} (status {status})."
+    detail = _without_credentials(_detail_from_body(content), credentials)
     if error_class is RateLimitError:
         return RateLimitError(
             message,

@@ -14,7 +14,7 @@ import httpx2
 
 # The answers that mean "try again": the server or a proxy in front of it was
 # briefly unable to answer. Anything else, a 4xx the caller must fix or a 500,
-# comes back as it is.
+# is not retried: it raises the SDK's error at once.
 RETRYABLE_STATUSES = frozenset({408, 429, 502, 503, 504})
 
 # Full jitter: before the nth retry the wait is a random share of a cap that

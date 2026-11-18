@@ -81,7 +81,7 @@ class _RetryBudget:
         """
         self.attempt += 1
         # Sleeping can overshoot the budget a little; an attempt then gets a sliver
-        # of time, fails at once, and the call ends with that failure.
+        # of time, fails at once, and the call ends with that error.
         remaining = max(self._remaining(), _SMALLEST_ATTEMPT_SECONDS)
         attempt_seconds = min(self._limits.timeout_seconds, remaining)
         request.extensions["timeout"] = {
@@ -124,7 +124,7 @@ class _RetryBudget:
 
 
 class RetryingClient(httpx2.Client):
-    """A sync `httpx2` client that retries temporary failures within a time budget."""
+    """A sync `httpx2` client that retries temporary errors within a time budget."""
 
     def __init__(
         self,
@@ -179,7 +179,7 @@ class RetryingClient(httpx2.Client):
 
 
 class AsyncRetryingClient(httpx2.AsyncClient):
-    """An async `httpx2` client that retries temporary failures within a time budget.
+    """An async `httpx2` client that retries temporary errors within a time budget.
 
     Each attempt is also cut off at its time limit by the event loop, so an
     attempt that never answers, or trickles bytes, can't outlast it.
@@ -249,6 +249,15 @@ class AsyncRetryingClient(httpx2.AsyncClient):
             await self._sleep(wait)
 
 
+def _credentials_of(request: httpx2.Request) -> tuple[str, ...]:
+    """What the request's `Authorization` header holds, longest first: the
+    whole value (`Bearer <key>`) and the key alone. They are texts to hide from
+    an error, passed straight to the mapping so no frame of the error's
+    traceback holds them."""
+    value = request.headers.get("authorization", "")
+    return tuple(sorted({value, value.split(" ")[-1]} - {""}, key=len, reverse=True))
+
+
 class ErrorRaisingClient(RetryingClient):
     """A `RetryingClient` that raises the SDK's error for a final failure."""
 
@@ -265,19 +274,22 @@ class ErrorRaisingClient(RetryingClient):
                 request, stream=stream, auth=auth, follow_redirects=follow_redirects
             )
         except Exception as caught:
-            failure = error_for_failure(caught)
-            if failure is None:
+            error = error_for_failure(caught)
+            if error is None:
                 raise
         else:
             response.read()
             if response.is_success:
                 return response
-            failure = error_for_status(
-                response.status_code, response.headers, response.content
+            error = error_for_status(
+                response.status_code,
+                response.headers,
+                response.content,
+                _credentials_of(request),
             )
             response.close()
         # Outside the `except` block, so the error has no `__context__`.
-        raise failure
+        raise error
 
 
 class AsyncErrorRaisingClient(AsyncRetryingClient):
@@ -296,15 +308,18 @@ class AsyncErrorRaisingClient(AsyncRetryingClient):
                 request, stream=stream, auth=auth, follow_redirects=follow_redirects
             )
         except Exception as caught:
-            failure = error_for_failure(caught)
-            if failure is None:
+            error = error_for_failure(caught)
+            if error is None:
                 raise
         else:
             await response.aread()
             if response.is_success:
                 return response
-            failure = error_for_status(
-                response.status_code, response.headers, response.content
+            error = error_for_status(
+                response.status_code,
+                response.headers,
+                response.content,
+                _credentials_of(request),
             )
             await response.aclose()
-        raise failure
+        raise error
