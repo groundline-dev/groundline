@@ -9,7 +9,7 @@ import httpx2
 import pytest
 from anthropic import DefaultAsyncHttpxClient
 
-from groundline_core.clients.anthropic import AnthropicClient
+from groundline_core._clients.anthropic import AnthropicClient
 
 
 def message(**overrides: Any) -> dict[str, Any]:
@@ -41,7 +41,7 @@ def fake_anthropic(
     response such as an error. Returns the requests sent, so a test can see
     which key was used: nothing reaches the real API."""
     sent: list[httpx2.Request] = []
-    evaluate_module = importlib.import_module("groundline_core.evaluate")
+    evaluate_module = importlib.import_module("groundline_core._evaluate")
     real = evaluate_module.AnthropicClient
 
     def handler(request: httpx2.Request) -> httpx2.Response:

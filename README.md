@@ -4,6 +4,12 @@ groundline checks an AI-written summary against its source. Its **omission check
 
 **Status:** early development. It is research code, **not for clinical use**, and must not be used with real patient data yet (see [Caching and sensitive data](#caching-and-sensitive-data)).
 
+## Ways to use groundline
+
+- **Python library:** import `groundline_core` to run checks inside a Python app (see [Using it from Python](#using-it-from-python)).
+- **Command line:** `groundline-core omissions` or `groundline-core commissions` checks files from a terminal or script (see [Checking for omissions](#checking-for-omissions) and [Checking for commissions](#checking-for-commissions)).
+- **HTTP API:** run the server when several apps, or apps in other languages, need to call groundline over HTTP (see [Using the API](#using-the-api)).
+
 ## How it works
 
 The default pipeline, the **all-Opus omission check**, runs six steps:
@@ -36,7 +42,7 @@ groundline can also run the **lean commission check** (`commission_reverse_lean`
 3. **Commissions refute:** a second look at every flagged claim, whatever its severity, which can only clear one, and only with a verified quote from the source.
 4. **Alarm:** as above, with its own threshold level, `default`, at 0.80.
 
-Measured on 172 commission pairs, it caught 166, flagged 0 of 110 clean notes, and cost about $0.14 and 19 seconds per note. It matched the exact preset's catches, but failed both of its pre-registered tests, a paired-score margin less than two pairs wide and a false-alarm limit on notes from other sources, so it isn't confirmed to that standard (see [ADR 0017](docs/adr/0017-the-commission-check-also-offers-lean.md)). Those results hold only for the unchanged `commission_reverse_lean` preset. The CLI's `commissions` command runs quick unless you pass the lean preset's file with `--pipeline`.
+Measured on 172 commission pairs, it caught 166, flagged 0 of 110 clean notes, and cost about $0.14 and 19 seconds per note. It matched the exact preset's catches, but failed both of its pre-registered tests, a paired-score margin less than two pairs wide and a false-alarm limit on notes from other sources, so it isn't confirmed to that standard (see [ADR 0017](docs/adr/0017-the-commission-check-also-offers-lean.md)). Those results hold only for the unchanged `commission_reverse_lean` preset. The CLI's `commissions` command runs quick unless you pass `--preset commission_reverse_lean`.
 
 ## Setup
 
@@ -143,7 +149,7 @@ Not supported by the source (severity order):
 Cost              $0.0020 · 1 calls · 14,820 input / 1,040 output tokens · 4.1 s
 ```
 
-The [exit codes](#exit-codes) and [options](#options) are the same as for omissions. If the model's quote of the source passage isn't found word for word in the source, the report still shows it, marked `(not found word for word in the source)`. If a pipeline switches refute on, the report adds a `Cleared by refute` line.
+The [exit codes](#exit-codes) and [options](#options) are the same as for omissions, plus `--preset NAME`, which picks the validated preset to run: `commission_quick` (the default) or `commission_reverse_lean` (not confirmed to its pre-registered standard, as above). Use `--preset` or `--pipeline`, not both, since a pipeline spec file replaces the preset. An unknown name, or both options together, stops the command with exit code 2. If the model's quote of the source passage isn't found word for word in the source, the report still shows it, marked `(not found word for word in the source)`. If a pipeline switches refute on, the report adds a `Cleared by refute` line.
 
 ## Using it from Python
 
@@ -166,43 +172,55 @@ result = evaluate_sync(transcript_text, note_text, anthropic_api_key=my_key)
 result = evaluate_sync(transcript_text, note_text, env_file="config/groundline.env")
 ```
 
-The argument wins over the environment, and the environment wins over `env_file`. A blank argument raises an error; it doesn't fall back to the environment or `env_file`. With no key, `evaluate_sync` raises `MissingAPIKeyError` before any paid call; unless you named an `env_file`, the message names no file paths. The key never appears in logs, errors or the result.
+The argument wins over the environment, and the environment wins over `env_file`. A blank argument raises an error; it doesn't fall back to the environment or `env_file`. With no key, `evaluate_sync` raises an error (`MissingAPIKeyError`) before any paid call; unless you named an `env_file`, the message names no file paths. The key never appears in logs, errors or the result.
 
 ### Running a check
 
 ```python
 from groundline_core import evaluate_sync
-from groundline_core.evaluators.models import AlarmOutput
-from groundline_core.evaluators.omissions.models import ScoreOutput
 
 result = evaluate_sync(transcript_text, note_text)
 
-alarm = result.run.output("alarm", AlarmOutput)
-print(alarm.flagged, alarm.score, alarm.rescaled_score)
-for fact in result.run.output("score", ScoreOutput).missing_facts:
-    print(fact.severity, fact.verdict, fact.fact)
+print(result.flagged, result.score)  # True 0.15
+for finding in result.findings:
+    print(finding.severity, finding.verdict, finding.confidence, finding.statement)
+print(result.counts)  # total=35 present=29 partial=3 absent=3
+print(result.alarm)  # score=0.97 threshold=0.9 level='strict'
 print(result.validated_preset)  # "omission_all_opus", or None if anything was changed
-print(result.run.usage.cost_usd)
+print(result.usage.cost_usd)
 ```
 
-For the commission check, pass its preset as the `spec`:
+For the commission check, pass its preset as the `spec`. The result has the same fields, and `counts` is `None`:
 
 ```python
 from groundline_core import DEFAULT_COMMISSIONS_PRESET, evaluate_sync, load_preset
-from groundline_core.evaluators.commissions.models import CommissionsRefuteOutput
-from groundline_core.evaluators.models import AlarmOutput
 
 result = evaluate_sync(
     transcript_text, note_text, spec=load_preset(DEFAULT_COMMISSIONS_PRESET)
 )
-
-print(result.run.output("alarm", AlarmOutput).flagged)
-refute = result.run.output("commissions_refute", CommissionsRefuteOutput)
-for c in refute.commissions:
-    print(c.severity, c.support_verdict, c.unsupported_confidence, c.quote)
 ```
 
-`evaluate()` is the async version, for FastAPI or other async code. Both accept a `spec`, `profile`, `cache`, `client` or `registry` to override the defaults, and `anthropic_api_key` or `env_file` for the key. Pass `client` or `anthropic_api_key`, not both: a `client` brings its own key.
+The fields mean what the API's do (see [Findings](#findings) and [Scores](#scores)), and `None` stands for the API's `null`. What the API puts in `metadata` is in separate fields in Python: `alarm`, `usage`, `pipeline` (the name of the pipeline that ran) and `validated_preset` (the preset it matched). `result.run` holds every step's output for inspection; its shape follows the pipeline's steps and may change without notice.
+
+`evaluate()` is the async version, for FastAPI or other async code. Both take a `spec`, a `client` (your own `ModelClient`, such as a fake one so your app's tests cost nothing) and `anthropic_api_key` or `env_file` for the key. Pass `client` or `anthropic_api_key`, not both: a `client` brings its own key. They also accept `profile`, `cache` and `registry`, but those take internal types, so they aren't part of the public interface yet.
+
+A spec has to make one full check: the alarm step, plus the steps one check's findings come from. Anything else raises an error before the key is looked up or a model is called. The error types aren't public yet: an invalid spec raises a `ValueError`, and a missing or rejected key or a failed step raises another `Exception`.
+
+### Public interface
+
+Import from `groundline_core` itself. Its names, and the documented fields of the result types, keep working across upgrades. Everything else, including the modules whose names start with an underscore (such as `groundline_core._core`) and `result.run`, is internal and may change without notice.
+
+| Name | What it is |
+|---|---|
+| `evaluate`, `evaluate_sync` | Run a check. |
+| `load_preset`, `builtin_presets` | Load a built-in preset by name, and list the names. |
+| `DEFAULT_PRESET`, `DEFAULT_COMMISSIONS_PRESET`, `CommissionPreset` | The default omission and commission presets, and the commission presets' names as a type. |
+| `PipelineSpec` | A pipeline spec, as `load_preset` returns it. |
+| `ModelClient`, `ModelReply` | What a `client` implements (an async `complete(prompt, *, model, effort, max_tokens)`), and what it returns. |
+| `EvaluationResult`, `Finding`, `Counts`, `Alarm`, `Usage` | The result and its parts. |
+| `EvaluationType`, `Severity` | The types of `evaluation_type` (`omissions` or `commissions`) and of a finding's `severity` (`critical`, `supporting` or `peripheral`). |
+
+The package includes its type information, so type checkers such as pyright and mypy check your code against these names.
 
 ## Using the API
 
@@ -305,7 +323,7 @@ Both endpoints return `evaluation_type` (`omissions` or `commissions`), `flagged
 
 ### Scores
 
-`score` runs from 0 to 1, and higher is better, for both checks. A summary is flagged exactly when its score is below 0.5, and passes at 0.5 or above, so tools such as DeepEval can use their default cut of 0.5. The alarm still decides the flag: the score is the alarm score turned around and rescaled around the alarm's threshold. The CLI report shows the same score, and `--json` and Python results have it as the alarm's `rescaled_score`.
+`score` runs from 0 to 1, and higher is better, for both checks. A summary is flagged exactly when its score is below 0.5, and passes at 0.5 or above, so tools such as DeepEval can use their default cut of 0.5. The alarm still decides the flag: the score is the alarm score turned around and rescaled around the alarm's threshold. The CLI report and Python's `result.score` show the same score, and `--json` has it as the alarm's `rescaled_score`.
 
 A score shows whether a critical problem was found, not how good the summary is overall, and it belongs to the preset that produced it. A commission flag means a claim wasn't found in the source, for a reviewer to check. When nothing critical is found the score is 1. That includes a source with no facts, where `counts.total` is 0 and only the extract call is charged.
 

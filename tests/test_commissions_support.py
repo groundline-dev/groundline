@@ -5,8 +5,8 @@ from typing import Any
 
 import pytest
 
-from groundline_core.core import StageError
-from groundline_core.evaluators.commissions.models import CommissionsCheckOutput
+from groundline_core._core import StageError
+from groundline_core._evaluators.commissions.models import CommissionsCheckOutput
 from tests.commissions_helpers import (
     CLAIMS,
     CLAIMS_REPLY,

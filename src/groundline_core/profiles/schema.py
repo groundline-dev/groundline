@@ -14,7 +14,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from groundline_core.core.profile import profile_file_schema
+from groundline_core._core.profile import profile_file_schema
 
 SCHEMA_PATH = Path(__file__).parent / "profile.schema.json"
 

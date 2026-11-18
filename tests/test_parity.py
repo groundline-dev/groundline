@@ -15,8 +15,8 @@ from typing import Any
 import pytest
 
 from groundline_core import EvaluationResult, evaluate
-from groundline_core.evaluators.models import AlarmOutput
-from groundline_core.evaluators.omissions.models import (
+from groundline_core._evaluators.models import AlarmOutput
+from groundline_core._evaluators.omissions.models import (
     RankOutput,
     RefuteOutput,
     ScoreOutput,

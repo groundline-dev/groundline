@@ -8,12 +8,12 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from openapi_spec_validator import validate
 
+from groundline_core._evaluate import DEFAULT_COMMISSIONS_PRESET, DEFAULT_PRESET
 from groundline_core.api.commissions import CommissionsRequest, CommissionsResponse
 from groundline_core.api.common import ApiModel, ErrorBody, InvalidRequestBody
 from groundline_core.api.errors import DATABASE_UNAVAILABLE
 from groundline_core.api.omissions import OmissionsRequest, OmissionsResponse
 from groundline_core.app import app
-from groundline_core.evaluate import DEFAULT_COMMISSIONS_PRESET, DEFAULT_PRESET
 from groundline_core.presets import load_preset
 from tests.auth_helpers import ENDPOINTS, HEADERS, FakeKeys
 

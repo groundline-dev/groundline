@@ -9,19 +9,13 @@ written to be safe, or left to `groundline_core.api.errors`, which never repeats
 import logging
 from collections.abc import AsyncGenerator, Generator
 from contextlib import contextmanager
-from typing import Annotated, Any, Literal
+from typing import Annotated, Any
 
 import anthropic
 from fastapi import HTTPException
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from groundline_core.api.errors import (
-    AUTHENTICATION_UNAVAILABLE,
-    INVALID_API_KEY,
-    UNEXPECTED,
-)
-from groundline_core.api.limits import BODY_TOO_LARGE, LIMITS
-from groundline_core.core import (
+from groundline_core._core import (
     CallRecord,
     ModelClient,
     ModelError,
@@ -32,14 +26,19 @@ from groundline_core.core import (
     build_pipeline,
     summarize_usage,
 )
-from groundline_core.core.deadline import check_deadline
-from groundline_core.core.errors import ModelTimeoutError
-from groundline_core.evaluate import default_registry, model_users
-from groundline_core.evaluators.models import AlarmOutput, Severity
-from groundline_core.evaluators.report import usage_text
+from groundline_core._core.deadline import check_deadline
+from groundline_core._core.errors import ModelTimeoutError
+from groundline_core._evaluate import default_registry, model_users
+from groundline_core._evaluators.report import usage_text
+from groundline_core._result import Alarm, Counts, Finding, Usage
+from groundline_core._settings import ENV_FILE, missing_key_error, read_settings
+from groundline_core.api.errors import (
+    AUTHENTICATION_UNAVAILABLE,
+    INVALID_API_KEY,
+    UNEXPECTED,
+)
+from groundline_core.api.limits import BODY_TOO_LARGE, LIMITS
 from groundline_core.profiles import load_builtin_profile
-from groundline_core.result import EvaluationResult
-from groundline_core.settings import ENV_FILE, missing_key_error, read_settings
 
 logger = logging.getLogger("groundline.api")
 
@@ -278,78 +277,6 @@ class CheckRequest(ApiModel):
         return value
 
 
-class Alarm(ApiModel):
-    """The flag decision. Each endpoint subclasses it to say what its score is."""
-
-    score: float
-    """The highest confidence among the summary's critical problems; 0 if there
-    are none."""
-    threshold: float
-    """The alarm score at or above which the summary is flagged."""
-    level: str
-    """The threshold level used, such as strict."""
-
-
-class Usage(ApiModel):
-    calls: int
-    input_tokens: int
-    output_tokens: int
-    cost_usd: float
-
-
-class Counts(ApiModel):
-    total: int
-    """Facts found in the source."""
-    present: int
-    """Facts the summary fully records."""
-    partial: int
-    """Facts the summary only partly records."""
-    absent: int
-    """Facts the summary leaves out."""
-
-
-class Finding(ApiModel):
-    """One omission or one commission, as a check reports it. The same fields serve
-    both kinds, so a check that finds both can return them in one list."""
-
-    type: Literal["omission", "commission"]
-    """`omission`: a fact from the source that the summary leaves out or only
-    partly records. `commission`: a claim in the summary that the source doesn't
-    support."""
-    severity: Severity | None
-    """How much it would matter if the fact were left out, or the claim were wrong.
-    Null when the check didn't grade it."""
-    verdict: Literal["partial", "absent", "unsupported", "contradicted"]
-    """For an omission, `partial` (the summary records only part of the fact) or
-    `absent`. For a commission, `unsupported` (the source doesn't mention the
-    claim) or `contradicted` (the source says otherwise)."""
-    confidence: float | None
-    """From 0 to 1: how sure the check is. For an omission, that the fact is
-    missing; for a commission, that the source doesn't support the claim. Null
-    when the check gave none."""
-    statement: str
-    """The fact from the source that the summary leaves out, or the words in the
-    summary that make the claim, word for word."""
-    source_evidence: str | None
-    """The passage of the source behind the finding. For an omission, the passage
-    the fact came from. For a contradicted commission, the passage the model quoted
-    as contradicting the claim. Null for an unsupported commission, or if the model
-    quoted none."""
-    summary_evidence: str | None
-    """For a partial omission, the words in the summary that partly record the
-    fact. Null otherwise."""
-    evidence_found: bool | None
-    """Whether `source_evidence` appears in the source word for word, ignoring
-    case, punctuation and spacing. True means verified. False only means it
-    couldn't be matched, which a reworded quote or markup in the source, such as a
-    scribe's tags, can cause; it doesn't mean the passage was invented. Null when
-    there is no evidence."""
-    explanation: str
-    """What kind of problem this is, in a fixed sentence for each type and verdict.
-    It is the same for every finding of that kind, so use the other fields for the
-    details."""
-
-
 class Metadata[A: Alarm](ApiModel):
     """How the check ran and how it decided: what ran, the alarm behind the flag,
     and what it cost."""
@@ -397,19 +324,10 @@ def model_client() -> ModelClient | None:
     return None
 
 
-def alarm_of[A: Alarm](alarm: AlarmOutput, model: type[A]) -> A:
-    """The alarm in the endpoint's own `Alarm` model."""
+def alarm_of[A: Alarm](alarm: Alarm, model: type[A]) -> A:
+    """The result's alarm in the endpoint's own `Alarm` model, which says what
+    that check's alarm score is."""
     return model(score=alarm.score, threshold=alarm.threshold, level=alarm.level)
-
-
-def usage_of(result: EvaluationResult) -> Usage:
-    usage = result.run.usage
-    return Usage(
-        calls=usage.calls,
-        input_tokens=usage.input_tokens,
-        output_tokens=usage.output_tokens,
-        cost_usd=usage.cost_usd,
-    )
 
 
 @contextmanager
