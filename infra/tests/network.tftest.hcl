@@ -9,6 +9,19 @@ mock_provider "aws" {
   mock_data "aws_partition" {
     defaults = { partition = "aws" }
   }
+  # The data volume and the Elastic IP that infra/data/ makes.
+  mock_data "aws_ebs_volumes" {
+    defaults = { ids = ["vol-0123456789abcdef0"] }
+  }
+  mock_data "aws_ebs_volume" {
+    defaults = { availability_zone = "eu-north-1b" }
+  }
+  mock_data "aws_eips" {
+    defaults = { allocation_ids = ["eipalloc-0123456789abcdef0"], public_ips = ["203.0.113.10"] }
+  }
+  mock_data "aws_subnet" {
+    defaults = { id = "subnet-0123456789abcdef0", availability_zone = "eu-north-1b" }
+  }
 }
 
 variables {
@@ -103,10 +116,10 @@ run "restricted_metadata_keeps_the_allowed_ip_out_of_replacement_data" {
       && aws_instance.app.tags["groundline-allowed-cidr"] == var.tester_cidr
       && output.allowed_cidr == var.tester_cidr
       && !strcontains(aws_instance.app.user_data, var.tester_cidr)
-      && strcontains(aws_instance.app.user_data, "restricted HTTPS application access")
+      && !strcontains(aws_instance.app.user_data, "restricted HTTPS application access")
       && aws_instance.app.user_data_replace_on_change
     )
-    error_message = "Changing the tester IP must update metadata rather than replacement-triggering user_data; changing modes must change user_data."
+    error_message = "Changing the tester IP or the access mode must update tags rather than the replacement-triggering user_data."
   }
 }
 
@@ -118,7 +131,7 @@ run "unrestricted_metadata_explicitly_allows_all_ipv4_callers" {
       aws_instance.app.tags["groundline-access-mode"] == "unrestricted"
       && aws_instance.app.tags["groundline-allowed-cidr"] == "0.0.0.0/0"
       && output.allowed_cidr == "0.0.0.0/0"
-      && strcontains(aws_instance.app.user_data, "unrestricted HTTPS application access")
+      && !strcontains(aws_instance.app.user_data, "unrestricted")
     )
     error_message = "Unrestricted access must be explicit and distinct from restricted access."
   }

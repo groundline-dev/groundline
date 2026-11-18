@@ -82,3 +82,62 @@ variable "repository_url" {
   type        = string
   default     = "https://github.com/groundline-dev/groundline.git"
 }
+
+variable "app_settings" {
+  description = "The app's settings, by their .env names, such as { GROUNDLINE_CHECK_TIMEOUT_SECONDS = 180 }. A setting left out uses the app's default. They reach the server as tags, which infra/server/apply writes into its .env; changing one updates the running server in place."
+  type        = map(number)
+  default     = {}
+
+  validation {
+    # The settings compose.yaml forwards to the app; tests/test_compose.py
+    # keeps the two lists the same.
+    condition = alltrue([
+      for name in keys(var.app_settings) : contains([
+        "GROUNDLINE_CHECK_TIMEOUT_SECONDS",
+        "GROUNDLINE_MODEL_MAX_ATTEMPTS",
+        "GROUNDLINE_MAX_BODY_BYTES",
+        "GROUNDLINE_MAX_SOURCE_CHARS",
+        "GROUNDLINE_MAX_SUMMARY_CHARS",
+      ], name)
+    ])
+    error_message = "app_settings can set GROUNDLINE_CHECK_TIMEOUT_SECONDS, GROUNDLINE_MODEL_MAX_ATTEMPTS, GROUNDLINE_MAX_BODY_BYTES, GROUNDLINE_MAX_SOURCE_CHARS and GROUNDLINE_MAX_SUMMARY_CHARS."
+  }
+  validation {
+    condition     = alltrue([for value in values(var.app_settings) : value > 0])
+    error_message = "Each app setting must be above 0."
+  }
+  validation {
+    # Only the check time limit can be a fraction of a second.
+    condition = alltrue([
+      for name, value in var.app_settings :
+      name == "GROUNDLINE_CHECK_TIMEOUT_SECONDS" || floor(value) == value
+    ])
+    error_message = "GROUNDLINE_MODEL_MAX_ATTEMPTS and the request size limits must be whole numbers."
+  }
+}
+
+variable "lifetime" {
+  description = "disposable: for trying a commit; it terminates itself after auto_terminate_hours, and make aws-destroy deletes its data. lasting: for a deployment that keeps running, such as staging or production; it has no time limit, and make aws-destroy keeps its data and address unless DATA=delete."
+  type        = string
+  default     = "disposable"
+
+  validation {
+    condition     = contains(["disposable", "lasting"], var.lifetime)
+    error_message = "lifetime must be disposable or lasting."
+  }
+  validation {
+    condition     = var.lifetime != "lasting" || var.auto_terminate_hours == 0
+    error_message = "A lasting deployment has no time limit: set auto_terminate_hours = 0."
+  }
+}
+
+variable "budget_amount" {
+  description = "The monthly budget alert's amount, in US dollars. It defaults to $5 for a disposable deployment, to catch a forgotten server, and $35 for a lasting one, about twice what it costs. The alert covers the whole AWS project, so a lasting deployment is best in a project of its own."
+  type        = number
+  default     = null
+
+  validation {
+    condition     = var.budget_amount == null || try(var.budget_amount > 0, false)
+    error_message = "budget_amount must be more than 0."
+  }
+}

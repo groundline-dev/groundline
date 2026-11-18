@@ -1,0 +1,3 @@
+# AWS deployments upgrade in place, with data on its own volume
+
+Every AWS deployment upgrades in place over SSM: the same server checks out the new commit and recreates its containers. Its Postgres data, Caddy certificates and database passwords live on an EBS data volume, managed with an Elastic IP in a separate Terraform root (`infra/data/`) that the scripts delete only when asked to delete the deployment's data. We chose this over replacing the server on each upgrade because it's the conventional approach for a single Docker Compose server with a local database (faster upgrades, nothing to move between servers), and the data volume still keeps the data when a server is replaced, leaving operating system patching by root volume replacement open to ALL-113.

@@ -9,6 +9,19 @@ mock_provider "aws" {
   mock_data "aws_partition" {
     defaults = { partition = "aws" }
   }
+  # The data volume and the Elastic IP that infra/data/ makes.
+  mock_data "aws_ebs_volumes" {
+    defaults = { ids = ["vol-0123456789abcdef0"] }
+  }
+  mock_data "aws_ebs_volume" {
+    defaults = { availability_zone = "eu-north-1b" }
+  }
+  mock_data "aws_eips" {
+    defaults = { allocation_ids = ["eipalloc-0123456789abcdef0"], public_ips = ["203.0.113.10"] }
+  }
+  mock_data "aws_subnet" {
+    defaults = { id = "subnet-0123456789abcdef0", availability_zone = "eu-north-1b" }
+  }
 }
 
 variables {
@@ -72,5 +85,34 @@ run "the_instance_role_can_read_only_the_anthropic_parameter" {
       [for a in flatten([s.Action]) : !strcontains(a, "*")]
     ]))
     error_message = "The policy should list each action, with no wildcards such as ssm:* or ssm:GetParameter*."
+  }
+}
+
+run "with_a_deadline_the_role_can_release_only_its_own_elastic_ip" {
+  command = plan
+
+  assert {
+    condition = anytrue([
+      for s in jsondecode(aws_iam_role_policy.instance.policy).Statement :
+      s.Sid == "ReleaseAddressAtDeadline"
+      && contains(flatten([s.Resource]), "arn:aws:ec2:eu-north-1:123456789012:elastic-ip/eipalloc-0123456789abcdef0")
+      && length([for r in flatten([s.Resource]) : r if strcontains(r, "elastic-ip/")]) == 1
+    ])
+    error_message = "With a deadline, the role should be able to release only the deployment's own Elastic IP."
+  }
+}
+
+run "without_a_deadline_the_role_cannot_release_the_address" {
+  command = plan
+  variables {
+    auto_terminate_hours = 0
+  }
+
+  assert {
+    condition = alltrue([
+      for s in jsondecode(aws_iam_role_policy.instance.policy).Statement :
+      !contains(flatten([s.Action]), "ec2:ReleaseAddress") && !contains(flatten([s.Action]), "ec2:DescribeAddresses")
+    ])
+    error_message = "With no deadline, nothing releases the Elastic IP, so the role shouldn't be allowed to."
   }
 }

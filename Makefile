@@ -1,5 +1,5 @@
 .PHONY: setup dev db test-fast test-api test-db test-live check fix core-check docker-build docker-run docker-smoke https-smoke \
-	aws-https-smoke infra-check aws-up aws-project aws-deploy aws-smoke aws-smoke-live aws-key aws-status aws-reset-deadline aws-destroy
+	aws-https-smoke aws-upgrade-smoke infra-check aws-up aws-project aws-deploy aws-smoke aws-smoke-live aws-key aws-status aws-reset-deadline aws-destroy
 
 setup:
 	uv sync
@@ -63,13 +63,16 @@ docker-smoke: docker-build
 https-smoke:
 	scripts/https-smoke-test
 
-# Formatting, validation and tests of the Terraform in infra/, against a mock AWS
-# provider: no AWS credentials, nothing created. Needs Terraform; CI runs it.
+# Formatting, validation and tests of the Terraform in infra/ and infra/data/,
+# against a mock AWS provider: no AWS credentials, nothing created. Needs
+# Terraform; CI runs it.
 infra-check:
 	terraform -chdir=infra fmt -check -recursive
-	terraform -chdir=infra init -input=false
-	terraform -chdir=infra validate
-	terraform -chdir=infra test
+	for root in infra infra/data; do \
+	  terraform -chdir=$$root init -input=false && \
+	  terraform -chdir=$$root validate && \
+	  terraform -chdir=$$root test || exit 1; \
+	done
 
 # Your AWS test deployment (see DEVELOPMENT.md, "Deploying to AWS"). It costs money
 # while it runs: make aws-destroy when you're done.
@@ -93,6 +96,11 @@ aws-smoke:
 aws-https-smoke:
 	scripts/aws-https-smoke-test $(if $(RESTART),--restart "$(RESTART)")
 
+# Upgrades your running deployment to REF in place, and checks it kept its API
+# keys, server, address and HTTPS certificate.
+aws-upgrade-smoke:
+	scripts/aws-upgrade-smoke-test
+
 # Also sends one real commission check, which costs under a cent.
 aws-smoke-live:
 	scripts/aws-smoke-test --live
@@ -109,5 +117,7 @@ aws-status:
 aws-reset-deadline:
 	scripts/aws-reset-deadline $(HOURS)
 
+# DATA=delete also deletes a lasting deployment's data volume, address and
+# snapshot, once you've typed its name; without it, they stay for make aws-up.
 aws-destroy:
-	scripts/aws-destroy
+	scripts/aws-destroy $(if $(DATA),--data "$(DATA)")

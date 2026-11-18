@@ -11,7 +11,7 @@ budget_alert_email = "you@example.com"
 # restricted: only this computer's public IP may access application routes.
 # unrestricted: any caller IP may access them; protected routes need API keys.
 # TCP/TLS 443 stays public for certificate validation in both modes.
-# Switching modes replaces the server, deleting its database and API keys.
+# Switching modes updates the server in place; it keeps its data and address.
 access_mode = "restricted"
 
 # Optional: hours after its first boot until the server terminates itself,
@@ -21,3 +21,14 @@ access_mode = "restricted"
 
 # Optional: a bigger Graviton (arm64) server.
 # instance_type = "t4g.medium"
+
+# Optional: the app's settings, by their .env names (see .env.example). Leave
+# one out to use the app's default. Changing them updates the running server
+# in place with make aws-up; it keeps its data.
+# app_settings = {
+#   GROUNDLINE_CHECK_TIMEOUT_SECONDS = 120     # seconds a check may take
+#   GROUNDLINE_MODEL_MAX_ATTEMPTS    = 3       # attempts per model call
+#   GROUNDLINE_MAX_BODY_BYTES        = 5242880 # request body, in bytes
+#   GROUNDLINE_MAX_SOURCE_CHARS      = 200000  # characters of source
+#   GROUNDLINE_MAX_SUMMARY_CHARS     = 200000  # characters of summary
+# }

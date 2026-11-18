@@ -365,11 +365,33 @@ def test_destroy_checks_everything_is_gone_and_deletes_the_parameter(tmp_path: P
     result = run(DESTROY, tmp_path, world, answer="1\n")
 
     assert result.returncode == 0, result.output
-    assert f"delete your server ({INSTANCE}) and its data" in result.output
-    assert result.world["destroyed"]
+    # One question covers the server and the data volume and address.
+    assert result.output.count("1) Make these changes") == 1
+    assert f"delete your server ({INSTANCE})." in result.output
+    assert "delete its data volume (vol-0123456789abcdef0)" in result.output
+    assert "release its address" in result.output
+    assert result.world["destroyed"] and result.world["data_destroyed"]
+    assert "data volume vol-0123456789abcdef0 is gone" in result.output
+    assert "Elastic IP eipalloc-0123456789abcdef0 is gone" in result.output
     assert deleted_parameters(result) == [PARAMETER]
     assert not result.world["parameter_exists"]
     assert "Revoke it in the Anthropic Console" in result.output
+
+
+def test_destroy_deletes_a_server_made_before_data_volumes(tmp_path: Path):
+    """A server from before data volumes has no infra/data/ state, so there's
+    no data volume or address to delete or check."""
+    world = aws_fakes.new_world(
+        outputs=DESTROY_OUTPUTS, data_outputs={}, existing={INSTANCE: "terminated"}
+    )
+
+    result = run(DESTROY, tmp_path, world, answer="1\n")
+
+    assert result.returncode == 0, result.output
+    assert result.world["destroyed"]
+    assert (
+        "data volume" not in result.output.split("Checking that everything is gone")[1]
+    )
 
 
 def test_destroy_passes_when_no_anthropic_key_was_stored(tmp_path: Path):
@@ -406,6 +428,7 @@ def test_destroy_fails_when_the_key_cannot_be_deleted_and_nothing_else_is_left(
     test doesn't depend on a deployment_name in the developer's tfvars file."""
     world = aws_fakes.new_world(
         outputs={"anthropic_parameter_name": PARAMETER},
+        data_outputs={},
         delete_parameter_error="AccessDeniedException",
     )
 
@@ -497,6 +520,73 @@ def test_deployment_name_is_empty_without_terraform_tfvars(tmp_path: Path):
 
     assert finished.returncode == 0, finished.stderr
     assert finished.stdout.strip() == "name="
+
+
+def _common(tmp_path: Path, script: str) -> subprocess.CompletedProcess[str]:
+    """Run SCRIPT in tmp_path after sourcing scripts/aws-common.sh."""
+    return subprocess.run(
+        [
+            "bash",
+            "-c",
+            f'set -euo pipefail; source "$1"; {script}',
+            "_",
+            str(ROOT / "scripts" / "aws-common.sh"),
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+    )
+
+
+def test_tfvars_value_reads_quoted_and_bare_values_and_the_last_line_wins(
+    tmp_path: Path,
+):
+    (tmp_path / "infra").mkdir()
+    (tmp_path / "infra" / "terraform.tfvars").write_text(
+        'deployment_name = "alice" # who\n'
+        "auto_terminate_hours = 0 # no limit\n"
+        '# lifetime = "lasting"\n'
+        'access_mode = "restricted"\n'
+        'access_mode = "unrestricted"\n'
+    )
+
+    finished = _common(
+        tmp_path,
+        "for key in deployment_name auto_terminate_hours lifetime access_mode; do "
+        'echo "$key=$(tfvars_value "$key")"; done',
+    )
+
+    assert finished.returncode == 0, finished.stderr
+    assert finished.stdout.splitlines() == [
+        "deployment_name=alice",
+        "auto_terminate_hours=0",
+        "lifetime=",
+        "access_mode=unrestricted",
+    ]
+
+
+def test_save_setting_replaces_the_first_line_keeps_its_comment_and_drops_repeats(
+    tmp_path: Path,
+):
+    tfvars = tmp_path / "infra" / "terraform.tfvars"
+    tfvars.parent.mkdir()
+    tfvars.write_text(
+        'deployment_name = "alice"\n'
+        'lifetime = "disposable" # chosen once\n'
+        'lifetime = "lasting"\n'
+    )
+
+    finished = _common(
+        tmp_path, "save_setting lifetime lasting; save_setting budget_amount 35"
+    )
+
+    assert finished.returncode == 0, finished.stderr
+    assert tfvars.read_text() == (
+        'deployment_name = "alice"\n'
+        'lifetime = "lasting" # chosen once\n'
+        'budget_amount = "35"\n'
+    )
+    assert list(tfvars.parent.iterdir()) == [tfvars]
 
 
 @pytest.mark.parametrize(
@@ -685,8 +775,13 @@ def test_destroy_uses_unrestricted_validation_without_a_tester_placeholder(
     tmp_path: Path, saved_mode: str | None
 ):
     saved = f'access_mode = "{saved_mode}"\n' if saved_mode else ""
-    result = run(DESTROY, tmp_path, aws_fakes.new_world(saved_settings=saved))
+    world = aws_fakes.new_world(saved_settings=saved, data_outputs={})
+    result = run(DESTROY, tmp_path, world)
     assert result.returncode == 0, result.output
-    plan = next(call for call in result.world["calls"] if "plan" in call)
+    plan = next(
+        call
+        for call in result.world["calls"]
+        if "plan" in call and "-chdir=infra" in call
+    )
     assert "access_mode=unrestricted" in plan
     assert not any(str(arg).startswith("tester_cidr=") for arg in plan)

@@ -148,14 +148,26 @@ _Avoid_: approved pipeline, certified pipeline
 A running copy of groundline, with its own database and API keys, that serves callers. An organization may run more than one, such as staging and production.
 _Avoid_: install, instance, environment, stack (instance and stack name the cloud resources a deployment runs on)
 
+**Lifetime**:
+Whether a deployment is disposable or lasting. It's chosen once, separately from the access mode.
+_Avoid_: kind, type, mode (mode is the access mode)
+
 **Disposable deployment**:
-A deployment intended for temporary use, whose data and API keys are discarded when it is replaced or removed. It may serve callers beyond its creator; a test deployment is the restricted internal kind.
+A deployment intended for temporary use, whose data and API keys are discarded when it is removed or its time runs out. It may serve callers beyond its creator; a test deployment is the restricted internal kind.
 _Avoid_: staging (a staging deployment lasts)
+
+**Lasting deployment**:
+A deployment that keeps running, and keeps its data, API keys, settings and address when it's upgraded, until someone deliberately removes it, such as a team's staging or a customer's production.
+_Avoid_: persistent deployment, permanent deployment, production (production is one use of it), public deployment (access mode is a separate choice)
 
 **Test deployment**:
 A disposable deployment a developer creates to try one commit, for internal testing only and never for customers, whose application is accessible only from the developer's public IP address. Its server and data are deleted when the developer is done, or at a deadline they can extend.
 _Avoid_: test server, dev server, staging (a staging deployment serves callers and lasts)
 
 **Access mode**:
-Who may access a deployment's application: restricted limits callers to the developer's public IP address; unrestricted allows callers without an IP restriction.
+Who may access a deployment's application, whatever its lifetime: restricted limits callers to the developer's public IP address; unrestricted allows callers without an IP restriction.
 _Avoid_: deployment mode, network mode
+
+**Upgrade**:
+Moving an existing deployment to another commit or to changed settings, keeping its data, API keys and address.
+_Avoid_: redeploy, update

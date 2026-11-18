@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Create an API key on your AWS test deployment and print it, for trying
+# Create an API key on your AWS deployment and print it, for trying
 # requests from its /docs page or with curl; or revoke one.
 #
 # Usage: scripts/aws-key                 (make aws-key)
@@ -7,7 +7,9 @@
 #
 # It runs groundline-core keys on the server through SSM Run Command. SSM keeps each
 # command's output, so anyone who can read the AWS project's Run Command history
-# can see the API key. The API key goes when the server does.
+# can see the API key. The API key is kept in the database on the data volume, so
+# it goes with the deployment's data: with the server for a disposable deployment,
+# and only with make aws-destroy DATA=delete for a lasting one.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/aws-common.sh

@@ -31,17 +31,24 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 INFRA = ROOT / "infra"
 BOOTSTRAP = INFRA / "bootstrap.sh.tftpl"
+TERRAFORM_ROOTS = [INFRA, INFRA / "data"]
+"""The Terraform folders: the server, and the data volume and address it keeps."""
 
 
-def terraform_files() -> dict[str, str]:
-    """Each infra/*.tf file's name and text, leaving out the tests in infra/tests/."""
-    files = {path.name: path.read_text() for path in sorted(INFRA.glob("*.tf"))}
-    assert files, "infra/ has no .tf files"
+def terraform_files(root: Path | None = None) -> dict[str, str]:
+    """Each .tf file's path and text, in one Terraform folder or in all of them,
+    leaving out the tests in their tests/ folders."""
+    files = {
+        str(path.relative_to(ROOT)): path.read_text()
+        for folder in ([root] if root else TERRAFORM_ROOTS)
+        for path in sorted(folder.glob("*.tf"))
+    }
+    assert files, f"{root or INFRA} has no .tf files"
     return files
 
 
-def all_terraform() -> str:
-    return "\n".join(terraform_files().values())
+def all_terraform(root: Path | None = None) -> str:
+    return "\n".join(terraform_files(root).values())
 
 
 def blocks(kind: str, label: str) -> list[str]:
@@ -50,20 +57,23 @@ def blocks(kind: str, label: str) -> list[str]:
     return re.findall(pattern, all_terraform(), re.MULTILINE | re.DOTALL)
 
 
-def test_every_resource_is_tagged_app_groundline():
+@pytest.mark.parametrize("root", TERRAFORM_ROOTS, ids=lambda root: root.name)
+def test_every_resource_is_tagged_app_groundline(root: Path):
     """The provider's default_tags tag every resource it creates. The key is app,
     since AWS Settings uses "project" for the AWS account itself."""
     assert re.search(
         r'default_tags\s*\{\s*tags\s*=\s*\{[^}]*\bapp\s*=\s*"groundline"',
-        all_terraform(),
+        all_terraform(root),
     ), 'the aws provider should set default_tags { tags = { app = "groundline" } }'
 
 
-def test_every_resource_is_tagged_with_its_deployment():
-    """Developers share an AWS project, so each resource says whose it is."""
+@pytest.mark.parametrize("root", TERRAFORM_ROOTS, ids=lambda root: root.name)
+def test_every_resource_is_tagged_with_its_deployment(root: Path):
+    """Developers share an AWS project, so each resource says whose it is.
+    infra/ also finds the data volume and the address by this tag."""
     assert re.search(
         r"default_tags\s*\{\s*tags\s*=\s*\{[^}]*\bdeployment\s*=\s*var\.deployment_name",
-        all_terraform(),
+        all_terraform(root),
     ), "the aws provider's default_tags should set deployment = var.deployment_name"
 
 
@@ -111,15 +121,25 @@ def test_the_instance_role_gets_no_managed_policy():
 
 
 def test_only_the_server_decrypts_the_anthropic_parameter():
-    """The scripts may check that the parameter exists, never read its value."""
-    assert BOOTSTRAP.is_file(), "infra/bootstrap.sh.tftpl is missing"
-    assert "--with-decryption" in BOOTSTRAP.read_text()
+    """The scripts may check that the parameter exists, never read its value.
+    The server reads it in infra/server/apply, on every start and upgrade."""
+    apply = ROOT / "infra" / "server" / "apply"
+    assert apply.is_file(), "infra/server/apply is missing"
+    assert "--with-decryption" in apply.read_text()
+    assert "--with-decryption" not in BOOTSTRAP.read_text()
     readers = [
         path.name
         for path in (ROOT / "scripts").iterdir()
         if path.is_file() and "--with-decryption" in path.read_text()
     ]
     assert not readers, f"{readers} read the Anthropic API key"
+
+
+def test_the_data_volume_label_fits_xfs():
+    """mkfs.xfs rejects a label longer than 12 characters, which stops the bootstrap."""
+    labels = re.findall(r"mkfs\.xfs\b[^\n]*?-L\s+(\S+)", BOOTSTRAP.read_text())
+    assert labels
+    assert all(len(label.strip("\"'")) <= 12 for label in labels), labels
 
 
 def test_the_security_group_has_one_inbound_rule():
@@ -136,6 +156,9 @@ def test_the_security_group_has_one_inbound_rule():
         "infra/terraform.tfstate.backup",
         "infra/.terraform/providers/x",
         "infra/terraform.tfvars",
+        "infra/data/terraform.tfstate",
+        "infra/data/terraform.tfstate.d/123456789012/terraform.tfstate",
+        "infra/data/.terraform/providers/x",
     ],
 )
 def test_terraform_state_and_settings_are_not_committed(path: str):
@@ -147,7 +170,12 @@ def test_terraform_state_and_settings_are_not_committed(path: str):
 
 
 @pytest.mark.parametrize(
-    "path", ["infra/.terraform.lock.hcl", "infra/terraform.tfvars.example"]
+    "path",
+    [
+        "infra/.terraform.lock.hcl",
+        "infra/data/.terraform.lock.hcl",
+        "infra/terraform.tfvars.example",
+    ],
 )
 def test_the_lock_file_and_example_settings_are_committed(path: str):
     assert (ROOT / path).is_file(), f"{path} is missing"
@@ -164,6 +192,7 @@ def test_the_lock_file_and_example_settings_are_committed(path: str):
         ("aws-deploy", "scripts/aws-deploy"),
         ("aws-smoke", "scripts/aws-smoke-test"),
         ("aws-smoke-live", "scripts/aws-smoke-test --live"),
+        ("aws-upgrade-smoke", "scripts/aws-upgrade-smoke-test"),
         ("aws-key", "scripts/aws-key"),
         ("aws-status", "scripts/aws-status"),
         ("aws-reset-deadline", "scripts/aws-reset-deadline"),
@@ -193,7 +222,13 @@ def test_the_deploying_guide_documents_every_command_and_setting():
         "make aws-status",
         "make aws-reset-deadline",
         "make aws-destroy",
+        "make aws-destroy DATA=delete",
+        "make aws-upgrade-smoke",
         "/groundline/<deployment_name>/anthropic-api-key",
+        "lifetime",
+        "budget_amount",
+        "app_settings",
+        "data_volume_gib",
         "terraform.tfvars",
         "Region",
         "groundline-core keys create",

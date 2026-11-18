@@ -216,13 +216,145 @@ project_label() {
   fi
 }
 
-# deployment_name: the deployment_name in infra/terraform.tfvars, or nothing.
-# A missing file returns nothing too: GNU sed exits 2 on it, which pipefail
-# would pass on and set -e would stop the script for, without a message.
-deployment_name() {
+# tfvars_value KEY: KEY's value in infra/terraform.tfvars, without its quotes,
+# or nothing. The last line setting KEY wins, as in Terraform. A missing file
+# returns nothing too, so the scripts can call it before make aws-up writes it.
+tfvars_value() {
   [ -f infra/terraform.tfvars ] || return 0
-  sed -n 's/^[[:space:]]*deployment_name[[:space:]]*=[[:space:]]*"\(.*\)".*/\1/p' \
-    infra/terraform.tfvars 2>/dev/null | tail -n 1
+  awk -v key="$1" '
+    $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
+      value = $0
+      sub(/^[^=]*=[[:space:]]*/, "", value)
+      if (value ~ /^"/) { sub(/^"/, "", value); sub(/".*/, "", value) }
+      else sub(/[[:space:]#].*/, "", value)
+      found = value
+    }
+    END { if (found != "") print found }
+  ' infra/terraform.tfvars 2>/dev/null
+}
+
+# save_setting KEY VALUE: set KEY = "VALUE" in infra/terraform.tfvars, in place
+# of the first line that sets it (keeping that line's comment), or at the end.
+# Later lines setting KEY are dropped, so the file says one thing.
+save_setting() {
+  local key="$1" value="$2" temporary
+  temporary="$(mktemp infra/terraform.tfvars.XXXXXX)"
+  if ! awk -v key="$key" -v value="$value" '
+    $0 ~ "^[[:space:]]*" key "[[:space:]]*=" {
+      comment=""
+      if (match($0, /"[[:space:]]*#/)) comment=substr($0, RSTART + 1)
+      if (!written) print key " = \"" value "\"" comment
+      written=1; next
+    }
+    { print }
+    END { if (!written) print key " = \"" value "\"" }
+  ' infra/terraform.tfvars >"$temporary" || ! mv "$temporary" infra/terraform.tfvars; then
+    rm -f "$temporary"
+    fail "could not save $key in infra/terraform.tfvars"
+  fi
+}
+
+# deployment_name: the deployment_name in infra/terraform.tfvars, or nothing.
+deployment_name() { tfvars_value deployment_name; }
+
+# The monthly prices quoted, as in us-east-1: a gp3 data volume, per GiB, and
+# an Elastic IP, at $0.005 an hour. infra/README.md's Costs section breaks
+# them down; update it too if they change.
+# volume_cost [GIB], address_cost and kept_data_cost [GIB] print dollars, such
+# as 4.05, for GIB (5 if not given).
+volume_cost() { awk -v gib="${1:-5}" 'BEGIN { printf "%.2f", gib * 0.08 }'; }
+address_cost() { echo 3.65; }
+kept_data_cost() {
+  awk -v volume="$(volume_cost "${1:-5}")" -v address="$(address_cost)" 'BEGIN { printf "%.2f", volume + address }'
+}
+
+# server_hourly_cost and running_monthly_cost: a running server, with its data
+# volume and address, as the plan and What next quote it.
+server_hourly_cost() { echo 0.024; }
+running_monthly_cost() { echo 18; }
+
+# optional_output NAME [ROOT]: output NAME of ROOT (infra by default), or
+# nothing if there's no such output, as with nothing deployed. output, below,
+# fails instead.
+optional_output() { terraform -chdir="${2:-infra}" output -raw "$1" 2>/dev/null || true; }
+
+# deployed_lifetime: the lifetime the deployment was made with, from its state.
+# infra/data/ still says once make aws-destroy has kept a lasting deployment's
+# data; with neither, the one in infra/terraform.tfvars.
+deployed_lifetime() {
+  local lifetime
+  lifetime="$(optional_output lifetime)"
+  lifetime="${lifetime:-$(optional_output lifetime infra/data)}"
+  echo "${lifetime:-$(configured_lifetime)}"
+}
+
+# pre_upgrade_snapshots NAME: the ids of deployment NAME's pre-upgrade
+# snapshots, one a line, sorted; nothing if there are none.
+pre_upgrade_snapshots() {
+  aws ec2 describe-snapshots --region "$region" --owner-ids self \
+    --filters "Name=tag:deployment,Values=$1" Name=tag-key,Values=groundline-pre-upgrade \
+    --query 'Snapshots[].SnapshotId' --output text \
+    | tr '\t ' '\n\n' | { grep -v -e '^None$' -e '^$' || true; } | sort
+}
+
+# commit_change FROM TO: same, rollback (TO is older than FROM) or forward,
+# which is also the answer when git doesn't know FROM. A lasting deployment
+# takes a snapshot only before moving forward.
+commit_change() {
+  if [ "$1" = "$2" ]; then
+    echo same
+  elif git merge-base --is-ancestor "$2" "$1" 2>/dev/null; then
+    echo rollback
+  else
+    echo forward
+  fi
+}
+
+# review_or_cancel WARNING EFFECT: say why keeping the running server would
+# leave the saved settings unapplied, and ask to review a plan or stop.
+review_or_cancel() {
+  answer_warn "$1 Keeping this server would not apply them."
+  bullet "$2"
+  echo "  1) Review a deployment plan"
+  echo "  2) Cancel and leave the running server unchanged"
+  choose "Review deployment changes? (1 review, 2 cancel)" 2
+  [ "$answer" = 1 ] || fail "canceled: running server unchanged"
+}
+
+# init_roots: terraform init in both folders, printing Terraform's output only
+# if it fails. A checkout that has never deployed from this version has no
+# infra/data/.terraform, and destroying needs it as much as deploying does.
+init_roots() {
+  local root init_log
+  for root in infra/data infra; do
+    init_log="$(terraform -chdir="$root" init -input=false 2>&1)" || {
+      echo "$init_log" >&2
+      fail "terraform init failed in $root"
+    }
+  done
+}
+
+# saved_app_settings: the app_settings in infra/terraform.tfvars, as JSON with
+# sorted keys, such as {"GROUNDLINE_MAX_SOURCE_CHARS":150000}; nothing if
+# Terraform can't read them. Terraform parses the file, since it's HCL.
+saved_app_settings() {
+  local encoded
+  # Terraform's default is none, and console takes a few seconds.
+  if ! grep --quiet '^[[:space:]]*app_settings[[:space:]]*=' infra/terraform.tfvars 2>/dev/null; then
+    echo '{}'
+    return
+  fi
+  encoded="$(echo 'jsonencode(var.app_settings)' | terraform -chdir=infra console 2>/dev/null)" || return 0
+  jq -r . <<<"$encoded" 2>/dev/null | jq -cS . 2>/dev/null || true
+}
+
+# deployed_app_settings: the running server's app_settings, in the same form.
+# {} when there's none, such as for a server deployed before app_settings.
+deployed_app_settings() {
+  local settings
+  settings="$(terraform -chdir=infra output -json app_settings 2>/dev/null | jq -cS . 2>/dev/null || true)"
+  [ -n "$settings" ] || settings='{}'
+  echo "$settings"
 }
 
 # Read one supported literal mode. Status 1 means absent; 2 means invalid.
@@ -239,22 +371,8 @@ read_access_mode() {
 }
 
 save_access_mode() {
-  local mode="$1" temporary
-  case "$mode" in restricted | unrestricted) ;; *) fail "unsupported access mode: $mode" ;; esac
-  temporary="$(mktemp infra/terraform.tfvars.XXXXXX)"
-  if ! awk -v mode="$mode" '
-    /^[[:space:]]*access_mode[[:space:]]*=/ {
-      comment=""
-      if (match($0, /"[[:space:]]*#/)) comment=" " substr($0, RSTART + 1)
-      if (!written) print "access_mode = \"" mode "\"" comment
-      written=1; next
-    }
-    { print }
-    END { if (!written) print "access_mode = \"" mode "\"" }
-  ' infra/terraform.tfvars >"$temporary" || ! mv "$temporary" infra/terraform.tfvars; then
-    rm -f "$temporary"
-    fail "could not save access_mode in infra/terraform.tfvars"
-  fi
+  case "$1" in restricted | unrestricted) ;; *) fail "unsupported access mode: $1" ;; esac
+  save_setting access_mode "$1"
 }
 
 # configured_access_mode [fail|ask]: print only the supported mode on stdout.
@@ -286,13 +404,42 @@ configured_access_mode() {
   esac
 }
 
+# choose_access_mode [DEFAULT]: ask who may reach the app and set
+# $access_mode. DEFAULT is 1 (IP-restricted, for testing) or 2 (unrestricted,
+# which a lasting deployment's callers need).
 choose_access_mode() {
-  echo "  1) IP-restricted HTTPS for testing from this computer (recommended)"
-  echo "  2) Unrestricted HTTPS for callers from any IP"
+  local default="${1:-1}" first="" second=" (recommended)"
+  [ "$default" != 1 ] || { first=" (recommended)" second=""; }
+  echo "  1) IP-restricted HTTPS for testing from this computer$first"
+  echo "  2) Unrestricted HTTPS for callers from any IP$second"
   bullet "Both use automatic certificates; protected API endpoints require API keys."
-  choose "Who may access the HTTPS application? (1 IP-restricted, 2 unrestricted)" 2 1
+  choose "Who may access the HTTPS application? (1 IP-restricted, 2 unrestricted)" 2 "$default"
   access_mode=restricted
   [ "$answer" = 1 ] || access_mode=unrestricted
+}
+
+# choose_lifetime: ask whether the deployment is disposable or lasting, and set
+# $lifetime. It's asked once per folder: a folder that manages a lasting
+# deployment manages only that one.
+choose_lifetime() {
+  echo "  1) Disposable: for trying a commit. It terminates itself after 8 hours, and"
+  echo "     make aws-destroy deletes it with its data."
+  echo "  2) Lasting: for staging or production. It keeps running, and keeps its data,"
+  echo "     API keys, settings and address when you upgrade it, until you delete it."
+  choose "Disposable or lasting? (1 disposable, 2 lasting)" 2 1
+  lifetime=disposable
+  [ "$answer" = 1 ] || lifetime=lasting
+}
+
+# configured_lifetime: the lifetime in infra/terraform.tfvars, or disposable,
+# as Terraform's default is.
+configured_lifetime() {
+  local lifetime
+  lifetime="$(tfvars_value lifetime)"
+  case "${lifetime:-disposable}" in
+    disposable | lasting) echo "${lifetime:-disposable}" ;;
+    *) fail "Unrecognized lifetime: $lifetime. Set lifetime = \"disposable\" or \"lasting\" in infra/terraform.tfvars." ;;
+  esac
 }
 
 public_ipv4() {
@@ -321,14 +468,32 @@ deployed_access_mode() {
 # Anthropic API key, as infra/main.tf builds it.
 anthropic_parameter() { echo "/groundline/$1/anthropic-api-key"; }
 
-# running_deployments: the deployment names of the groundline servers starting
-# or running in this project, one a line, from their deployment tags.
-running_deployments() {
-  # shellcheck disable=SC2016  # the backticks are JMESPath's, not the shell's
+# running_lifetimes: the groundline servers starting or running in this
+# project, one "NAME LIFETIME" a line, from their tags. A server from before
+# lifetimes counts as disposable.
+running_lifetimes() {
   aws ec2 describe-instances --region "$region" \
     --filters Name=tag:app,Values=groundline Name=instance-state-name,Values=pending,running \
-    --query 'Reservations[].Instances[].Tags[?Key==`deployment`].Value[]' --output text \
-    | tr '\t' '\n' | sed '/^$/d' | sort -u
+    --output json \
+    | jq -r '.Reservations[].Instances[] | (.Tags // [] | from_entries) as $tags
+      | select($tags.deployment) | "\($tags.deployment) \($tags["groundline-lifetime"] // "disposable")"' \
+    | sort -u
+}
+
+# shared_project_warning NAME LIFETIME: warn when deployment NAME shares this
+# project with deployments of the other kind. Budget alerts cover the whole
+# project, so a lasting deployment's cost sets off the $5 disposable alerts,
+# and theirs counts toward its budget. It warns, since some have only one
+# project.
+shared_project_warning() {
+  local name="$1" lifetime="$2" running="$3" others lasting
+  others="$(awk -v name="$name" '$1 != name { print $1 }' <<<"$running" | join_names)"
+  lasting="$(awk -v name="$name" '$1 != name && $2 == "lasting" { print $1 }' <<<"$running" | join_names)"
+  if [ "$lifetime" = lasting ] && [ -n "$others" ]; then
+    answer_warn "other deployments run in $(project_label): $others. Budget alerts cover the whole project, so this deployment's cost sets off their \$5 alerts, and theirs counts toward its budget. A lasting deployment is best in an AWS project of its own."
+  elif [ "$lifetime" = disposable ] && [ -n "$lasting" ]; then
+    answer_warn "the lasting deployment $lasting runs in $(project_label). Budget alerts cover the whole project, so its cost sets off this deployment's \$5 alert. Test deployments are best in another AWS project."
+  fi
 }
 
 # other_deployments: say which other AWS projects still hold a deployment of
@@ -345,6 +510,40 @@ other_deployments() {
     bullet "To check it or delete it, run make aws-project and choose that project,"
     echo "    then make aws-status or make aws-destroy."
   done
+}
+
+# folder_lasting_deployments: the deployments this folder's infra/data/ state
+# holds, in any AWS project, one "ACCOUNT NAME LIFETIME" a line. The data
+# volume outlives the server, so this still lists a lasting deployment whose
+# server make aws-destroy deleted.
+folder_lasting_deployments() {
+  local state
+  for state in infra/data/terraform.tfstate.d/*/terraform.tfstate; do
+    [ -f "$state" ] || continue
+    jq -r --arg account "$(basename "$(dirname "$state")")" \
+      'select(.outputs.volume_id.value) | "\($account) \(.outputs.deployment_name.value // "") \(.outputs.lifetime.value // "disposable")"' \
+      "$state" 2>/dev/null || true
+  done
+}
+
+# guard_lasting_folder: fail unless this run deploys what the folder already
+# holds. infra/terraform.tfvars is the same for every AWS project the folder
+# deploys to, and a lasting deployment needs different settings from a
+# disposable one, so a folder that holds a lasting deployment deploys nothing
+# else. A disposable deployment can't become lasting either: a lasting one
+# starts with its own data and API keys.
+guard_lasting_folder() {
+  local name="$1" lifetime="$2" held_account held_name held_lifetime
+  while read -r held_account held_name held_lifetime; do
+    [ -n "$held_account" ] || continue
+    if [ "$held_lifetime" = lasting ]; then
+      if [ "$held_account" != "$account" ] || [ "$held_name" != "$name" ] || [ "$lifetime" != lasting ]; then
+        fail "this folder manages the lasting deployment $held_name in account $held_account, so it deploys nothing else. Use another clone or worktree for other deployments, such as: git worktree add ../groundline-test"
+      fi
+    elif [ "$lifetime" = lasting ] && [ "$held_account" = "$account" ] && [ "$held_name" = "$name" ]; then
+      fail "$name is a disposable deployment, and one can't become lasting: a lasting deployment starts with its own data and API keys. Run make aws-destroy first, or choose another name."
+    fi
+  done < <(folder_lasting_deployments)
 }
 
 # The repository the server clones main from, and the default for every commit.
@@ -380,12 +579,13 @@ remote_with() {
   https_url "$(git remote get-url "$(head -n 1 <<<"$remotes")")"
 }
 
-# The reminder for a server that terminated itself: terminating removes only the
-# instance, its disk and its public IP, so the rest is still there.
+# The reminder for a server that terminated itself: terminating removes the
+# instance and its disks, and the server releases its Elastic IP first, so the
+# rest is still there.
 gone_reminder() {
-  echo "Terminating removed only the server and its data. Run make aws-destroy to remove" >&2
-  echo "the security group, IAM role, instance profile and budget it left behind, or" >&2
-  echo "make aws-deploy for a new server." >&2
+  echo "Terminating removed the server, its data and its address. Run make aws-destroy to" >&2
+  echo "remove the security group, IAM role, instance profile and budget it left behind," >&2
+  echo "or make aws-deploy for a new server." >&2
 }
 
 # require_running: fail unless the instance is pending or running. A terminated
@@ -490,7 +690,7 @@ what_next() {
   echo "To try your server, at $app_url:"
   bullet "make aws-key creates an API key, for trying requests at $app_url/docs."
   bullet "make aws-smoke-live sends one real commission check, which costs under a cent."
-  mode="$(terraform -chdir=infra output -raw access_mode 2>/dev/null || true)"
+  mode="$(optional_output access_mode)"
   case "$mode" in
     restricted) bullet "IP-restricted HTTPS: only the configured tester IP can access application routes, including health and docs." ;;
     unrestricted) bullet "Unrestricted HTTPS: any caller IP can reach health/docs; protected endpoints require an API key." ;;
@@ -499,13 +699,21 @@ what_next() {
   echo "    and an API key from make aws-key. See docs/deploying-to-aws.md, \"Calling it from your app\"."
   echo
   echo "Your server is still running and costing money."
+  if [ "$(deployed_lifetime)" = lasting ]; then
+    bullet "It's a lasting deployment, so it has no time limit and costs about \$$(running_monthly_cost) a month."
+    bullet "make aws-up upgrades it to another commit or settings. It keeps its data and address."
+    bullet "make aws-destroy deletes the server and keeps its data and address, for about"
+    echo "    \$$(kept_data_cost "$(optional_output data_volume_gib infra/data)") a month; make aws-destroy DATA=delete deletes those too."
+    echo
+    return
+  fi
   hours="$(terraform -chdir=infra output -raw auto_terminate_hours 2>/dev/null || echo 8)"
   case "$deadline" in
     "")
       bullet "make aws-status shows when it terminates itself."
       bullet "make aws-reset-deadline moves that to $hours hours from now."
       ;;
-    none) bullet "It has no time limit, so it costs about \$17 a month." ;;
+    none) bullet "It has no time limit, so it costs about \$$(running_monthly_cost) a month." ;;
     *)
       bullet "It terminates itself, with its data, at $(describe_deadline "$deadline")."
       bullet "make aws-reset-deadline moves that to $hours hours from now."
@@ -529,6 +737,38 @@ describe_deadline() {
   fi
 }
 
+# describe_commit PLAN_JSON: the commit an update of the server moves it to,
+# from its groundline-git-ref tag, and whether that's older than the one it
+# runs, which is a rollback.
+describe_commit() {
+  local from to
+  from="$(jq -r '[.resource_changes[] | select(.type == "aws_instance" and .change.actions == ["update"])
+    | .change.before.tags["groundline-git-ref"] // empty][0] // empty' <<<"$1")"
+  to="$(jq -r '[.resource_changes[] | select(.type == "aws_instance" and .change.actions == ["update"])
+    | .change.after.tags["groundline-git-ref"] // empty][0] // empty' <<<"$1")"
+  [ -n "$from" ] && [ -n "$to" ] && [ "$from" != "$to" ] || return 0
+  echo "    It's upgraded from ${from:0:7} to ${to:0:7}."
+  if [ "$(commit_change "$from" "$to")" = rollback ]; then
+    echo "    ${to:0:7} is older than ${from:0:7}, so this rolls it back. If a database"
+    echo "    migration ran since, restore the pre-upgrade snapshot first (docs/deploying-to-aws.md)."
+  fi
+}
+
+# describe_settings PLAN_JSON: the app settings an update of the server
+# changes, one a line, from its groundline-setting-<NAME> tags.
+describe_settings() {
+  jq -r '.resource_changes[]
+    | select(.type == "aws_instance" and .change.actions == ["update"])
+    | (.change.before.tags // {}) as $before | (.change.after.tags // {}) as $after
+    | ([$before, $after] | map(keys) | add | unique)[]
+    | select(startswith("groundline-setting-")) as $tag
+    | select($before[$tag] != $after[$tag])
+    | ($tag | ltrimstr("groundline-setting-")) as $name
+    | if $after[$tag] == null then "    Its \($name) goes back to the default (it was \($before[$tag]))."
+      elif $before[$tag] == null then "    Its \($name) becomes \($after[$tag]) (it was the default)."
+      else "    Its \($name) becomes \($after[$tag]) (it was \($before[$tag]))." end' <<<"$1"
+}
+
 # friendly_name TYPE: what plan summaries call a Terraform resource type.
 friendly_name() {
   case "$1" in
@@ -538,6 +778,8 @@ friendly_name() {
     aws_iam_role_policy) echo "IAM policy" ;;
     aws_iam_instance_profile) echo "instance profile" ;;
     aws_budgets_budget) echo "budget alert" ;;
+    aws_volume_attachment) echo "data volume attachment" ;;
+    aws_eip_association) echo "address association" ;;
     *) echo "$1" ;;
   esac
 }
@@ -549,7 +791,7 @@ join_names() {
 }
 
 # describe_plan PLAN_JSON: say in plain words what applying the plan does, so no
-# one types yes without knowing it deletes the server and its data. Reads
+# one types yes without knowing it deletes the server or its data. Reads
 # $commit and $previous_instance where they're set.
 describe_plan() {
   local hours short="${commit:-}" created="" updated="" deleted="" limit
@@ -561,25 +803,52 @@ describe_plan() {
     limit="    It terminates itself, with its data, $hours hours after it starts.
     You can also delete it manually with make aws-destroy."
   fi
-  while IFS='|' read -r type actions id old_cidr new_cidr old_port new_port; do
+  while IFS='|' read -r type actions id old_cidr new_cidr old_port new_port size address old_size; do
     case "$type:$actions" in
+      aws_ebs_volume:create)
+        echo "  · create its data volume ($size GiB, about \$$(volume_cost "$size") a month), which keeps"
+        echo "    the database, its API keys and the HTTPS certificate when the server is replaced."
+        ;;
+      aws_ebs_volume:update)
+        if [ -n "$old_size" ] && [ "$size" != "$old_size" ]; then
+          echo "  · grow its data volume from $old_size to $size GiB, about \$$(volume_cost "$size") a month. Its"
+          echo "    filesystem grows when the server is upgraded. A volume can't shrink again."
+        else
+          updated+="$(friendly_name "$type")"$'\n'
+        fi
+        ;;
+      aws_eip:create)
+        echo "  · reserve its address, an Elastic IP, which stays the same when the server is replaced."
+        echo "    It costs about \$$(address_cost) a month, in place of the server's own address."
+        ;;
+      aws_ebs_volume:delete | aws_ebs_volume:delete+create | aws_ebs_volume:create+delete)
+        echo "  · delete its data volume ($id): the database, its API keys and the HTTPS certificate."
+        ;;
+      aws_eip:delete | aws_eip:delete+create | aws_eip:create+delete)
+        echo "  · release its address${address:+, $address}. Callers would need a new one."
+        ;;
       aws_instance:create)
         if [ -n "${previous_instance:-}" ]; then
-          echo "  · create a new server running $short, for about \$0.024 an hour, in place of"
+          echo "  · create a new server running $short, for about \$$(server_hourly_cost) an hour, in place of"
           echo "    $previous_instance, which has terminated."
         else
-          echo "  · create your server, running $short, for about \$0.024 an hour."
+          echo "  · create your server, running $short, for about \$$(server_hourly_cost) an hour."
         fi
         echo "$limit"
         ;;
       aws_instance:delete+create | aws_instance:create+delete)
-        echo "  · replace your server ($id) with a new one running $short."
-        echo "    This deletes the old server, database and API keys: Terraform shows \"Destroying...\""
-        echo "    for a minute or two while it does. The new server costs about \$0.024 an hour."
+        echo "  · replace your server ($id) with a new one running $short. Its data volume and"
+        echo "    address move to the new server, so it keeps its database, API keys and address."
+        echo "    Terraform shows \"Destroying...\" for a few minutes while the old one stops."
+        echo "    The new server costs about \$$(server_hourly_cost) an hour."
         echo "$limit"
         ;;
-      aws_instance:update) echo "  · update your server ($id) in place. It keeps its data." ;;
-      aws_instance:delete) echo "  · delete your server ($id) and its data." ;;
+      aws_instance:update)
+        echo "  · update your server ($id) in place. It keeps its data."
+        describe_commit "$1"
+        describe_settings "$1"
+        ;;
+      aws_instance:delete) echo "  · delete your server ($id)." ;;
       aws_vpc_security_group_ingress_rule:update | aws_vpc_security_group_ingress_rule:delete+create)
         echo "  · let requests from ${new_cidr%/32} reach the server on TCP $new_port, in place of ${old_cidr%/32} on TCP $old_port."
         ;;
@@ -590,9 +859,10 @@ describe_plan() {
     esac
   done < <(jq -r '.resource_changes[]
     | select(.mode == "managed" and .change.actions != ["no-op"])
-    | [.type, (.change.actions | join("+")), (.change.before.id // ""), (.change.before.cidr_ipv4 // ""), (.change.after.cidr_ipv4 // ""), (.change.before.from_port // ""), (.change.after.from_port // "")]
+    | [.type, (.change.actions | join("+")), (.change.before.id // ""), (.change.before.cidr_ipv4 // ""), (.change.after.cidr_ipv4 // ""), (.change.before.from_port // ""), (.change.after.from_port // ""), ((.change.after.size // .change.before.size // "") | tostring), (.change.before.public_ip // ""), ((.change.before.size // "") | tostring)]
     | join("|")' <<<"$1")
-  # Everything here except the server is free; update this if that changes.
+  # Everything here except the server, the data volume and the address is free;
+  # update this if that changes.
   [ -z "$created" ] || echo "  · create its $(printf %s "$created" | join_names), which are free."
   [ -z "$updated" ] || echo "  · update its $(printf %s "$updated" | join_names)."
   [ -z "$deleted" ] || echo "  · delete its $(printf %s "$deleted" | join_names)."
@@ -601,51 +871,77 @@ describe_plan() {
 # show_plan PLAN: show Terraform's plan, keeping only the lines worth checking:
 # which resources it creates, updates, replaces or deletes, each setting that
 # changes and which change forces a replacement, and the totals. FULL_PLAN=1
-# shows all of it, every setting of every resource.
+# shows all of it, every setting of every resource. ROOT is the Terraform folder
+# the plan is for, such as infra.
 show_plan() {
+  local root="$1" plan="$2"
   if [ -n "${FULL_PLAN:-}" ]; then
-    terraform -chdir=infra show "$1"
+    terraform -chdir="$root" show "$plan"
     return
   fi
   echo
   echo "Terraform's plan, short version (FULL_PLAN=1 shows all of it):"
-  terraform -chdir=infra show -no-color "$1" \
+  terraform -chdir="$root" show -no-color "$plan" \
     | grep -E '^  # |forces replacement|^[[:space:]]+~ |^Plan: ' || true
 }
 
-# plan_and_apply NOTHING_TO_DO TERRAFORM_PLAN_ARGUMENTS...: plan, say in plain
-# words what applying the plan does, ask, and apply exactly that plan. Prints
-# NOTHING_TO_DO instead when there's nothing to change. Sets $plan_changed to
-# yes when it changed something in AWS.
-plan_and_apply() {
-  local nothing_to_do="$1" plan status=0 summary
-  plan_changed=""
+# make_plan ROOT TERRAFORM_PLAN_ARGUMENTS...: plan the Terraform folder ROOT,
+# such as infra, and set $planned to the saved plan and $planned_summary to
+# what applying it does, in plain words. $planned is empty when there's nothing
+# to change. A plan that changes only outputs, such as one adding a new output,
+# changes nothing in AWS, so it's applied at once, without asking.
+plan_dirs=()
+make_plan() {
+  local root="$1" plan plan_dir plan_json status=0
   shift
+  planned="" planned_summary=""
   # A saved plan holds the variables' values, such as your email address and IP,
-  # so it goes in a temporary folder that's deleted on exit, not in infra/.
+  # so it goes in a temporary folder that's deleted on exit, not in infra/. Each
+  # plan's folder is kept in plan_dirs, so a second plan doesn't leave the
+  # first one's behind.
   plan_dir="$(mktemp -d)"
-  trap 'rm -rf "$plan_dir"' EXIT
+  plan_dirs+=("$plan_dir")
+  trap 'rm -rf "${plan_dirs[@]}"' EXIT
   plan="$plan_dir/tfplan"
-  doing "Working out what will change"
-  terraform -chdir=infra plan -input=false -detailed-exitcode -out="$plan" "$@" \
+  terraform -chdir="$root" plan -input=false -detailed-exitcode -out="$plan" "$@" \
     >"$plan_dir/plan.log" 2>&1 || status=$?
   case "$status" in
-    0)
-      echo
-      ok "$nothing_to_do"
-      return
-      ;;
+    0) return ;;
     2) ;;
     *)
       cat "$plan_dir/plan.log" >&2
-      fail "terraform plan failed"
+      fail "terraform plan failed in $root"
       ;;
   esac
-  summary="$(describe_plan "$(terraform -chdir=infra show -json "$plan")")"
-  # A plan that changes only outputs, such as one adding a new output, changes
-  # nothing in AWS, so it's applied without asking.
+  plan_json="$(terraform -chdir="$root" show -json "$plan")"
+  # The data volume and the address are deleted only when that's what the run
+  # is for: a disposable deployment's make aws-destroy, or DATA=delete. Any other
+  # plan that would delete or replace them, such as after a hand edit to
+  # infra/data/, stops here.
+  if [ "${allow_data_deletion:-}" != yes ] && jq -e '[.resource_changes[]?
+    | select(.mode == "managed" and (.type == "aws_ebs_volume" or .type == "aws_eip")
+      and (.change.actions | index("delete")))] | length > 0' <<<"$plan_json" >/dev/null; then
+    fail "this plan would delete the deployment's data volume or address, so nothing was changed. FULL_PLAN=1 shows Terraform's whole plan."
+  fi
+  planned_summary="$(describe_plan "$plan_json")"
+  if [ -z "$planned_summary" ]; then
+    terraform -chdir="$root" apply -input=false "$plan" >/dev/null
+    return
+  fi
+  planned="$plan"
+}
+
+# apply_plans NOTHING_TO_DO SUMMARY ROOT PLAN [ROOT PLAN]...: say what applying
+# the plans does (SUMMARY, from make_plan), ask once, and apply exactly those
+# plans, in order. An empty PLAN is skipped. Prints NOTHING_TO_DO instead when
+# every PLAN is empty. Sets $plan_changed to yes when it changed something in
+# AWS.
+apply_plans() {
+  local nothing_to_do="$1" summary="$2" index
+  shift 2
+  local pairs=("$@")
+  plan_changed=""
   if [ -z "$summary" ]; then
-    terraform -chdir=infra apply -input=false "$plan" >/dev/null
     echo
     ok "$nothing_to_do"
     return
@@ -661,23 +957,38 @@ plan_and_apply() {
   echo "  3) Cancel, changing nothing"
   choose "Make the changes above? (1 make them, 2 show the plan, 3 cancel)" 3
   if [ "$answer" = 2 ]; then
-    show_plan "$plan"
+    for ((index = 0; index + 1 < ${#pairs[@]}; index += 2)); do
+      [ -z "${pairs[index + 1]}" ] || show_plan "${pairs[index]}" "${pairs[index + 1]}"
+    done
     echo
     echo "  1) Make these changes"
     echo "  2) Cancel, changing nothing"
     choose "Make the changes above? (1 make them, 2 cancel)" 2
     [ "$answer" = 1 ] || answer=3
   fi
-  [ "$answer" = 1 ] || fail "canceled: nothing changed"
+  [ "$answer" = 1 ] || fail "${cancel_message:-canceled: nothing changed}"
   plan_changed=yes
   doing "Making the changes"
-  terraform -chdir=infra apply -input=false "$plan"
+  for ((index = 0; index + 1 < ${#pairs[@]}; index += 2)); do
+    [ -z "${pairs[index + 1]}" ] || terraform -chdir="${pairs[index]}" apply -input=false "${pairs[index + 1]}"
+  done
 }
 
-# Read a required output; Terraform can succeed with an empty value.
+# plan_and_apply ROOT NOTHING_TO_DO TERRAFORM_PLAN_ARGUMENTS...: make_plan and
+# apply_plans for one Terraform folder.
+plan_and_apply() {
+  local root="$1" nothing_to_do="$2"
+  shift 2
+  doing "Working out what will change"
+  make_plan "$root" "$@"
+  apply_plans "$nothing_to_do" "$planned_summary" "$root" "$planned"
+}
+
+# output NAME [ROOT]: read a required output of the Terraform folder ROOT
+# (default infra); Terraform can succeed with an empty value.
 output() {
   local value
-  value="$(terraform -chdir=infra output -raw "$1")" && [ -n "$value" ] \
+  value="$(terraform -chdir="${2:-infra}" output -raw "$1")" && [ -n "$value" ] \
     || fail "no $1 in the Terraform state for $(project_label): run make aws-up first"
   printf '%s' "$value"
 }

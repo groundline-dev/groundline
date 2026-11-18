@@ -12,7 +12,7 @@ output "region" {
 
 output "app_url" {
   description = "The HTTPS address; access_mode controls application access rather than transport."
-  value       = "https://${aws_instance.app.public_ip}"
+  value       = one([for association in aws_eip_association.app : "https://${association.public_ip}"])
 }
 
 output "access_mode" {
@@ -25,7 +25,8 @@ output "allowed_cidr" {
 }
 
 output "public_ip" {
-  value = aws_instance.app.public_ip
+  description = "The deployment's Elastic IP, from infra/data/."
+  value       = one(aws_eip_association.app[*].public_ip)
 }
 
 # scripts/aws-destroy reads these before destroying, then checks each is gone.
@@ -63,4 +64,19 @@ output "git_ref" {
 output "repository_url" {
   description = "The repository the server clones git_ref from."
   value       = var.repository_url
+}
+
+output "app_settings" {
+  description = "The app settings the server has, besides the app's defaults. scripts/aws-deploy lists them."
+  value       = var.app_settings
+}
+
+output "lifetime" {
+  description = "disposable or lasting. scripts/aws-destroy keeps a lasting deployment's data."
+  value       = var.lifetime
+}
+
+output "budget_amount" {
+  description = "The monthly budget alert's amount, in US dollars."
+  value       = local.budget_amount
 }

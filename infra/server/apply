@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+# Runs on the server as root, from its checkout (/opt/groundline): on the first
+# boot (infra/bootstrap.sh.tftpl) and after each upgrade checks out a new commit
+# (scripts/aws-deploy, over SSM). It writes .env, then builds the image and starts or
+# updates the stack. Running it twice changes nothing the second time.
+#
+# .env holds the database passwords from the data volume, made on the first
+# run and kept after that, since Postgres only takes a password when it creates
+# its database. It also holds the Anthropic API key, read from Parameter Store
+# on every run, so a new key reaches the app without replacing the server, and
+# the app's settings, from the server's groundline-setting-<NAME> tags (the
+# app_settings in infra/terraform.tfvars). A setting without a tag isn't
+# written, so the app uses its default.
+set -euo pipefail
+cd "$(dirname "$0")/../.."
+
+data="${GROUNDLINE_DATA_DIR:-/srv/groundline-data}"
+metadata="${GROUNDLINE_METADATA_URL:-http://169.254.169.254/latest}"
+
+token="$(curl --disable --fail --silent --show-error --noproxy '*' --max-time 10 \
+  --retry 3 --request PUT --header 'X-aws-ec2-metadata-token-ttl-seconds: 60' \
+  "$metadata/api/token")"
+read_metadata() {
+  curl --disable --fail --silent --show-error --noproxy '*' --max-time 10 \
+    --retry 3 --header "X-aws-ec2-metadata-token: $token" "$metadata/meta-data/$1"
+}
+region="$(read_metadata placement/region)"
+deployment="$(read_metadata tags/instance/deployment)"
+parameter="/groundline/$deployment/anthropic-api-key"
+# read_settings: set $settings to NAME=VALUE lines from the setting tags.
+read_settings() {
+  local tag value
+  settings=""
+  for tag in $(read_metadata tags/instance); do
+    case "$tag" in
+      groundline-setting-GROUNDLINE_*)
+        value="$(read_metadata "tags/instance/$tag")"
+        # Terraform checked these; this only keeps anything odd out of .env.
+        [[ "$value" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "groundline: $tag isn't a number: $value" >&2; exit 1; }
+        settings+="${tag#groundline-setting-}=$value"$'\n'
+        ;;
+    esac
+  done
+}
+# An upgrade passes the settings Terraform just tagged, as sorted NAME=VALUE
+# words, and waits until the instance metadata shows them: tag changes reach
+# it after a moment, and a settings-only change has nothing else to wait for.
+# The first boot reads them once, since a new server starts with its tags.
+if [ -z "${GROUNDLINE_EXPECTED_SETTINGS+set}" ]; then
+  read_settings
+else
+  attempts="${GROUNDLINE_SETTINGS_ATTEMPTS:-24}"
+  for attempt in $(seq 1 "$attempts"); do
+    read_settings
+    shown="$(LC_ALL=C sort <<<"$settings" | { grep . || true; } | tr '\n' ' ' | sed 's/ $//')"
+    [ "$shown" != "$GROUNDLINE_EXPECTED_SETTINGS" ] || break
+    if [ "$attempt" = "$attempts" ]; then
+      echo "groundline: the server's setting tags show \"$shown\", not \"$GROUNDLINE_EXPECTED_SETTINGS\"" >&2
+      exit 1
+    fi
+    sleep "${GROUNDLINE_SETTINGS_WAIT_SECONDS:-5}"
+  done
+fi
+
+# The database passwords: hex, so they're safe in a URL and in Compose.
+# Generated first, since a failed command inside echo "$(...)" wouldn't stop
+# the script.
+umask 077
+secrets="$data/secrets/db.env"
+if [ ! -s "$secrets" ]; then
+  mkdir -p "$(dirname "$secrets")"
+  postgres_password="$(openssl rand -hex 24)"
+  groundline_db_password="$(openssl rand -hex 24)"
+  {
+    echo "POSTGRES_PASSWORD=$postgres_password"
+    echo "GROUNDLINE_DB_PASSWORD=$groundline_db_password"
+  } >"$secrets.new"
+  mv "$secrets.new" "$secrets"
+  echo "groundline: made the database passwords, on the data volume"
+fi
+
+# The Anthropic API key is optional: without the parameter, the app starts and
+# answers everything except model calls. Any other error stops the run.
+errors_file="$(mktemp)"
+trap 'rm -f "$errors_file" .env.new' EXIT
+anthropic_api_key=""
+if anthropic_api_key="$(aws ssm get-parameter --region "$region" --name "$parameter" \
+  --with-decryption --query Parameter.Value --output text 2>"$errors_file")"; then
+  echo "groundline: read the Anthropic API key from $parameter"
+elif grep --quiet ParameterNotFound "$errors_file"; then
+  echo "groundline: $parameter doesn't exist, so the app has no Anthropic API key"
+else
+  cat "$errors_file" >&2
+  exit 1
+fi
+
+{
+  cat "$secrets"
+  echo "COMPOSE_FILE=compose.yaml:compose.https.yaml"
+  [ -z "$anthropic_api_key" ] || echo "ANTHROPIC_API_KEY=$anthropic_api_key"
+  printf '%s' "$settings"
+} >.env.new
+unset anthropic_api_key
+chmod 600 .env.new
+mv .env.new .env
+
+# A larger data_volume_gib grows the volume; this grows its filesystem to
+# match. It changes nothing when they're already the same size.
+if mountpoint -q "$data" 2>/dev/null; then
+  xfs_growfs "$data" >/dev/null \
+    || echo "groundline: couldn't grow the data volume's filesystem; the next upgrade tries again" >&2
+fi
+
+infra/https/refresh-address
+# Builds the image for this commit, then starts or updates Postgres, setup, the
+# app and Caddy. Old images would fill the disk over many upgrades.
+docker compose up --detach --build --remove-orphans --quiet-pull
+docker image prune --force >/dev/null
+echo "groundline: running $(git rev-parse HEAD)"

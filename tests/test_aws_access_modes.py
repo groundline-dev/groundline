@@ -42,6 +42,18 @@ esac
             source = source.replace(
                 "case", 'if [ "$1" = cat-file ]; then exit 1; fi\ncase', 1
             )
+        if name == "git" and world.get("branch"):
+            source = source.replace("echo main ;;", f"echo {world['branch']} ;;", 1)
+        if name == "git" and world.get("newer_commit"):
+            source = source.replace(
+                "case", 'if [ "$1" = merge-base ]; then exit 1; fi\ncase', 1
+            )
+        if name == "git" and world.get("missing_apply"):
+            source = source.replace(
+                "case",
+                'case "$*" in *infra/server/apply*) exit 1 ;; esac\ncase',
+                1,
+            )
         tool.write_text(source)
         tool.chmod(0o755)
     env = dict(
@@ -67,6 +79,13 @@ esac
     return result, json.loads(world_file.read_text())
 
 
+def server_plans(world: dict[str, Any]) -> list[list[str]]:
+    """The terraform plan calls for the server (infra/), not its data volume."""
+    return [
+        call for call in world["calls"] if "plan" in call and "-chdir=infra" in call
+    ]
+
+
 def settings(checkout: Path, mode: str | None):
     text = 'deployment_name = "alice"\nbudget_alert_email = "alerts@example.com"\n'
     if mode is not None:
@@ -85,7 +104,7 @@ def test_deploy_defaults_saves_and_discovers_only_the_restricted_tester(
     result, world = invoke(checkout, "aws-deploy", world)
     assert result.returncode == 0, result.stdout + result.stderr
     effective = "unrestricted" if mode == "unrestricted" else "restricted"
-    plans = [call for call in world["calls"] if "plan" in call]
+    plans = server_plans(world)
     assert len(plans) == 1
     assert f"access_mode={effective}" in plans[0]
     assert (checkout / "curl-calls").exists() == (effective == "restricted")
@@ -117,7 +136,7 @@ def test_new_wizard_asks_once_and_saves_choice(checkout: Path, choice: str, mode
             'access_mode = "restricted" # keep this comment',
         )
     )
-    answers = f"\nalice\nalerts@example.com\n{choice}\n\n"
+    answers = f"\nalice\nalerts@example.com\n\n{choice}\n\n"
     result, _ = invoke(checkout, "aws-up", aws_fakes.new_world(), answers)
     assert result.returncode == 0, result.stdout + result.stderr
     saved = (checkout / "infra/terraform.tfvars").read_text()
@@ -164,8 +183,53 @@ def test_keep_requires_matching_mode(
             "running access is unrestricted HTTPS; saved access is restricted HTTPS"
             in result.stderr
         )
-        assert "database and API keys" in result.stdout
+        assert "updates the server in place. It keeps its data" in result.stdout
         assert "Keep your running server" not in result.stdout
+
+
+@pytest.mark.parametrize(
+    "saved,running,offered",
+    [
+        ({"GROUNDLINE_MAX_SOURCE_CHARS": 150000}, {}, False),
+        ({}, {"GROUNDLINE_MAX_SOURCE_CHARS": 150000}, False),
+        (
+            {"GROUNDLINE_MAX_SOURCE_CHARS": 150000},
+            {"GROUNDLINE_MAX_SOURCE_CHARS": 150000},
+            True,
+        ),
+    ],
+)
+def test_keep_is_offered_only_when_the_settings_match(
+    checkout: Path, saved: dict[str, int], running: dict[str, int], offered: bool
+):
+    settings(checkout, "restricted")
+    if saved:
+        # Real Terraform reads it from here; the fake console answers from the world.
+        with (checkout / "infra/terraform.tfvars").open("a") as tfvars:
+            tfvars.write("app_settings = { GROUNDLINE_MAX_SOURCE_CHARS = 150000 }\n")
+    stub_children(checkout)
+    world = aws_fakes.new_world(
+        outputs={
+            "instance_id": "i-test",
+            "git_ref": "a" * 40,
+            "repository_url": "https://example.com/repo.git",
+            "access_mode": "restricted",
+            "allowed_cidr": "198.51.100.20/32",
+            "app_settings": running,
+        },
+        existing={"i-test": "running"},
+        saved_app_settings=saved,
+    )
+
+    # Enter keeps a server that matches, and doesn't answer the review question.
+    result, _ = invoke(checkout, "aws-up", world, "\n\n2\n")
+
+    assert (result.returncode == 0) == offered, result.stdout + result.stderr
+    assert (checkout / "aws-smoke-test-called").exists() == offered
+    assert not (checkout / "aws-deploy-called").exists()
+    if not offered:
+        assert "app_settings in infra/terraform.tfvars differ" in result.stderr
+        assert "canceled: running server unchanged" in result.stderr
 
 
 def test_old_revision_cannot_be_deployed_in_https_mode(checkout: Path):
@@ -190,7 +254,9 @@ def test_cancelling_deployment_does_not_apply(checkout: Path):
                     "change": {"actions": ["create"], "after": {}},
                 }
             ],
-        }
+        },
+        # With a data volume, cancelling says it stays (test_aws_lasting).
+        data_outputs={},
     )
     result, world = invoke(checkout, "aws-deploy", world, "3\n")
     assert result.returncode != 0
@@ -206,7 +272,9 @@ def test_failed_access_reload_is_not_success(checkout: Path):
     )
     result, _ = invoke(checkout, "aws-deploy", world)
     assert result.returncode != 0
-    assert "couldn't apply HTTPS access" in result.stderr
+    assert (
+        "couldn't upgrade the server; do not report deployment success" in result.stderr
+    )
     assert (
         "Terraform configuration is unchanged" in result.stdout
     )  # Terraform alone was not sufficient
@@ -348,7 +416,7 @@ def test_changed_ip_can_decline_keep_and_deploy_new_code(checkout: Path):
     # Confirm the project, decline keeping the server, and keep the stored key.
     result, world = invoke(checkout, "aws-up", world, "\nn\n\n")
     assert result.returncode == 0, result.stdout + result.stderr
-    plans = [call for call in world["calls"] if "plan" in call]
+    plans = server_plans(world)
     assert len(plans) == 1
     assert "git_ref=" + "a" * 40 in plans[0]
     assert "tester_cidr=198.51.100.20/32" in plans[0]
@@ -370,3 +438,278 @@ def test_unrestricted_keep_does_not_discover_tester_ip(checkout: Path):
     result, _ = invoke(checkout, "aws-up", world, "\n\n")
     assert result.returncode == 0, result.stdout + result.stderr
     assert not (checkout / "curl-calls").exists()
+
+
+def test_deploy_makes_the_data_volume_first_then_attaches_the_server(checkout: Path):
+    settings(checkout, "unrestricted")
+    with (checkout / "infra/terraform.tfvars").open("a") as tfvars:
+        tfvars.write('instance_type = "t4g.medium"\n')
+    world = aws_fakes.new_world(
+        outputs={"instance_id": "i-test", "auto_terminate_hours": "8"}
+    )
+
+    result, world = invoke(checkout, "aws-deploy", world)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    plans = [call for call in world["calls"] if "plan" in call]
+    assert ["-chdir=infra/data" in call for call in plans] == [True, False]
+    assert "deployment_name=alice" in plans[0]
+    assert "instance_type=t4g.medium" in plans[0]
+    assert "the data volume and address are unchanged" in result.stdout
+    # A disposable server's data volume goes with it when it terminates itself.
+    marks = [
+        call
+        for call in world["calls"]
+        if call[1:3] == ["ec2", "modify-instance-attribute"]
+    ]
+    assert len(marks) == 1
+    assert '"DeleteOnTermination":true' in " ".join(marks[0])
+
+
+def test_deploy_refuses_a_server_made_before_data_volumes(checkout: Path):
+    settings(checkout, "unrestricted")
+    world = aws_fakes.new_world(
+        outputs={"instance_id": "i-old", "auto_terminate_hours": "8"}, data_outputs={}
+    )
+
+    result, world = invoke(checkout, "aws-deploy", world)
+
+    assert result.returncode != 0
+    assert "Run make aws-destroy, then make aws-up" in result.stderr
+    assert not any("plan" in call or "apply" in call for call in world["calls"])
+
+
+def test_deploy_refuses_a_plan_that_would_delete_the_data_volume(checkout: Path):
+    settings(checkout, "unrestricted")
+    deleting: dict[str, Any] = {
+        "variables": {},
+        "resource_changes": [
+            {
+                "mode": "managed",
+                "type": "aws_ebs_volume",
+                "change": {
+                    "actions": ["delete", "create"],
+                    "before": {"id": "vol-0123456789abcdef0"},
+                },
+            }
+        ],
+    }
+    world = aws_fakes.new_world(
+        outputs={"instance_id": "i-test", "auto_terminate_hours": "8"},
+        data_plan=deleting,
+    )
+
+    result, world = invoke(checkout, "aws-deploy", world, "1\n")
+
+    assert result.returncode != 0
+    assert "would delete the deployment's data volume or address" in result.stderr
+    assert not any(call[1:2] == ["apply"] for call in world["calls"])
+    assert not world["data_destroyed"]
+
+
+def test_deploy_refuses_a_commit_without_infra_server_apply(checkout: Path):
+    settings(checkout, "unrestricted")
+    world = aws_fakes.new_world(missing_apply=True)
+
+    result, world = invoke(checkout, "aws-deploy", world)
+
+    assert result.returncode != 0
+    assert "too old to keep its data on a data volume" in result.stderr
+    assert not any("plan" in call for call in world["calls"])
+
+
+@pytest.mark.parametrize("hours", ["8", "0"])
+def test_a_running_server_is_upgraded_in_place(checkout: Path, hours: str):
+    settings(checkout, "unrestricted")
+    world = aws_fakes.new_world(
+        outputs={"instance_id": "i-test", "auto_terminate_hours": hours}
+    )
+
+    result, world = invoke(checkout, "aws-deploy", world)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "Upgrading your server (i-test) in place to aaaaaaa" in result.stdout
+    assert "It kept its data and address" in result.stdout
+    [upgrade] = [
+        c["script"] for c in world["commands"] if "server/apply" in c["script"]
+    ]
+    steps = json.loads(upgrade)["commands"][0]
+    commit = "a" * 40
+    assert "refresh-address 'unrestricted' '0.0.0.0/0'" in steps
+    assert (
+        steps.index("refresh-address")
+        < steps.index(
+            f"git fetch --quiet 'https://github.com/example/groundline.git' '{commit}'"
+        )
+        < steps.index(f"git checkout --quiet --detach '{commit}'")
+        < steps.index("infra/server/apply")
+        < steps.index("caddy reload")
+    )
+    # A disposable server's time limit starts again, as a new server's would.
+    assert ("3600)) >/var/lib/groundline/terminate-at.new" in steps) == (hours != "0")
+
+
+def test_an_upgrade_that_reports_another_commit_is_not_success(checkout: Path):
+    settings(checkout, "unrestricted")
+    world = aws_fakes.new_world(
+        outputs={"instance_id": "i-test", "auto_terminate_hours": "0"},
+        ssm_replies=[{"when": "server/apply", "stdout": "groundline: running bbbb\n"}],
+    )
+
+    result, _ = invoke(checkout, "aws-deploy", world)
+
+    assert result.returncode != 0
+    assert "didn't report running aaaaaaa" in result.stderr
+
+
+def test_a_new_server_is_not_upgraded_over_ssm(checkout: Path):
+    """It runs the commit from its first boot, so there's nothing to upgrade."""
+    settings(checkout, "unrestricted")
+    world = aws_fakes.new_world(
+        pending_outputs={"instance_id": "i-new", "auto_terminate_hours": "8"},
+        plan={
+            "variables": {},
+            "resource_changes": [
+                {
+                    "mode": "managed",
+                    "type": "aws_instance",
+                    "change": {"actions": ["create"], "before": None},
+                }
+            ],
+        },
+    )
+
+    result, world = invoke(checkout, "aws-deploy", world, "1\n")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "created your server" in result.stdout
+    assert not any("server/apply" in c["script"] for c in world["commands"])
+
+
+def test_a_settings_change_is_described_and_the_settings_are_listed(checkout: Path):
+    settings(checkout, "unrestricted")
+    before = {
+        "Name": "groundline-alice",
+        "groundline-setting-GROUNDLINE_MAX_BODY_BYTES": "1",
+    }
+    after = {
+        "Name": "groundline-alice",
+        "groundline-setting-GROUNDLINE_CHECK_TIMEOUT_SECONDS": "180",
+    }
+    world = aws_fakes.new_world(
+        outputs={
+            "instance_id": "i-test",
+            "auto_terminate_hours": "0",
+            "app_settings": {"GROUNDLINE_CHECK_TIMEOUT_SECONDS": 180},
+        },
+        plan={
+            "variables": {},
+            "resource_changes": [
+                {
+                    "mode": "managed",
+                    "type": "aws_instance",
+                    "change": {
+                        "actions": ["update"],
+                        "before": {"id": "i-test", "tags": before},
+                        "after": {"id": "i-test", "tags": after},
+                    },
+                }
+            ],
+        },
+    )
+
+    result, world = invoke(checkout, "aws-deploy", world, "1\n")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    # The server waits until its tags show these before writing .env.
+    [upgrade] = [
+        c["script"] for c in world["commands"] if "server/apply" in c["script"]
+    ]
+    assert (
+        "GROUNDLINE_EXPECTED_SETTINGS='GROUNDLINE_CHECK_TIMEOUT_SECONDS=180' "
+        "infra/server/apply" in upgrade
+    )
+    assert "update your server (i-test) in place" in result.stdout
+    assert (
+        "Its GROUNDLINE_CHECK_TIMEOUT_SECONDS becomes 180 (it was the default)."
+        in result.stdout
+    )
+    assert "Its GROUNDLINE_MAX_BODY_BYTES goes back to the default (it was 1)." in (
+        result.stdout
+    )
+    assert "  · GROUNDLINE_CHECK_TIMEOUT_SECONDS = 180" in result.stdout
+
+
+def test_a_deploy_with_no_settings_says_it_uses_the_defaults(checkout: Path):
+    settings(checkout, "unrestricted")
+    world = aws_fakes.new_world(
+        outputs={
+            "instance_id": "i-test",
+            "auto_terminate_hours": "0",
+            "app_settings": {},
+        }
+    )
+
+    result, world = invoke(checkout, "aws-deploy", world)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "It runs with the app's default settings" in result.stdout
+    # The server waits until no setting tags are left.
+    assert any(
+        "GROUNDLINE_EXPECTED_SETTINGS='' infra/server/apply" in c["script"]
+        for c in world["commands"]
+    )
+
+
+def test_a_larger_data_volume_is_described_as_growing(checkout: Path):
+    settings(checkout, "unrestricted")
+    world = aws_fakes.new_world(
+        outputs={"instance_id": "i-test", "auto_terminate_hours": "0"},
+        data_plan={
+            "variables": {},
+            "resource_changes": [
+                {
+                    "mode": "managed",
+                    "type": "aws_ebs_volume",
+                    "change": {
+                        "actions": ["update"],
+                        "before": {"id": "vol-1", "size": 5},
+                        "after": {"id": "vol-1", "size": 20},
+                    },
+                }
+            ],
+        },
+    )
+
+    result, _ = invoke(checkout, "aws-deploy", world, "1\n")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "grow its data volume from 5 to 20 GiB, about $1.60 a month" in (
+        result.stdout
+    )
+    assert "filesystem grows when the server is upgraded" in result.stdout
+
+
+def test_settings_are_compared_without_terraform_console_when_none_are_saved(
+    checkout: Path,
+):
+    # Terraform's default is no settings, and console takes a few seconds.
+    settings(checkout, "restricted")
+    stub_children(checkout)
+    world = aws_fakes.new_world(
+        outputs={
+            "instance_id": "i-test",
+            "git_ref": "a" * 40,
+            "repository_url": "https://example.com/repo.git",
+            "access_mode": "restricted",
+            "allowed_cidr": "198.51.100.20/32",
+            "app_settings": {},
+        },
+        existing={"i-test": "running"},
+    )
+
+    result, world = invoke(checkout, "aws-up", world, "\n\n")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (checkout / "aws-smoke-test-called").exists()
+    assert not any("console" in call for call in world["calls"])

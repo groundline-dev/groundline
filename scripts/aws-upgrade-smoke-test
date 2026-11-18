@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+# Check that upgrading your running deployment in place keeps what its callers
+# rely on: it makes an API key, upgrades the server to another commit with
+# scripts/aws-deploy, then checks that the key still gets past auth, and that
+# the server, its address and its HTTPS certificate are the same ones. It also
+# checks the server runs the commit and the request size limit you set, and,
+# for a lasting deployment, that an upgrade to a newer commit replaced the
+# pre-upgrade snapshot with one new one, and that a rollback kept it.
+#
+# Usage: REF=<commit> scripts/aws-upgrade-smoke-test   (make aws-upgrade-smoke REF=<commit>)
+#
+# REF has to be a commit other than the one the server runs, and on GitHub,
+# as for make aws-deploy, which asks before it changes anything. The server
+# keeps running REF afterwards. It doesn't call the model.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+source scripts/aws-common.sh
+
+[ -n "${REF:-}" ] || fail "usage: make aws-upgrade-smoke REF=<a commit to upgrade to, other than the one the server runs>"
+request_timeout="${GROUNDLINE_SMOKE_REQUEST_TIMEOUT:-60}"
+wait_seconds="${GROUNDLINE_SMOKE_WAIT_SECONDS:-300}"
+
+use_project
+instance="$(output instance_id)"
+app_url="$(output app_url)"
+public_ip="$(output public_ip)"
+running="$(output git_ref)"
+lifetime="$(deployed_lifetime)"
+commit="$(git rev-parse --verify --quiet "$REF^{commit}")" || fail "$REF isn't a commit"
+[ "$commit" != "$running" ] \
+  || fail "the server already runs ${commit:0:7}: choose another REF, so the upgrade changes something"
+require_running
+
+before_snapshots=""
+[ "$lifetime" != lasting ] || before_snapshots="$(pre_upgrade_snapshots "$(deployment_name)")"
+
+# https_check.py describes its checks on stderr, shown here only if it fails.
+certificate() {
+  local errors status=0
+  errors="$(mktemp)"
+  uv run --no-project --quiet python scripts/https_check.py "$app_url" "$public_ip" --json 2>"$errors" \
+    | jq -r .sha256 || status=$?
+  [ "$status" = 0 ] || cat "$errors" >&2
+  rm -f "$errors"
+  return "$status"
+}
+
+step "Before the upgrade"
+doing "Recording what the upgrade has to keep"
+before_certificate="$(certificate)" && [ -n "$before_certificate" ] \
+  || fail "couldn't read the server's HTTPS certificate at $app_url"
+keys_create_output="$(on_server "cd /opt/groundline && docker compose exec -T app groundline-core keys create --name aws-upgrade-smoke-test")" \
+  || fail "groundline-core keys create failed on the server: $keys_create_output"
+api_key_id="$(sed -n 's/^ID: \([0-9a-f-]*\)$/\1/p' <<<"$keys_create_output")"
+api_key="$(sed -n 's/^API key: \(gl_[A-Za-z0-9_-]*\)$/\1/p' <<<"$keys_create_output")"
+[ -n "$api_key_id" ] && [ -n "$api_key" ] || fail "groundline-core keys create printed no API key"
+
+revoke() {
+  if on_server "cd /opt/groundline && docker compose exec -T app groundline-core keys revoke $api_key_id" >/dev/null; then
+    check_ok "revoked the test API key"
+  else
+    check_warn "couldn't revoke the test API key; revoke it with make aws-key REVOKE=$api_key_id"
+    return 1
+  fi
+}
+trap 'status=$?; revoke || status=1; exit "$status"' EXIT
+check_ok "server $instance at $public_ip, running ${running:0:7}"
+check_ok "HTTPS certificate ${before_certificate:0:16}..."
+check_ok "a test API key, made before the upgrade"
+
+step "The upgrade"
+REF="$commit" REF_NAME="" scripts/aws-deploy
+
+step "After the upgrade"
+doing "Checking what the upgrade kept"
+# expect STATUS SHOWS FAILURE PATH [curl arguments...], as in scripts/aws-smoke-test.
+expect() {
+  local want="$1" shows="$2" failure="$3" path="$4" got
+  shift 4
+  got="$(curl --disable --proto '=https' --silent --show-error --max-time "$request_timeout" \
+    --output /dev/null --write-out '%{http_code}' "$@" "$app_url$path" || true)"
+  [ "$got" = "$want" ] || fail "$failure ($path returned ${got:-nothing}, expected $want)"
+  check_ok "$shows"
+}
+
+[ "$(output instance_id)" = "$instance" ] \
+  || fail "the upgrade replaced the server: it's $(output instance_id), not $instance"
+check_ok "the server wasn't replaced ($instance)"
+[ "$(output public_ip)" = "$public_ip" ] \
+  || fail "the address changed from $public_ip to $(output public_ip)"
+check_ok "the address is still $public_ip"
+[ "$(output git_ref)" = "$commit" ] || fail "the server doesn't run ${commit:0:7}"
+check_ok "it runs ${commit:0:7}"
+
+# The app restarts during the upgrade, so it may take a moment to answer.
+until_time=$((SECONDS + wait_seconds))
+until curl --disable --proto '=https' --silent --fail --max-time 10 --output /dev/null "$app_url/health"; do
+  [ "$SECONDS" -lt "$until_time" ] || fail "$app_url/health didn't answer within $wait_seconds seconds of the upgrade"
+  sleep 5
+done
+check_ok "the server answers (GET /health returned 200)"
+
+after_certificate="$(certificate)" || fail "couldn't read the server's HTTPS certificate after the upgrade"
+[ "$after_certificate" = "$before_certificate" ] \
+  || fail "the HTTPS certificate changed (${after_certificate:0:16}...), so the upgrade lost the one on the data volume"
+check_ok "the HTTPS certificate is the same one, kept on the data volume"
+
+expect 422 "the API key made before the upgrade still gets past auth: the empty request
+      was rejected only for its missing fields (422)" \
+  "the server didn't accept the API key made before the upgrade, so it may have lost its database" \
+  /v1/omissions --request POST --json '{}' --header "Authorization: Bearer $api_key"
+
+# The source length limit, which the API documents, is the one set in
+# app_settings, or the app's default.
+want_source="$(deployed_app_settings | jq -r '.GROUNDLINE_MAX_SOURCE_CHARS // 200000 | floor')"
+got_source="$(curl --disable --proto '=https' --silent --show-error --fail --max-time "$request_timeout" \
+  "$app_url/openapi.json" | jq -r '.components.schemas.OmissionsRequest.properties.source.maxLength')" \
+  || fail "couldn't read $app_url/openapi.json"
+[ "$got_source" = "$want_source" ] \
+  || fail "the server allows sources of $got_source characters, not the $want_source app_settings asks for"
+check_ok "it uses the source length limit app_settings asks for ($want_source characters)"
+
+if [ "$lifetime" = lasting ]; then
+  after_snapshots="$(pre_upgrade_snapshots "$(deployment_name)")"
+  if [ "$(commit_change "$running" "$commit")" = rollback ]; then
+    [ "$after_snapshots" = "$before_snapshots" ] \
+      || fail "the rollback changed the pre-upgrade snapshots (${before_snapshots//$'\n'/ } before, ${after_snapshots//$'\n'/ } after), so the one for restoring may be gone"
+    check_ok "the rollback kept the pre-upgrade snapshot (${after_snapshots:-none})"
+  else
+    [ "$(grep -c . <<<"$after_snapshots")" = 1 ] && ! grep -qx "$after_snapshots" <<<"$before_snapshots" \
+      || fail "after an upgrade to a newer commit there should be one new pre-upgrade snapshot, but there are: ${after_snapshots//$'\n'/ } (before: ${before_snapshots//$'\n'/ })"
+    check_ok "it replaced the pre-upgrade snapshot with a new one ($after_snapshots)"
+  fi
+fi
+
+revoke
+trap - EXIT
+echo
+ok "the upgrade kept the server, its address, its HTTPS certificate and its API keys"
+what_next

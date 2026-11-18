@@ -1,7 +1,11 @@
 #!/usr/bin/env bash
-# Run a test deployment with one command: choose the AWS project and the code,
-# do whatever first-time setup is missing, deploy, and check the server. See
+# Run a deployment with one command: choose the AWS project and the code, do
+# whatever first-time setup is missing, deploy, and check the server. See
 # docs/deploying-to-aws.md.
+#
+# The first run in a folder asks whether the deployment is disposable, for
+# trying a commit, or lasting, for staging or production, and saves the answer
+# in infra/terraform.tfvars. Later runs upgrade that deployment in place.
 #
 # Usage: scripts/aws-up   (make aws-up)
 #
@@ -57,7 +61,7 @@ export AWS_PROFILE="${AWS_PROFILE:-$wizard_profile}"
 if signed_in; then
   use_project
   echo
-  echo "Your test deployment will run in the AWS project you're signed in to:"
+  echo "Your deployment will run in the AWS project you're signed in to:"
   bullet "$(project_label), in $region"
   confirm "Deploy to $(project_label)?" || choose_project
 elif previous="$(previous_account)" && [ -n "$previous" ]; then
@@ -81,8 +85,9 @@ answer_ok "deploying to $project in $region"
 if [ ! -f infra/terraform.tfvars ]; then
   echo
   echo "Your deployment needs a name and an email address."
-  bullet "The name has to be unique in the projects you deploy to, such as your first name."
-  bullet "The \$5-a-month budget alert goes to the email address."
+  bullet "The name has to be unique in the projects you deploy to, such as your first"
+  echo "    name, or staging for a lasting deployment."
+  bullet "The monthly budget alert goes to the email address."
   suggested="$(id -un | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9-' | cut -c1-20)"
   [[ "$suggested" =~ ^[a-z] ]] || suggested=""
   while :; do
@@ -98,18 +103,48 @@ if [ ! -f infra/terraform.tfvars ]; then
   done
   email="$answer"
   echo
-  choose_access_mode
+  choose_lifetime
+  budget="" access_default=1
+  if [ "$lifetime" = lasting ]; then
+    access_default=2
+    echo
+    echo "A lasting deployment costs about \$$(running_monthly_cost) a month while it runs, and about \$$(kept_data_cost "$(tfvars_value data_volume_gib)") a"
+    echo "month for its data volume and address once make aws-destroy keeps them."
+    bullet "The budget alert emails you when the project's costs this month pass half its"
+    echo "    amount, and again at all of it."
+    bullet "It covers the whole AWS project, so a lasting deployment is best in a project"
+    echo "    of its own."
+    while :; do
+      ask "Monthly budget alert, in US dollars" 35
+      [[ "$answer" =~ ^[1-9][0-9]{0,4}$ ]] && break
+      echo "  Enter a whole number of dollars, such as 35."
+    done
+    budget="$answer"
+  fi
+  echo
+  choose_access_mode "$access_default"
+  # Written only once every question is answered, so stopping partway saves nothing.
   awk -v name="$name" -v email="$email" '
     /^deployment_name[[:space:]]*=/ { print "deployment_name = \"" name "\""; next }
     /^budget_alert_email[[:space:]]*=/ { print "budget_alert_email = \"" email "\""; next }
     { print }
   ' infra/terraform.tfvars.example >infra/terraform.tfvars
   save_access_mode "$access_mode"
+  save_setting lifetime "$lifetime"
+  if [ "$lifetime" = lasting ]; then
+    save_setting auto_terminate_hours 0
+    save_setting budget_amount "$budget"
+  fi
   answer_ok "wrote infra/terraform.tfvars"
 fi
 name="$(deployment_name)"
 access_mode="$(configured_access_mode ask)"
 [ -n "$name" ] || fail "infra/terraform.tfvars has no deployment_name: add one, such as deployment_name = \"alice\""
+lifetime="$(configured_lifetime)"
+guard_lasting_folder "$name" "$lifetime"
+# The groundline servers running in this project, as "name lifetime" lines.
+running="$(running_lifetimes 2>/dev/null || true)"
+shared_project_warning "$name" "$lifetime" "$running"
 
 # --- A server of yours that's already running ---
 
@@ -117,26 +152,32 @@ access_mode="$(configured_access_mode ask)"
 # git_ref output says which commit it runs; servers deployed before that output
 # existed don't have it, so they can't be kept from here.
 keep=""
-instance="$(terraform -chdir=infra output -raw instance_id 2>/dev/null || true)"
+instance="$(optional_output instance_id)"
 if [ -n "$instance" ] \
   && instance_state="$(aws ec2 describe-instances --region "$region" --instance-ids "$instance" \
     --query 'Reservations[0].Instances[0].State.Name' --output text 2>/dev/null)" \
   && [[ "$instance_state" =~ ^(pending|running)$ ]]; then
-  running_ref="$(terraform -chdir=infra output -raw git_ref 2>/dev/null || true)"
-  running_repository="$(terraform -chdir=infra output -raw repository_url 2>/dev/null || true)"
+  running_ref="$(optional_output git_ref)"
+  running_repository="$(optional_output repository_url)"
   echo
   echo "Your deployment $name is already running in $project."
   [ -z "$running_ref" ] || bullet "It runs ${running_ref:0:7}, from $running_repository."
-  bullet "It costs money until make aws-destroy, or until it terminates itself."
-  bullet "Deploying other code replaces it, and deletes its data."
+  if [ "$lifetime" = lasting ]; then
+    bullet "It's a lasting deployment: it costs money until make aws-destroy."
+  else
+    bullet "It costs money until make aws-destroy, or until it terminates itself."
+  fi
+  bullet "Deploying other code upgrades it in place. It keeps its data and address."
   running_mode="$(deployed_access_mode)"
-  if [ "$access_mode" != "$running_mode" ]; then
-    answer_warn "running access is $running_mode HTTPS; saved access is $access_mode HTTPS. Keeping this server would not apply your settings."
-    bullet "Switching modes replaces the server, deleting its database and API keys."
-    echo "  1) Review a deployment plan"
-    echo "  2) Cancel and leave the running server unchanged"
-    choose "Review deployment changes? (1 review, 2 cancel)" 2
-    [ "$answer" = 1 ] || fail "canceled: running server unchanged"
+  # Keeping the server applies nothing, so changed settings mean deploying.
+  saved_settings="$(saved_app_settings)"
+  running_settings="$(deployed_app_settings)"
+  if [ -n "$saved_settings" ] && [ "$saved_settings" != "$running_settings" ]; then
+    review_or_cancel "the app_settings in infra/terraform.tfvars differ from the running server's." \
+      "Applying them updates the server in place. It keeps its data and address."
+  elif [ "$access_mode" != "$running_mode" ]; then
+    review_or_cancel "running access is $running_mode HTTPS; saved access is $access_mode HTTPS." \
+      "Switching modes updates the server in place. It keeps its data and address."
   else
     if [ -n "$running_ref" ] && confirm "Keep your running server and check it?"; then
       if [ "$running_mode" = restricted ]; then
@@ -172,14 +213,20 @@ if [ -z "$keep" ]; then
     esac
   fi
   if [ -n "$replace" ]; then
-    others="$(running_deployments 2>/dev/null | grep -vx "$name" | join_names)" || others=""
+    others="$(awk -v name="$name" '$1 != name { print $1 }' <<<"$running" | join_names)"
     echo
     echo "Your server needs an Anthropic API key to call Claude."
-    bullet "Everyone with access to $project can read it until make aws-destroy."
-    bullet "To keep it private, deploy to a project only you own."
-    bullet "In a shared project, use a key from an Anthropic Console workspace with a"
-    echo "    low spend limit, so anyone who copies it can't spend more than that."
-    [ -z "$others" ] || bullet "Test deployments running in this project now: $others."
+    if [ "$lifetime" = lasting ]; then
+      bullet "Everyone with access to $project can read it while the deployment exists."
+      bullet "Use a key from an Anthropic Console workspace with a monthly spend limit,"
+      echo "    so this deployment's model calls can't cost more than you planned."
+    else
+      bullet "Everyone with access to $project can read it until make aws-destroy."
+      bullet "To keep it private, deploy to a project only you own."
+      bullet "In a shared project, use a key from an Anthropic Console workspace with a"
+      echo "    low spend limit, so anyone who copies it can't spend more than that."
+      [ -z "$others" ] || bullet "Other deployments running in this project now: $others."
+    fi
     key=""
     for variable in AWS_ANTHROPIC_API_KEY ANTHROPIC_API_KEY; do
       candidate="$(dotenv_value "$variable")"
@@ -202,9 +249,10 @@ if [ -z "$keep" ]; then
       printf '%s' "$key" | aws ssm put-parameter --region "$region" --name "$anthropic_parameter" \
         --type SecureString --value file:///dev/stdin ${stored:+--overwrite} >/dev/null
       answer_ok "stored your Anthropic API key; make aws-destroy deletes it"
-      # The server reads the key only when it starts.
-      if [ -n "$stored" ] && running_deployments 2>/dev/null | grep -qx "$name"; then
-        answer_warn "your running server still uses the old key. It reads the key when it starts, so it uses the new one once it's replaced: deploy a different commit, or run make aws-destroy, then make aws-up."
+      # The server reads the key when it starts and when it's upgraded, which
+      # step 2 does.
+      if [ -n "$stored" ] && cut -d' ' -f1 <<<"$running" | grep -qx "$name"; then
+        bullet "Your running server switches to the new key when it's upgraded, in step 2."
       fi
     elif [ -n "$stored" ]; then
       answer_ok "kept the Anthropic API key you gave on an earlier run"
@@ -225,6 +273,15 @@ if [ -z "$keep" ]; then
     echo "  1) main, from groundline-dev/groundline"
     echo "  2) your branch $branch ($(git rev-parse --short HEAD))"
     choose "Which code should the server run? (1 main, 2 your branch)" 2 1
+    # Callers rely on a lasting deployment, so a branch goes to it only on purpose.
+    if [ "$answer" = 2 ] && [ "$lifetime" = lasting ]; then
+      echo
+      echo "$name is a lasting deployment, which callers rely on. Your branch puts code"
+      echo "that isn't on main in front of them."
+      ask "To deploy $branch to it anyway, type the deployment's name ($name)"
+      [ "$answer" = "$name" ] || fail "canceled: $name keeps running what it runs now"
+      answer=2
+    fi
   fi
   if [ "$answer" = 1 ]; then
     git fetch --quiet "$main_repository" main
@@ -264,6 +321,14 @@ if [ -z "$keep" ]; then
 fi
 export REF REF_NAME
 answer_ok "step 1 done: deployment $name in $project, running ${REF:0:7}${REF_NAME:+ ($REF_NAME)}"
+if [ -z "$keep" ] && [ "$lifetime" = lasting ] && [ -n "${running_ref:-}" ]; then
+  # scripts/aws-deploy decides from what the server runs; this says what to expect.
+  case "$(commit_change "$running_ref" "$REF")" in
+    same) bullet "It applies your settings to the lasting deployment $name. It already runs ${REF:0:7}, so no snapshot is taken." ;;
+    rollback) bullet "It rolls the lasting deployment $name back from ${running_ref:0:7} to ${REF:0:7}, keeping the snapshot from before ${running_ref:0:7}, for restoring." ;;
+    forward) bullet "It upgrades the lasting deployment $name from ${running_ref:0:7} to ${REF:0:7}, after a snapshot of its data." ;;
+  esac
+fi
 
 step "Step 2 of 3: deploy"
 if [ -n "$keep" ]; then

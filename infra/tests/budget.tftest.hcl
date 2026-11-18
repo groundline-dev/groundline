@@ -9,6 +9,19 @@ mock_provider "aws" {
   mock_data "aws_partition" {
     defaults = { partition = "aws" }
   }
+  # The data volume and the Elastic IP that infra/data/ makes.
+  mock_data "aws_ebs_volumes" {
+    defaults = { ids = ["vol-0123456789abcdef0"] }
+  }
+  mock_data "aws_ebs_volume" {
+    defaults = { availability_zone = "eu-north-1b" }
+  }
+  mock_data "aws_eips" {
+    defaults = { allocation_ids = ["eipalloc-0123456789abcdef0"], public_ips = ["203.0.113.10"] }
+  }
+  mock_data "aws_subnet" {
+    defaults = { id = "subnet-0123456789abcdef0", availability_zone = "eu-north-1b" }
+  }
 }
 
 variables {
@@ -18,6 +31,41 @@ variables {
   budget_alert_email = "alerts@example.com"
   tester_cidr        = "203.0.113.7/32"
   git_ref            = "0123456789abcdef0123456789abcdef01234567"
+}
+
+run "a_lasting_deployment_budget_defaults_to_35_dollars" {
+  command = plan
+  variables {
+    lifetime             = "lasting"
+    auto_terminate_hours = 0
+  }
+
+  assert {
+    condition     = tonumber(aws_budgets_budget.monthly.limit_amount) == 35
+    error_message = "A lasting deployment's budget should default to 35 USD a month."
+  }
+}
+
+run "the_budget_amount_can_be_chosen" {
+  command = plan
+  variables {
+    lifetime             = "lasting"
+    auto_terminate_hours = 0
+    budget_amount        = 60
+  }
+
+  assert {
+    condition     = tonumber(aws_budgets_budget.monthly.limit_amount) == 60
+    error_message = "budget_amount should set the budget's amount."
+  }
+}
+
+run "a_budget_of_zero_is_rejected" {
+  command = plan
+  variables {
+    budget_amount = 0
+  }
+  expect_failures = [var.budget_amount]
 }
 
 run "the_budget_is_five_dollars_of_cost_a_month" {

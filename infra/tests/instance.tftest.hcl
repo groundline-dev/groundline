@@ -9,6 +9,19 @@ mock_provider "aws" {
   mock_data "aws_partition" {
     defaults = { partition = "aws" }
   }
+  # The data volume and the Elastic IP that infra/data/ makes.
+  mock_data "aws_ebs_volumes" {
+    defaults = { ids = ["vol-0123456789abcdef0"] }
+  }
+  mock_data "aws_ebs_volume" {
+    defaults = { availability_zone = "eu-north-1b" }
+  }
+  mock_data "aws_eips" {
+    defaults = { allocation_ids = ["eipalloc-0123456789abcdef0"], public_ips = ["203.0.113.10"] }
+  }
+  mock_data "aws_subnet" {
+    defaults = { id = "subnet-0123456789abcdef0", availability_zone = "eu-north-1b" }
+  }
 }
 
 variables {
@@ -171,12 +184,20 @@ run "the_startup_script_installs_docker_and_starts_the_pinned_revision" {
     error_message = "The startup script should enable the Docker service so it starts at boot."
   }
   assert {
-    condition     = strcontains(aws_instance.app.user_data, var.repository_url) && strcontains(aws_instance.app.user_data, var.git_ref) && can(regex("git[^\n]*checkout", aws_instance.app.user_data))
-    error_message = "The startup script should clone repository_url and check out git_ref."
+    # From tags, so a new commit is an in-place upgrade, not a new server.
+    condition = (
+      aws_instance.app.tags["groundline-git-ref"] == var.git_ref
+      && aws_instance.app.tags["groundline-repository-url"] == var.repository_url
+      && !strcontains(aws_instance.app.user_data, var.git_ref)
+      && strcontains(aws_instance.app.user_data, "tags/instance/groundline-git-ref")
+      && can(regex("git[^\n]*checkout", aws_instance.app.user_data))
+    )
+    error_message = "The startup script should clone and check out the commit in the groundline-git-ref and groundline-repository-url tags, which aren't in user_data."
   }
   assert {
-    condition     = can(regex("docker compose[^\n]* up (-d|--detach)", aws_instance.app.user_data))
-    error_message = "The startup script should start the stack with docker compose up -d."
+    # infra/server/apply writes .env and runs docker compose up, as each upgrade does.
+    condition     = strcontains(aws_instance.app.user_data, "infra/server/apply")
+    error_message = "The startup script should start the stack with the checkout's infra/server/apply."
   }
   assert {
     condition     = strcontains(aws_instance.app.user_data, "/var/log/groundline-bootstrap.log")
@@ -184,33 +205,95 @@ run "the_startup_script_installs_docker_and_starts_the_pinned_revision" {
   }
 }
 
-run "the_startup_script_generates_both_database_passwords_in_hex" {
+run "the_startup_script_keeps_secrets_out_of_user_data" {
   command = plan
 
   assert {
-    condition     = length(regexall("openssl rand -hex", aws_instance.app.user_data)) >= 2
-    error_message = "The startup script should generate each Postgres password with openssl rand -hex."
-  }
-  assert {
-    condition     = strcontains(aws_instance.app.user_data, "POSTGRES_PASSWORD=") && strcontains(aws_instance.app.user_data, "GROUNDLINE_DB_PASSWORD=")
-    error_message = "The startup script should write POSTGRES_PASSWORD and GROUNDLINE_DB_PASSWORD to .env."
-  }
-  assert {
-    condition     = can(regex("chmod 0?600", aws_instance.app.user_data))
-    error_message = "The startup script should make .env readable only by its owner (chmod 600)."
+    # infra/server/apply makes the passwords on the data volume and reads the
+    # Anthropic API key, so neither is in the startup script, which EC2 keeps.
+    condition = (
+      !strcontains(aws_instance.app.user_data, "openssl rand")
+      && !strcontains(aws_instance.app.user_data, "--with-decryption")
+      && !strcontains(aws_instance.app.user_data, "POSTGRES_PASSWORD")
+    )
+    error_message = "The startup script shouldn't make passwords or read the Anthropic API key; infra/server/apply does."
   }
 }
 
-run "the_startup_script_reads_the_anthropic_key_from_parameter_store" {
+run "the_startup_script_mounts_the_data_volume_before_docker_starts" {
   command = plan
 
   assert {
-    condition     = strcontains(aws_instance.app.user_data, "/groundline/${var.deployment_name}/anthropic-api-key") && strcontains(aws_instance.app.user_data, "--with-decryption")
-    error_message = "The startup script should read the Anthropic parameter with --with-decryption."
+    condition     = strcontains(aws_instance.app.user_data, "/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_vol0123456789abcdef0")
+    error_message = "The startup script should find the data volume by its NVMe ID, from the volume's ID."
   }
   assert {
-    condition     = strcontains(aws_instance.app.user_data, "ANTHROPIC_API_KEY=")
-    error_message = "The startup script should write ANTHROPIC_API_KEY to .env."
+    # A volume with a filesystem keeps it; only a new one is formatted.
+    condition     = can(regex("if ! blkid[^\n]*\n[^\n]*\n[^\n]*mkfs.xfs", aws_instance.app.user_data))
+    error_message = "The startup script should format the data volume only if blkid finds no filesystem on it."
+  }
+  assert {
+    condition = (
+      strcontains(aws_instance.app.user_data, "/var/lib/docker/volumes none bind")
+      && strcontains(aws_instance.app.user_data, "RequiresMountsFor=/var/lib/docker/volumes")
+      && strcontains(aws_instance.app.user_data, "ExecStartPre=/opt/groundline/infra/https/refresh-address")
+    )
+    error_message = "Docker's volumes should be on the data volume, and Docker should need that mount to start."
+  }
+  assert {
+    condition     = strcontains(aws_instance.app.user_data, "groundline-public-ip") && aws_instance.app.tags["groundline-public-ip"] == "203.0.113.10"
+    error_message = "The server should wait for its Elastic IP, named in its groundline-public-ip tag, before downloading anything."
+  }
+}
+
+run "the_server_runs_in_the_volume_zone_with_the_volume_and_address_attached" {
+  command = plan
+
+  assert {
+    condition     = aws_instance.app.subnet_id == "subnet-0123456789abcdef0" && data.aws_subnet.app[0].availability_zone == "eu-north-1b"
+    error_message = "The server should go in the default subnet of the data volume's Availability Zone."
+  }
+  assert {
+    condition = (
+      aws_volume_attachment.data[0].volume_id == "vol-0123456789abcdef0"
+      && aws_volume_attachment.data[0].device_name == "/dev/sdf"
+      && aws_volume_attachment.data[0].stop_instance_before_detaching == true
+    )
+    error_message = "The data volume should be attached as /dev/sdf, stopping the server before it's detached."
+  }
+  assert {
+    condition     = aws_eip_association.app[0].allocation_id == "eipalloc-0123456789abcdef0"
+    error_message = "The Elastic IP should be associated with the server."
+  }
+}
+
+run "a_server_without_its_data_volume_is_refused" {
+  command = plan
+  override_data {
+    target = data.aws_ebs_volumes.data
+    values = { ids = [] }
+  }
+  expect_failures = [aws_instance.app]
+}
+
+run "a_server_without_its_elastic_ip_is_refused" {
+  command = plan
+  override_data {
+    target = data.aws_eips.app
+    values = { allocation_ids = [], public_ips = [] }
+  }
+  expect_failures = [aws_instance.app]
+}
+
+run "the_server_releases_its_elastic_ip_before_it_terminates_itself" {
+  command = plan
+
+  assert {
+    condition = (
+      strcontains(aws_instance.app.user_data, "release-address --region eu-north-1 --allocation-id eipalloc-0123456789abcdef0")
+      && strcontains(aws_instance.app.user_data, "disassociate-address")
+    )
+    error_message = "With a deadline, the server should release its Elastic IP before it shuts down."
   }
 }
 
@@ -218,7 +301,11 @@ run "the_outputs_give_the_scripts_what_they_read" {
   # apply runs against the mock provider: nothing is created in AWS.
   override_resource {
     target = aws_instance.app
-    values = { id = "i-0123456789abcdef0", public_ip = "203.0.113.10" }
+    values = { id = "i-0123456789abcdef0", public_ip = "198.51.100.1" }
+  }
+  override_resource {
+    target = aws_eip_association.app
+    values = { public_ip = "203.0.113.10" }
   }
   override_resource {
     target = aws_security_group.app
@@ -226,8 +313,9 @@ run "the_outputs_give_the_scripts_what_they_read" {
   }
 
   assert {
-    condition     = output.app_url == "https://203.0.113.10"
-    error_message = "app_url should be https://<public IP>, got ${output.app_url}."
+    # The Elastic IP's address, not the one the server started with.
+    condition     = output.app_url == "https://203.0.113.10" && output.public_ip == "203.0.113.10"
+    error_message = "app_url should be https://<Elastic IP>, got ${output.app_url}."
   }
   assert {
     condition     = output.instance_id == "i-0123456789abcdef0" && output.region == "eu-north-1"
@@ -257,7 +345,11 @@ run "https_discovers_the_ip_before_docker_and_keeps_disposable_storage" {
   }
   override_resource {
     target = aws_instance.app
-    values = { id = "i-0123456789abcdef0", public_ip = "203.0.113.10" }
+    values = { id = "i-0123456789abcdef0" }
+  }
+  override_resource {
+    target = aws_eip_association.app
+    values = { public_ip = "203.0.113.10" }
   }
   assert {
     condition = (
@@ -269,8 +361,7 @@ run "https_discovers_the_ip_before_docker_and_keeps_disposable_storage" {
   }
   assert {
     condition = (
-      strcontains(aws_instance.app.user_data, "COMPOSE_FILE=compose.yaml:compose.https.yaml")
-      && strcontains(aws_instance.app.user_data, "ExecStartPre=/opt/groundline/infra/https/refresh-address")
+      strcontains(aws_instance.app.user_data, "ExecStartPre=/opt/groundline/infra/https/refresh-address")
       && !strcontains(aws_instance.app.user_data, "APP_BIND_ADDRESS=0.0.0.0")
       && aws_instance.app.metadata_options[0].http_put_response_hop_limit == 1
       && aws_instance.app.root_block_device[0].delete_on_termination
@@ -278,4 +369,85 @@ run "https_discovers_the_ip_before_docker_and_keeps_disposable_storage" {
     )
     error_message = "HTTPS must refresh its address before Docker starts, isolate app ports and preserve IMDS/disk/expiry behavior."
   }
+}
+
+run "app_settings_reach_the_server_as_tags" {
+  command = plan
+  variables {
+    app_settings = {
+      GROUNDLINE_CHECK_TIMEOUT_SECONDS = 180.5
+      GROUNDLINE_MAX_BODY_BYTES        = 1048576
+    }
+  }
+
+  assert {
+    condition = (
+      aws_instance.app.tags["groundline-setting-GROUNDLINE_CHECK_TIMEOUT_SECONDS"] == "180.5"
+      && aws_instance.app.tags["groundline-setting-GROUNDLINE_MAX_BODY_BYTES"] == "1048576"
+      && !contains(keys(aws_instance.app.tags), "groundline-setting-GROUNDLINE_MODEL_MAX_ATTEMPTS")
+    )
+    error_message = "Each app setting should be a groundline-setting-<NAME> tag, and an unset one no tag."
+  }
+  assert {
+    # A tag, not the startup script, so a change updates the server in place.
+    condition     = !strcontains(aws_instance.app.user_data, "GROUNDLINE_MAX_BODY_BYTES")
+    error_message = "App settings shouldn't be in user_data, which replaces the server when it changes."
+  }
+}
+
+run "an_unknown_app_setting_is_rejected" {
+  command = plan
+  variables {
+    app_settings = { GROUNDLINE_MAX_BODY_SIZE = 1048576 }
+  }
+  expect_failures = [var.app_settings]
+}
+
+run "an_app_setting_of_zero_is_rejected" {
+  command = plan
+  variables {
+    app_settings = { GROUNDLINE_MODEL_MAX_ATTEMPTS = 0 }
+  }
+  expect_failures = [var.app_settings]
+}
+
+run "a_fractional_attempt_count_is_rejected" {
+  command = plan
+  variables {
+    app_settings = { GROUNDLINE_MODEL_MAX_ATTEMPTS = 2.5 }
+  }
+  expect_failures = [var.app_settings]
+}
+
+run "a_lasting_deployment_has_no_time_limit_and_says_so" {
+  command = plan
+  variables {
+    lifetime             = "lasting"
+    auto_terminate_hours = 0
+  }
+
+  assert {
+    condition = (
+      aws_instance.app.tags["groundline-lifetime"] == "lasting"
+      && aws_instance.app.instance_initiated_shutdown_behavior == "stop"
+      && !strcontains(aws_instance.app.user_data, "groundline-expire")
+    )
+    error_message = "A lasting deployment's server should be tagged lasting, with no deadline, and only stop when shut down from inside."
+  }
+}
+
+run "a_lasting_deployment_with_a_time_limit_is_rejected" {
+  command = plan
+  variables {
+    lifetime = "lasting"
+  }
+  expect_failures = [var.lifetime]
+}
+
+run "an_unknown_lifetime_is_rejected" {
+  command = plan
+  variables {
+    lifetime = "permanent"
+  }
+  expect_failures = [var.lifetime]
 }

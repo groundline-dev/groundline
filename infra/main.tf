@@ -1,5 +1,6 @@
-# A test deployment: an EC2 instance in the default VPC, its security group
-# and its IAM role. bootstrap.sh.tftpl runs on its first boot.
+# A deployment's server: an EC2 instance in the default VPC, its security
+# group and its IAM role, with the data volume and the address from
+# infra/data/ attached. bootstrap.sh.tftpl runs on its first boot.
 
 data "aws_partition" "current" {}
 data "aws_caller_identity" "current" {}
@@ -19,6 +20,69 @@ locals {
     "arn:${data.aws_partition.current.partition}:ssm:${var.region}:",
     "${data.aws_caller_identity.current.account_id}:parameter${local.anthropic_parameter_name}",
   ])
+}
+
+# --- The data volume and the address, from infra/data/ ---
+
+# scripts/aws-deploy applies infra/data/ first, and this folder finds what it
+# made by its tags. one() fails the plan if two match. It's null if none does,
+# so make aws-destroy still works when they're gone; the server's
+# precondition says what to do when they're missing for a new server.
+data "aws_ebs_volumes" "data" {
+  filter {
+    name   = "tag:app"
+    values = ["groundline"]
+  }
+  filter {
+    name   = "tag:deployment"
+    values = [var.deployment_name]
+  }
+  filter {
+    name   = "tag:role"
+    values = ["data"]
+  }
+}
+
+data "aws_eips" "app" {
+  filter {
+    name   = "tag:app"
+    values = ["groundline"]
+  }
+  filter {
+    name   = "tag:deployment"
+    values = [var.deployment_name]
+  }
+  filter {
+    name   = "tag:role"
+    values = ["address"]
+  }
+}
+
+locals {
+  data_volume_id    = one(data.aws_ebs_volumes.data.ids)
+  eip_allocation_id = one(data.aws_eips.app.allocation_ids)
+  public_ip         = one(data.aws_eips.app.public_ips)
+}
+
+data "aws_ebs_volume" "data" {
+  count = local.data_volume_id == null ? 0 : 1
+  filter {
+    name   = "volume-id"
+    values = [local.data_volume_id]
+  }
+}
+
+# The server has to run in the volume's Availability Zone, so it goes in the
+# default subnet there.
+data "aws_vpc" "default" {
+  default = true
+}
+
+data "aws_subnet" "app" {
+  count             = length(data.aws_ebs_volume.data)
+  vpc_id            = data.aws_vpc.default.id
+  availability_zone = data.aws_ebs_volume.data[0].availability_zone
+  default_for_az    = true
 }
 
 # --- Network: one entry point, selected explicitly by access_mode ---
@@ -74,7 +138,7 @@ resource "aws_iam_role_policy" "instance" {
 
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
+    Statement = concat([
       {
         Sid    = "SsmAgent"
         Effect = "Allow"
@@ -111,7 +175,27 @@ resource "aws_iam_role_policy" "instance" {
         Action   = ["ssm:GetParameter"]
         Resource = [local.anthropic_parameter_arn]
       },
-    ]
+      ], [for statement in [
+        # With a deadline, the server releases its Elastic IP just before it
+        # terminates itself, since an address costs money even when no server
+        # uses it. Only its own address: disassociating also names the network
+        # interface it's on, which isn't known until the server exists.
+        {
+          Sid      = "FindAddressAtDeadline"
+          Effect   = "Allow"
+          Action   = ["ec2:DescribeAddresses"]
+          Resource = "*"
+        },
+        {
+          Sid    = "ReleaseAddressAtDeadline"
+          Effect = "Allow"
+          Action = ["ec2:DisassociateAddress", "ec2:ReleaseAddress"]
+          Resource = [
+            "arn:${data.aws_partition.current.partition}:ec2:${var.region}:${data.aws_caller_identity.current.account_id}:elastic-ip/${coalesce(local.eip_allocation_id, "none")}",
+            "arn:${data.aws_partition.current.partition}:ec2:${var.region}:${data.aws_caller_identity.current.account_id}:network-interface/*",
+          ]
+        },
+    ] : statement if var.auto_terminate_hours > 0 && local.eip_allocation_id != null])
   })
 }
 
@@ -123,10 +207,13 @@ resource "aws_iam_instance_profile" "instance" {
 # --- The server (R1, R3, R11) ---
 
 resource "aws_instance" "app" {
-  ami                         = data.aws_ssm_parameter.al2023_arm64.insecure_value
-  instance_type               = var.instance_type
-  iam_instance_profile        = aws_iam_instance_profile.instance.name
-  vpc_security_group_ids      = [aws_security_group.app.id]
+  ami                    = data.aws_ssm_parameter.al2023_arm64.insecure_value
+  instance_type          = var.instance_type
+  iam_instance_profile   = aws_iam_instance_profile.instance.name
+  subnet_id              = one(data.aws_subnet.app[*].id)
+  vpc_security_group_ids = [aws_security_group.app.id]
+  # The server needs an address of its own for the few seconds until its
+  # Elastic IP is associated. AWS releases that one then.
   associate_public_ip_address = true
 
   # With a deadline, the startup script shuts the server down when it passes,
@@ -134,15 +221,17 @@ resource "aws_instance" "app" {
   # from inside only stops it, so a long-lived deployment keeps its data.
   instance_initiated_shutdown_behavior = var.auto_terminate_hours > 0 ? "terminate" : "stop"
 
+  # The startup script runs only on first boot, so a change to it needs a new
+  # server. The commit and the access mode aren't in it: they're tags, which
+  # the server reads, so a new commit or mode is applied in place, by
+  # scripts/aws-deploy over SSM, and the server keeps running.
   user_data = templatefile("${path.module}/bootstrap.sh.tftpl", {
-    region                   = var.region
-    repository_url           = var.repository_url
-    git_ref                  = var.git_ref
-    anthropic_parameter_name = local.anthropic_parameter_name
-    auto_terminate_seconds   = var.auto_terminate_hours * 3600
-    access_mode              = var.access_mode
+    region                 = var.region
+    auto_terminate_seconds = var.auto_terminate_hours * 3600
+    # The volume's device name, as /dev/disk/by-id names it on Nitro instances.
+    data_device       = "/dev/disk/by-id/nvme-Amazon_Elastic_Block_Store_${replace(coalesce(local.data_volume_id, "none"), "-", "")}"
+    eip_allocation_id = coalesce(local.eip_allocation_id, "none")
   })
-  # The startup script runs only on first boot, so a change needs a new server.
   user_data_replace_on_change = true
 
   # A hop limit of 1 stops the metadata service's replies one hop out, so the
@@ -174,16 +263,49 @@ resource "aws_instance" "app" {
     }
   }
 
-  # Tags can be refreshed through IMDS without changing user_data/replacing
-  # the server when only the tester IP changes. These contain no secrets.
-  tags = {
-    Name                    = "groundline-${var.deployment_name}"
-    groundline-access-mode  = var.access_mode
-    groundline-allowed-cidr = var.access_mode == "restricted" ? var.tester_cidr : "0.0.0.0/0"
-  }
+  # What the server runs, who may reach it and the app's settings. The server
+  # reads these through IMDS, so changing one updates the server in place
+  # instead of replacing it. They contain no secrets.
+  tags = merge({
+    Name                      = "groundline-${var.deployment_name}"
+    groundline-lifetime       = var.lifetime
+    groundline-git-ref        = var.git_ref
+    groundline-repository-url = var.repository_url
+    groundline-access-mode    = var.access_mode
+    groundline-allowed-cidr   = var.access_mode == "restricted" ? var.tester_cidr : "0.0.0.0/0"
+    # The Elastic IP, which the server waits for before it starts, so it never
+    # serves HTTPS on the address it has for its first few seconds.
+    groundline-public-ip = coalesce(local.public_ip, "none")
+    }, {
+    for name, value in var.app_settings : "groundline-setting-${name}" => tostring(value)
+  })
 
   lifecycle {
     # A newer AMI shouldn't replace a running server; the next deployment gets it.
     ignore_changes = [ami]
+
+    precondition {
+      condition     = local.data_volume_id != null && local.eip_allocation_id != null
+      error_message = "This deployment has no data volume or Elastic IP: scripts/aws-deploy creates them with infra/data/ first. Run make aws-up."
+    }
   }
+}
+
+# The data volume, as /dev/sdf. Stopping the server first lets Postgres shut
+# down cleanly before the volume is detached, when the server is replaced or
+# deleted. The count lets make aws-destroy delete a server whose volume or
+# address is missing, such as one deployed before infra/data/ existed; any
+# other plan without them fails the server's precondition.
+resource "aws_volume_attachment" "data" {
+  count                          = local.data_volume_id == null ? 0 : 1
+  device_name                    = "/dev/sdf"
+  volume_id                      = local.data_volume_id
+  instance_id                    = aws_instance.app.id
+  stop_instance_before_detaching = true
+}
+
+resource "aws_eip_association" "app" {
+  count         = local.eip_allocation_id == null ? 0 : 1
+  allocation_id = local.eip_allocation_id
+  instance_id   = aws_instance.app.id
 }

@@ -20,6 +20,7 @@ wheels/
 
 # Terraform: local state, providers, and each contributor's settings
 infra/.terraform/
+infra/data/.terraform/
 *.tfstate
 *.tfstate.*
 infra/terraform.tfvars*
