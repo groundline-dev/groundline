@@ -1,7 +1,4 @@
-"""Where the client's URL and API key come from, and what if they're missing.
-
-Covers R1, R2 and R3 of ALL-156.
-"""
+"""Where the client's URL and API key come from, and what if they're missing."""
 
 from typing import Any
 
@@ -60,14 +57,18 @@ def test_arguments_win_over_environment_variables(
     assert fake_server.requests[-1].headers["authorization"] == f"Bearer {api_key}"
 
 
-def test_an_empty_argument_falls_back_to_the_environment_variable(
-    fake_server: FakeServer, api_key: str, monkeypatch: pytest.MonkeyPatch
+@pytest.mark.parametrize("blank", ["", "   ", "\t\n"])
+def test_a_blank_argument_raises_instead_of_using_the_environment_variable(
+    blank: str, fake_server: FakeServer, api_key: str, monkeypatch: pytest.MonkeyPatch
 ):
+    # A blank argument usually means a secret that didn't load. Using the
+    # variable would send a different API key from the one the caller meant.
     monkeypatch.setenv(URL_VARIABLE, fake_server.url)
     monkeypatch.setenv(API_KEY_VARIABLE, api_key)
-    client: Any = sdk.GroundlineClient(base_url="", api_key="")
-    client.health()
-    assert fake_server.requests[-1].headers["authorization"] == f"Bearer {api_key}"
+    with pytest.raises(sdk.GroundlineConfigError, match=r"api_key= is blank"):
+        sdk.GroundlineClient(api_key=blank)
+    with pytest.raises(sdk.GroundlineConfigError, match=r"base_url= is blank"):
+        sdk.GroundlineClient(base_url=blank)
 
 
 def test_a_trailing_slash_on_the_url_is_tolerated(
@@ -102,12 +103,12 @@ def test_missing_both_names_both():
 
 
 @pytest.mark.parametrize("blank", ["", "   ", "\t\n"])
-def test_a_blank_value_counts_as_missing(
+def test_a_blank_argument_fails_at_once_even_with_no_variable_set(
     blank: str, fake_server: FakeServer, api_key: str
 ):
-    with pytest.raises(sdk.GroundlineConfigError, match=API_KEY_VARIABLE):
+    with pytest.raises(sdk.GroundlineConfigError, match="api_key= is blank"):
         sdk.GroundlineClient(base_url=fake_server.url, api_key=blank)
-    with pytest.raises(sdk.GroundlineConfigError, match=URL_VARIABLE):
+    with pytest.raises(sdk.GroundlineConfigError, match="base_url= is blank"):
         sdk.GroundlineClient(base_url=blank, api_key=api_key)
 
 
@@ -129,6 +130,26 @@ def test_a_url_that_is_not_http_or_https_fails_without_echoing_it(
         sdk.GroundlineClient(base_url=bad_url, api_key=api_key)
     assert URL_VARIABLE in str(raised.value)
     assert bad_url not in str(raised.value)
+
+
+@pytest.mark.parametrize(
+    "bad_url",
+    [
+        "http://host:SENTINEL",  # a port that isn't a number
+        "http://:80/SENTINEL",  # no host
+        "http://SENTINEL host",  # a space in the host
+        "http://user:SENTINEL@host",  # a password in the URL; betterleaks:allow a dummy
+        "http://SENTINEL@host",  # a user name in the URL
+    ],
+)
+def test_a_url_that_a_request_would_reject_fails_at_creation_without_echoing_it(
+    bad_url: str, api_key: str
+):
+    with pytest.raises(sdk.GroundlineConfigError) as raised:
+        sdk.GroundlineClient(base_url=bad_url, api_key=api_key)
+    assert URL_VARIABLE in str(raised.value)
+    assert "SENTINEL" not in str(raised.value)
+    assert "SENTINEL" not in repr(raised.value)
 
 
 def test_a_malformed_url_raises_a_config_error_without_echoing_it(api_key: str):

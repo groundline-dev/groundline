@@ -1,7 +1,8 @@
-"""What each client method sends and returns, sync and async (R1, R4, ALL-156)."""
+"""What each client method sends and returns, sync and async."""
 
 import asyncio
 import importlib
+import inspect
 import pkgutil
 from typing import Any
 
@@ -153,3 +154,31 @@ def test_every_generated_operation_has_a_client_method_and_an_async_twin():
         name for name in expected if not hasattr(sdk.GroundlineClient, name)
     )
     assert not missing, f"add these methods to GroundlineClient: {missing}"
+
+
+def test_each_client_method_takes_the_same_parameters_as_the_generated_function():
+    # A parameter the API gains later must not be silently left out of the client.
+    # Kinds are not compared: the generated functions take keywords only.
+    api = importlib.import_module("groundline_client._generated.api")
+    mismatched: list[str] = []
+    for module in pkgutil.walk_packages(api.__path__, f"{api.__name__}."):
+        if module.ispkg:
+            continue
+        operation = module.name.rsplit(".", 1)[1]
+        generated = importlib.import_module(module.name)
+        method_name = CLIENT_METHOD_NAMES.get(operation, operation)
+        for suffix, function in (("", generated.sync), ("_async", generated.asyncio)):
+            expected = [
+                (p.name, p.default, p.annotation)
+                for p in inspect.signature(function).parameters.values()
+                if p.name != "client"
+            ]
+            method = getattr(sdk.GroundlineClient, method_name + suffix)
+            actual = [
+                (p.name, p.default, p.annotation)
+                for p in inspect.signature(method).parameters.values()
+                if p.name != "self"
+            ]
+            if actual != expected:
+                mismatched.append(method_name + suffix)
+    assert not mismatched, f"these methods differ from the generated ones: {mismatched}"

@@ -1,4 +1,4 @@
-"""The client as a context manager closes its connections (R6, ALL-156)."""
+"""The client as a context manager closes its connections."""
 
 import asyncio
 from typing import Any
@@ -86,3 +86,32 @@ def test_leaving_a_block_that_made_no_call_does_not_fail(
 ):
     with make_client(fake_server, api_key):
         pass
+
+
+def test_an_async_with_block_that_only_made_async_calls_builds_no_sync_connection(
+    fake_server: FakeServer, api_key: str
+):
+    # Closing a sync client that was never used would create one, and its SSL
+    # setup, on the event loop just to throw it away.
+    async def use() -> Any:
+        async with make_client(fake_server, api_key) as client:
+            await client.health_async()
+        return http_clients(client)[0]
+
+    assert asyncio.run(use()) is None
+
+
+def test_a_plain_with_block_warns_when_it_leaves_an_async_connection_open(
+    fake_server: FakeServer, api_key: str
+):
+    with pytest.warns(RuntimeWarning, match="async with"):
+        with make_client(fake_server, api_key) as client:
+            asyncio.run(client.health_async())
+
+
+def test_a_plain_with_block_that_made_only_sync_calls_does_not_warn(
+    fake_server: FakeServer, api_key: str, recwarn: pytest.WarningsRecorder
+):
+    with make_client(fake_server, api_key) as client:
+        client.health()
+    assert not [w for w in recwarn if issubclass(w.category, RuntimeWarning)]

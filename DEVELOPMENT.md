@@ -335,7 +335,13 @@ It writes the API's description to `packages/groundline-client/openapi.json`, cl
 
 CI guards the SDK with two jobs. `make sdk-check` regenerates the SDK into a temporary folder and fails if the result differs from the files on disk. It changes nothing in your working tree, so you can run it any time. `make sdk-install-check` builds the wheel, installs it into clean environments with pip and with uv pip, and fails if it pulls in `groundline-core`'s packages (the pipelines, the Anthropic SDK or the server). `tests/test_sdk_spec.py` checks that `openapi.json` is the app's current description, and the tests in `packages/groundline-client/tests/` check that every endpoint has a generated function and models.
 
-The hand-written layer is `GroundlineClient` in `client.py` (the Client in `CONTEXT.md`). It reads the URL and API key from its arguments or from `GROUNDLINE_API_URL` and `GROUNDLINE_API_KEY`, and has a sync and an `_async` method for each operation. When you add an operation, add its two methods and export its models from `__init__.py`, then add it to the operation lists in `tests/test_client_requests.py` and `tests/test_endpoints.py`. A test fails if a generated operation has no method (and `_async` twin) on the client. The generated client prints the API key in its `repr`, so `client.py` wraps it in a subclass that doesn't, and `tests/test_client_secrecy.py` checks that the key stays out of `repr`, errors, tracebacks and logs. The tests run against a fake server (`tests/conftest.py`), not the real API.
+The hand-written layer is `GroundlineClient` in `client.py` (the Client in `CONTEXT.md`). It reads the URL and API key from its arguments or from `GROUNDLINE_API_URL` and `GROUNDLINE_API_KEY`, and has a sync and an `_async` method for each operation. To add an operation:
+
+1. Add its sync and `_async` methods to `GroundlineClient`, with the same parameters as the generated `sync` and `asyncio` functions.
+2. Export its models from `__init__.py` (the imports and `__all__`).
+3. Add it to the operation lists in `tests/test_client_requests.py` and `tests/test_endpoints.py`.
+
+Two tests fail if you miss a step: one for a generated operation with no method (and `_async` twin), and one for a method whose parameters differ from the generated function's. The generated client prints the API key in its `repr`, so `client.py` wraps it in a subclass that doesn't, and `tests/test_client_secrecy.py` checks that the key stays out of `repr`, errors, tracebacks (with their local variables) and logs. The tests run against a fake server (`tests/conftest.py`), not the real API.
 
 The generated code is exempt from ruff's style and formatting rules, since the generator formats it, and pyright checks it at the basic level. Only the hand-written code (every module directly in `src/groundline_client/`) and the tests are checked in strict mode (`uv run pyright -p packages/groundline-client`, which pre-commit runs).
 

@@ -1,4 +1,4 @@
-"""The API key never appears where anyone could read it (R5, ALL-156)."""
+"""The API key never appears where anyone could read it."""
 
 import asyncio
 import logging
@@ -8,6 +8,17 @@ from typing import Any
 import groundline_client as sdk
 import pytest
 from conftest import API_KEY_VARIABLE, FakeServer
+
+# A module-level constant, not the `api_key` fixture: a fixture value would be a
+# local variable of the test and show up in its own traceback.
+SECRET_KEY = "test-key-not-a-real-secret"  # betterleaks:allow a dummy value
+
+
+def with_locals(error: BaseException) -> str:
+    """The traceback as tools that print each frame's local variables show it."""
+    return "".join(
+        traceback.TracebackException.from_exception(error, capture_locals=True).format()
+    )
 
 
 def make_client(base_url: str, api_key: str) -> Any:
@@ -91,3 +102,27 @@ def test_the_message_for_a_missing_key_names_the_variable_not_a_value():
     with pytest.raises(sdk.GroundlineConfigError) as raised:
         sdk.GroundlineClient(base_url="http://example.test")
     assert API_KEY_VARIABLE in str(raised.value)
+
+
+def test_a_config_error_traceback_does_not_hold_the_api_key_in_local_variables():
+    with pytest.raises(sdk.GroundlineConfigError) as raised:
+        sdk.GroundlineClient(api_key=SECRET_KEY)  # no URL, so creation fails
+    assert SECRET_KEY not in with_locals(raised.value)
+
+
+def test_a_failed_request_traceback_does_not_hold_the_api_key_in_local_variables(
+    closed_port: int,
+):
+    client = make_client(f"http://127.0.0.1:{closed_port}", SECRET_KEY)
+    with pytest.raises(Exception) as raised:  # noqa: PT011 - the type is checked elsewhere
+        client.health()
+    assert SECRET_KEY not in with_locals(raised.value)
+
+
+def test_a_failed_async_request_traceback_does_not_hold_the_api_key_in_local_variables(
+    closed_port: int,
+):
+    client = make_client(f"http://127.0.0.1:{closed_port}", SECRET_KEY)
+    with pytest.raises(Exception) as raised:  # noqa: PT011 - the type is checked elsewhere
+        asyncio.run(client.health_async())
+    assert SECRET_KEY not in with_locals(raised.value)

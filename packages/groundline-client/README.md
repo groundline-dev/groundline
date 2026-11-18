@@ -31,18 +31,30 @@ Don't write the API key as a literal in your code or type it on a command line:
 both end up in git or your shell history. Read it from your secret store or
 environment.
 
-If the URL or API key is missing, creating the client fails at once with a message
-naming the setting. The client doesn't print the API key in its `repr` or its
-own error messages, and its tests check that the key stays out of tracebacks
-and of the logs of the libraries it uses.
+If the URL or API key is missing, blank, or can't be used, creating the client
+fails at once with a message naming the setting. A blank argument is an error: it
+doesn't fall back to the environment variable, because a blank value usually
+means a secret that didn't load. The URL must be an `http://` or `https://`
+address with a host, and no user name or password.
 
-Each method has an `_async` twin (`await client.health_async()`). Use
-`async with` if you call them: it closes both the sync and the async
-connections, while a plain `with` can only close the sync ones. A method returns
-the parsed response model. When the API answers with an error status, it returns the parsed
-`ErrorBody` instead of raising, and an answer the API doesn't document comes
-back as `None`. Typed exceptions are planned (ALL-158). There are no retries or
-time limits yet (ALL-157), so a call to an unresponsive server can wait
+The client doesn't print the API key in its `repr`, its error messages or its
+tracebacks, including the local variables that tools such as pytest
+`--showlocals` and Sentry can print. Its tests check this, and that the key stays
+out of the logs of the libraries it uses. A variable of your own that holds the
+key can still show up in those tools, and that part is up to you.
+
+## Methods and connections
+
+Each method has an `_async` twin (`await client.health_async()`). Use `async with`
+if you call them: it closes both the sync and the async connections. A plain
+`with` can only close the sync ones, and warns if an async connection is left
+open. A client can't be used in a `with` block after it has made a call, or after
+its block has ended, so make the calls inside the block.
+
+A method returns the parsed response model. When the API answers with an error
+status, it returns the parsed `ErrorBody` instead of raising, and an answer the
+API doesn't document comes back as `None`. Typed exceptions are planned. There
+are no retries or time limits yet, so a call to an unresponsive server can wait
 forever.
 
 ## How it is built

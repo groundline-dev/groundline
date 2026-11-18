@@ -1,9 +1,11 @@
 """The one object a developer creates to call a groundline deployment's API."""
 
 import os
+import warnings
 from types import TracebackType
 from typing import Self
-from urllib.parse import urlsplit
+
+import httpx2
 
 from ._generated.api.default import get_health, get_ready
 from ._generated.api.v1 import evaluate_commissions, evaluate_omissions
@@ -24,38 +26,62 @@ URL_VARIABLE = "GROUNDLINE_API_URL"
 API_KEY_VARIABLE = "GROUNDLINE_API_KEY"
 
 
-def _argument_or_variable(argument: str | None, variable: str) -> str | None:
-    """The argument, else the environment variable, else None; blank is None."""
-    for value in (argument, os.environ.get(variable)):
-        if value is not None and value.strip():
-            return value.strip()
-    return None
-
-
-def _is_http_url(url: str) -> bool:
+def _is_usable_url(url: str) -> bool:
+    """http or https, with a valid host and no user name or password."""
     try:
-        parts = urlsplit(url)
-    except ValueError:  # such as "http://[bad"
+        parts = httpx2.URL(url)
+    except (httpx2.InvalidURL, ValueError):
         return False
-    return parts.scheme in ("http", "https") and bool(parts.netloc)
+    # httpx2 percent-encodes characters a host can't hold, such as a space or
+    # a stray "[", instead of rejecting them, so a "%" in the host means a typo.
+    return (
+        parts.scheme in ("http", "https")
+        and bool(parts.host)
+        and "%" not in parts.host
+        and not parts.userinfo
+    )
 
 
-def resolve_url_and_api_key(
-    base_url: str | None, api_key: str | None
-) -> tuple[str, str]:
-    """Return the URL and API key to use, or raise saying which is wrong."""
-    chosen_url = _argument_or_variable(base_url, URL_VARIABLE)
-    chosen_api_key = _argument_or_variable(api_key, API_KEY_VARIABLE)
-    problems: list[str] = []
-    if chosen_url is None:
-        problems.append(f"No API URL: pass base_url= or set {URL_VARIABLE}.")
-    elif not _is_http_url(chosen_url):
+def _choose(
+    argument: str | None, variable: str, name: str, problems: list[str]
+) -> str | None:
+    """The argument, else the environment variable, else None.
+
+    A blank argument is a problem, not a reason to use the variable: it usually
+    means a secret that didn't load. A blank variable counts as not set.
+    """
+    if argument is not None:
+        if argument.strip():
+            return argument.strip()
         problems.append(
-            "The API URL must start with http:// or https:// "
-            f"(from base_url= or {URL_VARIABLE})."
+            f"{name}= is blank. Pass a value, or leave it out to use {variable}."
+        )
+        return None
+    return os.environ.get(variable, "").strip() or None
+
+
+def _resolve_url_and_api_key(
+    base_url: str | None, api_key: str | None
+) -> tuple[str, str] | GroundlineConfigError:
+    """The URL and API key to use, or the error to raise, saying which is wrong.
+
+    The error is returned, not raised, so the API key is no longer a local
+    variable of any frame in its traceback.
+    """
+    problems: list[str] = []
+    chosen_url = _choose(base_url, URL_VARIABLE, "base_url", problems)
+    chosen_api_key = _choose(api_key, API_KEY_VARIABLE, "api_key", problems)
+    if chosen_url is None:
+        if base_url is None:
+            problems.append(f"No API URL: pass base_url= or set {URL_VARIABLE}.")
+    elif not _is_usable_url(chosen_url):
+        problems.append(
+            "The API URL must be an http:// or https:// address with a valid host "
+            f"and no user name or password (from base_url= or {URL_VARIABLE})."
         )
     if chosen_api_key is None:
-        problems.append(f"No API key: pass api_key= or set {API_KEY_VARIABLE}.")
+        if api_key is None:
+            problems.append(f"No API key: pass api_key= or set {API_KEY_VARIABLE}.")
     elif not (chosen_api_key.isascii() and chosen_api_key.isprintable()):
         # Sending it would fail with an error that holds the whole header value.
         problems.append(
@@ -63,7 +89,7 @@ def resolve_url_and_api_key(
             f"(from api_key= or {API_KEY_VARIABLE})."
         )
     if problems or chosen_url is None or chosen_api_key is None:
-        raise GroundlineConfigError(" ".join(problems))
+        return GroundlineConfigError(" ".join(problems))
     return chosen_url, chosen_api_key
 
 
@@ -83,7 +109,7 @@ class GroundlineClient:
 
     The URL and API key come from the arguments, or else from the environment
     variables `GROUNDLINE_API_URL` and `GROUNDLINE_API_KEY`; an argument wins
-    over its variable. A missing or unusable value raises
+    over its variable. A missing, blank or unusable value raises
     `GroundlineConfigError` here, before any request is made.
 
     Each operation has a sync method and an `_async` one. Use the client in a
@@ -93,10 +119,15 @@ class GroundlineClient:
     """
 
     def __init__(self, base_url: str | None = None, api_key: str | None = None) -> None:
-        resolved_url, resolved_api_key = resolve_url_and_api_key(base_url, api_key)
-        self._base_url = resolved_url
+        outcome = _resolve_url_and_api_key(base_url, api_key)
+        # Tools that print a traceback's local variables would show the API key
+        # in this frame, so drop the argument before raising.
+        del api_key
+        if isinstance(outcome, GroundlineConfigError):
+            raise outcome
+        self._base_url, resolved_api_key = outcome
         self._client = _ApiKeyHidingClient(
-            base_url=resolved_url, token=resolved_api_key
+            base_url=self._base_url, token=resolved_api_key
         )
 
     def __repr__(self) -> str:
@@ -112,6 +143,14 @@ class GroundlineClient:
         exc: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
+        async_http = self._client._async_client  # pyright: ignore[reportPrivateUsage]
+        if async_http is not None and not async_http.is_closed:
+            warnings.warn(
+                "This client made async calls inside a plain `with` block, which "
+                "can't close the async connection. Use `async with` instead.",
+                RuntimeWarning,
+                stacklevel=2,
+            )
         self._client.__exit__(exc_type, exc, traceback)
 
     async def __aenter__(self) -> Self:
@@ -124,11 +163,13 @@ class GroundlineClient:
         exc: BaseException | None,
         traceback: TracebackType | None,
     ) -> None:
-        # Close the sync connection too: a block can use both kinds of method.
+        # Close the sync connection too, if a sync call made one: closing a
+        # client that was never used would build one just to throw it away.
         try:
             await self._client.__aexit__(exc_type, exc, traceback)
         finally:
-            self._client.__exit__(exc_type, exc, traceback)
+            if self._client._client is not None:  # pyright: ignore[reportPrivateUsage]
+                self._client.__exit__(exc_type, exc, traceback)
 
     def evaluate_omissions(
         self, body: OmissionsRequest
