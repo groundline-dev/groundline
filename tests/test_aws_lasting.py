@@ -357,6 +357,36 @@ def test_what_next_says_destroy_keeps_a_lasting_deployments_data(checkout: Path)
     assert result.returncode == 0, result.stdout + result.stderr
     assert "It's a lasting deployment, so it has no time limit" in result.stdout
     assert "make aws-destroy DATA=delete deletes those too" in result.stdout
+    assert "$4.05 a month" in result.stdout
+
+
+def test_the_kept_data_cost_follows_the_volume_size(checkout: Path):
+    lasting(checkout)
+    world = aws_fakes.new_world(
+        outputs={
+            **RUNNING,
+            "app_url": "https://1.1.1.1",
+            "access_mode": "unrestricted",
+        },
+        data_outputs={**aws_fakes.DATA_OUTPUTS, "data_volume_gib": "20"},
+        server_commit="a" * 40,
+    )
+
+    result, _ = invoke(checkout, "aws-deploy", world)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "$5.25 a month; make aws-destroy DATA=delete" in result.stdout
+
+    world = aws_fakes.new_world(
+        outputs=DESTROYABLE,
+        data_outputs={**aws_fakes.DATA_OUTPUTS, "data_volume_gib": "20"},
+        existing={"i-test": "terminated"},
+    )
+    result, _ = destroy(checkout, world, "1\n")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "(vol-0123456789abcdef0, 20 GiB)" in result.stdout
+    assert "about $5.25 a month" in result.stdout
 
 
 # --- Tearing down ---
@@ -567,3 +597,50 @@ def test_status_says_a_kept_lasting_deployment_has_its_data(checkout: Path):
 
     assert result.returncode != 0
     assert "its data and address (1.1.1.1) are kept" in result.stderr
+    assert "about $4.05 a month" in result.stderr
+
+
+def test_status_reports_a_disposable_deploys_leftover_volume_and_address(
+    checkout: Path,
+):
+    # A first deploy cancelled at the server's plan leaves them.
+    lasting(checkout, name="alice", lifetime="disposable")
+    world = aws_fakes.new_world(
+        data_outputs={
+            **aws_fakes.DATA_OUTPUTS,
+            "lifetime": "disposable",
+            "data_volume_gib": "20",
+        }
+    )
+
+    result, _ = invoke(checkout, "aws-status", world)
+
+    assert result.returncode != 0
+    assert "left from a deploy that didn't finish" in result.stderr
+    assert "about $5.25 a month" in result.stderr
+    assert "make aws-destroy deletes them" in result.stderr
+
+
+def test_cancelling_a_first_deploys_server_says_what_stays(checkout: Path):
+    lasting(checkout, name="alice", lifetime="disposable")
+    world = aws_fakes.new_world(
+        plan={
+            "variables": {},
+            "resource_changes": [
+                {
+                    "mode": "managed",
+                    "type": "aws_instance",
+                    "change": {"actions": ["create"], "before": None, "after": {}},
+                }
+            ],
+        },
+    )
+
+    result, world = invoke(checkout, "aws-deploy", world, "3\n")
+
+    assert result.returncode != 0
+    assert (
+        "canceled: no server was created. Its data volume and address stay, "
+        "for about $4.05 a month" in result.stderr
+    )
+    assert "make aws-destroy deletes them" in result.stderr

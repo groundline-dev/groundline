@@ -19,10 +19,15 @@ use_project
 instance="$(terraform -chdir=infra output -raw instance_id 2>/dev/null || true)"
 if [ -z "$instance" ]; then
   other_deployments
-  # make aws-destroy keeps a lasting deployment's data and address.
-  if kept="$(terraform -chdir=infra/data output -raw public_ip 2>/dev/null)" && [ -n "$kept" ] \
-    && [ "$(terraform -chdir=infra/data output -raw lifetime 2>/dev/null || true)" = lasting ]; then
-    fail "your lasting deployment has no server in $(project_label), but its data and address ($kept) are kept: make aws-up brings it back, and make aws-destroy DATA=delete deletes them"
+  # make aws-destroy keeps a lasting deployment's data and address. A
+  # disposable deployment has them without a server only if its first deploy
+  # stopped after making them.
+  if kept="$(terraform -chdir=infra/data output -raw public_ip 2>/dev/null)" && [ -n "$kept" ]; then
+    monthly="$(kept_data_cost "$(terraform -chdir=infra/data output -raw data_volume_gib 2>/dev/null || true)")"
+    if [ "$(terraform -chdir=infra/data output -raw lifetime 2>/dev/null || true)" = lasting ]; then
+      fail "your lasting deployment has no server in $(project_label), but its data and address ($kept) are kept, for about \$$monthly a month: make aws-up brings it back, and make aws-destroy DATA=delete deletes them"
+    fi
+    fail "your deployment has no server in $(project_label), but a data volume and address ($kept) are left from a deploy that didn't finish, for about \$$monthly a month: make aws-up uses them, and make aws-destroy deletes them"
   fi
   fail "you have nothing deployed to $(project_label): run make aws-up"
 fi

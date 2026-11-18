@@ -115,7 +115,7 @@ if [ -n "$keep_data" ]; then
     echo
     fail "the server may still be running; see above, and check the AWS console"
   }
-  monthly="$(awk -v gib="${size:-5}" 'BEGIN { printf "%.2f", 3.65 + gib * 0.08 }')"
+  monthly="$(kept_data_cost "$size")"
   echo
   ok "deleted the server of $name and kept its data."
   bullet "Its data volume (${volume:-unknown}, ${size:-5} GiB) and address (${public_ip:-unknown}) cost about \$$monthly a month."

@@ -107,7 +107,7 @@ if [ ! -f infra/terraform.tfvars ]; then
   budget=""
   if [ "$lifetime" = lasting ]; then
     echo
-    echo "A lasting deployment costs about \$18 a month while it runs, and about \$4.05 a"
+    echo "A lasting deployment costs about \$18 a month while it runs, and about \$$(kept_data_cost "$(tfvars_value data_volume_gib)") a"
     echo "month for its data volume and address once make aws-destroy keeps them."
     bullet "The budget alert emails you when the project's costs this month pass half its"
     echo "    amount, and again at all of it."

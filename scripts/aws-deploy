@@ -104,6 +104,13 @@ for setting in instance_type data_volume_gib; do
 done
 plan_and_apply infra/data "the data volume and address are unchanged." "${data_args[@]}"
 
+# Cancelling the server's plan leaves the volume and address made above, and
+# they cost money, so it says so. (The server's plan can't come first: the
+# server finds them by their tags.)
+if [ -z "$previous_instance" ] \
+  && [ -n "$(terraform -chdir=infra/data output -raw volume_id 2>/dev/null || true)" ]; then
+  cancel_message="canceled: no server was created. Its data volume and address stay, for about \$$(kept_data_cost "$(terraform -chdir=infra/data output -raw data_volume_gib 2>/dev/null || true)") a month: make aws-deploy uses them, and make aws-destroy deletes them."
+fi
 plan_and_apply infra "Terraform configuration is unchanged for ${commit:0:7}; checking live HTTPS access next." \
   -var "region=$region" ${tester_args[@]+"${tester_args[@]}"} -var "git_ref=$commit" \
   -var "access_mode=$access_mode" \

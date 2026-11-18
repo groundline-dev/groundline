@@ -257,6 +257,17 @@ save_setting() {
 # deployment_name: the deployment_name in infra/terraform.tfvars, or nothing.
 deployment_name() { tfvars_value deployment_name; }
 
+# The monthly prices quoted, as in us-east-1: a gp3 data volume, per GiB, and
+# an Elastic IP, at $0.005 an hour. infra/README.md's Costs section breaks
+# them down; update it too if they change.
+# volume_cost [GIB], address_cost and kept_data_cost [GIB] print dollars, such
+# as 4.05, for GIB (5 if not given).
+volume_cost() { awk -v gib="${1:-5}" 'BEGIN { printf "%.2f", gib * 0.08 }'; }
+address_cost() { echo 3.65; }
+kept_data_cost() {
+  awk -v volume="$(volume_cost "${1:-5}")" -v address="$(address_cost)" 'BEGIN { printf "%.2f", volume + address }'
+}
+
 # init_roots: terraform init in both folders, printing Terraform's output only
 # if it fails. A checkout that has never deployed from this version has no
 # infra/data/.terraform, and destroying needs it as much as deploying does.
@@ -647,7 +658,7 @@ what_next() {
     bullet "It's a lasting deployment, so it has no time limit and costs about \$18 a month."
     bullet "make aws-up upgrades it to another commit or settings. It keeps its data and address."
     bullet "make aws-destroy deletes the server and keeps its data and address, for about"
-    echo "    \$4.05 a month; make aws-destroy DATA=delete deletes those too."
+    echo "    \$$(kept_data_cost "$(terraform -chdir=infra/data output -raw data_volume_gib 2>/dev/null || true)") a month; make aws-destroy DATA=delete deletes those too."
     echo
     return
   fi
@@ -750,12 +761,12 @@ describe_plan() {
   while IFS='|' read -r type actions id old_cidr new_cidr old_port new_port size address old_size; do
     case "$type:$actions" in
       aws_ebs_volume:create)
-        echo "  · create its data volume ($size GiB, about \$$(awk -v gib="$size" 'BEGIN { printf "%.2f", gib * 0.08 }') a month), which keeps"
+        echo "  · create its data volume ($size GiB, about \$$(volume_cost "$size") a month), which keeps"
         echo "    the database, its API keys and the HTTPS certificate when the server is replaced."
         ;;
       aws_ebs_volume:update)
         if [ -n "$old_size" ] && [ "$size" != "$old_size" ]; then
-          echo "  · grow its data volume from $old_size to $size GiB, about \$$(awk -v gib="$size" 'BEGIN { printf "%.2f", gib * 0.08 }') a month. Its"
+          echo "  · grow its data volume from $old_size to $size GiB, about \$$(volume_cost "$size") a month. Its"
           echo "    filesystem grows when the server is upgraded. A volume can't shrink again."
         else
           updated+="$(friendly_name "$type")"$'\n'
@@ -763,7 +774,7 @@ describe_plan() {
         ;;
       aws_eip:create)
         echo "  · reserve its address, an Elastic IP, which stays the same when the server is replaced."
-        echo "    It costs about \$3.65 a month, in place of the server's own address."
+        echo "    It costs about \$$(address_cost) a month, in place of the server's own address."
         ;;
       aws_ebs_volume:delete | aws_ebs_volume:delete+create | aws_ebs_volume:create+delete)
         echo "  · delete its data volume ($id): the database, its API keys and the HTTPS certificate."
@@ -910,7 +921,7 @@ apply_plans() {
     choose "Make the changes above? (1 make them, 2 cancel)" 2
     [ "$answer" = 1 ] || answer=3
   fi
-  [ "$answer" = 1 ] || fail "canceled: nothing changed"
+  [ "$answer" = 1 ] || fail "${cancel_message:-canceled: nothing changed}"
   plan_changed=yes
   doing "Making the changes"
   for ((index = 0; index + 1 < ${#pairs[@]}; index += 2)); do

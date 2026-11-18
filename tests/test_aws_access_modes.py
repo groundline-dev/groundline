@@ -250,7 +250,9 @@ def test_cancelling_deployment_does_not_apply(checkout: Path):
                     "change": {"actions": ["create"], "after": {}},
                 }
             ],
-        }
+        },
+        # With a data volume, cancelling says it stays (test_aws_lasting).
+        data_outputs={},
     )
     result, world = invoke(checkout, "aws-deploy", world, "3\n")
     assert result.returncode != 0
