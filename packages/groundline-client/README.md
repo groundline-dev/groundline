@@ -59,8 +59,8 @@ A method returns the parsed response model, or raises an error (see
 
 ## Errors
 
-Every error the SDK raises on purpose is a `GroundlineError`, so catch that to
-handle all of them, or a subclass to decide what to do:
+Every error the SDK raises on purpose is a `GroundlineError`. Catch that to
+handle all of them, or catch a subclass to decide what to do:
 
 | Error | Raised for | What you can do |
 | --- | --- | --- |
@@ -96,7 +96,7 @@ otherwise, such as for a proxy's HTML page). `GroundlineError` here is a
 different class from `groundline_core`'s, so catch the one from the package you
 call.
 
-What an error holds is kept safe to log or show to anyone:
+An error is safe to log or show to anyone:
 
 - The message is fixed wording plus the status, such as `The API refused the API
   key (status 401).` It never holds the source, the summary, the API key or the
@@ -105,9 +105,9 @@ What an error holds is kept safe to log or show to anyone:
   (`sk-ant-…`) or a groundline key (`gl_…`), or equal to your own API key (when it is 8 characters or more), is
   replaced with `<redacted key>`. Another kind of secret that a server echoes
   back would not be recognised.
-- The `httpx2` error behind a timeout or connection failure is dropped, not
-  chained, because it carries the request and the request holds your API key.
-  The message says which of the two it was.
+- The `httpx2` error behind a timeout or connection failure is dropped instead
+  of chained, because it carries the request, and the request holds your API
+  key. The message says whether it was a timeout or a connection failure.
 
 The parsed `ErrorBody` and `InvalidRequestBody` models are still exported, but
 no method returns them any more.
