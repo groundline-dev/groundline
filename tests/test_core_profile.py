@@ -204,3 +204,9 @@ def test_the_clinical_profile_is_built_in():
 def test_an_unknown_built_in_profile_is_an_error():
     with pytest.raises(ProfileError, match="no built-in profile 'finance'"):
         load_builtin_profile("finance")
+
+
+@pytest.mark.parametrize("name", ["../presets", "/etc", "clinical/"])
+def test_a_profile_name_is_never_used_as_a_path(name: str):
+    with pytest.raises(ProfileError, match="no built-in profile"):
+        load_builtin_profile(name)

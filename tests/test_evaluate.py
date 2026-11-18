@@ -79,6 +79,14 @@ def test_an_unknown_preset_is_a_spec_error():
         load_preset("fastest")
 
 
+@pytest.mark.parametrize(
+    "name", ["../profiles/clinical/profile", "/etc/hosts", "omission_all_opus.yaml"]
+)
+def test_a_preset_name_is_never_used_as_a_path(name: str):
+    with pytest.raises(SpecError, match="no built-in preset"):
+        load_preset(name)
+
+
 # --- evaluate -----------------------------------------------------------------
 
 
