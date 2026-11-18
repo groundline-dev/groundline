@@ -27,6 +27,7 @@ from groundline_core._core import (
     ModelRefusal,
     ModelReply,
     ModelTimeoutError,
+    SetupError,
     UnusableReplyError,
 )
 from groundline_core._core.deadline import raise_if_cancelling
@@ -185,6 +186,13 @@ class AnthropicClient:
                 f"({error.status_code}).",
                 "use a key from a workspace that can use this model, "
                 "or change the stage's model setting.",
+            ) from error
+        except anthropic.NotFoundError as error:
+            # The model named in the spec doesn't exist, or has been retired:
+            # trying again won't help until the spec changes.
+            raise SetupError(
+                f"the Anthropic API has no model {model} ({error.status_code}).\n"
+                "  Fix: change the stage's model setting in the pipeline spec."
             ) from error
         except anthropic.APIError as error:
             raise ModelFailureError(_sdk_failure_text(error)) from error

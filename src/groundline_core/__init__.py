@@ -26,6 +26,7 @@ from groundline_core._core.errors import (
     ModelTimeoutError,
     SetupError,
 )
+from groundline_core._core.profile import ProfileError
 from groundline_core._core.spec import SpecError
 from groundline_core._evaluate import (
     DEFAULT_COMMISSIONS_PRESET,
@@ -53,6 +54,7 @@ __all__ = [
     "MissingAPIKeyError",
     "ModelFailureError",
     "ModelTimeoutError",
+    "ProfileError",
     "SettingsError",
     "SetupError",
     "SpecError",

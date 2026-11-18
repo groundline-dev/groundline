@@ -212,7 +212,7 @@ Every error groundline raises on purpose is a `GroundlineError`, of one of three
 
 | Error | Raised when | What to do |
 |---|---|---|
-| `SetupError` | The setup stops the check: an invalid spec (`SpecError`), a missing key (`MissingAPIKeyError`), a rejected key (`APIKeyRejectedError`), settings that can't be read (`SettingsError`), or both `client` and `anthropic_api_key` passed. | Fix the setup. Trying again won't help. |
+| `SetupError` | The setup stops the check: an invalid spec (`SpecError`) or a domain profile it can't load (`ProfileError`), a missing key (`MissingAPIKeyError`), a rejected key (`APIKeyRejectedError`), a model the Anthropic API doesn't have, settings that can't be read (`SettingsError`), or both `client` and `anthropic_api_key` passed. | Fix the setup. Trying again won't help. |
 | `InvalidInputError` | The source or summary isn't text, or is empty or only whitespace. It's raised before the key is looked up or a model is called. | Fix the input. |
 | `ModelFailureError` | Anthropic's API kept failing, the model declined, or its reply stayed unusable. `ModelTimeoutError`, a kind of `ModelFailureError`, means a time limit ran out. `step` names the step that failed. | Try again later. |
 
@@ -229,7 +229,7 @@ except InvalidInputError:
     ...  # the source or summary can't be checked
 ```
 
-A message is safe to log or show: it never quotes the source, the summary, the key or Anthropic's own error text, and it names a file only by its name. `SetupError.path` holds the file's full path. `SpecError` and `InvalidInputError` are also `ValueError`s, but `ModelTimeoutError` isn't a `TimeoutError`.
+A message is safe to log or show: it never quotes the source, the summary, the key or Anthropic's own error text, and it names a file only by its name. `SetupError.path` holds the file's full path, and the CLI prints it on a `File:` line of its own. `SpecError`, `ProfileError` and `InvalidInputError` are also `ValueError`s, but `ModelTimeoutError` isn't a `TimeoutError`.
 
 An exception from your own `client`, or from a bug in groundline, comes out as it was raised rather than as a `GroundlineError` ([ADR 0020](docs/adr/0020-only-groundlines-own-failures-are-groundline-errors.md)), and it doesn't say what the check had spent. To report your model's failure as a `ModelFailureError`, your client can raise one itself.
 
@@ -245,7 +245,7 @@ Import from `groundline_core` itself. Its names, and the documented fields of th
 | `PipelineSpec` | A pipeline spec, as `load_preset` returns it. |
 | `ModelClient`, `ModelReply` | What a `client` implements (an async `complete(prompt, *, model, effort, max_tokens)`), and what it returns. |
 | `EvaluationResult`, `Finding`, `Counts`, `Alarm`, `Usage` | The result and its parts. |
-| `GroundlineError`, `SetupError`, `SpecError`, `MissingAPIKeyError`, `APIKeyRejectedError`, `SettingsError`, `InvalidInputError`, `ModelFailureError`, `ModelTimeoutError` | What a check raises (see [Errors](#errors)). |
+| `GroundlineError`, `SetupError`, `SpecError`, `ProfileError`, `MissingAPIKeyError`, `APIKeyRejectedError`, `SettingsError`, `InvalidInputError`, `ModelFailureError`, `ModelTimeoutError` | What a check raises (see [Errors](#errors)). |
 | `EvaluationType`, `Severity` | The types of `evaluation_type` (`omissions` or `commissions`) and of a finding's `severity` (`critical`, `supporting` or `peripheral`). |
 
 The package includes its type information, so type checkers such as pyright and mypy check your code against these names.

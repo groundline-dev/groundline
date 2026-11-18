@@ -9,6 +9,7 @@ import json
 import os
 import re
 import tempfile
+import warnings
 from pathlib import Path
 from typing import Any, Protocol, cast
 
@@ -58,8 +59,25 @@ class FileCache:
 
     def put(self, step: str, key: str, entry: dict[str, Any]) -> None:
         """Write to a temporary file, then rename it into place, so an
-        interrupted write never leaves a half-written entry."""
+        interrupted write never leaves a half-written entry.
+
+        The cache is only an optimization, so a write that fails (a full disk,
+        a folder that can't be written) warns and leaves the cache as it was,
+        rather than failing a check whose model calls are already paid for."""
         path = self._path(step, key)
+        try:
+            self._write(path, key, entry)
+        except OSError as error:
+            # An OSError's text repeats the full path; its strerror doesn't.
+            reason = error.strerror or type(error).__name__
+            warnings.warn(
+                f"couldn't write to the stage cache ({reason}); "
+                "this run's results won't be cached",
+                RuntimeWarning,
+                stacklevel=2,
+            )
+
+    def _write(self, path: Path, key: str, entry: dict[str, Any]) -> None:
         self.root.mkdir(mode=0o700, parents=True, exist_ok=True)
         path.parent.mkdir(mode=0o700, exist_ok=True)
         # mkstemp creates the file readable and writable by its owner only.

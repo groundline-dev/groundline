@@ -113,7 +113,11 @@ def test_a_body_that_is_not_utf8_is_a_400_that_repeats_nothing(body: bytes):
     ("status", "kind"), [(401, "authentication_error"), (403, "permission_error")]
 )
 def test_a_rejected_anthropic_key_is_a_503_without_the_servers_env_path(
-    route: str, status: int, kind: str, tmp_path: Path
+    route: str,
+    status: int,
+    kind: str,
+    tmp_path: Path,
+    caplog: pytest.LogCaptureFixture,
 ):
     """The real client, as it runs when the key came from a `.env` file: its error
     names that file, which a response must not."""
@@ -138,6 +142,8 @@ def test_a_rejected_anthropic_key_is_a_503_without_the_servers_env_path(
     assert detail.startswith("ANTHROPIC_API_KEY ")
     assert str(tmp_path) not in detail
     assert "Key from" not in detail
+    # The server's own log names the file in full, as the CLI does.
+    assert f"\n  File: {env_file.absolute()} (not found)" in caplog.text
 
 
 def test_an_error_outside_a_route_is_a_structured_500(

@@ -16,6 +16,7 @@ from pydantic.json_schema import models_json_schema
 
 from groundline_core._core.cache import stable_hash
 from groundline_core._core.errors import SetupError
+from groundline_core._core.file_problems import file_problems
 from groundline_core._core.implementation import Implementation
 from groundline_core._core.profile import DomainProfile, Placeholders
 from groundline_core._core.registry import Registry
@@ -108,7 +109,8 @@ def load_spec(path: str | Path) -> PipelineSpec:
         problem = f"{path.name}: not readable UTF-8 text"
         raise SpecError([problem], path=path) from error
     except (yaml.YAMLError, ValidationError) as error:
-        raise SpecError([f"{path.name}: {error}"], path=path) from error
+        problems = [f"{path.name}: {problem}" for problem in file_problems(error)]
+        raise SpecError(problems, path=path) from error
 
 
 def with_settings(spec: PipelineSpec, step: str, **settings: Any) -> PipelineSpec:

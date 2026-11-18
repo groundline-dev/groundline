@@ -41,7 +41,7 @@ def test_put_replaces_the_entry_whole_and_leaves_no_temporary_files(tmp_path: Pa
     assert [p.name for p in (tmp_path / "extract").iterdir()] == ["abc.json"]
 
 
-def test_a_failed_write_leaves_the_old_entry_and_no_temporary_files(
+def test_a_failed_write_warns_and_leaves_the_old_entry_and_no_temporary_files(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     cache = FileCache(tmp_path)
@@ -51,7 +51,7 @@ def test_a_failed_write_leaves_the_old_entry_and_no_temporary_files(
         raise OSError("disk full")
 
     monkeypatch.setattr("groundline_core._core.cache.os.replace", fail)
-    with pytest.raises(OSError, match="disk full"):
+    with pytest.warns(RuntimeWarning, match="couldn't write to the stage cache"):
         cache.put("extract", "abc", {"output": {"facts": ["new"]}, "calls": []})
 
     assert cache.get("extract", "abc") == {"output": {"facts": ["old"]}, "calls": []}
@@ -80,3 +80,16 @@ def test_names_cannot_reach_outside_the_cache_folder(
     with pytest.raises(ValueError, match="not a safe cache name"):
         cache.get(step, key)
     assert list(tmp_path.iterdir()) == []
+
+
+def test_a_failed_write_names_neither_the_folder_nor_the_entry(tmp_path: Path):
+    blocker = tmp_path / "private-folder"
+    blocker.write_text("a file where the cache folder should be")
+    cache = FileCache(blocker / "cache")
+
+    with pytest.warns(RuntimeWarning) as caught:
+        cache.put("extract", "abc", {"output": {"facts": []}, "calls": []})
+
+    message = str(caught[0].message)
+    assert "private-folder" not in message
+    assert cache.get("extract", "abc") is None

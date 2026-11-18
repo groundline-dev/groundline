@@ -3,6 +3,7 @@ errors, invalid input and model failures under it. Every test goes through the
 public package, as a caller would, and no test calls the real Anthropic API."""
 
 import asyncio
+import os
 from collections.abc import Callable
 from pathlib import Path
 
@@ -11,7 +12,13 @@ import pytest
 
 import groundline_core as gl
 from groundline_core import evaluate, evaluate_sync, load_preset
-from groundline_core._core import Effort, ModelReply, load_profile, load_spec
+from groundline_core._core import (
+    Effort,
+    FileCache,
+    ModelReply,
+    load_profile,
+    load_spec,
+)
 from tests.anthropic_helpers import api_error, fake_anthropic, message
 from tests.async_helpers import finish_before_watchdog
 from tests.fakes import FakeClient, HungClient
@@ -23,6 +30,7 @@ PUBLIC_BASES = {
     "GroundlineError": ("Exception",),
     "SetupError": ("GroundlineError",),
     "SpecError": ("SetupError", "ValueError"),
+    "ProfileError": ("SetupError", "ValueError"),
     "MissingAPIKeyError": ("SetupError",),
     "APIKeyRejectedError": ("SetupError",),
     "SettingsError": ("SetupError",),
@@ -98,6 +106,43 @@ def test_a_profile_that_cannot_be_loaded_is_a_setup_error_with_its_path(
 
 
 @pytest.mark.parametrize("kind", ["spec", "profile"])
+@pytest.mark.parametrize(
+    "text",
+    [
+        f"name: mine\nstages: []\nnot_a_field: {SENTINEL_KEY}\n",
+        f"name: [mine\n{SENTINEL_KEY}: 1\n",
+        f"name: *{SENTINEL_KEY}\n",
+    ],
+    ids=["unexpected field", "invalid YAML", "undefined alias"],
+)
+def test_a_spec_or_profile_error_never_repeats_what_the_file_holds(
+    kind: str, text: str, tmp_path: Path
+):
+    folder = tmp_path / "mine"
+    folder.mkdir()
+    path = folder / "profile.yaml"
+    path.write_text(text)
+    load = load_spec if kind == "spec" else load_profile
+
+    with pytest.raises(gl.SetupError) as error:
+        load(path if kind == "spec" else folder)
+
+    assert_safe(error.value, path)
+
+
+def test_a_spec_error_names_the_field_at_fault(tmp_path: Path):
+    path = tmp_path / "mine.yaml"
+    path.write_text(f"name: mine\nstages: []\nnot_a_field: {SENTINEL_KEY}\n")
+
+    with pytest.raises(gl.SpecError) as error:
+        load_spec(path)
+
+    assert "mine.yaml: not_a_field: Extra inputs are not permitted" in (
+        error.value.problems
+    )
+
+
+@pytest.mark.parametrize("kind", ["spec", "profile"])
 def test_a_spec_or_profile_that_is_not_utf8_is_a_setup_error(kind: str, tmp_path: Path):
     folder = tmp_path / "mine"
     folder.mkdir()
@@ -111,6 +156,23 @@ def test_a_spec_or_profile_that_is_not_utf8_is_a_setup_error(kind: str, tmp_path
     assert error.value.path == path.absolute()
     assert "profile.yaml" in str(error.value)
     assert_safe(error.value, path)
+
+
+def test_a_model_the_api_does_not_have_is_a_setup_error_not_a_model_failure(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    sdk_text = f"model: no-such-model (while reading {SOURCE})"
+    missing = httpx2.Response(404, json=api_error("not_found_error", sdk_text))
+    sent = fake_anthropic(monkeypatch, anthropic_reply(missing))
+
+    with pytest.raises(gl.SetupError) as error:
+        evaluate_sync(SOURCE, SUMMARY, anthropic_api_key=SENTINEL_KEY)
+
+    assert not isinstance(error.value, gl.ModelFailureError)
+    assert str(error.value).startswith("the Anthropic API has no model ")
+    assert "while reading" not in str(error.value)
+    assert_safe(error.value)
+    assert len(sent) == 1  # not retried
 
 
 def test_a_missing_key_names_the_env_file_only_in_path(tmp_path: Path):
@@ -260,6 +322,25 @@ class FailingClient:
         self, prompt: str, *, model: str, effort: Effort, max_tokens: int
     ) -> ModelReply:
         raise self.error
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can write to any folder")
+def test_a_cache_that_cannot_be_written_warns_and_the_check_still_finishes(
+    tmp_path: Path,
+):
+    locked = tmp_path / "locked"
+    locked.mkdir(mode=0o500)
+    cache = FileCache(locked / "cache")
+
+    try:
+        with pytest.warns(RuntimeWarning, match="couldn't write to the stage cache"):
+            result = evaluate_sync(
+                SOURCE, SUMMARY, client=FakeClient(not_flagged_script()), cache=cache
+            )
+    finally:
+        locked.chmod(0o700)
+
+    assert result.flagged is False
 
 
 def test_the_callers_own_exception_comes_out_unwrapped():

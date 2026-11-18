@@ -17,6 +17,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from groundline_core._core.errors import SetupError
+from groundline_core._core.file_problems import file_problems
 
 
 class ProfileError(SetupError, ValueError):
@@ -95,7 +96,8 @@ def load_profile(folder: str | Path) -> DomainProfile:
     try:
         spec = _ProfileFile.model_validate(yaml.safe_load(_text(manifest, label)))
     except (yaml.YAMLError, ValidationError) as error:
-        raise ProfileError(f"{label}: {error}", path=manifest) from error
+        problems = "; ".join(file_problems(error))
+        raise ProfileError(f"{label}: {problems}", path=manifest) from error
 
     texts: dict[str, str] = {}
     for name, relative in spec.texts.items():

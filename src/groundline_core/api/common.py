@@ -24,6 +24,7 @@ from groundline_core._core import (
     SetupError,
     SpecError,
     build_pipeline,
+    file_line,
     summarize_usage,
 )
 from groundline_core._core.deadline import check_deadline
@@ -330,8 +331,7 @@ def check_failures() -> Generator[None]:
     except (SpecError, ProfileError):
         raise
     except SetupError as error:
-        file = f"\n  File: {error.path}" if error.path else ""
-        logger.warning("can't check: %s%s", error, file)
+        logger.warning("can't check: %s%s", error, file_line(error))
         raise HTTPException(503, detail=str(error)) from error
     except ModelTimeoutError as error:
         spent = _spent(error)

@@ -6,7 +6,7 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner, Result
 
-from groundline_core import cli
+from groundline_core import GroundlineError, cli
 from tests.anthropic_helpers import fake_anthropic, keys_sent
 from tests.fakes import FakeClient
 from tests.omission_helpers import (
@@ -165,7 +165,7 @@ def test_a_summary_that_is_not_utf8_is_invalid_input_not_a_bug(
     result = omissions(files)
 
     assert result.exit_code == 2
-    assert result.stderr == f"error: {files[1]} isn't readable UTF-8 text\n"
+    assert result.stderr == f"error: {files[1].name} isn't readable UTF-8 text\n"
 
 
 def test_a_value_error_from_inside_groundline_is_reported_as_a_bug(
@@ -288,6 +288,7 @@ def test_an_unwritable_json_path_exits_with_2_not_1(
 
     assert result.exit_code == 2
     assert result.stderr.startswith("error: couldn't write the JSON result")
+    assert "no-such-folder" not in result.stderr
     assert "Traceback" not in result.output
 
 
@@ -339,3 +340,10 @@ def test_cli_reports_check_deadline_with_exit_code_2(
         word in result.output.lower()
         for word in ("timed out", "time limit", "deadline", "timeout")
     )
+
+
+def test_the_clis_own_errors_are_not_groundline_errors():
+    # A library caller who catches GroundlineError never sees these, so they
+    # stay out of the three kinds the library documents.
+    for error in (cli.UsageError, cli.JSONWriteError):
+        assert not issubclass(error, GroundlineError)

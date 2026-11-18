@@ -18,6 +18,7 @@ from groundline_core._core import (
     ModelFailureError,
     ModelRefusal,
     ModelReply,
+    SetupError,
     UnusableReplyError,
 )
 from groundline_core._core.errors import ModelTimeoutError
@@ -209,8 +210,8 @@ def test_permanent_errors_ignore_retry_true(status: int):
             json=api_error("api_error", "private-body"),
         )
 
-    expected = APIKeyRejectedError if status in (401, 403) else ModelFailureError
-    with pytest.raises(expected):
+    expected = {401: APIKeyRejectedError, 403: APIKeyRejectedError, 404: SetupError}
+    with pytest.raises(expected.get(status, ModelFailureError)):
         run_outage_transport(handler)
     assert len(calls) == 1
 

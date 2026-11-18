@@ -15,6 +15,7 @@ from groundline_core._core.errors import (
     ModelFailureError,
     ModelTimeoutError,
     SetupError,
+    file_line,
 )
 from groundline_core._core.implementation import Implementation, StageContext
 from groundline_core._core.inputs import InputName, Inputs
@@ -94,6 +95,7 @@ __all__ = [
     "ReplyError",
     "RunResult",
     "SetupError",
+    "file_line",
     "SpecError",
     "StageContext",
     "StageRun",

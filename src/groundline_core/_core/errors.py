@@ -9,7 +9,7 @@ an exception from the caller's own model client, is passed on as it was raised
 
 No message from a check names a file's folder, a key, or text from the
 source or summary, so it is safe to log or show to anyone. A file's full path is in
-`SetupError.path` instead.
+`SetupError.path` instead, which the CLI prints on a `File:` line of its own.
 """
 
 from pathlib import Path
@@ -25,8 +25,9 @@ class GroundlineError(Exception):
 
 class SetupError(GroundlineError):
     """Something about the setup stops the check, such as an invalid pipeline
-    spec, a missing or rejected Anthropic API key, or settings that can't be
-    read. Trying again won't help until the setup is fixed."""
+    spec, a missing or rejected Anthropic API key, a model the Anthropic API
+    doesn't have, or settings that can't be read. Trying again won't help until
+    the setup is fixed."""
 
     def __init__(self, message: str, *, path: str | Path | None = None) -> None:
         super().__init__(message)
@@ -34,6 +35,16 @@ class SetupError(GroundlineError):
         """The absolute path of the file at fault, such as the `.env` file that
         was read; None when no file is involved. The message names the file
         only by its name."""
+
+
+def file_line(error: SetupError) -> str:
+    """The line the CLI prints and the API logs after a setup error's message:
+    the full path of the file at fault, and whether it exists. Empty when no
+    file is involved. The message itself names the file only by its name."""
+    if error.path is None:
+        return ""
+    missing = "" if error.path.exists() else " (not found)"
+    return f"\n  File: {error.path}{missing}"
 
 
 class APIKeyRejectedError(SetupError):

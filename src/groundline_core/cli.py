@@ -27,6 +27,7 @@ from groundline_core._core import (
     ModelClient,
     ModelFailureError,
     SetupError,
+    file_line,
     load_profile,
     load_spec,
     summarize_usage,
@@ -203,9 +204,15 @@ def commissions(
     )
 
 
-class UsageError(GroundlineError):
+class UsageError(Exception):
     """A mistake in how the command was run, such as two options that can't go
-    together. The message says how to run it instead."""
+    together. The message says how to run it instead. Only the CLI raises it,
+    so it isn't a `GroundlineError`."""
+
+
+class JSONWriteError(Exception):
+    """The `--json` file couldn't be written. The check itself finished, and its
+    report has already been printed."""
 
 
 def _commissions_check(preset: str | None, pipeline: Path | None) -> Check:
@@ -237,11 +244,12 @@ def _finish(run: Callable[[], int]) -> None:
             cost = usage_text(summarize_usage(error.calls))
             typer.echo(f"  Recorded cost before stopping: {cost}", err=True)
         code = EXIT_ERROR
-    except GroundlineError as error:
+    except (UsageError, JSONWriteError) as error:
         typer.echo(f"error: {error}", err=True)
-        if isinstance(error, SetupError) and error.path:
-            missing = "" if error.path.exists() else " (not found)"
-            typer.echo(f"  File: {error.path}{missing}", err=True)
+        code = EXIT_ERROR
+    except GroundlineError as error:
+        file = file_line(error) if isinstance(error, SetupError) else ""
+        typer.echo(f"error: {error}{file}", err=True)
         code = EXIT_ERROR
     except Exception as error:
         typer.echo(
@@ -299,20 +307,22 @@ def _check(
 
 def _input_text(path: Path) -> str:
     """A source or summary file's text. One that can't be read is invalid input,
-    named as the user typed it."""
+    named by its file name only, as every groundline error message is."""
     try:
         return path.read_text()
     except UnicodeDecodeError as error:
-        raise InvalidInputError(f"{path} isn't readable UTF-8 text") from error
+        raise InvalidInputError(f"{path.name} isn't readable UTF-8 text") from error
     except OSError as error:
+        # An OSError's text repeats the full path; its strerror doesn't.
         reason = error.strerror or type(error).__name__
-        raise InvalidInputError(f"can't read {path}: {reason}") from error
+        raise InvalidInputError(f"can't read {path.name}: {reason}") from error
 
 
 def _write_json(path: Path, result: EvaluationResult) -> None:
     try:
         path.write_text(json.dumps(result_json(result), indent=2) + "\n")
     except OSError as error:
-        raise UsageError(
-            f"couldn't write the JSON result to {path}: {error.strerror or error}"
+        reason = error.strerror or type(error).__name__
+        raise JSONWriteError(
+            f"couldn't write the JSON result to {path.name}: {reason}"
         ) from error
