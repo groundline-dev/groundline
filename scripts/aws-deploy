@@ -172,6 +172,10 @@ if [ "$instance" = "$previous_instance" ]; then
       done
     fi
   fi
+  # The settings Terraform just tagged, which infra/server/apply waits to see.
+  # A commit from before it waited ignores them.
+  expected_settings="$(terraform -chdir=infra output -json app_settings 2>/dev/null \
+    | jq -r 'to_entries | sort_by(.key)[] | "\(.key)=\(.value)"' 2>/dev/null | tr '\n' ' ' | sed 's/ $//' || true)"
   doing "Upgrading your server ($instance) in place to ${commit:0:7}"
   echo "It keeps its data, address and HTTPS certificate. This takes a few minutes."
   upgraded="$(on_server "set -eu; cd /opt/groundline; attempts=0
@@ -181,7 +185,7 @@ done
 git fetch --quiet '$repository_url' '$commit'
 git checkout --quiet --detach '$commit'
 ${reset_deadline}
-infra/server/apply
+GROUNDLINE_EXPECTED_SETTINGS='$expected_settings' infra/server/apply
 docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile" 1800)" \
     || fail "couldn't upgrade the server; do not report deployment success. Retry make aws-deploy, or run REF=<the previous commit> make aws-deploy to go back."
   grep --quiet "groundline: running $commit" <<<"$upgraded" \

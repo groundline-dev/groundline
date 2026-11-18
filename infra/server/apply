@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Runs on the server as root, from its checkout (/opt/groundline): on the first
 # boot (infra/bootstrap.sh.tftpl) and after each upgrade checks out a new commit
-# (infra/server/upgrade). It writes .env, then builds the image and starts or
+# (scripts/aws-deploy, over SSM). It writes .env, then builds the image and starts or
 # updates the stack. Running it twice changes nothing the second time.
 #
 # .env holds the database passwords from the data volume, made on the first
@@ -27,17 +27,40 @@ read_metadata() {
 region="$(read_metadata placement/region)"
 deployment="$(read_metadata tags/instance/deployment)"
 parameter="/groundline/$deployment/anthropic-api-key"
-settings=""
-for tag in $(read_metadata tags/instance); do
-  case "$tag" in
-    groundline-setting-GROUNDLINE_*)
-      value="$(read_metadata "tags/instance/$tag")"
-      # Terraform checked these; this only keeps anything odd out of .env.
-      [[ "$value" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "groundline: $tag isn't a number: $value" >&2; exit 1; }
-      settings+="${tag#groundline-setting-}=$value"$'\n'
-      ;;
-  esac
-done
+# read_settings: set $settings to NAME=VALUE lines from the setting tags.
+read_settings() {
+  local tag value
+  settings=""
+  for tag in $(read_metadata tags/instance); do
+    case "$tag" in
+      groundline-setting-GROUNDLINE_*)
+        value="$(read_metadata "tags/instance/$tag")"
+        # Terraform checked these; this only keeps anything odd out of .env.
+        [[ "$value" =~ ^[0-9]+(\.[0-9]+)?$ ]] || { echo "groundline: $tag isn't a number: $value" >&2; exit 1; }
+        settings+="${tag#groundline-setting-}=$value"$'\n'
+        ;;
+    esac
+  done
+}
+# An upgrade passes the settings Terraform just tagged, as sorted NAME=VALUE
+# words, and waits until the instance metadata shows them: tag changes reach
+# it after a moment, and a settings-only change has nothing else to wait for.
+# The first boot reads them once, since a new server starts with its tags.
+if [ -z "${GROUNDLINE_EXPECTED_SETTINGS+set}" ]; then
+  read_settings
+else
+  attempts="${GROUNDLINE_SETTINGS_ATTEMPTS:-24}"
+  for attempt in $(seq 1 "$attempts"); do
+    read_settings
+    shown="$(LC_ALL=C sort <<<"$settings" | { grep . || true; } | tr '\n' ' ' | sed 's/ $//')"
+    [ "$shown" != "$GROUNDLINE_EXPECTED_SETTINGS" ] || break
+    if [ "$attempt" = "$attempts" ]; then
+      echo "groundline: the server's setting tags show \"$shown\", not \"$GROUNDLINE_EXPECTED_SETTINGS\"" >&2
+      exit 1
+    fi
+    sleep "${GROUNDLINE_SETTINGS_WAIT_SECONDS:-5}"
+  done
+fi
 
 # The database passwords: hex, so they're safe in a URL and in Compose.
 # Generated first, since a failed command inside echo "$(...)" wouldn't stop

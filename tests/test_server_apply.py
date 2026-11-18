@@ -25,7 +25,16 @@ case "$last" in
   */api/token) echo token ;;
   */meta-data/placement/region) echo eu-north-1 ;;
   */meta-data/tags/instance/deployment) echo alice ;;
-  */meta-data/tags/instance) printf 'Name\ndeployment\n%s' "$SETTING_TAGS" ;;
+  */meta-data/tags/instance)
+    # Tags reach the metadata late: after SWITCH_AFTER reads of the list, it
+    # shows SETTING_TAGS_LATER in place of SETTING_TAGS.
+    echo read >>"$TAG_READS"
+    tags="$SETTING_TAGS"
+    reads="$(wc -l <"$TAG_READS")"
+    if [ -n "${SWITCH_AFTER:-}" ] && [ "$reads" -gt "$SWITCH_AFTER" ]; then
+      tags="$SETTING_TAGS_LATER"
+    fi
+    printf 'Name\ndeployment\n%s' "$tags" ;;
   */groundline-setting-GROUNDLINE_CHECK_TIMEOUT_SECONDS) echo 180.5 ;;
   */groundline-setting-GROUNDLINE_MAX_BODY_BYTES) echo 1048576 ;;
   */groundline-setting-GROUNDLINE_MODEL_MAX_ATTEMPTS) echo '5; rm' ;;
@@ -64,17 +73,29 @@ def server(tmp_path: Path) -> Path:
 
 
 def apply(
-    server: Path, parameter: str = "sk-ant-test", setting_tags: str = ""
+    server: Path,
+    parameter: str = "sk-ant-test",
+    setting_tags: str = "",
+    **extra: str,
 ) -> subprocess.CompletedProcess[str]:
+    """Run apply; EXTRA sets more environment, such as the expected settings."""
     tmp_path = server.parents[1]
+    reads = tmp_path / "tag-reads"
+    reads.write_text("")
     env = dict(
         os.environ,
         PATH=f"{tmp_path / 'bin'}:{os.environ['PATH']}",
         CALLS=str(tmp_path / "calls"),
         FAKE_PARAMETER=parameter,
         SETTING_TAGS=setting_tags,
+        TAG_READS=str(reads),
         GROUNDLINE_DATA_DIR=str(tmp_path / "srv" / "groundline-data"),
+        GROUNDLINE_SETTINGS_WAIT_SECONDS="0",
+        **extra,
     )
+    # Without it, apply reads the tags once, as on a first boot.
+    if "GROUNDLINE_EXPECTED_SETTINGS" not in extra:
+        env.pop("GROUNDLINE_EXPECTED_SETTINGS", None)
     return subprocess.run(
         [str(server / "infra" / "server" / "apply")],
         env=env,
@@ -198,3 +219,79 @@ def test_a_setting_tag_that_isnt_a_number_stops_before_changing_env(server: Path
     assert result.returncode != 0
     assert "isn't a number" in result.stderr
     assert (server / ".env").read_text() == before
+
+
+TIMEOUT = "groundline-setting-GROUNDLINE_CHECK_TIMEOUT_SECONDS\n"
+BODY = "groundline-setting-GROUNDLINE_MAX_BODY_BYTES\n"
+
+
+def test_an_upgrade_waits_for_the_settings_terraform_tagged(server: Path):
+    # The tags still show the old settings for the first two reads.
+    result = apply(
+        server,
+        setting_tags="",
+        SETTING_TAGS_LATER=TIMEOUT + BODY,
+        SWITCH_AFTER="2",
+        GROUNDLINE_EXPECTED_SETTINGS=(
+            "GROUNDLINE_CHECK_TIMEOUT_SECONDS=180.5 GROUNDLINE_MAX_BODY_BYTES=1048576"
+        ),
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert env_lines(server)[-2:] == [
+        "GROUNDLINE_CHECK_TIMEOUT_SECONDS=180.5",
+        "GROUNDLINE_MAX_BODY_BYTES=1048576",
+    ]
+
+
+def test_an_upgrade_waits_for_a_removed_setting_to_go(server: Path):
+    result = apply(
+        server,
+        setting_tags=TIMEOUT + BODY,
+        SETTING_TAGS_LATER=TIMEOUT,
+        SWITCH_AFTER="1",
+        GROUNDLINE_EXPECTED_SETTINGS="GROUNDLINE_CHECK_TIMEOUT_SECONDS=180.5",
+    )
+
+    assert result.returncode == 0, result.stderr
+    lines = env_lines(server)
+    assert "GROUNDLINE_CHECK_TIMEOUT_SECONDS=180.5" in lines
+    assert not any(line.startswith("GROUNDLINE_MAX_BODY") for line in lines)
+
+
+def test_an_upgrade_with_no_settings_waits_for_none(server: Path):
+    result = apply(
+        server,
+        setting_tags=BODY,
+        SETTING_TAGS_LATER="",
+        SWITCH_AFTER="1",
+        GROUNDLINE_EXPECTED_SETTINGS="",
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert not any(line.startswith("GROUNDLINE_MAX") for line in env_lines(server))
+
+
+def test_settings_that_never_arrive_stop_before_changing_env(server: Path):
+    assert apply(server).returncode == 0
+    before = (server / ".env").read_text()
+
+    result = apply(
+        server,
+        setting_tags="",
+        GROUNDLINE_EXPECTED_SETTINGS="GROUNDLINE_MAX_BODY_BYTES=1048576",
+        GROUNDLINE_SETTINGS_ATTEMPTS="2",
+    )
+
+    assert result.returncode != 0
+    assert 'show "", not "GROUNDLINE_MAX_BODY_BYTES=1048576"' in result.stderr
+    assert (server / ".env").read_text() == before
+
+
+def test_the_first_boot_reads_the_tags_once(server: Path):
+    result = apply(server, setting_tags=BODY, SETTING_TAGS_LATER="", SWITCH_AFTER="1")
+
+    assert result.returncode == 0, result.stderr
+    assert "GROUNDLINE_MAX_BODY_BYTES=1048576" in env_lines(server)
+    tag_reads = server.parents[1] / "tag-reads"
+    assert tag_reads.read_text().count("read") == 1

@@ -612,9 +612,17 @@ def test_a_settings_change_is_described_and_the_settings_are_listed(checkout: Pa
         },
     )
 
-    result, _ = invoke(checkout, "aws-deploy", world, "1\n")
+    result, world = invoke(checkout, "aws-deploy", world, "1\n")
 
     assert result.returncode == 0, result.stdout + result.stderr
+    # The server waits until its tags show these before writing .env.
+    [upgrade] = [
+        c["script"] for c in world["commands"] if "server/apply" in c["script"]
+    ]
+    assert (
+        "GROUNDLINE_EXPECTED_SETTINGS='GROUNDLINE_CHECK_TIMEOUT_SECONDS=180' "
+        "infra/server/apply" in upgrade
+    )
     assert "update your server (i-test) in place" in result.stdout
     assert (
         "Its GROUNDLINE_CHECK_TIMEOUT_SECONDS becomes 180 (it was the default)."
@@ -636,7 +644,12 @@ def test_a_deploy_with_no_settings_says_it_uses_the_defaults(checkout: Path):
         }
     )
 
-    result, _ = invoke(checkout, "aws-deploy", world)
+    result, world = invoke(checkout, "aws-deploy", world)
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert "It runs with the app's default settings" in result.stdout
+    # The server waits until no setting tags are left.
+    assert any(
+        "GROUNDLINE_EXPECTED_SETTINGS='' infra/server/apply" in c["script"]
+        for c in world["commands"]
+    )
