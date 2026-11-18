@@ -32,6 +32,7 @@ def _jitter() -> float:
     return random_module.random()
 
 
+_SMALLEST_ATTEMPT_SECONDS = 0.001
 _TIMED_OUT = "The request took longer than the time allowed for it."
 
 
@@ -45,7 +46,7 @@ class Limits:
     connect_timeout_seconds: float
 
 
-class _Call:
+class _RetryBudget:
     """The retry budget and attempt count of one call."""
 
     def __init__(
@@ -55,40 +56,39 @@ class _Call:
         clock: Callable[[], float],
         random: Callable[[], float],
     ) -> None:
-        self._max_attempts = limits.max_attempts
-        self._max_retry_seconds = limits.max_retry_seconds
-        self._timeout_seconds = limits.timeout_seconds
-        self._connect_timeout_seconds = limits.connect_timeout_seconds
+        self._limits = limits
         self._clock = clock
         self._random = random
         self._started = clock()
         self.attempt = 0
 
     def _remaining(self) -> float:
-        return self._max_retry_seconds - (self._clock() - self._started)
+        return self._limits.max_retry_seconds - (self._clock() - self._started)
 
     def start_attempt(self, request: httpx2.Request) -> float:
         """Limit this attempt to the time the budget has left; return that limit."""
         self.attempt += 1
-        remaining = self._remaining()
-        limit = min(self._timeout_seconds, remaining)
+        # Sleeping can overshoot the budget a little; an attempt then gets a sliver
+        # of time, fails at once, and the call ends with that failure.
+        remaining = max(self._remaining(), _SMALLEST_ATTEMPT_SECONDS)
+        attempt_seconds = min(self._limits.timeout_seconds, remaining)
         request.extensions["timeout"] = {
-            "connect": min(self._connect_timeout_seconds, remaining),
-            "read": limit,
-            "write": limit,
-            "pool": limit,
+            "connect": min(self._limits.connect_timeout_seconds, remaining),
+            "read": attempt_seconds,
+            "write": attempt_seconds,
+            "pool": attempt_seconds,
         }
-        return limit
+        return attempt_seconds
 
     def wait_before_retry(self, retry_after: float | None) -> float | None:
         """Seconds to wait before the next attempt, or None to stop."""
-        if self.attempt >= self._max_attempts:
+        if self.attempt >= self._limits.max_attempts:
             return None
         return next_wait(
             attempt=self.attempt,
             retry_after=retry_after,
             remaining=self._remaining(),
-            minimum_remaining=self._connect_timeout_seconds,
+            minimum_remaining=self._limits.connect_timeout_seconds,
             random=self._random,
         )
 
@@ -142,7 +142,7 @@ class RetryingClient(httpx2.Client):
         auth: Any = httpx2.USE_CLIENT_DEFAULT,
         follow_redirects: Any = httpx2.USE_CLIENT_DEFAULT,
     ) -> httpx2.Response:
-        call = _Call(self._limits, clock=self._clock, random=self._random)
+        call = _RetryBudget(self._limits, clock=self._clock, random=self._random)
         while True:
             call.start_attempt(request)
             try:
@@ -201,10 +201,10 @@ class AsyncRetryingClient(httpx2.AsyncClient):
         auth: Any = httpx2.USE_CLIENT_DEFAULT,
         follow_redirects: Any = httpx2.USE_CLIENT_DEFAULT,
     ) -> httpx2.Response:
-        call = _Call(self._limits, clock=self._clock, random=self._random)
+        call = _RetryBudget(self._limits, clock=self._clock, random=self._random)
         while True:
-            limit = call.start_attempt(request)
-            boundary = asyncio.timeout(limit)
+            attempt_seconds = call.start_attempt(request)
+            boundary = asyncio.timeout(attempt_seconds)
             try:
                 async with boundary:
                     response = await super().send(

@@ -82,14 +82,15 @@ client = GroundlineClient(max_attempts=1, timeout_seconds=60)
 ```
 
 Each attempt is also cut off at whatever is left of `max_retry_seconds`, and no
-retry starts with less than `connect_timeout_seconds` left. A value that isn't valid raises
+retry starts with less than `connect_timeout_seconds` left (so a
+`connect_timeout_seconds` that is not shorter than `max_retry_seconds` means no
+retries). A value that isn't valid raises
 `GroundlineConfigError` when you create the client: `max_attempts` must be a
 whole number of 1 or more, and the other three a finite number above 0.
 
 When the retries run out, you get what the last attempt gave: the parsed
 `ErrorBody` for an error answer (or `None` for one the API doesn't document), or
-the `httpx2` exception for a timeout or connection error. Typed exceptions are
-planned.
+the `httpx2` exception for a timeout or connection error.
 
 Things to know:
 

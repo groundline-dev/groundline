@@ -3,6 +3,7 @@
 import math
 import os
 import warnings
+from dataclasses import asdict
 from types import TracebackType
 from typing import Any, Self
 
@@ -21,7 +22,7 @@ from ._generated.models import (
     OmissionsRequest,
     OmissionsResponse,
 )
-from ._http import AsyncRetryingClient, RetryingClient
+from ._http import AsyncRetryingClient, Limits, RetryingClient
 from .errors import GroundlineConfigError
 
 # Retries and time limits (see the README). An attempt may take 150 s because the
@@ -148,7 +149,7 @@ class _ApiKeyHidingClient(AuthenticatedClient):
     call `repr` on it.
     """
 
-    def __init__(self, *, limits: dict[str, Any], **arguments: Any) -> None:
+    def __init__(self, *, limits: Limits, **arguments: Any) -> None:
         super().__init__(**arguments)
         self._limits = limits
 
@@ -171,13 +172,15 @@ class _ApiKeyHidingClient(AuthenticatedClient):
 
     def get_httpx_client(self) -> httpx2.Client:
         if self._client is None:
-            self._client = RetryingClient(**self._limits, **self._httpx_arguments())
+            self._client = RetryingClient(
+                **asdict(self._limits), **self._httpx_arguments()
+            )
         return self._client
 
     def get_async_httpx_client(self) -> httpx2.AsyncClient:
         if self._async_client is None:
             self._async_client = AsyncRetryingClient(
-                **self._limits, **self._httpx_arguments()
+                **asdict(self._limits), **self._httpx_arguments()
             )
         return self._async_client
 
@@ -226,12 +229,12 @@ class GroundlineClient:
         self._client = _ApiKeyHidingClient(
             base_url=self._base_url,
             token=resolved_api_key,
-            limits={
-                "max_attempts": max_attempts,
-                "max_retry_seconds": max_retry_seconds,
-                "timeout_seconds": timeout_seconds,
-                "connect_timeout_seconds": connect_timeout_seconds,
-            },
+            limits=Limits(
+                max_attempts=max_attempts,
+                max_retry_seconds=max_retry_seconds,
+                timeout_seconds=timeout_seconds,
+                connect_timeout_seconds=connect_timeout_seconds,
+            ),
         )
 
     def __repr__(self) -> str:
