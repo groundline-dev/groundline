@@ -78,13 +78,25 @@ def _text(path: Path, label: str) -> str:
     """A profile file's text, or a `ProfileError` naming the file by name."""
     try:
         return path.read_text()
-    except UnicodeDecodeError as error:
+    except UnicodeDecodeError:
         problem = f"{label}: {path.name} isn't readable UTF-8 text"
-        raise ProfileError(problem, path=path) from error
+        raise ProfileError(problem, path=path) from None
     except OSError as error:
         reason = error.strerror or type(error).__name__
         problem = f"{label}: can't read {path.name} ({reason})"
-        raise ProfileError(problem, path=path) from error
+        raise ProfileError(problem, path=path) from None
+
+
+def _is_file(path: Path, label: str) -> bool:
+    """Whether `path` is a file, or a `ProfileError` if a folder on the way
+    can't be searched."""
+    try:
+        return path.is_file()
+    except OSError as error:
+        reason = error.strerror or type(error).__name__
+        raise ProfileError(
+            f"{label}: can't read {path.name} ({reason})", path=path
+        ) from None
 
 
 def load_profile(folder: str | Path) -> DomainProfile:
@@ -92,18 +104,18 @@ def load_profile(folder: str | Path) -> DomainProfile:
     folder = Path(folder)
     manifest = folder / "profile.yaml"
     label = f"profile '{folder.name}'"
-    if not manifest.exists():
+    if not _is_file(manifest, label):
         raise ProfileError(f"{label} has no profile.yaml", path=manifest)
     try:
         spec = _ProfileFile.model_validate(yaml.safe_load(_text(manifest, label)))
     except (yaml.YAMLError, ValidationError) as error:
         problems = "; ".join(file_problems(error))
-        raise ProfileError(f"{label}: {problems}", path=manifest) from error
+        raise ProfileError(f"{label}: {problems}", path=manifest) from None
 
     texts: dict[str, str] = {}
     for name, relative in spec.texts.items():
         path = folder / relative
-        if not path.is_file():
+        if not _is_file(path, label):
             raise ProfileError(
                 f"{label}: text '{name}' file {Path(relative).name} not found",
                 path=manifest,

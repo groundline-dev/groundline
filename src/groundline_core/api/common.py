@@ -339,8 +339,9 @@ def check_failures() -> Generator[None]:
         raise HTTPException(504, detail=f"{error}{spent}") from None
     except ModelFailureError as error:
         spent = _spent(error)
-        cause = error.__cause__ or error
-        logger.warning("%s failed (%s)%s", _where(error), type(cause).__name__, spent)
+        # Its message names the provider's error by type, such as
+        # BadRequestError, and is safe to log; the provider's own error isn't.
+        logger.warning("model failure: %s%s", error, spent)
         raise HTTPException(502, detail=f"{error}{spent}") from error
 
 

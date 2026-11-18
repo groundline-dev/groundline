@@ -179,23 +179,23 @@ class AnthropicClient:
                 f"({error.status_code}).",
                 "check the key is complete, hasn't been revoked, "
                 "and belongs to the workspace you expect.",
-            ) from error
+            ) from None
         except anthropic.PermissionDeniedError as error:
             raise self._rejected(
                 f"{self._key_name} doesn't have access to {model} "
                 f"({error.status_code}).",
                 "use a key from a workspace that can use this model, "
                 "or change the stage's model setting.",
-            ) from error
+            ) from None
         except anthropic.NotFoundError as error:
             # The model named in the spec doesn't exist, or has been retired:
             # trying again won't help until the spec changes.
             raise SetupError(
                 f"the Anthropic API has no model {model} ({error.status_code}).\n"
                 "  Fix: change the stage's model setting in the pipeline spec."
-            ) from error
+            ) from None
         except anthropic.APIError as error:
-            raise ModelFailureError(_sdk_failure_text(error)) from error
+            raise ModelFailureError(_sdk_failure_text(error)) from None
         text = "".join(block.text for block in message.content if block.type == "text")
         reply = ModelReply(
             text=text,

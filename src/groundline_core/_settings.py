@@ -173,7 +173,7 @@ def _read_settings[T: BaseSettings](settings_type: type[T], env_file: EnvFile) -
     try:
         return settings_type(_env_file=env_file)  # pyright: ignore[reportCallIssue]
     except Exception as error:
-        raise SettingsError(type(error).__name__, env_file) from error
+        raise SettingsError(type(error).__name__, env_file) from None
 
 
 def anthropic_key(

@@ -31,6 +31,7 @@ from groundline_core._core import (
     file_line,
     load_profile,
     load_spec,
+    redact_keys,
     summarize_usage,
 )
 from groundline_core._evaluate import (
@@ -283,7 +284,7 @@ def _exit_code(run: Callable[[], int]) -> int:
         typer.echo(f"error: {error}{file}", err=True)
     except Exception as error:
         typer.echo(
-            f"error: unexpected {type(error).__name__}: {error}\n"
+            f"error: unexpected {type(error).__name__}: {redact_keys(str(error))}\n"
             "  This is a bug in groundline; please report it.",
             err=True,
         )
@@ -339,12 +340,12 @@ def _input_text(path: Path) -> str:
     named by its file name only, as every groundline error message is."""
     try:
         return path.read_text()
-    except UnicodeDecodeError as error:
-        raise InvalidInputError(f"{path.name} isn't readable UTF-8 text") from error
+    except UnicodeDecodeError:
+        raise InvalidInputError(f"{path.name} isn't readable UTF-8 text") from None
     except OSError as error:
         # An OSError's text repeats the full path; its strerror doesn't.
         reason = error.strerror or type(error).__name__
-        raise InvalidInputError(f"can't read {path.name}: {reason}") from error
+        raise InvalidInputError(f"can't read {path.name}: {reason}") from None
 
 
 def _write_json(path: Path, result: EvaluationResult) -> None:
@@ -354,4 +355,4 @@ def _write_json(path: Path, result: EvaluationResult) -> None:
         reason = error.strerror or type(error).__name__
         raise JSONWriteError(
             f"couldn't write the JSON result to {path.name}: {reason}", path=path
-        ) from error
+        ) from None

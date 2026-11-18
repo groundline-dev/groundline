@@ -10,7 +10,14 @@ an exception from the caller's own model client, is passed on as it was raised
 No message from a check names a file's folder, a key, or text from the
 source or summary, so it is safe to log or show to anyone. Messages do quote
 names written in a spec or profile, such as an unknown step, so anything shaped
-like an API key is replaced with `<redacted key>` in case one was pasted there.
+like an Anthropic or groundline API key is replaced with `<redacted key>` in
+case one was pasted there. Only those two shapes are recognized: another kind
+of secret pasted into a spec or profile would still be quoted.
+
+When an error comes from another library's error, it is raised `from None`, so
+a traceback doesn't print the original, whose text can quote a file, a setting
+or the request. The original is still on `__context__` for debugging in code.
+
 A file's full path is in `SetupError.path` instead, which the CLI prints on a
 `File:` line of its own.
 """

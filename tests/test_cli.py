@@ -365,3 +365,21 @@ def test_a_cache_that_cannot_be_written_warns_in_the_clis_own_style(
     assert "\nwarning: couldn't write to the stage cache (" in result.stderr
     assert "RuntimeWarning" not in result.stderr
     assert "runner.py" not in result.stderr
+
+
+def test_an_unexpected_error_is_reported_without_a_key_in_it(
+    files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+):
+    def leaky(*args: object, **kwargs: object) -> None:
+        raise RuntimeError("upstream refused the key sk-ant-sentinel-0123456789")
+
+    monkeypatch.setattr(cli, "evaluate_sync", leaky)
+
+    result = omissions(files)
+
+    assert result.exit_code == 2
+    assert (
+        "error: unexpected RuntimeError: upstream refused the key <redacted key>"
+        in (result.stderr)
+    )
+    assert "sk-ant-sentinel" not in result.stderr

@@ -4,6 +4,7 @@ public package, as a caller would, and no test calls the real Anthropic API."""
 
 import asyncio
 import os
+import traceback
 import warnings
 from collections.abc import Callable
 from pathlib import Path
@@ -55,11 +56,13 @@ def isolated(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
 
 
 def assert_safe(error: BaseException, *paths: Path) -> None:
-    """The message holds no source or summary text, no key and none of `paths`'
-    folders."""
-    text = str(error)
-    for secret in (SOURCE, SUMMARY, SENTINEL_KEY, *(str(p.parent) for p in paths)):
-        assert secret not in text, f"{secret[:40]!r} is in the message: {text!r}"
+    """Neither the message nor the traceback, with every error it was raised
+    from, holds source or summary text, a key or any of `paths`' folders. A
+    traceback is what `logger.exception` and error trackers record."""
+    traceback_text = "".join(traceback.format_exception(error))
+    for text in (str(error), traceback_text):
+        for secret in (SOURCE, SUMMARY, SENTINEL_KEY, *(str(p.parent) for p in paths)):
+            assert secret not in text, f"{secret[:40]!r} is in: {text!r}"
 
 
 def anthropic_reply(response: httpx2.Response) -> Callable[[str], httpx2.Response]:
@@ -116,6 +119,7 @@ def test_a_profile_that_cannot_be_loaded_is_a_setup_error_with_its_path(
         f"name: *{SENTINEL_KEY}\n",
         f"name: mine\nstages: []\n{SENTINEL_KEY}: 1\n",
         f"name: mine\nstages:\n- step: extract\n  {SENTINEL_KEY}: 1\n",
+        f"name: mine\nstages: {SENTINEL_KEY}\n",
     ],
     ids=[
         "unexpected field",
@@ -123,6 +127,7 @@ def test_a_profile_that_cannot_be_loaded_is_a_setup_error_with_its_path(
         "undefined alias",
         "key as a field name",
         "key as a field name in a stage",
+        "key as a value of the wrong type",
     ],
 )
 def test_a_spec_or_profile_error_never_repeats_what_the_file_holds(
@@ -163,6 +168,24 @@ def test_a_key_pasted_as_a_name_in_a_spec_is_redacted():
 )
 def test_names_that_are_not_key_shaped_are_kept(name: str):
     assert str(gl.SetupError(f"unknown step '{name}'")) == f"unknown step '{name}'"
+
+
+@pytest.mark.skipif(os.geteuid() == 0, reason="root can search any folder")
+def test_a_profile_in_a_folder_that_cannot_be_searched_is_a_profile_error(
+    tmp_path: Path,
+):
+    locked = tmp_path / "locked"
+    (locked / "mine").mkdir(parents=True)
+    locked.chmod(0o000)
+
+    try:
+        with pytest.raises(gl.ProfileError) as error:
+            load_profile(locked / "mine")
+    finally:
+        locked.chmod(0o700)
+
+    assert "can't read profile.yaml (Permission denied)" in str(error.value)
+    assert_safe(error.value, locked / "mine" / "profile.yaml")
 
 
 def test_a_profile_text_file_that_is_missing_is_named_without_its_folders(
@@ -248,6 +271,19 @@ def test_unreadable_settings_are_a_settings_error_without_the_folder(tmp_path: P
         evaluate_sync(SOURCE, SUMMARY, env_file=env_file)
 
     assert error.value.path == env_file.absolute()
+    assert_safe(error.value, env_file)
+
+
+def test_a_setting_with_a_bad_value_is_a_settings_error_without_the_value(
+    tmp_path: Path,
+):
+    env_file = tmp_path / "config" / "app.env"
+    env_file.parent.mkdir()
+    env_file.write_text(f"GROUNDLINE_CHECK_TIMEOUT_SECONDS={SENTINEL_KEY}\n")
+
+    with pytest.raises(gl.SettingsError) as error:
+        evaluate_sync(SOURCE, SUMMARY, env_file=env_file)
+
     assert_safe(error.value, env_file)
 
 

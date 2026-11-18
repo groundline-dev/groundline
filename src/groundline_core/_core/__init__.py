@@ -16,6 +16,7 @@ from groundline_core._core.errors import (
     ModelTimeoutError,
     SetupError,
     file_line,
+    redact_keys,
 )
 from groundline_core._core.implementation import Implementation, StageContext
 from groundline_core._core.inputs import InputName, Inputs
@@ -96,6 +97,7 @@ __all__ = [
     "RunResult",
     "SetupError",
     "file_line",
+    "redact_keys",
     "SpecError",
     "StageContext",
     "StageRun",
