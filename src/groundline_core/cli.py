@@ -12,10 +12,11 @@ any unexpected error). Only a finished check that flags the summary exits with 1
 import json
 import os
 import time
+import warnings
 from collections.abc import Callable
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Annotated, get_args
+from typing import Annotated, TextIO, get_args
 
 import platformdirs
 import typer
@@ -232,12 +233,27 @@ def _commissions_check(preset: str | None, pipeline: Path | None) -> Check:
     return replace(COMMISSIONS, preset=preset)
 
 
+def _show_warning(
+    message: Warning | str,
+    category: type[Warning],
+    filename: str,
+    lineno: int,
+    file: TextIO | None = None,
+    line: str | None = None,
+) -> None:
+    """Print a warning from the library the way the CLI prints its own, without
+    the file and line inside groundline that Python would otherwise show."""
+    typer.echo(f"warning: {message}", err=True)
+
+
 def _finish(run: Callable[[], int]) -> None:
     """Run a check and exit with its code. Every error becomes exit code 2:
     exit code 1 means "flagged", so nothing else may end with it, not even a
     bug. Python's own exit code for an uncaught error is 1."""
     try:
-        code = run()
+        with warnings.catch_warnings():
+            warnings.showwarning = _show_warning
+            code = run()
     except ModelFailureError as error:
         typer.echo(f"error: {error}", err=True)
         if error.calls:

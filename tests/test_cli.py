@@ -347,3 +347,19 @@ def test_the_clis_own_errors_are_not_groundline_errors():
     # stay out of the three kinds the library documents.
     for error in (cli.UsageError, cli.JSONWriteError):
         assert not issubclass(error, GroundlineError)
+
+
+def test_a_cache_that_cannot_be_written_warns_in_the_clis_own_style(
+    files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+):
+    use_client(monkeypatch, not_flagged_script())
+    blocker = files[0].parent / "not-a-folder"
+    blocker.write_text("a file where the cache folder should be")
+    monkeypatch.setenv("GROUNDLINE_CACHE_DIR", str(blocker / "cache"))
+
+    result = omissions(files, "--cache")
+
+    assert result.exit_code == 0, result.output
+    assert "\nwarning: couldn't write to the stage cache (" in result.stderr
+    assert "RuntimeWarning" not in result.stderr
+    assert "runner.py" not in result.stderr
