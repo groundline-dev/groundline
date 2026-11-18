@@ -12,9 +12,9 @@ from collections.abc import Iterator
 import pytest
 from sqlalchemy import Engine, create_engine, make_url
 
+from groundline_core._settings import ENV_FILE, read_settings
 from groundline_core.db import api_keys
 from groundline_core.db.setup import drop_database, setup_database
-from groundline_core.settings import ENV_FILE, read_settings
 
 # API limits are loaded while test modules import the app. Keep inherited
 # operator overrides out of the suite; override tests use fresh processes.

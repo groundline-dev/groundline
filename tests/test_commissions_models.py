@@ -1,4 +1,4 @@
-from groundline_core.evaluators.commissions.models import Commission, ranked
+from groundline_core._evaluators.commissions.models import Commission, ranked
 
 
 def commission(id: str, severity: str, confidence: float) -> Commission:

@@ -4,9 +4,9 @@ DATABASE_URL when alembic is run directly."""
 from alembic import context
 from sqlalchemy import URL, create_engine, make_url
 
-from groundline_core.core.errors import SetupError
+from groundline_core._core.errors import SetupError
+from groundline_core._settings import ENV_FILE, read_settings
 from groundline_core.db.tables import metadata
-from groundline_core.settings import ENV_FILE, read_settings
 
 
 def _url() -> URL:
