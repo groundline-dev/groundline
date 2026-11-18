@@ -294,6 +294,42 @@ def test_destroy_keeps_a_lasting_deployments_data_address_and_key(checkout: Path
     )
 
 
+def test_destroy_initialises_both_roots_before_planning(checkout: Path):
+    # A checkout that has never deployed from this version has no
+    # infra/data/.terraform, so destroying has to initialise it.
+    lasting(checkout, lifetime="disposable")
+    world = aws_fakes.new_world(
+        outputs=dict(DESTROYABLE, lifetime="disposable"),
+        existing={"i-test": "terminated"},
+    )
+
+    result, world = destroy(checkout, world, "1\n")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    terraform = [c for c in world["calls"] if c[0] == "terraform"]
+    first_plan = next(i for i, c in enumerate(terraform) if "plan" in c)
+    inits = [c for c in terraform[:first_plan] if "init" in c]
+    assert {next(a for a in c if a.startswith("-chdir=")) for c in inits} == {
+        "-chdir=infra",
+        "-chdir=infra/data",
+    }
+
+
+def test_destroy_deletes_a_server_made_before_data_volumes(checkout: Path):
+    lasting(checkout, lifetime="disposable")
+    world = aws_fakes.new_world(
+        outputs=dict(DESTROYABLE, lifetime="disposable"),
+        data_outputs={},
+        existing={"i-test": "terminated"},
+    )
+
+    result, world = destroy(checkout, world, "1\n")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert world["destroyed"]
+    assert "your deployment is deleted" in result.stdout
+
+
 def test_data_delete_needs_the_name_typed_exactly(checkout: Path):
     lasting(checkout)
     world = aws_fakes.new_world(outputs=DESTROYABLE, existing={"i-test": "terminated"})

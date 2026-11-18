@@ -257,6 +257,19 @@ save_setting() {
 # deployment_name: the deployment_name in infra/terraform.tfvars, or nothing.
 deployment_name() { tfvars_value deployment_name; }
 
+# init_roots: terraform init in both folders, printing Terraform's output only
+# if it fails. A checkout that has never deployed from this version has no
+# infra/data/.terraform, and destroying needs it as much as deploying does.
+init_roots() {
+  local root init_log
+  for root in infra/data infra; do
+    init_log="$(terraform -chdir="$root" init -input=false 2>&1)" || {
+      echo "$init_log" >&2
+      fail "terraform init failed in $root"
+    }
+  done
+}
+
 # saved_app_settings: the app_settings in infra/terraform.tfvars, as JSON with
 # sorted keys, such as {"GROUNDLINE_MAX_SOURCE_CHARS":150000}; nothing if
 # Terraform can't read them. Terraform parses the file, since it's HCL.

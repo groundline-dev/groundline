@@ -31,6 +31,7 @@ case "$*" in
 esac
 
 use_project
+init_roots
 
 # Read before destroying: the outputs are gone afterwards. A deployment that
 # failed partway may lack some, so a missing one is checked below, not here.

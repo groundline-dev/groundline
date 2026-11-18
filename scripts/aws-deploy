@@ -86,13 +86,7 @@ if ! errors="$(aws ssm get-parameter --region "$region" --name "$anthropic_param
     *) fail "couldn't check $anthropic_parameter: $errors" ;;
   esac
 fi
-# Its output only matters when it fails.
-for root in infra/data infra; do
-  init_log="$(terraform -chdir="$root" init -input=false 2>&1)" || {
-    echo "$init_log" >&2
-    fail "terraform init failed in $root"
-  }
-done
+init_roots
 # Tells a new server from an updated one below, since only a new one gets a new deadline.
 previous_instance="$(terraform -chdir=infra output -raw instance_id 2>/dev/null || true)"
 # A server made before deployments had a data volume keeps its database on its
