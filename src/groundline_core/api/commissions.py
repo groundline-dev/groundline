@@ -14,40 +14,32 @@ from typing import Annotated, Literal, get_args
 from fastapi import APIRouter, Depends
 from pydantic import ConfigDict, Field
 
+from groundline_core._core import ModelClient
+from groundline_core._evaluate import (
+    DEFAULT_COMMISSIONS_PRESET,
+    CommissionPreset,
+    evaluate,
+)
+from groundline_core._evaluators.report import cost_line, result_line
+from groundline_core._findings import EXPLANATIONS
+from groundline_core._result import Alarm, EvaluationResult, Finding
+from groundline_core._settings import ENV_FILE
 from groundline_core.api.common import (
-    Alarm,
     CheckRequest,
     CheckResponse,
-    Finding,
     Metadata,
     alarm_of,
     begin_check,
     check_failures,
     check_responses,
     model_client,
-    usage_of,
 )
-from groundline_core.api.findings import EXPLANATIONS, commission_finding
 from groundline_core.auth import require_api_key
-from groundline_core.core import ModelClient
-from groundline_core.evaluate import DEFAULT_COMMISSIONS_PRESET, evaluate
-from groundline_core.evaluators.commissions.models import (
-    CommissionsRefuteOutput,
-    ranked,
-)
-from groundline_core.evaluators.models import ALARM_STEP, AlarmOutput
-from groundline_core.evaluators.report import cost_line, result_line
 from groundline_core.presets import load_preset
-from groundline_core.result import EvaluationResult
-from groundline_core.settings import ENV_FILE
 
 logger = logging.getLogger("groundline.api")
 
 router = APIRouter()
-
-
-CommissionPreset = Literal["commission_quick", "commission_reverse_lean"]
-"""The commission presets a caller can choose."""
 
 
 def _preset_choices() -> str:
@@ -155,7 +147,7 @@ async def commissions(
     response = _response(result)
     logger.info(
         "checked a summary: %s · %d commissions · %s",
-        result_line(result.run.output(ALARM_STEP, AlarmOutput)),
+        result_line(result),
         len(response.findings),
         cost_line(result, time.perf_counter() - started),
     )
@@ -163,18 +155,15 @@ async def commissions(
 
 
 def _response(result: EvaluationResult) -> CommissionsResponse:
-    # The commissions still flagged after refute; quick switches refute off.
-    found = result.run.output("commissions_refute", CommissionsRefuteOutput)
-    alarm = result.run.output(ALARM_STEP, AlarmOutput)
     return CommissionsResponse(
         evaluation_type="commissions",
-        flagged=alarm.flagged,
-        score=alarm.rescaled_score,
-        findings=[commission_finding(c) for c in ranked(found.commissions)],
-        counts=None,
+        flagged=result.flagged,
+        score=result.score,
+        findings=result.findings,
+        counts=result.counts,
         metadata=CommissionsMetadata(
             pipeline=result.pipeline,
-            alarm=alarm_of(alarm, CommissionsAlarm),
-            usage=usage_of(result),
+            alarm=alarm_of(result.alarm, CommissionsAlarm),
+            usage=result.usage,
         ),
     )

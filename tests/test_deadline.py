@@ -12,11 +12,11 @@ import httpx2
 import pytest
 
 from groundline_core import evaluate, evaluate_sync, load_preset
+from groundline_core._core import ModelReply
+from groundline_core._core.errors import ModelTimeoutError
+from groundline_core._settings import Settings
 from groundline_core.api import common
 from groundline_core.app import app
-from groundline_core.core import ModelReply
-from groundline_core.core.errors import ModelTimeoutError
-from groundline_core.settings import Settings
 from tests.async_helpers import finish_before_watchdog
 from tests.auth_helpers import BODY, HEADERS, FakeKeys
 from tests.fakes import FakeClient

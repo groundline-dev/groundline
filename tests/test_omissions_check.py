@@ -3,8 +3,8 @@ from typing import Any
 
 import pytest
 
-from groundline_core.core import StageError
-from groundline_core.evaluators.omissions.models import CheckOutput, Verdict
+from groundline_core._core import StageError
+from groundline_core._evaluators.omissions.models import CheckOutput, Verdict
 from tests.omission_helpers import (
     CHECK,
     EXTRACT,

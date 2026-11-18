@@ -12,10 +12,10 @@ import pytest
 from pydantic import SecretStr
 
 from groundline_core import evaluate, evaluate_sync
-from groundline_core.clients.anthropic import AnthropicClient
-from groundline_core.core import APIKeyRejectedError
-from groundline_core.evaluators.report import result_json
-from groundline_core.settings import MissingAPIKeyError
+from groundline_core._clients.anthropic import AnthropicClient
+from groundline_core._core import APIKeyRejectedError
+from groundline_core._evaluators.report import result_json
+from groundline_core._settings import MissingAPIKeyError
 from tests.anthropic_helpers import api_error, fake_anthropic, keys_sent
 from tests.fakes import FakeClient
 from tests.omission_helpers import SOURCE, SUMMARY, not_flagged_script
