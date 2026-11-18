@@ -52,10 +52,15 @@ def test_the_package_is_a_member_of_the_uv_workspace():
     assert "packages/*" in workspace["members"]
 
 
-def test_the_package_carries_the_same_license_and_notice_as_the_repo():
+def test_the_package_carries_the_repos_license_and_its_own_short_notice():
     project = read_toml(PACKAGE_DIR / "pyproject.toml")["project"]
     assert project["license-files"] == ["LICENSE", "NOTICE"]
-    for name in project["license-files"]:
-        assert (PACKAGE_DIR / name).read_text() == (ROOT / name).read_text(), (
-            f"{name} differs from the repo's: copy it again"
-        )
+    assert (PACKAGE_DIR / "LICENSE").read_text() == (ROOT / "LICENSE").read_text(), (
+        "LICENSE differs from the repo's: copy it again"
+    )
+    # Not a copy of the repo's NOTICE, which also credits test fixtures that the
+    # wheel doesn't hold. It has to start with the same name and copyright lines.
+    notice = (PACKAGE_DIR / "NOTICE").read_text()
+    repo_head = "".join((ROOT / "NOTICE").read_text().splitlines(keepends=True)[:2])
+    assert notice.startswith(repo_head), "NOTICE must start with the repo's two lines"
+    assert "fixtures" not in notice

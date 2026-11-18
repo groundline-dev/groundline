@@ -1,12 +1,12 @@
 """Built-in domain profiles, shipped inside the package.
 
 Each subfolder with a `profile.yaml` is a profile. Profiles elsewhere on disk
-load the same way with `groundline_core.core.load_profile`.
+load the same way with `groundline_core._core.load_profile`.
 """
 
 from pathlib import Path
 
-from groundline_core.core.profile import DomainProfile, ProfileError, load_profile
+from groundline_core._core.profile import DomainProfile, ProfileError, load_profile
 
 BUILTIN_DIR = Path(__file__).parent
 

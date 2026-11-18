@@ -12,15 +12,15 @@ import httpx2
 import pytest
 from anthropic import DefaultAsyncHttpxClient
 
-from groundline_core.clients.anthropic import AnthropicClient
-from groundline_core.core import (
+from groundline_core._clients.anthropic import AnthropicClient
+from groundline_core._core import (
     APIKeyRejectedError,
     ModelError,
     ModelRefusal,
     ModelReply,
 )
-from groundline_core.core.errors import ModelTimeoutError
-from groundline_core.settings import ModelSettings, UnreadableSettingsError
+from groundline_core._core.errors import ModelTimeoutError
+from groundline_core._settings import ModelSettings, UnreadableSettingsError
 from tests.anthropic_helpers import api_error, message
 from tests.async_helpers import finish_before_watchdog
 
@@ -445,7 +445,7 @@ def test_actual_hung_transport_is_cancelled_within_attempt_and_retry_budgets(
 def test_header_translation_uses_explicit_wall_clock(
     headers: dict[str, str], minimum: float | None
 ):
-    from groundline_core.clients import anthropic as adapter
+    from groundline_core._clients import anthropic as adapter
 
     decide = getattr(adapter, "retry_decision", None)
     assert callable(decide), (

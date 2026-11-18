@@ -22,7 +22,7 @@ from typing import Any
 import pytest
 import yaml
 
-from groundline_core.settings import Settings
+from groundline_core._settings import Settings
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPOSE = ROOT / "compose.yaml"

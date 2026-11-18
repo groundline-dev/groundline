@@ -755,7 +755,8 @@
           "partial",
           "absent"
         ],
-        "title": "Counts"
+        "title": "Counts",
+        "description": "How many of the source's facts the summary records."
       },
       "ErrorBody": {
         "properties": {
@@ -1121,19 +1122,23 @@
         "properties": {
           "calls": {
             "type": "integer",
-            "title": "Calls"
+            "title": "Calls",
+            "description": "Model calls made, including any answered from a cache."
           },
           "input_tokens": {
             "type": "integer",
-            "title": "Input Tokens"
+            "title": "Input Tokens",
+            "description": "Tokens sent to the model, by calls not answered from a cache."
           },
           "output_tokens": {
             "type": "integer",
-            "title": "Output Tokens"
+            "title": "Output Tokens",
+            "description": "Tokens the model wrote, by calls not answered from a cache."
           },
           "cost_usd": {
             "type": "number",
-            "title": "Cost Usd"
+            "title": "Cost Usd",
+            "description": "What the calls not answered from a cache cost, in US dollars, at the prices\ngroundline knows. A model with no known price adds nothing."
           }
         },
         "additionalProperties": false,
@@ -1144,7 +1149,8 @@
           "output_tokens",
           "cost_usd"
         ],
-        "title": "Usage"
+        "title": "Usage",
+        "description": "The model calls a check made, and what they cost."
       }
     },
     "securitySchemes": {

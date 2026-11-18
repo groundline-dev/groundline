@@ -29,7 +29,7 @@ def load_export_script():
     return module
 
 
-def test_the_committed_openapi_file_is_the_apps_current_description():
+def test_the_committed_openapi_file_is_what_the_export_writes():
     committed = json.loads(SPEC.read_text())
     # The description as the export builds it: the default limits, so the
     # developer's own limits (shell or .env) can't change the result.

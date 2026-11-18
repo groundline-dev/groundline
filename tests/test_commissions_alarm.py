@@ -2,10 +2,10 @@ import json
 
 import pytest
 
-from groundline_core.core import SpecError
-from groundline_core.evaluators.commissions.models import Commission
-from groundline_core.evaluators.commissions.stages.alarm import alarm_score
-from groundline_core.evaluators.models import AlarmOutput
+from groundline_core._core import SpecError
+from groundline_core._evaluators.commissions.models import Commission
+from groundline_core._evaluators.commissions.stages.alarm import alarm_score
+from groundline_core._evaluators.models import AlarmOutput
 from tests.commissions_helpers import (
     ALARM,
     ALL_STAGES,

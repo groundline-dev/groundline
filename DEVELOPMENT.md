@@ -62,7 +62,7 @@ You need [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13 (0.1
 
 Set the two optional overrides below in `.env` or the shell; shell values take
 precedence. Leave them unset to use the defaults in
-[`settings.py`](src/groundline_core/settings.py).
+[`_settings.py`](src/groundline_core/_settings.py).
 
 ### Overall check limit
 
@@ -104,12 +104,12 @@ check runs out of time.
 
 Database operations also have their own time limits. The model and database
 limits are defined on the `Settings` class in
-[`src/groundline_core/settings.py`](src/groundline_core/settings.py).
+[`src/groundline_core/_settings.py`](src/groundline_core/_settings.py).
 
 See [API statuses and errors](README.md#statuses-and-errors) for response codes
 and the cost implications of failed checks. Python configuration behavior is
-documented on [`evaluate()`](src/groundline_core/evaluate.py) and
-[`AnthropicClient`](src/groundline_core/clients/anthropic.py).
+documented on [`evaluate()`](src/groundline_core/_evaluate.py) and
+[`AnthropicClient`](src/groundline_core/_clients/anthropic.py).
 
 ## Request size limits
 
@@ -258,7 +258,7 @@ There are three test suites. They differ in what they use for Postgres and Claud
 
 None of them starts the Docker stack, runs `terraform test` or touches AWS: `make docker-smoke`, `make infra-check` and `make aws-smoke` do that.
 
-`make core-check` builds the package and installs it with no extras, once with pip and once with uv pip, then checks that the library loads without the server or CLI packages and that the command and the API say which extra to install. Run it when you change the dependencies in `pyproject.toml` or what `groundline_core` imports when it loads. CI runs it on every PR.
+`make core-check` builds the package and installs it with no extras, once with pip and once with uv pip, then checks that the library loads without the server or CLI packages and that the command and the API say which extra to install. It also type-checks `scripts/library_typing_check.py`, a file that uses only the public names, with pyright strict against each install, so a public name or result field whose type callers can't see fails it. Run it when you change the dependencies in `pyproject.toml`, what `groundline_core` imports when it loads, or the public interface. CI runs it on every PR.
 
 CI runs the fast and database tests on every PR, but never the live tests.
 
@@ -323,7 +323,7 @@ The docs page is generated from the request and response models in `src/groundli
 
 ## The SDK
 
-The SDK is the `groundline-client` package in `packages/groundline-client/`, a member of the repo's uv workspace. Most of its code is generated from the API's OpenAPI description by [openapi-python-client](https://github.com/openapi-generators/openapi-python-client), and committed in `src/groundline_client/_generated/`. Don't edit that folder by hand ([ADR 0018](docs/adr/0018-the-sdk-is-generated-with-openapi-python-client.md)).
+The SDK is the `groundline-client` package in `packages/groundline-client/`, a member of the repo's uv workspace. Most of its code is generated from the API's OpenAPI description by [openapi-python-client](https://github.com/openapi-generators/openapi-python-client), and committed in `src/groundline_client/_generated/`. Don't edit that folder by hand ([ADR 0019](docs/adr/0019-the-sdk-is-generated-with-openapi-python-client.md)).
 
 After changing a route, a model or anything else in the API's description, regenerate the SDK and commit the changed files:
 
@@ -333,7 +333,7 @@ make generate-sdk
 
 It writes the API's description to `packages/groundline-client/openapi.json`, clears `_generated/`, and runs the generator, which is pinned in `uv.lock`. Changing the app's version also changes `openapi.json`, so regenerate then too. Upgrading the generator means changing its pin in `packages/groundline-client/pyproject.toml`, running `uv lock`, and regenerating, in one PR.
 
-CI guards the SDK with two jobs. `make sdk-check` regenerates the SDK into a temporary folder and fails if the result differs from the files on disk. It changes nothing in your working tree, so you can run it any time. `make sdk-install-check` builds the wheel, installs it into clean environments with pip and with uv pip, and fails if it pulls in `groundline-core`'s packages (the pipelines, the Anthropic SDK or the server). `tests/test_sdk_spec.py` checks that `openapi.json` is the app's current description, and the tests in `packages/groundline-client/tests/` check that every endpoint has a generated function and models.
+CI guards the SDK with two jobs. `make sdk-check` regenerates the SDK into a temporary folder and fails if the result differs from the files on disk. It changes nothing in your working tree, so you can run it any time. `make sdk-install-check` builds the wheel, installs it into clean environments with pip and with uv pip, and fails if it pulls in `groundline-core`'s packages (the pipelines, the Anthropic SDK or the server). `tests/test_sdk_spec.py` checks that `openapi.json` is what the export writes from the app (the API's description with the default limits and without request-field defaults, so `/docs` shows defaults that the file doesn't), and the tests in `packages/groundline-client/tests/` check that every endpoint has a generated function and models.
 
 The hand-written layer is `GroundlineClient` in `client.py` (the Client in `CONTEXT.md`). It reads the URL and API key from its arguments or from `GROUNDLINE_API_URL` and `GROUNDLINE_API_KEY`, and has a sync and an `_async` method for each operation. To add an operation:
 
@@ -358,17 +358,20 @@ Every route needs it except probes such as `/health` and `/ready` and the docs p
 .claude/skills/            links to .agents/skills/, so Claude Code finds the same skills
 Dockerfile                 the app image
 compose.yaml               the stack: Postgres, the setup service and the app
-src/groundline_core/
-  core/                    the pipeline framework: steps, registry, specs, runner, cache, costs
-  clients/                 the Anthropic client
+src/groundline_core/       a leading underscore marks the library's internals (ADR 0018)
+  _core/                   the pipeline framework: steps, registry, specs, runner, cache, costs
+  _clients/                the Anthropic client
   db/                      the database: tables, migrations, connection check, setup
-  evaluators/              what the checks share, and the registry of built-in checks
-  evaluators/omissions/    the omission check
-  evaluators/commissions/  the commission check
+  _evaluators/             what the checks share, and the registry of built-in checks
+  _evaluators/omissions/   the omission check
+  _evaluators/commissions/ the commission check
   profiles/clinical/       the clinical profile: prompts and severity rubric
   presets/                 validated pipeline specs (omission_all_opus, commission_quick,
                            commission_reverse_lean)
-  evaluate.py              evaluate(): the entry point the CLI and API share
+  __init__.py              the public interface: the names library callers import
+  _evaluate.py             evaluate(): the entry point the CLI and API share
+  _result.py, _findings.py the result evaluate() returns, and how findings are built from a run
+  _settings.py             secrets and settings, from the environment or a .env file
   api_keys.py              API-key creation, revocation and authentication
   auth.py                  the Bearer authentication dependency
   command.py               where the groundline-core command starts: checks for the cli extra

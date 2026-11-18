@@ -5,7 +5,7 @@ from typing import Any, ClassVar
 import pytest
 from pydantic import BaseModel
 
-from groundline_core.core import (
+from groundline_core._core import (
     DomainProfile,
     FileCache,
     Implementation,

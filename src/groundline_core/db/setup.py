@@ -20,10 +20,10 @@ from psycopg import sql
 from sqlalchemy import URL, make_url
 from sqlalchemy.exc import ArgumentError, SQLAlchemyError
 
-from groundline_core.core.errors import SetupError
+from groundline_core._core.errors import SetupError
+from groundline_core._settings import ENV_FILE, read_settings
 from groundline_core.db.config import DRIVERS
 from groundline_core.db.connection import scrub
-from groundline_core.settings import ENV_FILE, read_settings
 
 EXAMPLE_PASSWORD = "CHANGE_ME"  # betterleaks:allow (public; rejected below)
 CONNECT_TIMEOUT_SECONDS = 5

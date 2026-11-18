@@ -10,12 +10,14 @@ T = TypeVar("T", bound="Usage")
 
 @_attrs_define
 class Usage:
-    """
+    """The model calls a check made, and what they cost.
+
     Attributes:
-        calls (int):
-        input_tokens (int):
-        output_tokens (int):
-        cost_usd (float):
+        calls (int): Model calls made, including any answered from a cache.
+        input_tokens (int): Tokens sent to the model, by calls not answered from a cache.
+        output_tokens (int): Tokens the model wrote, by calls not answered from a cache.
+        cost_usd (float): What the calls not answered from a cache cost, in US dollars, at the prices
+            groundline knows. A model with no known price adds nothing.
     """
 
     calls: int

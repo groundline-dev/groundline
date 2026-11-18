@@ -14,30 +14,24 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, Depends
 from pydantic import ConfigDict
 
+from groundline_core._core import ModelClient
+from groundline_core._evaluate import DEFAULT_PRESET, evaluate
+from groundline_core._evaluators.report import cost_line, result_line
+from groundline_core._findings import EXPLANATIONS
+from groundline_core._result import Alarm, EvaluationResult, Finding
+from groundline_core._settings import ENV_FILE
 from groundline_core.api.common import (
-    Alarm,
     CheckRequest,
     CheckResponse,
-    Counts,
-    Finding,
     Metadata,
     alarm_of,
     begin_check,
     check_failures,
     check_responses,
     model_client,
-    usage_of,
 )
-from groundline_core.api.findings import EXPLANATIONS, omission_finding
 from groundline_core.auth import require_api_key
-from groundline_core.core import ModelClient
-from groundline_core.evaluate import DEFAULT_PRESET, evaluate
-from groundline_core.evaluators.models import ALARM_STEP, AlarmOutput
-from groundline_core.evaluators.omissions.models import RankOutput, ScoreOutput
-from groundline_core.evaluators.report import cost_line, result_line
 from groundline_core.presets import load_preset
-from groundline_core.result import EvaluationResult
-from groundline_core.settings import ENV_FILE
 
 logger = logging.getLogger("groundline.api")
 
@@ -132,7 +126,7 @@ async def omissions(
     response = _response(result)
     logger.info(
         "checked a summary: %s · %d omissions · %s",
-        result_line(result.run.output(ALARM_STEP, AlarmOutput)),
+        result_line(result),
         len(response.findings),
         cost_line(result, time.perf_counter() - started),
     )
@@ -140,25 +134,15 @@ async def omissions(
 
 
 def _response(result: EvaluationResult) -> OmissionsResponse:
-    scored = result.run.output("score", ScoreOutput)
-    ranked_facts = {f.id: f for f in result.run.output("rank", RankOutput).facts}
-    alarm = result.run.output(ALARM_STEP, AlarmOutput)
     return OmissionsResponse(
         evaluation_type="omissions",
-        flagged=alarm.flagged,
-        score=alarm.rescaled_score,
-        findings=[
-            omission_finding(m, ranked_facts[m.id]) for m in scored.missing_facts
-        ],
-        counts=Counts(
-            total=scored.total,
-            present=scored.present,
-            partial=scored.partial,
-            absent=scored.absent,
-        ),
+        flagged=result.flagged,
+        score=result.score,
+        findings=result.findings,
+        counts=result.counts,
         metadata=OmissionsMetadata(
             pipeline=result.pipeline,
-            alarm=alarm_of(alarm, OmissionsAlarm),
-            usage=usage_of(result),
+            alarm=alarm_of(result.alarm, OmissionsAlarm),
+            usage=result.usage,
         ),
     )
