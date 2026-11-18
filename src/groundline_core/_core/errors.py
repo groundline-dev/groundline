@@ -63,19 +63,25 @@ class SetupError(GroundlineError):
         only by its name."""
 
 
-def file_line(path: Path | None) -> str:
+def file_line(path: Path | None, *, note_missing: bool = True) -> str:
     """The line the CLI prints and the API logs after an error's message: the
     full path of the file at fault, and whether it exists. Empty when no file is
-    involved. The message itself names the file only by its name."""
+    involved. The message itself names the file only by its name. Like a
+    message, the line has anything shaped like an API key redacted.
+
+    `note_missing=False` leaves out "(not found)", for a file groundline was
+    trying to create, where it would read as a missing input."""
     if path is None:
         return ""
-    try:
-        missing = "" if path.exists() else " (not found)"
-    except OSError:
-        # A folder on the way that can't be searched: say nothing rather than
-        # fail while reporting another error.
-        missing = ""
-    return f"\n  File: {path}{missing}"
+    missing = ""
+    if note_missing:
+        try:
+            missing = "" if path.exists() else " (not found)"
+        except OSError:
+            # A folder on the way that can't be searched: say nothing rather
+            # than fail while reporting another error.
+            pass
+    return redact_keys(f"\n  File: {path}{missing}")
 
 
 class APIKeyRejectedError(SetupError):

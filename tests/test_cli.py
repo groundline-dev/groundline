@@ -289,7 +289,7 @@ def test_an_unwritable_json_path_exits_with_2_not_1(
     assert result.exit_code == 2
     assert result.stderr == (
         "error: couldn't write the JSON result to result.json: "
-        f"No such file or directory\n  File: {out_path} (not found)\n"
+        f"No such file or directory\n  File: {out_path}\n"
     )
     assert "Traceback" not in result.output
 
@@ -383,3 +383,22 @@ def test_an_unexpected_error_is_reported_by_type_only(
         "error: unexpected RuntimeError\n"
         "  This is a bug in groundline; please report it.\n"
     )
+
+
+@pytest.mark.parametrize("option", ["--json", "--pipeline"])
+def test_a_key_shaped_file_name_is_redacted_on_both_lines(
+    option: str, files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+):
+    use_client(monkeypatch, not_flagged_script())
+    key_named = files[0].parent / "sk-ant-sentinel-0123456789.yaml"
+    if option == "--pipeline":
+        key_named.write_text("name: [broken\n")
+    else:
+        key_named = files[0].parent / "no-such-folder" / key_named.name
+
+    result = omissions(files, option, str(key_named))
+
+    assert result.exit_code == 2
+    assert "sk-ant-sentinel" not in result.stderr
+    assert "\n  File: " in result.stderr
+    assert result.stderr.count("<redacted key>") == 2

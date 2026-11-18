@@ -270,10 +270,13 @@ def _exit_code(run: Callable[[], int]) -> int:
         return run()
     except (GroundlineError, UsageError, JSONWriteError) as error:
         # Every message is redacted here, including the CLI's own errors, which
-        # can quote a name from a spec file. SetupError and JSONWriteError carry
-        # the full path of the file at fault; the others have none.
+        # can quote a name from a spec file; file_line redacts its own line.
+        # SetupError and JSONWriteError carry the full path of the file at
+        # fault; the others have none. A --json file was never written, so it
+        # isn't marked "(not found)".
         path: Path | None = getattr(error, "path", None)
-        typer.echo(f"error: {redact_keys(str(error))}{file_line(path)}", err=True)
+        file = file_line(path, note_missing=not isinstance(error, JSONWriteError))
+        typer.echo(f"error: {redact_keys(str(error))}{file}", err=True)
         if isinstance(error, ModelFailureError) and error.calls:
             cost = usage_text(summarize_usage(error.calls))
             typer.echo(f"  Recorded cost before stopping: {cost}", err=True)
