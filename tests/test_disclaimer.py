@@ -6,8 +6,8 @@ import pytest
 
 from groundline_core._core import DomainProfile
 from groundline_core._disclaimer import (
-    AFTER_LEAD,
-    LEAD,
+    OPENING_SENTENCE,
+    REST_OF_DISCLAIMER,
     SHORT_DISCLAIMER,
     full_disclaimer,
 )
@@ -24,7 +24,7 @@ def finance(sentence: str) -> DomainProfile:
 
 def test_a_profiles_disclaimer_sentence_follows_the_lead():
     assert full_disclaimer(finance("They aren't financial advice.")) == (
-        f"{LEAD} They aren't financial advice. {AFTER_LEAD}"
+        f"{OPENING_SENTENCE} They aren't financial advice. {REST_OF_DISCLAIMER}"
     )
 
 
@@ -36,7 +36,7 @@ def test_a_profiles_disclaimer_sentence_follows_the_lead():
 def test_without_a_disclaimer_sentence_the_disclaimer_is_the_core(
     profile: DomainProfile | None,
 ):
-    assert full_disclaimer(profile) == f"{LEAD} {AFTER_LEAD}"
+    assert full_disclaimer(profile) == f"{OPENING_SENTENCE} {REST_OF_DISCLAIMER}"
 
 
 @pytest.mark.parametrize(
@@ -59,14 +59,19 @@ def test_without_a_disclaimer_sentence_the_disclaimer_is_the_core(
 def test_a_disclaimer_sentence_is_one_line_ending_in_punctuation(
     written: str, added: str
 ):
-    assert full_disclaimer(finance(written)) == f"{LEAD} {added} {AFTER_LEAD}"
+    assert (
+        full_disclaimer(finance(written))
+        == f"{OPENING_SENTENCE} {added} {REST_OF_DISCLAIMER}"
+    )
 
 
 def test_both_readmes_carry_the_core_and_the_clinical_sentence():
     clinical = load_builtin_profile("clinical").disclaimer_sentence
     for readme in READMES:
         text = one_line(readme.read_text())
-        assert f"{LEAD} {AFTER_LEAD}" in text, f"{readme} lacks the disclaimer's core"
+        assert f"{OPENING_SENTENCE} {REST_OF_DISCLAIMER}" in text, (
+            f"{readme} lacks the disclaimer's core"
+        )
         assert clinical in text, f"{readme} lacks the clinical sentence {clinical!r}"
 
 

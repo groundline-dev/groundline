@@ -1,5 +1,5 @@
 """The disclaimer every result carries: a domain-neutral core, plus the
-disclaimer sentence a domain profile can add (see ADR 0021).
+disclaimer sentence a domain profile can add (see ADR 0022).
 
 The README and the SDK README repeat the core word for word, and
 `tests/test_disclaimer.py` checks that they still do.
@@ -9,8 +9,8 @@ import re
 
 from groundline_core._core.profile import DomainProfile
 
-LEAD = "groundline's results help a person review a summary."
-AFTER_LEAD = (
+OPENING_SENTENCE = "groundline's results help a person review a summary."
+REST_OF_DISCLAIMER = (
     "A summary that isn't flagged can still leave out or misstate important "
     "facts, so check it before relying on it. You're responsible for any decision "
     'made using groundline\'s results. groundline is provided "as is", and its '
@@ -30,7 +30,7 @@ ENDS_A_SENTENCE = re.compile(r"[.!?…][\"'”’)\]]*$")
 
 def full_disclaimer(profile: DomainProfile | None) -> str:
     """The disclaimer for a check that used `profile`: the core, with the
-    profile's disclaimer sentence, if it has one, after the lead.
+    profile's disclaimer sentence, if it has one, after the opening sentence.
 
     The sentence goes inside one paragraph, so its line breaks become spaces,
     and it gets a period if it doesn't already end a sentence. A blank one counts
@@ -39,4 +39,6 @@ def full_disclaimer(profile: DomainProfile | None) -> str:
     sentence = " ".join(profile.disclaimer_sentence.split()) if profile else ""
     if sentence and not ENDS_A_SENTENCE.search(sentence):
         sentence += "."
-    return " ".join(part for part in (LEAD, sentence, AFTER_LEAD) if part)
+    return " ".join(
+        part for part in (OPENING_SENTENCE, sentence, REST_OF_DISCLAIMER) if part
+    )
