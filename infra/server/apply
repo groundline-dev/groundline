@@ -17,8 +17,10 @@ cd "$(dirname "$0")/../.."
 data="${GROUNDLINE_DATA_DIR:-/srv/groundline-data}"
 metadata="${GROUNDLINE_METADATA_URL:-http://169.254.169.254/latest}"
 
+# The token outlasts the longest wait below (about four minutes, counting each
+# read's time limit) and refresh-address's (about fifteen).
 token="$(curl --disable --fail --silent --show-error --noproxy '*' --max-time 10 \
-  --retry 3 --request PUT --header 'X-aws-ec2-metadata-token-ttl-seconds: 60' \
+  --retry 3 --request PUT --header 'X-aws-ec2-metadata-token-ttl-seconds: 1800' \
   "$metadata/api/token")"
 read_metadata() {
   curl --disable --fail --silent --show-error --noproxy '*' --max-time 10 \
@@ -29,9 +31,14 @@ deployment="$(read_metadata tags/instance/deployment)"
 parameter="/groundline/$deployment/anthropic-api-key"
 # read_settings: set $settings to NAME=VALUE lines from the setting tags.
 read_settings() {
-  local tag value
+  local tags tag value
   settings=""
-  for tag in $(read_metadata tags/instance); do
+  # A failed read isn't "no settings": stop before .env is rewritten.
+  tags="$(read_metadata tags/instance)" || {
+    echo "groundline: couldn't read the server's tags from the instance metadata service (IMDS); .env is unchanged" >&2
+    exit 1
+  }
+  for tag in $tags; do
     case "$tag" in
       groundline-setting-GROUNDLINE_*)
         value="$(read_metadata "tags/instance/$tag")"
@@ -53,7 +60,9 @@ else
   for attempt in $(seq 1 "$attempts"); do
     read_settings
     shown="$(LC_ALL=C sort <<<"$settings" | { grep . || true; } | tr '\n' ' ' | sed 's/ $//')"
-    [ "$shown" != "$GROUNDLINE_EXPECTED_SETTINGS" ] || break
+    if [ "$shown" = "$GROUNDLINE_EXPECTED_SETTINGS" ]; then
+      break
+    fi
     if [ "$attempt" = "$attempts" ]; then
       echo "groundline: the server's setting tags show \"$shown\", not \"$GROUNDLINE_EXPECTED_SETTINGS\"" >&2
       exit 1

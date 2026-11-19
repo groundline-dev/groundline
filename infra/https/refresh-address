@@ -4,8 +4,10 @@ set -euo pipefail
 cd "$(dirname "$0")"
 [ "$#" = 0 ] || [ "$#" = 2 ] || { echo 'usage: refresh-address [expected-mode expected-cidr]' >&2; exit 2; }
 metadata=http://169.254.169.254/latest
+# The token outlasts the wait for the Elastic IP below: up to fifteen minutes,
+# counting each read's time limit.
 token="$(curl --disable --fail --silent --show-error --noproxy '*' --max-time 10 \
-  --retry 3 --request PUT --header 'X-aws-ec2-metadata-token-ttl-seconds: 60' \
+  --retry 3 --request PUT --header 'X-aws-ec2-metadata-token-ttl-seconds: 1800' \
   "$metadata/api/token")"
 read_metadata() {
   curl --disable --fail --silent --show-error --noproxy '*' --max-time 10 \
@@ -17,7 +19,9 @@ expected="$(read_metadata tags/instance/groundline-public-ip)"
 attempts="${GROUNDLINE_ADDRESS_ATTEMPTS:-60}"
 for attempt in $(seq 1 "$attempts"); do
   address="$(read_metadata public-ipv4)"
-  [ "$address" != "$expected" ] || break
+  if [ "$address" = "$expected" ]; then
+    break
+  fi
   if [ "$attempt" = "$attempts" ]; then
     echo "groundline HTTPS: the server's address is $address, not its Elastic IP $expected" >&2
     exit 1

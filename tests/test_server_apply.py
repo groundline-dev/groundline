@@ -7,6 +7,7 @@ the data volume, and the Anthropic API key is read again each time.
 """
 
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -26,6 +27,8 @@ case "$last" in
   */meta-data/placement/region) echo eu-north-1 ;;
   */meta-data/tags/instance/deployment) echo alice ;;
   */meta-data/tags/instance)
+    # TAGS_FAIL: IMDS refuses the read, as with an expired token.
+    if [ -n "${TAGS_FAIL:-}" ]; then echo 'curl: (22) 401' >&2; exit 22; fi
     # Tags reach the metadata late: after SWITCH_AFTER reads of the list, it
     # shows SETTING_TAGS_LATER in place of SETTING_TAGS.
     echo read >>"$TAG_READS"
@@ -316,3 +319,44 @@ def test_nothing_is_grown_without_a_mounted_data_volume(server: Path):
 
     assert result.returncode == 0, result.stderr
     assert "xfs_growfs" not in (server.parents[1] / "calls").read_text()
+
+
+@pytest.mark.parametrize("expected", [None, "GROUNDLINE_MAX_BODY_BYTES=1048576"])
+def test_a_failed_tag_read_stops_before_env_is_rewritten(
+    server: Path, expected: str | None
+):
+    # A first boot reads the tags once; an upgrade waits for the expected ones.
+    assert apply(server).returncode == 0
+    before = (server / ".env").read_text()
+    extra = {"GROUNDLINE_EXPECTED_SETTINGS": expected} if expected else {}
+
+    result = apply(server, parameter="sk-ant-new", TAGS_FAIL="1", **extra)
+
+    assert result.returncode != 0
+    assert "couldn't read the server's tags" in result.stderr
+    assert (server / ".env").read_text() == before
+
+
+@pytest.mark.parametrize(
+    ("script", "attempts", "wait"),
+    [
+        (
+            "infra/server/apply",
+            "GROUNDLINE_SETTINGS_ATTEMPTS",
+            "GROUNDLINE_SETTINGS_WAIT_SECONDS",
+        ),
+        ("infra/https/refresh-address", "GROUNDLINE_ADDRESS_ATTEMPTS", None),
+    ],
+)
+def test_the_metadata_token_outlasts_the_longest_wait(
+    script: str, attempts: str, wait: str | None
+):
+    # A token that expired mid-wait would turn every later read into a 401.
+    source = (ROOT / script).read_text()
+    [ttl] = re.findall(r"metadata-token-ttl-seconds: (\d+)", source)
+    [tries] = re.findall(r"\$\{" + attempts + r":-(\d+)\}", source)
+    if wait:
+        [seconds] = re.findall(r"\$\{" + wait + r":-(\d+)\}", source)
+    else:
+        [seconds] = re.findall(r"^\s*sleep (\d+)$", source, re.M)
+    assert int(ttl) > int(tries) * (int(seconds) + 10)
