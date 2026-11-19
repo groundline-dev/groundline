@@ -69,9 +69,11 @@ jobs:
       - run: scripts/docker-smoke-test
 
   core-install:
-    # Install groundline-core with no extras, with pip and with uv pip, and check
-    # that the library loads without the server or CLI packages, and that the
-    # command and the API say which extra to install (scripts/core-install-check).
+    # Build groundline-core and install it with no extras, with pip and with uv
+    # pip. Check that the built files hold only the package (no .env, tests or
+    # local files), that every preset, profile and schema loads from the installed
+    # package, that the library loads without the server or CLI packages, and that
+    # the command and the API say which extra to install (scripts/core-install-check).
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:

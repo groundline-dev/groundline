@@ -258,7 +258,7 @@ There are three test suites. They differ in what they use for Postgres and Claud
 
 None of them starts the Docker stack, runs `terraform test` or touches AWS: `make docker-smoke`, `make infra-check` and `make aws-smoke` do that.
 
-`make core-check` builds the package and installs it with no extras, once with pip and once with uv pip, then checks that the library loads without the server or CLI packages and that the command and the API say which extra to install. It also type-checks `scripts/library_typing_check.py`, a file that uses only the public names, with pyright strict against each install, so a public name or result field whose type callers can't see fails it. Run it when you change the dependencies in `pyproject.toml`, what `groundline_core` imports when it loads, or the public interface. CI runs it on every PR.
+`make core-check` builds the wheel and the sdist and checks that they hold only the package, its license, notice and readme, and the packaging metadata (no `.env`, tests or other local files), and that a wheel built from the sdist has the same files. Anything inside `src/groundline_core/` counts as package, so on your own machine an untracked scratch file there is built in without a complaint; release runs build from a clean checkout. It then installs the wheel with no extras, once with pip and once with uv pip, and checks that every built-in preset and profile loads (which reads every prompt and rubric), that both schema files are there, that the library loads without the server or CLI packages, and that the command and the API say which extra to install. It also type-checks `scripts/library_typing_check.py`, a file that uses only the public names, with pyright strict against each install, so a public name or result field whose type callers can't see fails it. Run it when you change the dependencies in `pyproject.toml`, what `groundline_core` imports when it loads, the public interface, or the files the package ships. CI runs it on every PR, and the release workflow runs it on the files it uploads (`--dist`) and on the copy it installs back from TestPyPI (`--from-index`).
 
 CI runs the fast and database tests on every PR, but never the live tests.
 
@@ -282,7 +282,7 @@ Anthropic SDK DEBUG logging includes raw prompts. Privacy assertions capture gro
 
 ## Lint, format and type checks
 
-`make check` runs ruff, pyright in strict mode (the SDK's generated code is the exception, see [The SDK](#the-sdk)), the large-file check, secret checks and the tests, without changing files. CI runs it too, along with the database tests (`make test-db`), the SDK checks (`make sdk-check` and `make sdk-install-check`, see [The SDK](#the-sdk)), the Docker stack check (`make docker-smoke`), the Terraform checks (`make infra-check`) and the local certificate lifecycle checks (`make https-smoke`). `make infra-check` needs Terraform, but no AWS credentials: its tests plan against a mock AWS provider. Run it when you change `infra/`. `make fix` applies ruff's fixes and formatting. Pyright errors need fixing by hand.
+`make check` runs ruff, pyright in strict mode (the SDK's generated code is the exception, see [The SDK](#the-sdk)), the large-file check, secret checks and the tests, without changing files. CI runs it too, along with the database tests (`make test-db`), the install check (`make core-check`), the SDK checks (`make sdk-check` and `make sdk-install-check`, see [The SDK](#the-sdk)), the Docker stack check (`make docker-smoke`), the Terraform checks (`make infra-check`) and the local certificate lifecycle checks (`make https-smoke`). `make infra-check` needs Terraform, but no AWS credentials: its tests plan against a mock AWS provider. Run it when you change `infra/`. `make fix` applies ruff's fixes and formatting. Pyright errors need fixing by hand.
 
 The `pre-commit` hook runs lint, format, type, large-file and secret checks on staged changes; it does not run pytest. If ruff fails, run `make fix` and stage the result.
 
@@ -351,11 +351,51 @@ To require an API key on a route, add `dependencies=[Depends(require_api_key)]` 
 
 Every route needs it except probes such as `/health` and `/ready` and the docs pages ([ADR 0012](docs/adr/0012-only-probes-and-docs-pages-are-public.md)). A test in `tests/test_api_auth.py` lists the public probes and fails if any other route lacks an API key.
 
+## Releasing groundline-core
+
+`groundline-core` is published to PyPI by `.github/workflows/release.yml`, which runs only when a maintainer starts it.
+
+### Versions
+
+The version is written in `pyproject.toml` and follows the policy in the README's [Versions](README.md#versions) section. Write it in the normalized form PyPI uses, such as `0.2.0` or `0.2.0rc1`; the workflow refuses anything else. To release, raise the version in a pull request and merge it. Each version can be published only once.
+
+### Running a release
+
+1. In GitHub, open **Actions → Release → Run workflow** and choose `main`.
+2. The workflow builds the wheel and sdist once, checks their files (`scripts/core-install-check --dist`), uploads them to TestPyPI, installs the wheel back from there and checks it again. This takes about five minutes.
+3. The `pypi` job then waits for approval. Any of the `pypi` environment's reviewers except the person who started the run can approve it on the run's page.
+4. After approval, the workflow uploads the same files to PyPI, tags the commit `groundline-core-v<version>` and creates a GitHub release, with notes listing the merged pull requests.
+
+A run from `main` stops before uploading anything if the version is already on PyPI or TestPyPI, or already tagged (`scripts/release_version.py`). If a run stops partway:
+
+- **Before TestPyPI** (the build or its check failed): nothing was uploaded, so fix the problem and start a new run.
+- **After TestPyPI, before PyPI** (the check of the TestPyPI install failed, or the approval was rejected): the version stays on TestPyPI for good, so raise the version before running again. Skipping a version number this way is normal.
+- **During the PyPI upload, or in the last job** (the tag and GitHub release): use **Re-run failed jobs** on that same run, which uploads only the files PyPI doesn't have yet. A new run would be refused, because the version is already on TestPyPI, and perhaps on PyPI too.
+
+Start one run at a time: GitHub keeps only one run waiting per branch, and a newer one cancels it.
+
+Started from any other branch, the workflow publishes a development version, such as `0.1.0.dev12` (the run number), to TestPyPI and stops there. Use it to try a change to the release process. Because TestPyPI never accepts the same version twice, the development version leaves the real one free for the release. To try again, start a new run: **Re-run all jobs** reuses the run number, and the run is refused.
+
+### If a release is wrong
+
+Nobody can delete a version from PyPI and upload it again. Yank the bad version instead (on PyPI, **Manage → Releases**): pip then skips it unless someone pinned that exact version. Fix the problem and release a patch version.
+
+### One-time setup
+
+A PyPI account holder and a repository admin do this once, before the first release:
+
+- On pypi.org and on test.pypi.org (separate accounts, each with two-factor authentication), add a pending publisher under **Account settings → Publishing**: project `groundline-core`, owner `groundline-dev`, repository `groundline`, workflow `release.yml`, and environment `pypi` on pypi.org or `testpypi` on test.pypi.org. Trusted publishing then lets the workflow upload without a stored token.
+- In the repository's **Settings → Environments**, create `testpypi` with no reviewers, and `pypi` with the team as required reviewers, **Prevent self-review** on, **Allow administrators to bypass configured protection rules** off (otherwise any admin can skip the approval), and **Deployment branches** limited to `main`. The branch limit is what stops a copy of the workflow pushed to another branch from publishing to PyPI.
+- In the repository's **Settings → Security** (Advanced Security), keep **Private vulnerability reporting** on: SECURITY.md sends reports there.
+- After the first release, add at least one more owner to the project on PyPI, so that one lost login can't lock it.
+
 ## Layout
 
 ```
 .agents/skills/            agent skills (see AGENTS.md)
 .claude/skills/            links to .agents/skills/, so Claude Code finds the same skills
+.github/workflows/         ci.yml, the checks on every pull request, and release.yml, which publishes
+                           groundline-core (see Releasing groundline-core)
 Dockerfile                 the app image
 compose.yaml               the stack: Postgres, the setup service and the app
 src/groundline_core/       a leading underscore marks the library's internals (ADR 0018)
@@ -383,8 +423,9 @@ infra/                     Terraform for AWS test deployments, the startup scrip
 packages/groundline-client/  the SDK: its pyproject.toml, openapi.json, src/ (the generated code is
                            in _generated/) and tests/
 scripts/                   db-setup, the stack check behind make docker-smoke, the install check
-                           behind make core-check, make generate-sdk and the SDK install check, and the AWS
-                           scripts behind make aws-deploy, aws-smoke, aws-smoke-live and aws-destroy
+                           behind make core-check, make generate-sdk and the SDK install check, the
+                           release's version check, and the AWS scripts behind make aws-deploy,
+                           aws-smoke, aws-smoke-live and aws-destroy
 tests/                     the tests
 ```
 
