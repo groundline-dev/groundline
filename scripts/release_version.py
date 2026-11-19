@@ -28,6 +28,14 @@ class ReleaseRefused(Exception):
     """The run must stop before anything is uploaded."""
 
 
+def is_prerelease(version: str) -> bool:
+    """Whether a normalized version is a pre-release (an alpha, beta or release
+    candidate, including a post-release of one), which mustn't become the
+    repository's latest release."""
+    match = NORMALIZED_VERSION.fullmatch(version)
+    return bool(match and match.group(4))
+
+
 def tag_for(version: str) -> str:
     """The git tag for a release, named after the package so the SDK's own
     releases can be tagged in the same repository."""
@@ -114,7 +122,8 @@ def _tag_exists(tag: str) -> bool:
 
 
 def main() -> None:
-    """Print `version=…` and `tag=…` for $GITHUB_OUTPUT, or stop with a reason."""
+    """Print `version=…`, `tag=…` and `prerelease=…` for $GITHUB_OUTPUT, or stop
+    with a reason."""
     pyproject = tomllib.loads(Path("pyproject.toml").read_text())
     try:
         chosen = release_version(
@@ -129,6 +138,7 @@ def main() -> None:
         sys.exit(f"release refused: {refusal}")
     print(f"version={chosen}")
     print(f"tag={tag_for(chosen)}")
+    print(f"prerelease={str(is_prerelease(chosen)).lower()}")
 
 
 if __name__ == "__main__":

@@ -7,12 +7,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = "https://github.com/groundline-dev/groundline"
 
-LINK_TARGET = re.compile(r"\]\(([^)\s]+)|<a\s[^>]*href=\"([^\"]+)\"")
-"""The target of a Markdown link or image, or of an HTML link."""
+LINK_TARGET = re.compile(
+    r"\]\(([^)\s]+)"  # [text](target) or ![alt](target)
+    r"|^\s*\[[^\]]+\]:\s*(\S+)"  # [label]: target
+    r"|<(?:a|img)\s[^>]*(?:href|src)=\"([^\"]+)\"",  # <a href> or <img src>
+    re.MULTILINE,
+)
+"""The target of a Markdown link, image or reference, or of an HTML link or image."""
 
 
 def link_targets(text: str) -> list[str]:
-    return [m.group(1) or m.group(2) for m in LINK_TARGET.finditer(text)]
+    return [next(g for g in m.groups() if g) for m in LINK_TARGET.finditer(text)]
 
 
 def test_the_readme_has_no_relative_links():

@@ -43,7 +43,7 @@ def test_pypi_waits_for_approval_and_only_runs_from_main(workflow: dict[Any, Any
     pypi = jobs(workflow)["pypi"]
 
     assert pypi["environment"]["name"] == "pypi"
-    assert "refs/heads/main" in pypi["if"], pypi["if"]
+    assert pypi["if"] == "github.ref == 'refs/heads/main'", pypi["if"]
     assert "verify" in pypi["needs"], pypi["needs"]
 
 
@@ -119,6 +119,19 @@ def test_the_tag_comes_from_the_version_script(workflow: dict[Any, Any]):
 
     assert 'gh release create "$TAG"' in runs(release)
     assert "groundline-core-v$VERSION" not in runs(release)
+
+
+def test_whether_it_is_a_prerelease_comes_from_the_version_script(
+    workflow: dict[Any, Any],
+):
+    # scripts/release_version.py holds the version rules and their tests.
+    release = jobs(workflow)["release"]
+
+    assert jobs(workflow)["build"]["outputs"]["prerelease"] == (
+        "${{ steps.version.outputs.prerelease }}"
+    )
+    assert '"$PRERELEASE" = true' in runs(release)
+    assert "=~" not in runs(release)
     assert (
         jobs(workflow)["build"]["outputs"]["tag"] == "${{ steps.version.outputs.tag }}"
     )

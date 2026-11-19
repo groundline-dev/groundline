@@ -366,7 +366,12 @@ The version is written in `pyproject.toml` and follows the policy in the README'
 3. The `pypi` job then waits for approval. Any of the `pypi` environment's reviewers except the person who started the run can approve it on the run's page.
 4. After approval, the workflow uploads the same files to PyPI, tags the commit `groundline-core-v<version>` and creates a GitHub release, with notes listing the merged pull requests.
 
-A run from `main` stops before uploading anything if the version is already on PyPI or TestPyPI, or already tagged (`scripts/release_version.py`). A run that reached TestPyPI and then stopped, because a check failed or the approval was rejected, leaves that version on TestPyPI for good, so raise the version before running again. Skipping a version number this way is normal. If a run's PyPI upload stopped partway, or the upload worked but its last job (the tag and GitHub release) failed, don't start a new run, which would be refused: use **Re-run failed jobs** on that same run, which uploads only the files PyPI doesn't have yet. Start one run at a time: GitHub keeps only one run waiting per branch, and a newer one cancels it.
+A run from `main` stops before uploading anything if the version is already on PyPI or TestPyPI, or already tagged (`scripts/release_version.py`). If a run stops partway:
+
+- **Before PyPI** (a check failed, or the approval was rejected): the version stays on TestPyPI for good, so raise the version before running again. Skipping a version number this way is normal.
+- **During the PyPI upload, or in the last job** (the tag and GitHub release): use **Re-run failed jobs** on that same run, which uploads only the files PyPI doesn't have yet. A new run would be refused, because the version is on PyPI.
+
+Start one run at a time: GitHub keeps only one run waiting per branch, and a newer one cancels it.
 
 Started from any other branch, the workflow publishes a development version, such as `0.1.0.dev12` (the run number), to TestPyPI and stops there. Use it to try a change to the release process. Because TestPyPI never accepts the same version twice, the development version leaves the real one free for the release. To try again, start a new run: **Re-run all jobs** reuses the run number, and the run is refused.
 

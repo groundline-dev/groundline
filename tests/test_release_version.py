@@ -2,7 +2,12 @@
 
 import pytest
 
-from scripts.release_version import ReleaseRefused, release_version, tag_for
+from scripts.release_version import (
+    ReleaseRefused,
+    is_prerelease,
+    release_version,
+    tag_for,
+)
 
 MAIN = "refs/heads/main"
 
@@ -130,3 +135,18 @@ def test_a_prerelease_in_normalized_form_is_accepted():
 
 def test_a_release_is_tagged_with_the_package_name():
     assert tag_for("0.1.0") == "groundline-core-v0.1.0"
+
+
+@pytest.mark.parametrize(
+    ("version", "expected"),
+    [
+        ("0.2.0", False),
+        ("0.2.0.post1", False),
+        ("0.2.0a1", True),
+        ("0.2.0rc1.post1", True),
+    ],
+)
+def test_alpha_beta_and_release_candidates_are_prereleases(
+    version: str, expected: bool
+):
+    assert is_prerelease(version) is expected
