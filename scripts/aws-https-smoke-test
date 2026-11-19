@@ -113,7 +113,7 @@ check_time "$before" 0
 minimum=900
 [ "$restart" != host ] || minimum=1500
 [ "$restart" = none ] || check_time "$before" "$minimum"
-echo "Checking HTTPS in $(project_label), $region: $instance at $app_url"
+explain "Checking HTTPS in $(project_label), $region: $instance at $app_url"
 
 smoke() {
   check_target || fail "deployment identity changed before smoke checks"
@@ -131,9 +131,9 @@ certificate >"$work/certificate.json"
 
 echo
 if [ "$restart" = host ]; then
-  echo "This will interrupt callers: restart Caddy, check recovery, then reboot $instance and check again."
+  explain "This will interrupt callers: restart Caddy, check recovery, then reboot $instance and check again."
 else
-  echo "This will interrupt callers: restart Caddy on $instance and check recovery."
+  explain "This will interrupt callers: restart Caddy on $instance and check recovery."
 fi
 choose "Run these restart checks? (1 run them, 2 cancel)" 2
 [ "$answer" = 1 ] || fail "canceled: no restart requested"
@@ -163,7 +163,7 @@ recover() {
           check_ok "$kind recovery retained the same trusted certificate and storage"
         else
           check_ok "$kind recovery retained storage and serves a valid replacement certificate"
-          echo "    The fingerprint changed; this check does not establish why or prove renewal."
+          bullet_more "The fingerprint changed; this check does not establish why or prove renewal."
         fi
         mv "$work/after.json" "$work/certificate.json"
         smoke
@@ -172,7 +172,7 @@ recover() {
     fi
     remaining=$((until - SECONDS))
     [ "$remaining" -gt 0 ] || break
-    echo "Waiting for $kind recovery ($remaining seconds remaining)..."
+    explain "Waiting for $kind recovery ($remaining seconds remaining)..."
     sleep 5
   done
   cat "$work/recovery-error" >&2 || true

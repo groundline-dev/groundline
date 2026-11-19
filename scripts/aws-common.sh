@@ -17,17 +17,95 @@ wizard_profile=groundline-deploy
 # account ID, in this folder.
 workspaces_dir=infra/terraform.tfstate.d
 
-# Colour and bold only where the output goes to a terminal, not to a file or a log.
-if [ -t 1 ]; then
+# Colour and bold only where the output goes to a terminal, not to a file or a
+# log, and not when NO_COLOR is set (https://no-color.org) or the terminal can't
+# show it (TERM=dumb).
+plain_terminal() { [ -n "${NO_COLOR:-}" ] || [ "${TERM:-}" = dumb ]; }
+if [ -t 1 ] && ! plain_terminal; then
   bold=$'\033[1m' green=$'\033[32m' reset=$'\033[0m'
 else
   bold="" green="" reset=""
 fi
-if [ -t 2 ]; then
+if [ -t 2 ] && ! plain_terminal; then
   red=$'\033[31m' yellow=$'\033[33m' reset_err=$'\033[0m'
 else
   red="" yellow="" reset_err=""
 fi
+
+# The bullet: a middle dot where the terminal shows UTF-8, else a hyphen.
+case "${LC_ALL:-${LC_CTYPE:-${LANG:-}}}" in
+  *[Uu][Tt][Ff]-8* | *[Uu][Tt][Ff]8*) dot='·' ;;
+  *) dot='-' ;;
+esac
+
+# output_width FD: the columns to wrap at: the terminal's width (COLUMNS, if it's
+# set, as most tools honour it), but never more than 78, which keeps lines easy
+# to read; 78 when FD isn't a terminal. Worked out once, when this file is
+# sourced, so every line of a run wraps the same way.
+output_width() {
+  local width="${COLUMNS:-}"
+  if [ -z "$width" ] && [ -t "$1" ]; then
+    width="$(tput cols 2>/dev/null || true)"
+  fi
+  [[ "$width" =~ ^[0-9]+$ ]] && [ "$width" -gt 0 ] || width=78
+  [ "$width" -le 78 ] || width=78
+  echo "$width"
+}
+out_width="$(output_width 1)"
+err_width="$(output_width 2)"
+
+# wrap_text WIDTH HANG TEXT: split TEXT into lines of at most WIDTH - HANG
+# columns, into the array $wrapped, breaking only at spaces. A word never
+# breaks, so a path or URL longer than a line has a line of its own and runs
+# past the edge rather than being cut where copying it would miss a piece. A
+# newline in TEXT starts a new line. Spaces between words become one.
+wrap_text() {
+  local avail=$(($1 - $2)) text="$3" paragraph word line
+  local -a paragraphs words
+  [ "$avail" -ge 20 ] || avail=20
+  wrapped=()
+  local IFS=$'\n'
+  set -f
+  # shellcheck disable=SC2206  # split on newlines; globbing is off
+  paragraphs=($text)
+  IFS=' '
+  # ${a[@]+"${a[@]}"}: an empty array expands to nothing under set -u, which
+  # bash 3.2 otherwise calls unbound.
+  for paragraph in ${paragraphs[@]+"${paragraphs[@]}"}; do
+    # shellcheck disable=SC2206  # split on spaces; globbing is off
+    words=($paragraph)
+    line=""
+    for word in ${words[@]+"${words[@]}"}; do
+      if [ -z "$line" ]; then
+        line="$word"
+      elif [ $((${#line} + 1 + ${#word})) -le "$avail" ]; then
+        line+=" $word"
+      else
+        wrapped+=("$line")
+        line="$word"
+      fi
+    done
+    wrapped+=("$line")
+  done
+  set +f
+  [ "${#wrapped[@]}" -gt 0 ] || wrapped=("")
+}
+
+# say WIDTH HANG FIRST TEXT [STYLE]: print TEXT wrapped at WIDTH columns. The
+# first line starts with FIRST, such as "  ok: ", which is HANG columns wide
+# without its colour codes; the lines after it are indented HANG spaces, so
+# they line up under the text. STYLE, such as $bold, applies to the text of
+# each line, after wrapping, so colour codes never count towards the width.
+say() {
+  local width="$1" hang="$2" first="$3" text="$4" style="${5:-}" end="" pad index
+  [ -z "$style" ] || end="$reset"
+  printf -v pad '%*s' "$hang" ''
+  wrap_text "$width" "$hang" "$text"
+  printf '%s\n' "$first$style${wrapped[0]}$end"
+  for ((index = 1; index < ${#wrapped[@]}; index++)); do
+    printf '%s\n' "$pad$style${wrapped[index]}$end"
+  done
+}
 
 # On Ctrl-C, end the current line, so make's "Interrupt" message starts on a
 # line of its own. Only the script you ran does this, not the scripts it runs,
@@ -37,9 +115,9 @@ if [ -z "${GROUNDLINE_AWS_SCRIPT:-}" ]; then
   trap 'echo; exit 130' INT
 fi
 
-ok() { echo "${green}ok:${reset} $*"; }
-warn() { echo "${yellow}warning:${reset_err} $*" >&2; }
-error() { echo "${red}error:${reset_err} $*" >&2; }
+ok() { say "$out_width" 4 "${green}ok:${reset} " "$*"; }
+warn() { say "$err_width" 9 "${yellow}warning:${reset_err} " "$*" >&2; }
+error() { say "$err_width" 7 "${red}error:${reset_err} " "$*" >&2; }
 fail() {
   error "$*"
   echo >&2
@@ -53,21 +131,38 @@ top_level() { [ "${GROUNDLINE_AWS_SCRIPT:-}" = $$ ]; }
 # answer_ok and answer_warn TEXT: a status about the answer just given. A blank
 # line separates it from the answer, and it's indented like the question, so it
 # reads as part of that question's block.
-answer_ok() { printf '\n  %s\n' "${green}ok:${reset} $*"; }
-answer_warn() { printf '\n  %s\n' "${yellow}warning:${reset_err} $*" >&2; }
+answer_ok() {
+  echo
+  say "$out_width" 6 "  ${green}ok:${reset} " "$*"
+}
+answer_warn() {
+  echo >&2
+  say "$err_width" 11 "  ${yellow}warning:${reset_err} " "$*" >&2
+}
 
 # step TEXT: a heading for one part of a longer run, such as make aws-up's steps.
-step() { printf '\n%s\n' "${bold}$*${reset}"; }
+step() {
+  echo
+  say "$out_width" 0 "" "$*" "$bold"
+}
+
+# explain TEXT: an explanation, as a sentence or a few at the left margin.
+explain() { say "$out_width" 0 "" "$*"; }
 
 # The layout every make aws-* command follows, so each kind of line is easy to
 # tell apart. Blocks are separated by a blank line.
 # - A step heading (step), with its explanation directly below it.
-# - An explanation: a sentence at the left margin, then bullets (bullet).
+# - An explanation: a sentence at the left margin (explain), then bullets
+#   (bullet), with any further sentence about a bullet under its text
+#   (bullet_more), or numbered options (option).
 # - What the script is doing: an -ing phrase ending in "..." (doing), with the
-#   results of that work indented under it (check_ok, check_error).
+#   results of that work indented under it (check_ok, check_error), and any
+#   detail of a result, such as a certificate's expiry, under its text (detail).
 # - A question, indented (ask, confirm).
 # - A status: indented under the question it answers (answer_ok, answer_warn),
 #   or at the left margin when it stands alone (ok, warn).
+# Every helper wraps its text when it's printed (say), so pass each message as
+# one string, however long its values make it, and never wrap it by hand.
 # The helpers can't enforce these rules, so follow them by hand:
 # - Each question makes sense without the explanation above it, and says what
 #   its answer leads to.
@@ -78,23 +173,56 @@ step() { printf '\n%s\n' "${bold}$*${reset}"; }
 #   prompt (fail and what_next print it).
 # - Each value is looked up once and reused, so a later lookup that fails
 #   can't change it partway through a run.
-bullet() { echo "  · $*"; }
+bullet() { say "$out_width" 4 "  $dot " "$*"; }
+
+# bullet_more TEXT: a further sentence about the bullet above, under its text.
+bullet_more() { say "$out_width" 4 "    " "$*"; }
+
+# option NUMBER TEXT: one of the numbered choices a choose question offers.
+option() { say "$out_width" $((4 + ${#1})) "  $1) " "$2"; }
 
 # doing TEXT: say what the script is doing now, such as "Checking the server".
-doing() { printf '\n%s...\n' "$*"; }
+doing() {
+  echo
+  say "$out_width" 0 "" "$*..."
+}
 
 # check_ok, check_warn and check_error TEXT: a result of the work the doing
 # line above describes, indented under it.
-check_ok() { echo "  ${green}ok:${reset} $*"; }
-check_warn() { echo "  ${yellow}warning:${reset_err} $*" >&2; }
-check_error() { echo "  ${red}error:${reset_err} $*" >&2; }
+check_ok() { say "$out_width" 6 "  ${green}ok:${reset} " "$*"; }
+check_warn() { say "$err_width" 11 "  ${yellow}warning:${reset_err} " "$*" >&2; }
+check_error() { say "$err_width" 9 "  ${red}error:${reset_err} " "$*" >&2; }
+
+# detail TEXT: a detail of the result above it, such as a certificate's
+# expiry, under the result's text and without an ok: of its own.
+detail() { say "$out_width" 6 "      " "$*"; }
+
+# prompt_line TEXT: print all but the last line of TEXT wrapped as a question,
+# and set $prompt to that last line, for read -p, so a long question wraps like
+# everything else and the answer goes after its last line. Like read -p, it
+# prints to stderr, and only when the answer comes from a terminal.
+prompt_line() {
+  local index
+  wrap_text "$err_width" 2 "$1"
+  if [ -t 0 ]; then
+    for ((index = 0; index + 1 < ${#wrapped[@]}; index++)); do
+      printf '  %s\n' "${wrapped[index]}" >&2
+    done
+  fi
+  prompt="  ${wrapped[${#wrapped[@]} - 1]} "
+}
+
+# hint TEXT: why an answer wasn't accepted, indented like the question, which
+# is asked again below it.
+hint() { say "$out_width" 2 "  " "$*"; }
 
 # ask PROMPT [DEFAULT]: read one line into $answer, or DEFAULT if it's empty.
 ask() {
-  local suffix=""
+  local suffix="" prompt
   [ -n "${2:-}" ] && suffix=" [$2]"
   echo
-  read -rp "  $1$suffix: " answer || fail "canceled: no answer to \"$1\""
+  prompt_line "$1$suffix:"
+  read -rp "$prompt" answer || fail "canceled: no answer to \"$1\""
   answer="${answer:-${2:-}}"
 }
 
@@ -106,16 +234,17 @@ choose() {
   while :; do
     ask "$1" "${3:-}"
     [[ "$answer" =~ ^[0-9]+$ ]] && [ "$answer" -ge 1 ] && [ "$answer" -le "$2" ] && return
-    echo "  Enter a number from 1 to $2."
+    hint "Enter a number from 1 to $2."
   done
 }
 
 # confirm QUESTION: true if the answer is yes or empty. With no input left, such
 # as when nobody is typing, it's false, so nothing is used or pushed unasked.
 confirm() {
-  local reply
+  local reply prompt
   echo
-  read -rp "  $1 [Y/n]: " reply || return 1
+  prompt_line "$1 [Y/n]:"
+  read -rp "$prompt" reply || return 1
   case "$reply" in "" | [Yy] | [Yy][Ee][Ss]) return 0 ;; *) return 1 ;; esac
 }
 
@@ -165,27 +294,28 @@ choose_project() {
   local current
   export AWS_PROFILE="${AWS_PROFILE:-$wizard_profile}"
   current="$(aws configure get region 2>/dev/null || true)"
+  local prompt
   echo
-  echo "In your browser, sign in to the AWS project for your test deployment."
+  explain "In your browser, sign in to the AWS project for your test deployment."
   bullet "Sign in at https://console.aws.amazon.com"
-  bullet "No project yet? Create one at https://settings.aws.com > Project >"
-  echo "    Create project, then sign in to it."
+  bullet "No project yet? Create one at https://settings.aws.com > Project > Create project, then sign in to it."
   echo
-  read -rp "  Press Enter once you're signed in to the project in your browser: " _ || fail "canceled: no project chosen"
+  prompt_line "Press Enter once you're signed in to the project in your browser:"
+  read -rp "$prompt" _ || fail "canceled: no project chosen"
   echo
-  echo "Each project has its own Region. To copy it, in the console go to"
-  echo "Manage projects > Overview > Additional Info > Region, and use its Copy button."
+  explain "Each project has its own Region. To copy it, in the console go to Manage projects > Overview > Additional Info > Region, and use its Copy button."
   while :; do
     ask "The project's Region code, such as us-east-2" "$current"
     [[ "$answer" =~ ^[a-z]{2}(-[a-z]+)+-[0-9]+$ ]] && break
-    echo "  That isn't a Region code. Codes look like us-east-2 or eu-west-1."
+    hint "That isn't a Region code. Codes look like us-east-2 or eu-west-1."
   done
   aws configure set region "$answer" --profile "$AWS_PROFILE"
   echo
-  echo "Next, your browser opens to give these scripts access to the project."
+  explain "Next, your browser opens to give these scripts access to the project."
   bullet "Choose the session of the project you just signed in to."
   echo
-  read -rp "  Press Enter to open the browser and choose the project's session: " _ || fail "canceled: no project chosen"
+  prompt_line "Press Enter to open the browser and choose the project's session:"
+  read -rp "$prompt" _ || fail "canceled: no project chosen"
   aws_login
 }
 
@@ -326,8 +456,8 @@ commit_change() {
 review_or_cancel() {
   answer_warn "$1 Keeping this server would not apply them."
   bullet "$2"
-  echo "  1) Review a deployment plan"
-  echo "  2) Cancel and leave the running server unchanged"
+  option 1 "Review a deployment plan"
+  option 2 "Cancel and leave the running server unchanged"
   choose "Review deployment changes? (1 review, 2 cancel)" 2
   [ "$answer" = 1 ] || fail "canceled: running server unchanged"
 }
@@ -424,8 +554,8 @@ choose_access_mode() {
   if [ "$default" = 1 ]; then
     first=" (recommended)" second=""
   fi
-  echo "  1) IP-restricted HTTPS for testing from this computer$first"
-  echo "  2) Unrestricted HTTPS for callers from any IP$second"
+  option 1 "IP-restricted HTTPS for testing from this computer$first"
+  option 2 "Unrestricted HTTPS for callers from any IP$second"
   bullet "Both use automatic certificates; protected API endpoints require API keys."
   choose "Who may access the HTTPS application? (1 IP-restricted, 2 unrestricted)" 2 "$default"
   access_mode=restricted
@@ -436,10 +566,8 @@ choose_access_mode() {
 # $lifetime. It's asked once per folder: a folder that manages a lasting
 # deployment manages only that one.
 choose_lifetime() {
-  echo "  1) Disposable: for trying a commit. It terminates itself after 8 hours, and"
-  echo "     make aws-destroy deletes it with its data."
-  echo "  2) Lasting: for staging or production. It keeps running, and keeps its data,"
-  echo "     API keys, settings and address when you upgrade it, until you delete it."
+  option 1 "Disposable: for trying a commit. It terminates itself after 8 hours, and make aws-destroy deletes it with its data."
+  option 2 "Lasting: for staging or production. It keeps running, and keeps its data, API keys, settings and address when you upgrade it, until you delete it."
   choose "Disposable or lasting? (1 disposable, 2 lasting)" 2 1
   lifetime=disposable
   [ "$answer" = 1 ] || lifetime=lasting
@@ -520,9 +648,8 @@ other_deployments() {
     [ "$other" != "$account" ] || continue
     [ -n "$(jq -r '.outputs.instance_id.value // empty' "$state" 2>/dev/null)" ] || continue
     echo
-    echo "You also have a test deployment in account $other."
-    bullet "To check it or delete it, run make aws-project and choose that project,"
-    echo "    then make aws-status or make aws-destroy."
+    explain "You also have a test deployment in account $other."
+    bullet "To check it or delete it, run make aws-project and choose that project, then make aws-status or make aws-destroy."
   done
 }
 
@@ -597,9 +724,7 @@ remote_with() {
 # instance and its disks, and the server releases its Elastic IP first, so the
 # rest is still there.
 gone_reminder() {
-  echo "Terminating removed the server, its data and its address. Run make aws-destroy to" >&2
-  echo "remove the security group, IAM role, instance profile and budget it left behind," >&2
-  echo "or make aws-deploy for a new server." >&2
+  say "$err_width" 0 "" "Terminating removed the server, its data and its address. Run make aws-destroy to remove the security group, IAM role, instance profile and budget it left behind, or make aws-deploy for a new server." >&2
 }
 
 # require_running: fail unless the instance is pending or running. A terminated
@@ -701,7 +826,7 @@ what_next() {
   app_url="$(terraform -chdir=infra output -raw app_url 2>/dev/null)" || return 0
   [ -n "$app_url" ] || return 0
   step "What next"
-  echo "To try your server, at $app_url:"
+  explain "To try your server, at $app_url:"
   bullet "make aws-key creates an API key, for trying requests at $app_url/docs."
   bullet "make aws-smoke-live sends one real commission check, which costs under a cent."
   mode="$(optional_output access_mode)"
@@ -709,15 +834,13 @@ what_next() {
     restricted) bullet "IP-restricted HTTPS: only the configured tester IP can access application routes, including health and docs." ;;
     unrestricted) bullet "Unrestricted HTTPS: any caller IP can reach health/docs; protected endpoints require an API key." ;;
   esac
-  bullet "To call it from your app's backend, use $app_url as the base URL"
-  echo "    and an API key from make aws-key. See docs/deploying-to-aws.md, \"Calling it from your app\"."
+  bullet "To call it from your app's backend, use $app_url as the base URL and an API key from make aws-key. See docs/deploying-to-aws.md, \"Calling it from your app\"."
   echo
-  echo "Your server is still running and costing money."
+  explain "Your server is still running and costing money."
   if [ "$(deployed_lifetime)" = lasting ]; then
     bullet "It's a lasting deployment, so it has no time limit and costs about \$$(running_monthly_cost) a month."
     bullet "make aws-up upgrades it to another commit or settings. It keeps its data and address."
-    bullet "make aws-destroy deletes the server and keeps its data and address, for about"
-    echo "    \$$(kept_data_cost "$(optional_output data_volume_gib infra/data)") a month; make aws-destroy DATA=delete deletes those too."
+    bullet "make aws-destroy deletes the server and keeps its data and address, for about \$$(kept_data_cost "$(optional_output data_volume_gib infra/data)") a month; make aws-destroy DATA=delete deletes those too."
     echo
     return
   fi
@@ -733,8 +856,7 @@ what_next() {
       bullet "make aws-reset-deadline moves that to $hours hours from now."
       ;;
   esac
-  bullet "make aws-destroy deletes it, with its data and your Anthropic API key. Run it"
-  echo "    even after the server terminates itself, to remove what it leaves behind."
+  bullet "make aws-destroy deletes it, with its data and your Anthropic API key. Run it even after the server terminates itself, to remove what it leaves behind."
   echo
 }
 
@@ -763,26 +885,26 @@ describe_commit() {
   if [ -z "$from" ] || [ -z "$to" ] || [ "$from" = "$to" ]; then
     return 0
   fi
-  echo "    It's upgraded from ${from:0:7} to ${to:0:7}."
+  bullet_more "It's upgraded from ${from:0:7} to ${to:0:7}."
   if [ "$(commit_change "$from" "$to")" = rollback ]; then
-    echo "    ${to:0:7} is older than ${from:0:7}, so this rolls it back. If a database"
-    echo "    migration ran since, restore the pre-upgrade snapshot first (docs/deploying-to-aws.md)."
+    bullet_more "${to:0:7} is older than ${from:0:7}, so this rolls it back. If a database migration ran since, restore the pre-upgrade snapshot first (docs/deploying-to-aws.md)."
   fi
 }
 
 # describe_settings PLAN_JSON: the app settings an update of the server
 # changes, one a line, from its groundline-setting-<NAME> tags.
 describe_settings() {
-  jq -r '.resource_changes[]
+  local change
+  while IFS= read -r change; do bullet_more "$change"; done < <(jq -r '.resource_changes[]
     | select(.type == "aws_instance" and .change.actions == ["update"])
     | (.change.before.tags // {}) as $before | (.change.after.tags // {}) as $after
     | ([$before, $after] | map(keys) | add | unique)[]
     | select(startswith("groundline-setting-")) as $tag
     | select($before[$tag] != $after[$tag])
     | ($tag | ltrimstr("groundline-setting-")) as $name
-    | if $after[$tag] == null then "    Its \($name) goes back to the default (it was \($before[$tag]))."
-      elif $before[$tag] == null then "    Its \($name) becomes \($after[$tag]) (it was the default)."
-      else "    Its \($name) becomes \($after[$tag]) (it was \($before[$tag]))." end' <<<"$1"
+    | if $after[$tag] == null then "Its \($name) goes back to the default (it was \($before[$tag]))."
+      elif $before[$tag] == null then "Its \($name) becomes \($after[$tag]) (it was the default)."
+      else "Its \($name) becomes \($after[$tag]) (it was \($before[$tag]))." end' <<<"$1")
 }
 
 # friendly_name TYPE: what plan summaries call a Terraform resource type.
@@ -810,68 +932,64 @@ join_names() {
 # one types yes without knowing it deletes the server or its data. Reads
 # $commit and $previous_instance where they're set.
 describe_plan() {
-  local hours short="${commit:-}" created="" updated="" deleted="" limit
+  local hours short="${commit:-}" created="" updated="" deleted=""
   short="${short:0:7}"
   hours="$(jq -r '.variables.auto_terminate_hours.value // 8' <<<"$1")"
-  if [ "$hours" = 0 ]; then
-    limit="    It has no time limit, so it runs until make aws-destroy."
-  else
-    limit="    It terminates itself, with its data, $hours hours after it starts.
-    You can also delete it manually with make aws-destroy."
-  fi
+  # describe_limit: the server's time limit, under the bullet that creates it.
+  describe_limit() {
+    if [ "$hours" = 0 ]; then
+      bullet_more "It has no time limit, so it runs until make aws-destroy."
+    else
+      bullet_more "It terminates itself, with its data, $hours hours after it starts. You can also delete it manually with make aws-destroy."
+    fi
+  }
   while IFS='|' read -r type actions id old_cidr new_cidr old_port new_port size address old_size; do
     case "$type:$actions" in
       aws_ebs_volume:create)
-        echo "  · create its data volume ($size GiB, about \$$(volume_cost "$size") a month), which keeps"
-        echo "    the database, its API keys and the HTTPS certificate when the server is replaced."
+        bullet "create its data volume ($size GiB, about \$$(volume_cost "$size") a month), which keeps the database, its API keys and the HTTPS certificate when the server is replaced."
         ;;
       aws_ebs_volume:update)
         if [ -n "$old_size" ] && [ "$size" != "$old_size" ]; then
-          echo "  · grow its data volume from $old_size to $size GiB, about \$$(volume_cost "$size") a month. Its"
-          echo "    filesystem grows when the server is upgraded. A volume can't shrink again."
+          bullet "grow its data volume from $old_size to $size GiB, about \$$(volume_cost "$size") a month. Its filesystem grows when the server is upgraded. A volume can't shrink again."
         else
           updated+="$(friendly_name "$type")"$'\n'
         fi
         ;;
       aws_eip:create)
-        echo "  · reserve its address, an Elastic IP, which stays the same when the server is replaced."
-        echo "    It costs about \$$(address_cost) a month, in place of the server's own address."
+        bullet "reserve its address, an Elastic IP, which stays the same when the server is replaced. It costs about \$$(address_cost) a month, in place of the server's own address."
         ;;
       aws_ebs_volume:delete | aws_ebs_volume:delete+create | aws_ebs_volume:create+delete)
-        echo "  · delete its data volume ($id): the database, its API keys and the HTTPS certificate."
+        bullet "delete its data volume ($id): the database, its API keys and the HTTPS certificate."
         ;;
       aws_eip:delete | aws_eip:delete+create | aws_eip:create+delete)
-        echo "  · release its address${address:+, $address}. Callers would need a new one."
+        bullet "release its address${address:+, $address}. Callers would need a new one."
         ;;
       aws_instance:create)
         if [ -n "${previous_instance:-}" ]; then
-          echo "  · create a new server running $short, for about \$$(server_hourly_cost) an hour, in place of"
-          echo "    $previous_instance, which has terminated."
+          bullet "create a new server running $short, for about \$$(server_hourly_cost) an hour, in place of $previous_instance, which has terminated."
         else
-          echo "  · create your server, running $short, for about \$$(server_hourly_cost) an hour."
+          bullet "create your server, running $short, for about \$$(server_hourly_cost) an hour."
         fi
-        echo "$limit"
+        describe_limit
         ;;
       aws_instance:delete+create | aws_instance:create+delete)
-        echo "  · replace your server ($id) with a new one running $short. Its data volume and"
-        echo "    address move to the new server, so it keeps its database, API keys and address."
-        echo "    Terraform shows \"Destroying...\" for a few minutes while the old one stops."
-        echo "    The new server costs about \$$(server_hourly_cost) an hour."
-        echo "$limit"
+        bullet "replace your server ($id) with a new one running $short. Its data volume and address move to the new server, so it keeps its database, API keys and address."
+        bullet_more "Terraform shows \"Destroying...\" for a few minutes while the old one stops. The new server costs about \$$(server_hourly_cost) an hour."
+        describe_limit
         ;;
       aws_instance:update)
-        echo "  · update your server ($id) in place. It keeps its data."
+        bullet "update your server ($id) in place. It keeps its data."
         describe_commit "$1"
         describe_settings "$1"
         ;;
-      aws_instance:delete) echo "  · delete your server ($id)." ;;
+      aws_instance:delete) bullet "delete your server ($id)." ;;
       aws_vpc_security_group_ingress_rule:update | aws_vpc_security_group_ingress_rule:delete+create)
-        echo "  · let requests from ${new_cidr%/32} reach the server on TCP $new_port, in place of ${old_cidr%/32} on TCP $old_port."
+        bullet "let requests from ${new_cidr%/32} reach the server on TCP $new_port, in place of ${old_cidr%/32} on TCP $old_port."
         ;;
       *:create) created+="$(friendly_name "$type")"$'\n' ;;
       *:update) updated+="$(friendly_name "$type")"$'\n' ;;
       *:delete) deleted+="$(friendly_name "$type")"$'\n' ;;
-      *) echo "  · replace its $(friendly_name "$type") ($id)." ;;
+      *) bullet "replace its $(friendly_name "$type") ($id)." ;;
     esac
   done < <(jq -r '.resource_changes[]
     | select(.mode == "managed" and .change.actions != ["no-op"])
@@ -879,9 +997,9 @@ describe_plan() {
     | join("|")' <<<"$1")
   # Everything here except the server, the data volume and the address is free;
   # update this if that changes.
-  [ -z "$created" ] || echo "  · create its $(printf %s "$created" | join_names), which are free."
-  [ -z "$updated" ] || echo "  · update its $(printf %s "$updated" | join_names)."
-  [ -z "$deleted" ] || echo "  · delete its $(printf %s "$deleted" | join_names)."
+  [ -z "$created" ] || bullet "create its $(printf %s "$created" | join_names), which are free."
+  [ -z "$updated" ] || bullet "update its $(printf %s "$updated" | join_names)."
+  [ -z "$deleted" ] || bullet "delete its $(printf %s "$deleted" | join_names)."
 }
 
 # show_plan PLAN: show Terraform's plan, keeping only the lines worth checking:
@@ -896,7 +1014,7 @@ show_plan() {
     return
   fi
   echo
-  echo "Terraform's plan, short version (FULL_PLAN=1 shows all of it):"
+  explain "Terraform's plan, short version (FULL_PLAN=1 shows all of it):"
   terraform -chdir="$root" show -no-color "$plan" \
     | grep -E '^  # |forces replacement|^[[:space:]]+~ |^Plan: ' || true
 }
@@ -963,22 +1081,22 @@ apply_plans() {
     return
   fi
   echo
-  echo "Making these changes will:"
+  explain "Making these changes will:"
   echo "$summary"
   # No default: applying can delete the server and its data, so Enter alone
   # doesn't approve it.
   echo
-  echo "  1) Make these changes"
-  echo "  2) Show Terraform's plan first"
-  echo "  3) Cancel, changing nothing"
+  option 1 "Make these changes"
+  option 2 "Show Terraform's plan first"
+  option 3 "Cancel, changing nothing"
   choose "Make the changes above? (1 make them, 2 show the plan, 3 cancel)" 3
   if [ "$answer" = 2 ]; then
     for ((index = 0; index + 1 < ${#pairs[@]}; index += 2)); do
       [ -z "${pairs[index + 1]}" ] || show_plan "${pairs[index]}" "${pairs[index + 1]}"
     done
     echo
-    echo "  1) Make these changes"
-    echo "  2) Cancel, changing nothing"
+    option 1 "Make these changes"
+    option 2 "Cancel, changing nothing"
     choose "Make the changes above? (1 make them, 2 cancel)" 2
     [ "$answer" = 1 ] || answer=3
   fi
@@ -1010,7 +1128,13 @@ output() {
 }
 
 # Format successful checker output without changing machine-readable Python output.
+# A line indented by two spaces is a detail of the result above it.
 check_results() {
   local result
-  while IFS= read -r result; do check_ok "$result"; done
+  while IFS= read -r result; do
+    case "$result" in
+      "  "*) detail "$result" ;;
+      *) check_ok "$result" ;;
+    esac
+  done
 }

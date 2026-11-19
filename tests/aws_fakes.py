@@ -59,6 +59,16 @@ import sys
 from pathlib import Path
 from typing import Any, cast
 
+
+def flat(text: str) -> str:
+    """TEXT with every run of whitespace as one space.
+
+    The scripts wrap each message at the terminal's width when it's printed, so a
+    phrase can break across lines anywhere. Look for wording in flat(output).
+    """
+    return " ".join(text.split())
+
+
 WORLD_ENV = "FAKE_AWS_WORLD"
 BOOLEAN_FLAGS = {
     "--with-decryption",

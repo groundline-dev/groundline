@@ -132,7 +132,7 @@ def test_an_upgrade_that_keeps_everything_passes(tmp_path: Path):
         "made before the upgrade still gets past auth",
         "source length limit app_settings asks for (200000 characters)",
     ):
-        assert kept in result.stdout
+        assert kept in aws_fakes.flat(result.stdout)
     assert revoked(world)
 
 
@@ -182,7 +182,7 @@ def test_an_upgrade_that_loses_something_fails_and_revokes_the_key(
     result, world = run(tmp_path, lifetime=lifetime, **broken)
 
     assert result.returncode != 0
-    assert says in result.stderr
+    assert says in aws_fakes.flat(result.stderr)
     assert revoked(world)
 
 

@@ -181,9 +181,11 @@ def test_keep_requires_matching_mode(
     if not success:
         assert (
             "running access is unrestricted HTTPS; saved access is restricted HTTPS"
-            in result.stderr
+            in aws_fakes.flat(result.stderr)
         )
-        assert "updates the server in place. It keeps its data" in result.stdout
+        assert "updates the server in place. It keeps its data" in aws_fakes.flat(
+            result.stdout
+        )
         assert "Keep your running server" not in result.stdout
 
 
@@ -720,7 +722,9 @@ def test_a_larger_data_volume_is_described_as_growing(checkout: Path):
     assert "grow its data volume from 5 to 20 GiB, about $1.60 a month" in (
         result.stdout
     )
-    assert "filesystem grows when the server is upgraded" in result.stdout
+    assert "filesystem grows when the server is upgraded" in aws_fakes.flat(
+        result.stdout
+    )
 
 
 def test_settings_are_compared_without_terraform_console_when_none_are_saved(

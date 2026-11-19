@@ -36,10 +36,10 @@ fi
 trap other_deployments EXIT
 
 require_running
-echo "The server ($instance) is running in $(project_label) at $(terraform -chdir=infra output -raw app_url)"
+explain "The server ($instance) is running in $(project_label) at $(terraform -chdir=infra output -raw app_url)"
 lifetime="$(deployed_lifetime)"
 running="$(optional_output git_ref)"
-echo "It's a $lifetime deployment${running:+, running ${running:0:7}}."
+explain "It's a $lifetime deployment${running:+, running ${running:0:7}}."
 
 deadline="$(on_server "cat $deadline_file 2>/dev/null || echo none" | tr -d '[:space:]')" \
   || fail "couldn't read the deadline from the server; if it started in the last few minutes, try again shortly"

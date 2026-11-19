@@ -613,13 +613,14 @@ def test_the_server_clones_a_remote_over_https(remote: str):
     assert finished.stdout.strip() == "https://github.com/alice/groundline.git"
 
 
-WHAT_NEXT_END = "to remove what it leaves behind.\n\n"
+WHAT_NEXT_END = "to remove what it leaves behind."
 """How the What next block ends (what_next in scripts/aws-common.sh)."""
 
 
 def assert_ends_with_what_next(output: str) -> None:
     assert "\nWhat next\n" in output, output
-    assert output.endswith(WHAT_NEXT_END), output[-300:]
+    assert aws_fakes.flat(output).endswith(WHAT_NEXT_END), output[-300:]
+    assert output.endswith("\n\n"), output[-300:]
 
 
 def test_aws_project_ends_with_the_commands_to_choose_from(tmp_path: Path):

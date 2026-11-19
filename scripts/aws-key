@@ -32,10 +32,9 @@ case "${1:-}" in
     ok "created an API key on the server"
     while IFS= read -r line; do echo "  $line"; done <<<"$created"
     echo
-    echo "To try a request, open $app_url/docs, choose Authorize and paste the API key."
+    explain "To try a request, open $app_url/docs, choose Authorize and paste the API key."
     bullet "Anyone who can read this AWS project's Run Command history can see it."
-    bullet "It's revoked when the server goes. To revoke it sooner, run"
-    echo "    make aws-key REVOKE=$id"
+    bullet "It's revoked when the server goes. To revoke it sooner, run make aws-key REVOKE=$id"
     ;;
   --revoke)
     id="${2:-}"

@@ -172,7 +172,7 @@ def test_reboot_requires_new_boot_and_successful_address_refresh(
 def test_changed_valid_certificate_is_not_called_renewal_proof(tmp_path: Path):
     result, _ = run(tmp_path, "caddy", certificate_changed=True)
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "does not establish why or prove renewal" in result.stdout
+    assert "does not establish why or prove renewal" in aws_fakes.flat(result.stdout)
 
 
 def test_ssm_probe_has_a_bounded_wait(tmp_path: Path):

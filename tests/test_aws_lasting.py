@@ -122,7 +122,7 @@ def test_a_folder_holding_a_lasting_deployment_refuses_another_project(checkout:
     result, world = invoke(checkout, "aws-deploy", aws_fakes.new_world())
 
     assert result.returncode != 0
-    assert "in account 999999999999" in result.stderr
+    assert "in account 999999999999" in aws_fakes.flat(result.stderr)
     assert not any("plan" in call for call in world["calls"])
 
 
@@ -245,7 +245,9 @@ def test_a_snapshot_that_doesnt_complete_keeps_the_older_one_and_stops(
     result, world = invoke(checkout, "aws-deploy", world)
 
     assert result.returncode != 0
-    assert "didn't complete, so the server wasn't upgraded" in result.stderr
+    assert "didn't complete, so the server wasn't upgraded" in aws_fakes.flat(
+        result.stderr
+    )
     assert "snap-old" in world["snapshots"]
     assert not calls(world, "ec2", "delete-snapshot")
     assert not any("server/apply" in c["script"] for c in world["commands"])
@@ -308,10 +310,10 @@ def test_a_run_that_doesnt_move_forward_says_which_snapshot_it_keeps(
     assert result.returncode == 0, result.stdout + result.stderr
     assert not calls(world, "ec2", "create-snapshot")
     assert world["snapshots"] == snapshots
-    assert said in result.stdout
+    assert said in aws_fakes.flat(result.stdout)
     output = result.stdout + result.stderr
     if warned:
-        assert warned in output
+        assert warned in aws_fakes.flat(output)
     else:
         assert "brings back the data" not in output
     assert any("server/apply" in c["script"] for c in world["commands"])
@@ -326,7 +328,9 @@ def test_a_snapshot_it_cant_check_is_a_warning_not_a_failed_upgrade(checkout: Pa
     result, world = invoke(checkout, "aws-deploy", world)
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "Couldn't check which pre-upgrade snapshot it has" in result.stderr
+    assert "Couldn't check which pre-upgrade snapshot it has" in aws_fakes.flat(
+        result.stderr
+    )
     assert any("server/apply" in c["script"] for c in world["commands"])
 
 
@@ -375,7 +379,7 @@ def test_aws_up_says_whether_an_upgrade_takes_a_snapshot(
     result, _ = invoke(checkout, "aws-up", world, "\nn\n\n")
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert says in result.stdout
+    assert says in aws_fakes.flat(result.stdout)
 
 
 @pytest.mark.parametrize(
@@ -431,7 +435,7 @@ def test_the_stored_key_says_what_destroy_does_with_it(
 
     result, _ = invoke(checkout, "aws-up", world, "\n\n\n\n")
 
-    assert says in result.stdout, result.stdout + result.stderr
+    assert says in aws_fakes.flat(result.stdout), result.stdout + result.stderr
     if lifetime == "lasting":
         assert "make aws-destroy deletes it." not in result.stdout
 
@@ -726,9 +730,9 @@ def test_status_reports_a_disposable_deploys_leftover_volume_and_address(
     result, _ = invoke(checkout, "aws-status", world)
 
     assert result.returncode != 0
-    assert "left from a deploy that didn't finish" in result.stderr
-    assert "about $5.25 a month" in result.stderr
-    assert "make aws-destroy deletes them" in result.stderr
+    assert "left from a deploy that didn't finish" in aws_fakes.flat(result.stderr)
+    assert "about $5.25 a month" in aws_fakes.flat(result.stderr)
+    assert "make aws-destroy deletes them" in aws_fakes.flat(result.stderr)
 
 
 def test_cancelling_a_first_deploys_server_says_what_stays(checkout: Path):
@@ -751,6 +755,6 @@ def test_cancelling_a_first_deploys_server_says_what_stays(checkout: Path):
     assert result.returncode != 0
     assert (
         "canceled: no server was created. Its data volume and address stay, "
-        "for about $4.05 a month" in result.stderr
+        "for about $4.05 a month" in aws_fakes.flat(result.stderr)
     )
-    assert "make aws-destroy deletes them" in result.stderr
+    assert "make aws-destroy deletes them" in aws_fakes.flat(result.stderr)

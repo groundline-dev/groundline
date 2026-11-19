@@ -71,8 +71,7 @@ else
   exposure="application accessible from any caller IP over HTTPS; protected API endpoints require API keys"
 fi
 
-echo "Deploying ${commit:0:7}${ref_name:+ ($ref_name)} from $repository_url"
-echo "to $(project_label) in $region, $exposure."
+explain "Deploying ${commit:0:7}${ref_name:+ ($ref_name)} from $repository_url to $(project_label) in $region, $exposure."
 
 # Checks only that the parameter exists: its value never leaves AWS. make aws-up
 # has already warned about a missing key, so only a direct run warns here.
@@ -183,7 +182,7 @@ snapshot_before_upgrade() {
     return
   fi
   doing "Taking a snapshot of the data volume"
-  echo "It waits until the snapshot is complete, which takes a minute or more."
+  explain "It waits until the snapshot is complete, which takes a minute or more."
   volume="$(output volume_id infra/data)"
   snapshot="$(aws ec2 create-snapshot --region "$region" --volume-id "$volume" \
     --description "groundline $name, before upgrading to ${commit:0:7}" \
@@ -225,7 +224,7 @@ if [ "$instance" = "$previous_instance" ]; then
   expected_settings="$(jq -r 'to_entries | sort_by(.key)[] | "\(.key)=\(.value)"' <<<"$app_settings" \
     | tr '\n' ' ' | sed 's/ $//')"
   doing "Upgrading your server ($instance) in place to ${commit:0:7}"
-  echo "It keeps its data, address and HTTPS certificate. This takes a few minutes."
+  explain "It keeps its data, address and HTTPS certificate. This takes a few minutes."
   upgraded="$(on_server "set -eu; cd /opt/groundline; attempts=0
 until infra/https/refresh-address '$access_mode' '$allowed_cidr'; do
   attempts=\$((attempts + 1)); [ \"\$attempts\" -lt 12 ] || exit 1; sleep 5
@@ -250,10 +249,10 @@ fi
 settings="$(jq -r 'to_entries[] | "\(.key) = \(.value)"' <<<"$app_settings")"
 echo
 if [ -n "$settings" ]; then
-  echo "It runs with these app settings (app_settings in infra/terraform.tfvars):"
+  explain "It runs with these app settings (app_settings in infra/terraform.tfvars):"
   while IFS= read -r setting; do bullet "$setting"; done <<<"$settings"
 else
-  echo "It runs with the app's default settings (app_settings in infra/terraform.tfvars changes them)."
+  explain "It runs with the app's default settings (app_settings in infra/terraform.tfvars changes them)."
 fi
 
 # The deadline, as the server's deadline file would hold it. A new server's
@@ -272,8 +271,8 @@ if top_level; then
   what_next "$deadline"
 elif [ "$deadline" = none ]; then
   echo
-  echo "It has no time limit, so it costs about \$$(running_monthly_cost) a month until you run make aws-destroy."
+  explain "It has no time limit, so it costs about \$$(running_monthly_cost) a month until you run make aws-destroy."
 elif [ -n "$deadline" ]; then
   echo
-  echo "It terminates itself, with its data, at $(describe_deadline "$deadline")."
+  explain "It terminates itself, with its data, at $(describe_deadline "$deadline")."
 fi

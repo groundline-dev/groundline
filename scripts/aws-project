@@ -21,7 +21,7 @@ choose_next() {
 export AWS_PROFILE="${AWS_PROFILE:-$wizard_profile}"
 if signed_in; then
   use_project
-  echo "You're signed in to this AWS project:"
+  explain "You're signed in to this AWS project:"
   bullet "$(project_label), in $region"
   if confirm "Keep using this project?"; then
     answer_ok "the make aws-* commands still act on $(project_label) in $region"
