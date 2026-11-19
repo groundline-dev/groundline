@@ -17,7 +17,12 @@ def must_not_be_asked(_: str) -> bool:
 
 def test_main_publishes_the_version_in_pyproject():
     chosen = release_version(
-        version="0.1.0", ref=MAIN, run_number=7, published=never, tagged=never
+        version="0.1.0",
+        ref=MAIN,
+        run_number=7,
+        on_pypi=never,
+        on_testpypi=never,
+        tagged=never,
     )
 
     assert chosen == "0.1.0"
@@ -29,7 +34,22 @@ def test_main_refuses_a_version_already_on_pypi():
             version="0.1.0",
             ref=MAIN,
             run_number=7,
-            published=lambda version: version == "0.1.0",
+            on_pypi=lambda version: version == "0.1.0",
+            on_testpypi=never,
+            tagged=never,
+        )
+
+
+def test_main_refuses_a_version_left_on_testpypi_by_a_stopped_run():
+    # A run that uploaded to TestPyPI but stopped before PyPI (a failed check or
+    # a rejected approval) leaves the version there for good.
+    with pytest.raises(ReleaseRefused, match=r"0\.1\.0 is already on TestPyPI"):
+        release_version(
+            version="0.1.0",
+            ref=MAIN,
+            run_number=7,
+            on_pypi=never,
+            on_testpypi=lambda version: version == "0.1.0",
             tagged=never,
         )
 
@@ -40,7 +60,8 @@ def test_main_refuses_a_version_that_was_already_tagged():
             version="0.1.0",
             ref=MAIN,
             run_number=7,
-            published=never,
+            on_pypi=never,
+            on_testpypi=never,
             tagged=lambda tag: tag == "groundline-core-v0.1.0",
         )
 
@@ -52,7 +73,8 @@ def test_another_branch_publishes_a_development_version():
         version="0.1.0",
         ref="refs/heads/all-164-build-and-publish",
         run_number=42,
-        published=must_not_be_asked,
+        on_pypi=must_not_be_asked,
+        on_testpypi=must_not_be_asked,
         tagged=must_not_be_asked,
     )
 

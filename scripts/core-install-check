@@ -12,9 +12,10 @@
 #     the installed package
 #
 # Before installing built files, it also checks that the wheel and the sdist
-# hold only the package and its license, readme and metadata (no .env, tests,
-# fixtures or other local files), and that a wheel built from the sdist has the
-# same files as the wheel.
+# hold only the package, its license, notice and readme, and the packaging
+# metadata (PKG-INFO, pyproject.toml): no .env, tests, fixtures or other local
+# files. It also checks that a wheel built from the sdist has the same files as
+# the wheel.
 #
 # It installs into new, empty environments: one with pip and one with uv pip,
 # since users may install with either.
@@ -22,9 +23,10 @@
 # Usage:
 #   scripts/core-install-check                           build, then check (make core-check)
 #   scripts/core-install-check --dist DIR                check the wheel and sdist in DIR
-#   scripts/core-install-check --from-index URL VERSION  install VERSION from the index at
-#                                                        URL (its dependencies from PyPI)
-#                                                        and check it
+#   scripts/core-install-check --from-index URL VERSION  download only VERSION's wheel from
+#                                                        the index at URL, install it with
+#                                                        its dependencies from PyPI, and
+#                                                        check it
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -43,7 +45,7 @@ mode=build
 case "${1:-}" in
   "") ;;
   --dist) [ $# = 2 ] || fail "usage: --dist DIR"; mode=dist; dist="$2" ;;
-  --from-index) [ $# = 3 ] || fail "usage: --from-index URL VERSION"; mode=index; index="$2"; version="$3" ;;
+  --from-index) [ $# = 3 ] || fail "usage: --from-index URL VERSION"; mode=index; index_url="$2"; version="$3" ;;
   *) fail "unknown option: $1" ;;
 esac
 
@@ -77,16 +79,20 @@ import zipfile
 wheel, sdist = sys.argv[1], sys.argv[2]
 # Never shipped, wherever they appear.
 FORBIDDEN = re.compile(r"(^|/)(\.env|__pycache__|\.DS_Store)|\.pyc$")
-WHEEL = re.compile(r"groundline_core/.+|groundline_core-[^/]+\.dist-info/.+")
-SDIST = re.compile(
+WHEEL_PATHS = re.compile(r"groundline_core/.+|groundline_core-[^/]+\.dist-info/.+")
+# uv_build writes a normalized pyproject.toml into the sdist and keeps the
+# original beside it as pyproject.toml.orig.
+SDIST_PATHS = re.compile(
     r"groundline_core-[^/]+/(PKG-INFO|README\.md|LICENSE|NOTICE|pyproject\.toml"
     r"|pyproject\.toml\.orig|src/groundline_core/.+)"
 )
-names = [(n, WHEEL) for n in zipfile.ZipFile(wheel).namelist()]
-names += [(m.name, SDIST) for m in tarfile.open(sdist).getmembers() if m.isfile()]
+entries = [(n, WHEEL_PATHS) for n in zipfile.ZipFile(wheel).namelist()]
+entries += [
+    (m.name, SDIST_PATHS) for m in tarfile.open(sdist).getmembers() if m.isfile()
+]
 unexpected = [
     name
-    for name, allowed in names
+    for name, allowed in entries
     if not name.endswith("/") and (FORBIDDEN.search(name) or not allowed.fullmatch(name))
 ]
 for name in unexpected:
@@ -195,25 +201,22 @@ EOF
 }
 
 if [ "$mode" = index ]; then
-  # The index may not host the dependencies (TestPyPI doesn't), so they come from
-  # PyPI. Only groundline-core itself is pinned to the index's VERSION.
-  uv venv --seed --quiet "$work/pip"
-  "$work/pip/bin/python" -m pip install --quiet --disable-pip-version-check \
-    --index-url "$index" --extra-index-url https://pypi.org/simple/ \
-    "groundline-core==$version"
-  check "pip from $index" "$work/pip"
-
-  uv venv --quiet "$work/uv"
-  uv pip install --quiet --python "$work/uv/bin/python" \
-    --index-url "$index" --extra-index-url https://pypi.org/simple/ \
-    --index-strategy unsafe-best-match "groundline-core==$version"
-  check "uv pip from $index" "$work/uv"
-else
-  uv venv --seed --quiet "$work/pip"
-  "$work/pip/bin/python" -m pip install --quiet --disable-pip-version-check "$wheel"
-  check pip "$work/pip"
-
-  uv venv --quiet "$work/uv"
-  uv pip install --quiet --python "$work/uv/bin/python" "$wheel"
-  check "uv pip" "$work/uv"
+  # Only groundline-core's own wheel comes from the index. Its dependencies come
+  # from PyPI alone: on a test index anyone can upload a package with a
+  # dependency's name and a higher version.
+  uv venv --seed --quiet "$work/download"
+  "$work/download/bin/python" -m pip download --quiet --disable-pip-version-check \
+    --no-deps --only-binary :all: --dest "$work/from-index" \
+    --index-url "$index_url" "groundline-core==$version" \
+    || fail "couldn't download groundline-core $version from $index_url"
+  downloaded=("$work"/from-index/groundline_core-*.whl)
+  wheel="${downloaded[0]}"
 fi
+
+uv venv --seed --quiet "$work/pip"
+"$work/pip/bin/python" -m pip install --quiet --disable-pip-version-check "$wheel"
+check pip "$work/pip"
+
+uv venv --quiet "$work/uv"
+uv pip install --quiet --python "$work/uv/bin/python" "$wheel"
+check "uv pip" "$work/uv"

@@ -8,6 +8,8 @@
 - The package is installed as groundline-core, imported as groundline_core and
   run as groundline-core, so nothing clashes with the unrelated `groundline`
   project on PyPI.
+- What PyPI shows on the project page: a real description, classifiers with
+  no medical topic, links to the repository, and no personal email addresses.
 
 scripts/core-install-check installs the built package to check the same lists
 against a real install.

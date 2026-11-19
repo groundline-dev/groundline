@@ -27,6 +27,7 @@ jobs:
     timeout-minutes: 15
     outputs:
       version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -40,7 +41,9 @@ jobs:
         if: github.ref != 'refs/heads/main'
         env:
           VERSION: ${{ steps.version.outputs.version }}
-        run: uv version --frozen "$VERSION"
+        # Not --frozen: uv.lock must record the new version too, or the next uv
+        # run stops under UV_LOCKED. The lock change stays on this runner.
+        run: env -u UV_LOCKED uv version --no-sync "$VERSION"
       - name: Build
         run: uv build --out-dir dist
       - name: Check the built files
@@ -83,8 +86,9 @@ jobs:
         # A new upload can take a minute or two to appear in the index.
         run: |
           for attempt in $(seq 20); do
-            if curl --silent --fail "https://test.pypi.org/simple/groundline-core/" |
-              grep --quiet "groundline_core-$VERSION"; then
+            # The sdist's exact name, so an earlier development version can't match.
+            if curl --silent --fail --max-time 30 "https://test.pypi.org/simple/groundline-core/" |
+              grep --quiet --fixed-strings "groundline_core-$VERSION.tar.gz"; then
               exit 0
             fi
             echo "waiting for groundline-core $VERSION on TestPyPI ($attempt)"
@@ -130,8 +134,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.build.outputs.version }}
+          TAG: ${{ needs.build.outputs.tag }}
         run: |
-          gh release create "groundline-core-v$VERSION" dist/* \
+          gh release create "$TAG" dist/* \
             --repo "$GITHUB_REPOSITORY" \
             --target "$GITHUB_SHA" \
             --title "groundline-core $VERSION" \

@@ -258,7 +258,7 @@ There are three test suites. They differ in what they use for Postgres and Claud
 
 None of them starts the Docker stack, runs `terraform test` or touches AWS: `make docker-smoke`, `make infra-check` and `make aws-smoke` do that.
 
-`make core-check` builds the package and installs it with no extras, once with pip and once with uv pip, then checks that the library loads without the server or CLI packages and that the command and the API say which extra to install. It also type-checks `scripts/library_typing_check.py`, a file that uses only the public names, with pyright strict against each install, so a public name or result field whose type callers can't see fails it. Run it when you change the dependencies in `pyproject.toml`, what `groundline_core` imports when it loads, or the public interface. CI runs it on every PR.
+`make core-check` builds the wheel and the sdist and checks that they hold only the package, its license, notice and readme, and the packaging metadata (no `.env`, tests or other local files), and that a wheel built from the sdist has the same files. It then installs the wheel with no extras, once with pip and once with uv pip, and checks that every built-in preset and profile loads (which reads every prompt and rubric), that both schema files are there, that the library loads without the server or CLI packages, and that the command and the API say which extra to install. It also type-checks `scripts/library_typing_check.py`, a file that uses only the public names, with pyright strict against each install, so a public name or result field whose type callers can't see fails it. Run it when you change the dependencies in `pyproject.toml`, what `groundline_core` imports when it loads, the public interface, or the files the package ships. CI runs it on every PR, and the release workflow runs it on the files it uploads (`--dist`) and on the copy it installs back from TestPyPI (`--from-index`).
 
 CI runs the fast and database tests on every PR, but never the live tests.
 
@@ -282,7 +282,7 @@ Anthropic SDK DEBUG logging includes raw prompts. Privacy assertions capture gro
 
 ## Lint, format and type checks
 
-`make check` runs ruff, pyright in strict mode (the SDK's generated code is the exception, see [The SDK](#the-sdk)), the large-file check, secret checks and the tests, without changing files. CI runs it too, along with the database tests (`make test-db`), the SDK checks (`make sdk-check` and `make sdk-install-check`, see [The SDK](#the-sdk)), the Docker stack check (`make docker-smoke`), the Terraform checks (`make infra-check`) and the local certificate lifecycle checks (`make https-smoke`). `make infra-check` needs Terraform, but no AWS credentials: its tests plan against a mock AWS provider. Run it when you change `infra/`. `make fix` applies ruff's fixes and formatting. Pyright errors need fixing by hand.
+`make check` runs ruff, pyright in strict mode (the SDK's generated code is the exception, see [The SDK](#the-sdk)), the large-file check, secret checks and the tests, without changing files. CI runs it too, along with the database tests (`make test-db`), the install check (`make core-check`), the SDK checks (`make sdk-check` and `make sdk-install-check`, see [The SDK](#the-sdk)), the Docker stack check (`make docker-smoke`), the Terraform checks (`make infra-check`) and the local certificate lifecycle checks (`make https-smoke`). `make infra-check` needs Terraform, but no AWS credentials: its tests plan against a mock AWS provider. Run it when you change `infra/`. `make fix` applies ruff's fixes and formatting. Pyright errors need fixing by hand.
 
 The `pre-commit` hook runs lint, format, type, large-file and secret checks on staged changes; it does not run pytest. If ruff fails, run `make fix` and stage the result.
 
@@ -366,7 +366,7 @@ The version is written in `pyproject.toml`, and the package follows semantic ver
 3. The `pypi` job then waits for approval. Any of the `pypi` environment's reviewers except the person who started the run can approve it on the run's page.
 4. After approval, the workflow uploads the same files to PyPI, tags the commit `groundline-core-v<version>` and creates a GitHub release, with notes listing the merged pull requests.
 
-The run stops before uploading anything if the version is already on PyPI or already tagged (`scripts/release_version.py`).
+The run stops before uploading anything if the version is already on PyPI or TestPyPI, or already tagged (`scripts/release_version.py`). A run that reached TestPyPI and then stopped, because a check failed or the approval was rejected, leaves that version on TestPyPI for good, so raise the version before running again. Skipping a version number this way is normal.
 
 Started from any other branch, the workflow publishes a development version, such as `0.1.0.dev12` (the run number), to TestPyPI and stops there. Use it to try a change to the release process. TestPyPI also never accepts the same version twice, and the development version leaves the real one free.
 
@@ -379,7 +379,7 @@ Nobody can delete a version from PyPI and upload it again. Yank the bad version 
 A PyPI account holder and a repository admin do this once, before the first release:
 
 - On pypi.org and on test.pypi.org (separate accounts, each with two-factor authentication), add a pending publisher under **Account settings → Publishing**: project `groundline-core`, owner `groundline-dev`, repository `groundline`, workflow `release.yml`, and environment `pypi` on pypi.org or `testpypi` on test.pypi.org. Trusted publishing then lets the workflow upload without a stored token.
-- In the repository's **Settings → Environments**, create `testpypi` with no reviewers, and `pypi` with the team as required reviewers and **Prevent self-review** on.
+- In the repository's **Settings → Environments**, create `testpypi` with no reviewers, and `pypi` with the team as required reviewers, **Prevent self-review** on, and **Deployment branches** limited to `main`. The branch limit is what stops a copy of the workflow pushed to another branch from publishing to PyPI.
 - After the first release, add at least one more owner to the project on PyPI, so that one lost login can't lock it.
 
 ## Layout

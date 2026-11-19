@@ -110,3 +110,14 @@ def test_every_action_is_pinned_to_a_commit(workflow: dict[Any, Any]):
     ]
 
     assert unpinned == []
+
+
+def test_the_tag_comes_from_the_version_script(workflow: dict[Any, Any]):
+    # One place decides the tag's name, so the version check and the release
+    # agree on which tag means "already released".
+    release = jobs(workflow)["release"]
+
+    assert "groundline-core-v" not in runs(release)
+    assert (
+        jobs(workflow)["build"]["outputs"]["tag"] == "${{ steps.version.outputs.tag }}"
+    )

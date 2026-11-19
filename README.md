@@ -46,6 +46,8 @@ Measured on 172 commission pairs, it caught 166, flagged 0 of 110 clean notes, a
 
 ## Setup
 
+This section sets up a clone of the repository for development. To use groundline in your own code, install the package instead (see [Using it from Python](#using-it-from-python)).
+
 This project uses [uv](https://docs.astral.sh/uv/getting-started/installation/) 0.13 (0.13.7 or later); check with `uv --version`. After cloning, create the virtualenv, install dependencies and enable the shared git hooks:
 
 ```sh
