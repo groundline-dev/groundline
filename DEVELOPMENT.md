@@ -365,7 +365,7 @@ src/groundline_core/       a leading underscore marks the library's internals (A
   _evaluators/             what the checks share, and the registry of built-in checks
   _evaluators/omissions/   the omission check
   _evaluators/commissions/ the commission check
-  profiles/clinical/       the clinical profile: prompts and severity rubric
+  profiles/clinical/       the clinical profile: prompts, severity rubric, disclaimer sentence
   presets/                 validated pipeline specs (omission_all_opus, commission_quick,
                            commission_reverse_lean)
   __init__.py              the public interface: the names library callers import

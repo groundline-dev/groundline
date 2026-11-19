@@ -223,11 +223,11 @@ def test_an_identical_profile_under_another_name_is_still_validated():
 
 
 def test_the_result_carries_the_disclaimer_with_its_profiles_sentence():
-    own_sentence = load_builtin_profile("clinical").model_copy(
+    with_own_sentence = load_builtin_profile("clinical").model_copy(
         update={"disclaimer": "They aren't financial advice."}
     )
 
-    assert run(profile=own_sentence).disclaimer == full_disclaimer(
+    assert run(profile=with_own_sentence).disclaimer == full_disclaimer(
         "They aren't financial advice."
     )
 

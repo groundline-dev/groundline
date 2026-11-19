@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from groundline_core._disclaimer import LEAD, REST, SHORT, full_disclaimer
+from groundline_core._disclaimer import AFTER_LEAD, LEAD, SHORT, full_disclaimer
 from groundline_core.profiles import load_builtin_profile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -18,20 +18,20 @@ def one_line(text: str) -> str:
 
 def test_a_profiles_sentence_follows_the_lead():
     assert full_disclaimer("They aren't financial advice.") == (
-        f"{LEAD} They aren't financial advice. {REST}"
+        f"{LEAD} They aren't financial advice. {AFTER_LEAD}"
     )
 
 
 @pytest.mark.parametrize("sentence", [None, ""])
 def test_without_a_profile_sentence_the_disclaimer_is_the_core(sentence: str | None):
-    assert full_disclaimer(sentence) == f"{LEAD} {REST}"
+    assert full_disclaimer(sentence) == f"{LEAD} {AFTER_LEAD}"
 
 
 def test_both_readmes_carry_the_core_and_the_clinical_sentence():
     clinical = load_builtin_profile("clinical").disclaimer
     for readme in READMES:
         text = one_line(readme.read_text())
-        assert f"{LEAD} {REST}" in text, f"{readme} lacks the disclaimer's core"
+        assert f"{LEAD} {AFTER_LEAD}" in text, f"{readme} lacks the disclaimer's core"
         assert clinical in text, f"{readme} lacks the clinical sentence {clinical!r}"
 
 

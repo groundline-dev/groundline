@@ -110,7 +110,7 @@ Not fully recorded (rank order):
 35 facts: 29 present · 3 partial · 3 absent
 Cost             $0.29 · 4 calls · 31,620 input / 8,140 output tokens · 48.3 s
 
-Results need a person's review: an unflagged summary isn't proof it's complete. See https://github.com/groundline-dev/groundline#disclaimer.
+Results need a person's review: a summary that isn't flagged can still leave out or misstate facts. See https://github.com/groundline-dev/groundline#disclaimer.
 ```
 
 ### Exit codes
@@ -150,7 +150,7 @@ Not supported by the source (severity order):
 
 Cost              $0.0020 · 1 calls · 14,820 input / 1,040 output tokens · 4.1 s
 
-Results need a person's review: an unflagged summary isn't proof it's complete. See https://github.com/groundline-dev/groundline#disclaimer.
+Results need a person's review: a summary that isn't flagged can still leave out or misstate facts. See https://github.com/groundline-dev/groundline#disclaimer.
 ```
 
 The [exit codes](#exit-codes) and [options](#options) are the same as for omissions, plus `--preset NAME`, which picks the validated preset to run: `commission_quick` (the default) or `commission_reverse_lean` (not confirmed to its pre-registered standard, as above). Use `--preset` or `--pipeline`, not both, since a pipeline spec file replaces the preset. An unknown name, or both options together, stops the command with exit code 2. If the model's quote of the source passage isn't found word for word in the source, the report still shows it, marked `(not found word for word in the source)`. If a pipeline switches refute on, the report adds a `Cleared by refute` line.
@@ -190,7 +190,7 @@ for finding in result.findings:
     print(finding.severity, finding.verdict, finding.confidence, finding.statement)
 print(result.counts)  # total=35 present=29 partial=3 absent=3
 print(result.alarm)  # score=0.97 threshold=0.9 level='strict'
-print(result.validated_preset)  # "omission_all_opus", or None if anything was changed
+print(result.validated_preset)  # "omission_all_opus", or None if anything that affects the check was changed
 print(result.usage.cost_usd)
 ```
 
@@ -353,7 +353,7 @@ Both endpoints return `evaluation_type` (`omissions` or `commissions`), `flagged
 | `evidence_found` | Whether `source_evidence` appears in the source word for word, ignoring case, punctuation and spacing. `true` means verified. `false` only means it couldn't be matched, which a reworded quote or markup in the source, such as a scribe's `<UNSURE>` tags, can cause, so check it by eye rather than assuming it was invented. `null` when there is no evidence. |
 | `explanation` | A fixed sentence for each type and verdict, with no text from the source or summary in it. Use the other fields for the details. |
 
-`counts` is the facts found in the source and how many were present, partial or absent; it is `null` for a check that doesn't count facts, such as the commission check. `metadata` is how the check ran: `pipeline` is the validated preset, `alarm` is the alarm score, threshold and level behind the flag, and `usage` is the model calls the check made and what they cost.
+`counts` is the facts found in the source and how many were present, partial or absent; it is `null` for a check that doesn't count facts, such as the commission check. `metadata` is how the check ran: `pipeline` is the validated preset, `alarm` is the alarm score, threshold and level behind the flag, and `usage` is the model calls the check made and what they cost. `metadata.disclaimer` is the [Disclaimer](#disclaimer), to show next to the result.
 
 ### Scores
 
@@ -429,7 +429,7 @@ The test fixtures in `tests/fixtures/parity/` are rows of OmissionBench (Composo
 
 groundline's results help a person review a summary. A summary that isn't flagged can still leave out or misstate important facts, so check it before relying on it. You're responsible for any decision made using groundline's results. groundline is provided "as is", and its authors accept no liability for outcomes from its use (see sections 7 and 8 of the Apache License 2.0).
 
-Each domain profile can add a sentence after the first one. The built-in clinical profile adds "They aren't medical advice or a clinical decision." Every result carries the full text: in `metadata.disclaimer` in an API response, in `result.disclaimer` in Python, and in the CLI's `--json` file. Each CLI report and the CLI's `--help` end with a short version.
+Each domain profile can add a sentence after the first one. The built-in clinical profile adds "They aren't medical advice or a clinical decision." Every result carries the full text: in `metadata.disclaimer` in an API response, in `result.disclaimer` in Python, and in the CLI's `--json` file. Each CLI report ends with a short version, and so does the `--help` of `groundline-core` and of its two checks.
 
 ## License
 

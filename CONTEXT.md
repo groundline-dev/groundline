@@ -13,7 +13,7 @@ The AI-written text being checked against its source, such as a clinical note.
 _Avoid_: note, output, generation (note is clinical wording, kept in the clinical profile)
 
 **Domain profile**:
-What matters in one domain: its prompts, its severity rubric, and the words its prompts use for the source and the summary.
+What matters in one domain: its prompts, its severity rubric, the words its prompts use for the source and the summary, and any sentence it adds to the disclaimer.
 _Avoid_: config, domain config
 
 **Severity rubric**:
@@ -139,7 +139,7 @@ A pipeline spec that ships with groundline.
 _Avoid_: template, default pipeline
 
 **Validated preset**:
-A preset whose results have been measured. A run counts as using it only if nothing about the pipeline or profile was changed, apart from choosing a threshold level.
+A preset whose results have been measured. A run counts as using it only if nothing that affects the check was changed, apart from choosing a threshold level. A profile's name and its disclaimer sentence don't affect the check.
 _Avoid_: approved pipeline, certified pipeline
 
 ## When a check can't finish

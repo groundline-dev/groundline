@@ -50,8 +50,7 @@ class DomainProfile(BaseModel):
     description: str = ""
     disclaimer: str = ""
     """A sentence the profile adds to the disclaimer every result carries, such
-    as the clinical profile's "They aren't medical advice or a clinical
-    decision." Empty if it adds none."""
+    as "They aren't financial advice." Empty if it adds none."""
     placeholders: Placeholders = Placeholders()
     texts: dict[str, str]
     """Text contents by name."""

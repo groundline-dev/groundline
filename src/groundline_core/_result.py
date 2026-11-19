@@ -145,8 +145,9 @@ class EvaluationResult:
     """The model calls the check made, and what they cost."""
     disclaimer: str
     """What a person relying on this result should know: it helps them review
-    the summary, and isn't proof that the summary is complete. It includes the
-    sentence the domain profile adds, if any. Show it with the result."""
+    the summary, and a summary that isn't flagged can still leave out or misstate
+    important facts. It includes the sentence the domain profile adds, if any.
+    Show it with the result."""
     run: RunResult
     """Every stage's output, status, model calls, usage and cost. For inspection
     only: its shape follows the pipeline's internal stages and may change without
