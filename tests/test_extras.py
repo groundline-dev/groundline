@@ -1,4 +1,4 @@
-"""Check what happens when an extra isn't installed (ALL-160).
+"""Check what happens when an extra isn't installed.
 
 Each test runs a fresh Python with some packages hidden, as if they had never
 been installed: a hidden module fails to import with ModuleNotFoundError, the

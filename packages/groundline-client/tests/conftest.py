@@ -1,11 +1,14 @@
-"""A fake groundline API on a local port, for the client's tests (ALL-156).
+"""A fake groundline API on a local port, for the client's tests.
 
 The fake answers each route with the example from openapi.json, records every
-request it receives, and can be told to answer a route differently. No test
+request it receives, and can be told to answer a route differently, to answer
+the next requests from a script, or to never answer one. No test
 reaches the real API.
 """
 
+import asyncio
 import json
+import random
 import socket
 import threading
 from collections.abc import Iterator
@@ -14,12 +17,22 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
+import groundline_client as sdk
 import pytest
 
 SPEC = json.loads((Path(__file__).resolve().parents[1] / "openapi.json").read_text())
 PROBE_REPLY = {"status": "ok"}
 URL_VARIABLE = "GROUNDLINE_API_URL"
 API_KEY_VARIABLE = "GROUNDLINE_API_KEY"
+
+
+@dataclass(frozen=True)
+class Step:
+    """One scripted answer: a status, a JSON body and optional response headers."""
+
+    status: int
+    body: Any
+    headers: dict[str, str] | None = None
 
 
 @dataclass(frozen=True)
@@ -38,20 +51,40 @@ class FakeServer:
             for name, schema in SPEC["components"]["schemas"].items()
             if "examples" in schema
         }
-        self._replies: dict[tuple[str, str], tuple[int, Any]] = {
-            ("POST", "/v1/omissions"): (200, examples["OmissionsResponse"]),
-            ("POST", "/v1/commissions"): (200, examples["CommissionsResponse"]),
-            ("GET", "/health"): (200, PROBE_REPLY),
-            ("GET", "/ready"): (200, PROBE_REPLY),
+        self._replies: dict[tuple[str, str], Step] = {
+            ("POST", "/v1/omissions"): Step(200, examples["OmissionsResponse"]),
+            ("POST", "/v1/commissions"): Step(200, examples["CommissionsResponse"]),
+            ("GET", "/health"): Step(200, PROBE_REPLY),
+            ("GET", "/ready"): Step(200, PROBE_REPLY),
         }
+        # Scripted answers are used first, one per request, then the route's
+        # usual reply. A route in `_hung` never answers.
+        self._scripts: dict[tuple[str, str], list[Step]] = {}
+        self._hung: set[tuple[str, str]] = set()
+        self.release = threading.Event()  # set at teardown, so hung requests end
         self.examples = examples
         self._server = ThreadingHTTPServer(("127.0.0.1", 0), self._handler())
         self._server.daemon_threads = True
         self.url = f"http://127.0.0.1:{self._server.server_port}"
 
-    def reply(self, method: str, path: str, status: int, body: Any) -> None:
+    def reply(
+        self,
+        method: str,
+        path: str,
+        status: int,
+        body: Any,
+        headers: dict[str, str] | None = None,
+    ) -> None:
         """Answer this route with this status and JSON body from now on."""
-        self._replies[(method, path)] = (status, body)
+        self._replies[(method, path)] = Step(status, body, headers)
+
+    def script(self, method: str, path: str, steps: list[Step]) -> None:
+        """Answer the next requests to this route with these steps, in order."""
+        self._scripts[(method, path)] = list(steps)
+
+    def hang(self, method: str, path: str) -> None:
+        """Accept requests to this route and never answer them."""
+        self._hung.add((method, path))
 
     def _handler(self) -> type[BaseHTTPRequestHandler]:
         fake = self
@@ -68,12 +101,25 @@ class FakeServer:
                         body=json.loads(raw) if raw else None,
                     )
                 )
-                status, body = fake._replies.get(
-                    (self.command, self.path), (404, {"detail": "no such route"})
+                route = (self.command, self.path)
+                if route in fake._hung:
+                    # Long enough for any limit a test sets; short enough that a
+                    # client without a limit fails the test instead of hanging it.
+                    fake.release.wait(timeout=5)
+                    return
+                scripted = fake._scripts.get(route)
+                step = (
+                    scripted.pop(0)
+                    if scripted
+                    else fake._replies.get(
+                        route, Step(404, {"detail": "no such route"})
+                    )
                 )
-                payload = json.dumps(body).encode()
-                self.send_response(status)
+                payload = json.dumps(step.body).encode()
+                self.send_response(step.status)
                 self.send_header("Content-Type", "application/json")
+                for name, value in (step.headers or {}).items():
+                    self.send_header(name, value)
                 self.send_header("Content-Length", str(len(payload)))
                 self.end_headers()
                 self.wfile.write(payload)
@@ -97,6 +143,7 @@ def fake_server() -> Iterator[FakeServer]:
     )
     thread.start()
     yield server
+    server.release.set()
     server._server.shutdown()  # pyright: ignore[reportPrivateUsage]
     server._server.server_close()  # pyright: ignore[reportPrivateUsage]
 
@@ -121,3 +168,47 @@ def closed_port() -> int:
     with socket.socket() as probe:
         probe.bind(("127.0.0.1", 0))
         return probe.getsockname()[1]
+
+
+@pytest.fixture(autouse=True)
+def no_jitter(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Make every backoff wait zero, so no test waits for a real retry."""
+    monkeypatch.setattr(random, "random", lambda: 0.0)
+
+
+# method name, HTTP method, path, request model, response model
+OPERATIONS = [
+    (
+        "evaluate_omissions",
+        "POST",
+        "/v1/omissions",
+        "OmissionsRequest",
+        "OmissionsResponse",
+    ),
+    (
+        "evaluate_commissions",
+        "POST",
+        "/v1/commissions",
+        "CommissionsRequest",
+        "CommissionsResponse",
+    ),
+    ("health", "GET", "/health", None, None),
+    ("ready", "GET", "/ready", None, None),
+]
+
+
+def make_client(fake_server: FakeServer, api_key: str, **options: Any) -> Any:
+    return sdk.GroundlineClient(base_url=fake_server.url, api_key=api_key, **options)
+
+
+def call(client: Any, operation: str, request: Any, *, is_async: bool) -> Any:
+    arguments = [] if request is None else [request]
+    if is_async:
+        return asyncio.run(getattr(client, f"{operation}_async")(*arguments))
+    return getattr(client, operation)(*arguments)
+
+
+def request_for(fake_server: FakeServer, request_model: str | None) -> Any:
+    if request_model is None:
+        return None
+    return getattr(sdk, request_model).from_dict(fake_server.examples[request_model])

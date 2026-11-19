@@ -1,4 +1,4 @@
-"""Each endpoint in openapi.json has a generated SDK function and models (ALL-155).
+"""Each endpoint in openapi.json has a generated SDK function and models.
 
 For every operation, the generated public function (`sync_detailed`) sends the
 request the spec describes (method, URL and body) and parses every reply the
