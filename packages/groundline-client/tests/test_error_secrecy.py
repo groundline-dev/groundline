@@ -1,4 +1,4 @@
-"""No SDK error shows the API key, source or summary text, or the request (ALL-158).
+"""No SDK error shows the API key, source or summary text, or the request .
 
 An `httpx2` error carries its request, and the request's headers hold the API
 key, so the SDK drops the original error instead of chaining it. Each test
@@ -109,7 +109,7 @@ def test_an_error_for_a_timeout_shows_neither_the_key_nor_the_request(
         base_url=fake_server.url,
         api_key=SECRET_KEY,
         max_attempts=1,
-        timeout_seconds=0.3,
+        timeout_seconds=0.05,
     )
 
     assert_safe(trigger(client, "health", is_async))
@@ -199,8 +199,8 @@ def test_a_key_in_a_proxys_error_page_never_reaches_the_error(
     assert echoed not in everything_visible_about(error)
 
 
-def test_a_config_error_does_not_chain_or_hold_the_key():
-    with pytest.raises(sdk.GroundlineConfigError) as raised:
+def test_a_setup_error_does_not_chain_or_hold_the_key():
+    with pytest.raises(sdk.GroundlineSetupError) as raised:
         sdk.GroundlineClient(base_url="not-a-url", api_key=SECRET_KEY)
 
     assert SECRET_KEY not in everything_visible_about(raised.value)

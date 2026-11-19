@@ -588,7 +588,7 @@ def test_a_call_that_hangs_is_cut_off_at_the_total_timeout(
     is_async: bool, fake_server: FakeServer, api_key: str
 ):
     fake_server.hang("GET", "/health")
-    client = make_client(fake_server, api_key, max_attempts=1, timeout_seconds=0.3)
+    client = make_client(fake_server, api_key, max_attempts=1, timeout_seconds=0.05)
     started = time.monotonic()
 
     with pytest.raises(sdk.GroundlineTimeoutError):
@@ -610,7 +610,7 @@ def test_the_timeout_raised_for_a_hung_call_knows_its_request(
     limits = Limits(
         max_attempts=1,
         max_retry_seconds=5.0,
-        timeout_seconds=0.3,
+        timeout_seconds=0.05,
         connect_timeout_seconds=0.1,
     )
     request = httpx2.Request("GET", f"{fake_server.url}/health")

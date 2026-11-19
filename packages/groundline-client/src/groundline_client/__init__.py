@@ -18,8 +18,8 @@ from ._generated.models import (
 from .client import GroundlineClient
 from .errors import (
     AuthenticationError,
-    GroundlineConfigError,
     GroundlineError,
+    GroundlineSetupError,
     GroundlineTimeoutError,
     InvalidRequestError,
     RateLimitError,
@@ -35,7 +35,7 @@ __all__ = [
     "GetHealthResponseGetHealth",
     "GetReadyResponseGetReady",
     "GroundlineClient",
-    "GroundlineConfigError",
+    "GroundlineSetupError",
     "GroundlineError",
     "GroundlineTimeoutError",
     "InvalidRequestError",

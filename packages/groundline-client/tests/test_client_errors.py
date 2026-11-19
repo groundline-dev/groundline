@@ -1,4 +1,4 @@
-"""What a client method raises for each answer, sync and async (ALL-158).
+"""What a client method raises for each answer, sync and async .
 
 Every case goes through `GroundlineClient` and the fake server, so no test
 reaches the real API. `max_attempts=1` keeps a retryable status (408, 429, 5xx)
@@ -65,7 +65,7 @@ def raised_by(
     return raised.value
 
 
-# R2 (status maps to subclass)
+# Each status maps to its class
 
 
 @SYNC_AND_ASYNC
@@ -160,7 +160,7 @@ def test_the_error_is_raised_only_after_the_retries_run_out(
     assert len(fake_server.requests) == 2
 
 
-# R4 (malformed responses): never a raw crash
+# Malformed answers: never a raw crash
 
 
 @SYNC_AND_ASYNC
@@ -294,7 +294,7 @@ def test_a_success_status_with_absurdly_nested_json_raises_a_plain_error(
     assert type(error) is sdk.GroundlineError
 
 
-# A flagged summary is a result (R3): see test_client_retries.py,
+# A flagged summary is a result: see test_client_retries.py,
 # test_a_flagged_summary_is_a_normal_result_and_is_not_retried.
 
 
@@ -325,7 +325,7 @@ def test_a_call_that_hangs_raises_a_timeout_error(
     is_async: bool, fake_server: FakeServer, api_key: str
 ):
     fake_server.hang("GET", "/health")
-    client = make_client(fake_server, api_key, timeout_seconds=0.3)
+    client = make_client(fake_server, api_key, timeout_seconds=0.05)
 
     with pytest.raises(sdk.GroundlineError) as raised:
         call(client, ("health", "GET", "/health", None), fake_server, is_async)

@@ -64,7 +64,7 @@ handle all of them, or catch a subclass to decide what to do:
 
 | Error | Raised for | What you can do |
 | --- | --- | --- |
-| `AuthenticationError` | a 401 or 403 | Fix the API key. |
+| `AuthenticationError` | a 401 or 403 | Fix the API key. A 403 never comes from the API itself, so check any proxy or firewall in front of it too. |
 | `RateLimitError` | a 429 | Wait `error.retry_after` seconds (`None` if the answer gave none). |
 | `InvalidRequestError` | a 400 or 422 | Fix the request; `error.detail` says where. |
 | `RequestTooLargeError` | a 413 | Send less text. |
@@ -72,7 +72,7 @@ handle all of them, or catch a subclass to decide what to do:
 | `GroundlineTimeoutError` | a 504 or 408, or the call ran out of its time limits | Try again later, or raise the limits. |
 | `GroundlineError` itself | Anything else: a redirect, a 404, a status the API doesn't document, or an answer the SDK can't read | Check the URL. |
 
-`GroundlineConfigError` (a bad URL, key or option when you create the client) is
+`GroundlineSetupError` (a bad URL, key or option when you create the client) is
 a `GroundlineError` too, and still a `ValueError`. An error that doesn't come
 from the HTTP layer, such as one in your own code, passes through as it is.
 
@@ -101,7 +101,7 @@ otherwise, such as for a proxy's HTML page). `GroundlineError` here is a
 different class from `groundline_core`'s, so catch the one from the package you
 call.
 
-An error is safe to log or show to anyone:
+An error's message, `repr` and `detail` are safe to log:
 
 - The message is fixed wording plus the status, such as `The API refused the API
   key (status 401).` It never holds the source, the summary, the API key or the
@@ -109,13 +109,13 @@ An error is safe to log or show to anyone:
 - `detail` is cut to 250 characters, and anything shaped like an Anthropic key
   (`sk-ant-…`) or a groundline key (`gl_…`), or equal to your own API key (when it is 8 characters or more), is
   replaced with `<redacted key>`. Another kind of secret that a server echoes
-  back would not be recognised.
+  back would not be recognized.
 - The `httpx2` error behind a timeout or connection failure is dropped instead
   of chained, because it carries the request, and the request holds your API
   key. The message says whether it was a timeout or a connection failure.
 
 The parsed `ErrorBody` and `InvalidRequestBody` models are still exported, but
-no method returns them any more.
+no method returns them anymore.
 
 ## Retries and time limits
 
@@ -143,7 +143,7 @@ client = GroundlineClient(max_attempts=1, timeout_seconds=60)
 Each attempt is also cut off at whatever is left of `max_retry_seconds`, and no
 retry starts with less than `connect_timeout_seconds` left. So if
 `connect_timeout_seconds` is as long as `max_retry_seconds` or longer, nothing
-is retried. A value that isn't valid raises `GroundlineConfigError` when you
+is retried. A value that isn't valid raises `GroundlineSetupError` when you
 create the client: `max_attempts` must be a whole number of 1 or more, and the
 other three a finite number above 0.
 

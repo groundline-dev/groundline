@@ -20,7 +20,7 @@ from ._generated.models import (
     OmissionsResponse,
 )
 from ._http import AsyncErrorRaisingClient, ErrorRaisingClient, Limits
-from .errors import GroundlineConfigError, GroundlineError
+from .errors import GroundlineError, GroundlineSetupError
 
 # Retries and time limits (see the README). An attempt may take 150 s because the
 # server allows a check 120 s; the whole call, retries included, 180 s.
@@ -167,7 +167,7 @@ def _option_problems(
 
 def _resolve_url_and_api_key(
     base_url: str | None, api_key: str | None, problems: list[str]
-) -> tuple[str, str] | GroundlineConfigError:
+) -> tuple[str, str] | GroundlineSetupError:
     """The URL and API key to use, or the error to raise, saying which is wrong.
 
     `problems` holds what is already known to be wrong, and the error lists it
@@ -195,7 +195,7 @@ def _resolve_url_and_api_key(
             f"(from api_key= or {API_KEY_VARIABLE})."
         )
     if problems or chosen_url is None or chosen_api_key is None:
-        return GroundlineConfigError(" ".join(problems))
+        return GroundlineSetupError(" ".join(problems))
     return chosen_url, chosen_api_key
 
 
@@ -257,7 +257,7 @@ class GroundlineClient:
     The URL and API key come from the arguments, or else from the environment
     variables `GROUNDLINE_API_URL` and `GROUNDLINE_API_KEY`; an argument wins
     over its variable. A missing, blank or unusable value raises
-    `GroundlineConfigError` here, before any request is made.
+    `GroundlineSetupError` here, before any request is made.
 
     A temporary failure (a 408, 429, 502, 503 or 504 answer, a timeout or a
     connection error) is retried with a growing, randomized wait, honoring a
@@ -294,7 +294,7 @@ class GroundlineClient:
         # Tools that print a traceback's local variables would show the API key
         # in this frame, so drop the argument before raising.
         del api_key
-        if isinstance(outcome, GroundlineConfigError):
+        if isinstance(outcome, GroundlineSetupError):
             raise outcome
         self._base_url, resolved_api_key = outcome
         self._client = _ApiKeyHidingClient(

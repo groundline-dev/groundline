@@ -5,13 +5,13 @@ purpose. The subclasses say what the caller can do: fix the key
 (`AuthenticationError`), wait (`RateLimitError`), fix the request
 (`InvalidRequestError`, `RequestTooLargeError`), or try again later
 (`ServerUnavailableError`, `GroundlineTimeoutError`). A plain `GroundlineError`
-means an answer the SDK doesn't recognise. `GroundlineConfigError` is raised
+means an answer the SDK doesn't recognize. `GroundlineSetupError` is raised
 when a client is created with a missing or unusable setting.
 
 Every message is fixed wording plus a status code, so it is safe to log or show
 to anyone: it never holds the source, the summary, the API key or the server's
 own text. That text is in `detail`, with anything shaped like an API key
-replaced by `<redacted key>`. Only the two key shapes below are recognised.
+replaced by `<redacted key>`. Only the two key shapes below are recognized.
 
 An error never chains the `httpx2` error it replaces, and has no request or
 response attribute. The `httpx2` error carries its request, and the request's
@@ -49,7 +49,7 @@ def _safe_detail(detail: str) -> str:
 class GroundlineError(Exception):
     """The base of every error the SDK raises on purpose.
 
-    Raised by itself for an answer the SDK doesn't recognise: a redirect, a
+    Raised by itself for an answer the SDK doesn't recognize: a redirect, a
     status the API doesn't document, or a reply it can't read.
     """
 
@@ -70,8 +70,11 @@ class GroundlineError(Exception):
 
 
 class AuthenticationError(GroundlineError):
-    """The API refused the API key (a 401 or 403). Retrying won't help until
-    the key is fixed."""
+    """The API refused the API key (a 401), or something in front of it refused
+    the request (a 403). The API never answers 403, so that one usually comes
+    from a proxy or firewall, often for a reason that has nothing to do with the
+    key. Retrying won't help until the key, or whatever refused the request, is
+    fixed."""
 
 
 class RateLimitError(GroundlineError):
@@ -111,7 +114,7 @@ class GroundlineTimeoutError(GroundlineError):
     504), or the SDK's own limit did. A retry may repeat paid model work."""
 
 
-class GroundlineConfigError(GroundlineError, ValueError):
+class GroundlineSetupError(GroundlineError, ValueError):
     """The URL, API key or an option needed to create a client is missing or
     unusable.
 

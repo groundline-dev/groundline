@@ -1,4 +1,4 @@
-"""The SDK's error classes and the rules that turn an answer into one (ALL-158).
+"""The SDK's error classes and the rules that turn an answer into one .
 
 These tests build errors and call the mapping directly, with no server. The
 client tests in `test_client_errors.py` show the same rules through a call.
@@ -31,7 +31,7 @@ SECRET_SHAPES = {
 }
 
 
-# R1 (error classes)
+# The classes
 
 
 @pytest.mark.parametrize("error_class", SUBCLASSES, ids=lambda c: c.__name__)
@@ -40,9 +40,9 @@ def test_each_error_is_a_groundline_error(error_class: type[sdk.GroundlineError]
     assert issubclass(sdk.GroundlineError, Exception)
 
 
-def test_the_config_error_is_a_groundline_error_and_still_a_value_error():
-    assert issubclass(sdk.GroundlineConfigError, sdk.GroundlineError)
-    assert issubclass(sdk.GroundlineConfigError, ValueError)
+def test_the_setup_error_is_a_groundline_error_and_still_a_value_error():
+    assert issubclass(sdk.GroundlineSetupError, sdk.GroundlineError)
+    assert issubclass(sdk.GroundlineSetupError, ValueError)
 
 
 def test_a_rate_limit_error_carries_the_wait_time():
@@ -57,7 +57,7 @@ def test_a_plain_error_has_no_status_or_detail_unless_given():
     assert error.detail is None
 
 
-# R5 (no secrets in messages): redaction and the cap
+# Redaction and the cap on `detail`
 
 
 @pytest.mark.parametrize("key", SECRET_SHAPES.values(), ids=SECRET_SHAPES.keys())
@@ -72,9 +72,9 @@ def test_a_key_shaped_text_is_redacted_everywhere_the_error_shows_it(key: str):
     assert key not in error.detail
 
 
-def test_the_config_error_redacts_a_key_too():
+def test_the_setup_error_redacts_a_key_too():
     key = SECRET_SHAPES["a groundline key"]
-    assert key not in str(sdk.GroundlineConfigError(f"the URL is {key}"))
+    assert key not in str(sdk.GroundlineSetupError(f"the URL is {key}"))
 
 
 def test_ordinary_text_is_left_alone():
@@ -102,7 +102,7 @@ def test_a_key_that_straddles_the_cut_is_still_hidden():
     assert key[:20] not in error.detail
 
 
-# R2 (status maps to subclass), R4 (malformed responses): the mapping alone
+# The status mapping and malformed bodies, without a server
 
 
 @pytest.mark.parametrize(
