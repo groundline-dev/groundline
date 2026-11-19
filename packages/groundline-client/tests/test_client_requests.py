@@ -1,48 +1,15 @@
 """What each client method sends and returns, sync and async."""
 
-import asyncio
+import ast
 import importlib
 import inspect
 import pkgutil
-from typing import Any
+import textwrap
+from typing import Any, cast
 
 import groundline_client as sdk
-import httpx2
 import pytest
-from conftest import PROBE_REPLY, FakeServer
-
-# method name, HTTP method, path, request model, response model
-OPERATIONS = [
-    (
-        "evaluate_omissions",
-        "POST",
-        "/v1/omissions",
-        "OmissionsRequest",
-        "OmissionsResponse",
-    ),
-    (
-        "evaluate_commissions",
-        "POST",
-        "/v1/commissions",
-        "CommissionsRequest",
-        "CommissionsResponse",
-    ),
-    ("health", "GET", "/health", None, None),
-    ("ready", "GET", "/ready", None, None),
-]
-
-
-def call(client: Any, operation: str, request: Any, *, is_async: bool) -> Any:
-    arguments = [] if request is None else [request]
-    if is_async:
-        return asyncio.run(getattr(client, f"{operation}_async")(*arguments))
-    return getattr(client, operation)(*arguments)
-
-
-def request_for(fake_server: FakeServer, request_model: str | None) -> Any:
-    if request_model is None:
-        return None
-    return getattr(sdk, request_model).from_dict(fake_server.examples[request_model])
+from conftest import OPERATIONS, PROBE_REPLY, FakeServer, call, request_for
 
 
 @pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
@@ -94,41 +61,21 @@ def test_every_call_sends_the_api_key_as_a_bearer_token(
 
 
 @pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
-def test_an_error_answer_comes_back_as_a_parsed_error_body(
+def test_an_error_answer_raises_instead_of_returning_the_error_body(
     is_async: bool, fake_server: FakeServer, api_key: str
 ):
     fake_server.reply("POST", "/v1/omissions", 401, {"detail": "Invalid API key."})
     client: Any = sdk.GroundlineClient(base_url=fake_server.url, api_key=api_key)
 
-    result = call(
-        client,
-        "evaluate_omissions",
-        request_for(fake_server, "OmissionsRequest"),
-        is_async=is_async,
-    )
+    with pytest.raises(sdk.AuthenticationError) as raised:
+        call(
+            client,
+            "evaluate_omissions",
+            request_for(fake_server, "OmissionsRequest"),
+            is_async=is_async,
+        )
 
-    assert isinstance(result, sdk.ErrorBody)
-    assert result.detail == "Invalid API key."
-
-
-def test_an_undocumented_status_comes_back_as_none(
-    fake_server: FakeServer, api_key: str
-):
-    fake_server.reply("GET", "/health", 418, {"detail": "teapot"})
-    client: Any = sdk.GroundlineClient(base_url=fake_server.url, api_key=api_key)
-
-    assert client.health() is None
-
-
-def test_a_server_that_is_not_listening_raises_a_connection_error(
-    api_key: str, closed_port: int
-):
-    client: Any = sdk.GroundlineClient(
-        base_url=f"http://127.0.0.1:{closed_port}", api_key=api_key
-    )
-
-    with pytest.raises(httpx2.ConnectError):
-        client.health()
+    assert raised.value.detail == "Invalid API key."
 
 
 # The generated operations whose client method has a different name.
@@ -182,3 +129,66 @@ def test_each_client_method_takes_the_same_parameters_as_the_generated_function(
             if actual != expected:
                 mismatched.append(method_name + suffix)
     assert not mismatched, f"these methods differ from the generated ones: {mismatched}"
+
+
+def test_every_generated_operation_has_the_two_helpers_the_client_calls():
+    # `_call` builds the request and reads the answer with these, so a caller's
+    # own mistake isn't reported as a bad answer. A regeneration that renames
+    # them must fail here, not at a user's call.
+    api = importlib.import_module("groundline_client._generated.api")
+    missing: list[str] = []
+    for module in pkgutil.walk_packages(api.__path__, f"{api.__name__}."):
+        if module.ispkg:
+            continue
+        generated = importlib.import_module(module.name)
+        for helper in ("_get_kwargs", "_parse_response"):
+            if not callable(getattr(generated, helper, None)):
+                missing.append(f"{module.name}.{helper}")
+    assert not missing, f"the client calls these generated helpers: {missing}"
+
+
+def _steps(function: Any) -> list[str]:
+    """The statements of a function's body, as text, without its docstring."""
+    tree = ast.parse(textwrap.dedent(inspect.getsource(function)))
+    body = cast(ast.FunctionDef | ast.AsyncFunctionDef, tree.body[0]).body[1:]
+    return [ast.unparse(statement) for statement in body]
+
+
+def test_every_generated_operation_still_takes_the_steps_the_client_copies():
+    # `_call` and `_call_async` repeat the steps of the generated `sync_detailed`
+    # and `asyncio_detailed`: build the request, send it, parse the answer. If a
+    # regeneration changed them, such as renaming a keyword, the parsing would
+    # fail on every answer and each success would look unreadable, after the
+    # paid call. So this fails when a regeneration changes the steps.
+    api = importlib.import_module("groundline_client._generated.api")
+    changed: list[str] = []
+    for module in pkgutil.walk_packages(api.__path__, f"{api.__name__}."):
+        if module.ispkg:
+            continue
+        generated = importlib.import_module(module.name)
+        sync = _steps(generated.sync_detailed)
+        asynchronous = _steps(generated.asyncio_detailed)
+        built = ast.parse(
+            textwrap.dedent(inspect.getsource(generated._build_response))  # pyright: ignore[reportPrivateUsage]
+        )
+        expected_parse = "parsed=_parse_response(client=client, response=response)"
+        ok = (
+            len(sync) == 3
+            and sync[0].startswith("kwargs = _get_kwargs(")
+            and sync[1] == "response = client.get_httpx_client().request(**kwargs)"
+            and sync[2] == "return _build_response(client=client, response=response)"
+            and len(asynchronous) == 3
+            and asynchronous[0].startswith("kwargs = _get_kwargs(")
+            and asynchronous[1]
+            == "response = await client.get_async_httpx_client().request(**kwargs)"
+            and asynchronous[2] == sync[2]
+            and any(
+                ast.unparse(keyword) == expected_parse
+                for node in ast.walk(built)
+                if isinstance(node, ast.Call)
+                for keyword in node.keywords
+            )
+        )
+        if not ok:
+            changed.append(module.name)
+    assert not changed, f"update `_call` in client.py for the regenerated: {changed}"

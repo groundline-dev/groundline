@@ -153,7 +153,7 @@ _Avoid_: approved pipeline, certified pipeline
 ## When a check can't finish
 
 **Setup error**:
-Something about how groundline is set up stops a check, such as a pipeline spec that isn't a full check, a missing or rejected Anthropic API key, or settings that can't be read. Trying again won't help until the setup is fixed.
+Something about how groundline or a client of it is set up stops it from working, such as a pipeline spec that isn't a full check, a missing or rejected Anthropic API key, settings that can't be read, or a bad URL, key or option when creating an SDK client. Trying again won't help until the setup is fixed.
 _Avoid_: configuration error, config error
 
 **Invalid input**:

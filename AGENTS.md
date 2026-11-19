@@ -23,6 +23,10 @@ The rules below apply only when discussing or changing the design. In other work
 - Files: `docs/adr/NNNN-slug.md`, next number after the highest existing. Create the folder when the first ADR is needed. `tests/test_adrs.py` fails if two ADRs share a number or a file breaks this format, so after merging `main`, renumber yours if it clashes.
 - Format: a title plus 1-3 sentences (context, decision, why). Add Status, Considered Options or Consequences only when they add value.
 
+## Code and tests
+
+Don't put requirement labels (`R1`) or ticket IDs (`ALL-123`) in code, comments or tests: they mean nothing without the ticket. Say what the code or test covers instead.
+
 ## The SDK
 
 `packages/groundline-client/src/groundline_client/_generated/` and `packages/groundline-client/openapi.json` are generated. Never edit them by hand: after changing the API, run `make generate-sdk` and commit the result (see DEVELOPMENT.md).

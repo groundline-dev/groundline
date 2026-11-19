@@ -244,7 +244,7 @@ def test_the_live_smoke_test_stops_first_without_the_anthropic_parameter(
 def test_the_live_smoke_test_sends_the_test_key_with_its_commission_check(
     app: FakeApp, tmp_path: Path
 ):
-    """Commission checks need an API key, like omission checks (ALL-74)."""
+    """Commission checks need an API key, like omission checks."""
     result = run(SMOKE_TEST, tmp_path, smoke_world(app), "--live")
 
     assert result.returncode == 0, result.output

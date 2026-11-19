@@ -1,4 +1,4 @@
-"""What the SDK package installs, and how its generator is pinned (ALL-155).
+"""What the SDK package installs, and how its generator is pinned.
 
 scripts/sdk-install-check installs the built package to check the same thing
 against a real install.

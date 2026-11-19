@@ -1,9 +1,10 @@
 """The one object a developer creates to call a groundline deployment's API."""
 
+import math
 import os
 import warnings
-from types import TracebackType
-from typing import Self
+from types import ModuleType, TracebackType
+from typing import Any, Self
 
 import httpx2
 
@@ -13,14 +14,20 @@ from ._generated.client import AuthenticatedClient
 from ._generated.models import (
     CommissionsRequest,
     CommissionsResponse,
-    ErrorBody,
     GetHealthResponseGetHealth,
     GetReadyResponseGetReady,
-    InvalidRequestBody,
     OmissionsRequest,
     OmissionsResponse,
 )
-from .errors import GroundlineConfigError
+from ._http import AsyncErrorRaisingClient, ErrorRaisingClient, Limits
+from .errors import GroundlineError, GroundlineSetupError
+
+# Retries and time limits (see the README). An attempt may take 150 s because the
+# server allows a check 120 s; the whole call, retries included, 180 s.
+DEFAULT_MAX_ATTEMPTS = 3
+DEFAULT_MAX_RETRY_SECONDS = 180.0
+DEFAULT_CONNECT_TIMEOUT_SECONDS = 5.0
+DEFAULT_TIMEOUT_SECONDS = 150.0
 
 URL_VARIABLE = "GROUNDLINE_API_URL"
 API_KEY_VARIABLE = "GROUNDLINE_API_KEY"
@@ -65,15 +72,108 @@ def _choose(
     return os.environ.get(variable, "").strip() or None
 
 
+# What the generated code raises when a 2xx body isn't what it expects (a
+# RecursionError is deeply nested JSON).
+_PARSE_ERRORS = (ValueError, KeyError, TypeError, AttributeError, RecursionError)
+_UNREADABLE_ANSWER = "The API's answer was not in the expected form."
+
+
+def _read[Result](
+    operation: ModuleType,
+    model: type[Result],
+    client: AuthenticatedClient,
+    response: httpx2.Response,
+) -> Result:
+    """The 2xx `response` parsed as `model`, or an error with its status.
+
+    Only the parsing is inside the `try`: the generated code raises the errors
+    below when a body isn't what it expects, and returns None for a 2xx it
+    doesn't document, such as a 202. A mistake in the caller's own request is
+    raised earlier, in `_call`, and isn't reported as a bad answer.
+    """
+    try:
+        result = operation._parse_response(  # pyright: ignore[reportPrivateUsage]
+            client=client, response=response
+        )
+    except _PARSE_ERRORS:
+        # Raised below, outside this block, so the error has no `__context__`.
+        result = None
+    if not isinstance(result, model):
+        raise GroundlineError(_UNREADABLE_ANSWER, status_code=response.status_code)
+    return result
+
+
+def _call[Result](
+    operation: ModuleType,
+    model: type[Result],
+    client: AuthenticatedClient,
+    **arguments: Any,
+) -> Result:
+    """Run a generated operation: build the request, send it, read the answer.
+
+    These are the steps of the generated `sync`, done here so each can fail its
+    own way. `_get_kwargs` and `_parse_response` are the generated module's own
+    helpers; a test fails if a regeneration renames them.
+    """
+    request = operation._get_kwargs(**arguments)  # pyright: ignore[reportPrivateUsage]
+    response = client.get_httpx_client().request(**request)
+    return _read(operation, model, client, response)
+
+
+async def _call_async[Result](
+    operation: ModuleType,
+    model: type[Result],
+    client: AuthenticatedClient,
+    **arguments: Any,
+) -> Result:
+    request = operation._get_kwargs(**arguments)  # pyright: ignore[reportPrivateUsage]
+    response = await client.get_async_httpx_client().request(**request)
+    return _read(operation, model, client, response)
+
+
+def _is_positive_finite_number(value: Any) -> bool:
+    if not isinstance(value, (int, float)) or isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(value) and value > 0
+    except OverflowError:  # a whole number too big to convert to a float
+        return False
+
+
+def _option_problems(
+    max_attempts: Any,
+    max_retry_seconds: Any,
+    connect_timeout_seconds: Any,
+    timeout_seconds: Any,
+) -> list[str]:
+    """One message per bad retry or time-limit option. Never holds a value."""
+    problems: list[str] = []
+    if (
+        not isinstance(max_attempts, int)
+        or isinstance(max_attempts, bool)
+        or max_attempts < 1
+    ):
+        problems.append("max_attempts= must be a whole number of 1 or more.")
+    seconds = {
+        "max_retry_seconds": max_retry_seconds,
+        "connect_timeout_seconds": connect_timeout_seconds,
+        "timeout_seconds": timeout_seconds,
+    }
+    for name, value in seconds.items():
+        if not _is_positive_finite_number(value):
+            problems.append(f"{name}= must be a number of seconds above 0.")
+    return problems
+
+
 def _resolve_url_and_api_key(
-    base_url: str | None, api_key: str | None
-) -> tuple[str, str] | GroundlineConfigError:
+    base_url: str | None, api_key: str | None, problems: list[str]
+) -> tuple[str, str] | GroundlineSetupError:
     """The URL and API key to use, or the error to raise, saying which is wrong.
 
-    The error is returned, not raised, so the API key is no longer a local
+    `problems` holds what is already known to be wrong, and the error lists it
+    too. The error is returned, not raised, so the API key is no longer a local
     variable of any frame in its traceback.
     """
-    problems: list[str] = []
     chosen_url = _choose(base_url, URL_VARIABLE, "base_url", problems)
     chosen_api_key = _choose(api_key, API_KEY_VARIABLE, "api_key", problems)
     if chosen_url is None:
@@ -95,19 +195,60 @@ def _resolve_url_and_api_key(
             f"(from api_key= or {API_KEY_VARIABLE})."
         )
     if problems or chosen_url is None or chosen_api_key is None:
-        return GroundlineConfigError(" ".join(problems))
+        return GroundlineSetupError(" ".join(problems))
     return chosen_url, chosen_api_key
 
 
 class _ApiKeyHidingClient(AuthenticatedClient):
-    """The generated client, whose `repr` would otherwise print the API key.
+    """The generated client, with retries and time limits and a `repr` hiding the key.
 
-    It shows the API key twice: as `token`, and in its headers after the first
-    call. Tools that dump a traceback's local variables call `repr` on it.
+    The generated client builds a plain `httpx2` client on first use; this one
+    builds the retrying ones from `_http.py` instead, with the same arguments.
+    Its `repr` would otherwise print the API key twice: as `token`, and in its
+    headers after the first call. Tools that dump a traceback's local variables
+    call `repr` on it.
+
+    `with_headers`, `with_cookies` and `with_timeout` of the generated client
+    don't work on it, because they rebuild the client without `limits`. Nothing
+    in the SDK calls them.
     """
+
+    def __init__(self, *, limits: Limits, **arguments: Any) -> None:
+        super().__init__(**arguments)
+        self._limits = limits
 
     def __repr__(self) -> str:
         return f"AuthenticatedClient(base_url={self._base_url!r}, token=<hidden>)"
+
+    def _httpx_arguments(self) -> dict[str, Any]:
+        # Mirrors the body of the generated `AuthenticatedClient.get_httpx_client`,
+        # minus `timeout`, which each attempt sets itself. A test compares the
+        # argument names, so a regeneration that changes them fails it.
+        self._headers[self.auth_header_name] = (
+            f"{self.prefix} {self.token}" if self.prefix else self.token
+        )
+        return {
+            "base_url": self._base_url,
+            "cookies": self._cookies,
+            "headers": self._headers,
+            "verify": self._verify_ssl,
+            "follow_redirects": self._follow_redirects,
+            **self._httpx_args,
+        }
+
+    def get_httpx_client(self) -> httpx2.Client:
+        if self._client is None:
+            self._client = ErrorRaisingClient(
+                limits=self._limits, **self._httpx_arguments()
+            )
+        return self._client
+
+    def get_async_httpx_client(self) -> httpx2.AsyncClient:
+        if self._async_client is None:
+            self._async_client = AsyncErrorRaisingClient(
+                limits=self._limits, **self._httpx_arguments()
+            )
+        return self._async_client
 
 
 class GroundlineClient:
@@ -116,24 +257,55 @@ class GroundlineClient:
     The URL and API key come from the arguments, or else from the environment
     variables `GROUNDLINE_API_URL` and `GROUNDLINE_API_KEY`; an argument wins
     over its variable. A missing, blank or unusable value raises
-    `GroundlineConfigError` here, before any request is made.
+    `GroundlineSetupError` here, before any request is made.
+
+    A temporary failure (a 408, 429, 502, 503 or 504 answer, a timeout or a
+    connection error) is retried with a growing, randomized wait, honoring a
+    `Retry-After` header. `max_attempts` counts the first request, so 1 turns
+    retries off. `max_retry_seconds` limits the whole call, retries included, and
+    `timeout_seconds` one attempt; `connect_timeout_seconds` limits setting up the
+    connection. Async calls are cut off at those limits. In a sync call each step
+    (waiting for a connection, connecting, sending, and each wait for reply data)
+    is limited separately, so an attempt can take longer than `timeout_seconds`.
+    Retrying a check can repeat paid model work.
 
     Each operation has a sync method and an `_async` one. Use the client in a
     `with` block (or `async with`) to close its connections when you are done.
-    An error answer comes back as the parsed error body, and an answer the API
-    doesn't document comes back as None.
+    A method returns the parsed result, and raises a `GroundlineError` (or one of
+    its subclasses, see `errors.py`) for an error answer, a timeout, a
+    connection failure, or an answer it can't read. A flagged summary is a
+    result, not an error.
     """
 
-    def __init__(self, base_url: str | None = None, api_key: str | None = None) -> None:
-        outcome = _resolve_url_and_api_key(base_url, api_key)
+    def __init__(
+        self,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        *,
+        max_attempts: int = DEFAULT_MAX_ATTEMPTS,
+        max_retry_seconds: float = DEFAULT_MAX_RETRY_SECONDS,
+        connect_timeout_seconds: float = DEFAULT_CONNECT_TIMEOUT_SECONDS,
+        timeout_seconds: float = DEFAULT_TIMEOUT_SECONDS,
+    ) -> None:
+        problems = _option_problems(
+            max_attempts, max_retry_seconds, connect_timeout_seconds, timeout_seconds
+        )
+        outcome = _resolve_url_and_api_key(base_url, api_key, problems)
         # Tools that print a traceback's local variables would show the API key
         # in this frame, so drop the argument before raising.
         del api_key
-        if isinstance(outcome, GroundlineConfigError):
+        if isinstance(outcome, GroundlineSetupError):
             raise outcome
         self._base_url, resolved_api_key = outcome
         self._client = _ApiKeyHidingClient(
-            base_url=self._base_url, token=resolved_api_key
+            base_url=self._base_url,
+            token=resolved_api_key,
+            limits=Limits(
+                max_attempts=max_attempts,
+                max_retry_seconds=max_retry_seconds,
+                timeout_seconds=timeout_seconds,
+                connect_timeout_seconds=connect_timeout_seconds,
+            ),
         )
 
     def __repr__(self) -> str:
@@ -177,42 +349,42 @@ class GroundlineClient:
             if self._client._client is not None:  # pyright: ignore[reportPrivateUsage]
                 self._client.__exit__(exc_type, exc, traceback)
 
-    def evaluate_omissions(
-        self, body: OmissionsRequest
-    ) -> ErrorBody | InvalidRequestBody | OmissionsResponse | None:
+    def evaluate_omissions(self, body: OmissionsRequest) -> OmissionsResponse:
         """Find the facts a summary leaves out (`POST /v1/omissions`)."""
-        return evaluate_omissions.sync(client=self._client, body=body)
+        return _call(evaluate_omissions, OmissionsResponse, self._client, body=body)
 
     async def evaluate_omissions_async(
         self, body: OmissionsRequest
-    ) -> ErrorBody | InvalidRequestBody | OmissionsResponse | None:
+    ) -> OmissionsResponse:
         """Find the facts a summary leaves out (`POST /v1/omissions`)."""
-        return await evaluate_omissions.asyncio(client=self._client, body=body)
+        return await _call_async(
+            evaluate_omissions, OmissionsResponse, self._client, body=body
+        )
 
-    def evaluate_commissions(
-        self, body: CommissionsRequest
-    ) -> ErrorBody | InvalidRequestBody | CommissionsResponse | None:
+    def evaluate_commissions(self, body: CommissionsRequest) -> CommissionsResponse:
         """Find the claims the source doesn't support (`POST /v1/commissions`)."""
-        return evaluate_commissions.sync(client=self._client, body=body)
+        return _call(evaluate_commissions, CommissionsResponse, self._client, body=body)
 
     async def evaluate_commissions_async(
         self, body: CommissionsRequest
-    ) -> ErrorBody | InvalidRequestBody | CommissionsResponse | None:
+    ) -> CommissionsResponse:
         """Find the claims the source doesn't support (`POST /v1/commissions`)."""
-        return await evaluate_commissions.asyncio(client=self._client, body=body)
+        return await _call_async(
+            evaluate_commissions, CommissionsResponse, self._client, body=body
+        )
 
-    def health(self) -> ErrorBody | GetHealthResponseGetHealth | None:
+    def health(self) -> GetHealthResponseGetHealth:
         """Whether the app is running (`GET /health`)."""
-        return get_health.sync(client=self._client)
+        return _call(get_health, GetHealthResponseGetHealth, self._client)
 
-    async def health_async(self) -> ErrorBody | GetHealthResponseGetHealth | None:
+    async def health_async(self) -> GetHealthResponseGetHealth:
         """Whether the app is running (`GET /health`)."""
-        return await get_health.asyncio(client=self._client)
+        return await _call_async(get_health, GetHealthResponseGetHealth, self._client)
 
-    def ready(self) -> ErrorBody | GetReadyResponseGetReady | None:
+    def ready(self) -> GetReadyResponseGetReady:
         """Whether the app can serve checks (`GET /ready`)."""
-        return get_ready.sync(client=self._client)
+        return _call(get_ready, GetReadyResponseGetReady, self._client)
 
-    async def ready_async(self) -> ErrorBody | GetReadyResponseGetReady | None:
+    async def ready_async(self) -> GetReadyResponseGetReady:
         """Whether the app can serve checks (`GET /ready`)."""
-        return await get_ready.asyncio(client=self._client)
+        return await _call_async(get_ready, GetReadyResponseGetReady, self._client)

@@ -449,6 +449,12 @@ groundline's results help a person review a summary. A summary that isn't flagge
 
 Each domain profile can add a disclaimer sentence after the first one. The built-in clinical profile adds "They aren't medical advice or a clinical decision." Every result carries the full text: in `metadata.disclaimer` in an API response, in `result.disclaimer` in Python, and in the CLI's `--json` file. Each CLI report ends with the full text, and the `--help` of `groundline-core` and of its two checks ends with a short version.
 
+## Disclaimer
+
+groundline's results help a person review a summary. A summary that isn't flagged can still leave out or misstate important facts, so check it before relying on it. You're responsible for any decision made using groundline's results. groundline is provided "as is", and its authors accept no liability for outcomes from its use (see sections 7 and 8 of the Apache License 2.0).
+
+Each domain profile can add a disclaimer sentence after the first one; keep it to one sentence, since it goes into every result. The built-in clinical profile adds "They aren't medical advice or a clinical decision.", which is why the example reports above end with the full text a clinical-profile run prints. Every result carries the full text: in `metadata.disclaimer` in an API response, in `result.disclaimer` in Python, and in the CLI's `--json` file. Each CLI report ends with the full text, and the `--help` of `groundline-core` and of its two checks ends with a short version.
+
 ## License
 
 Copyright 2026 The groundline Authors. groundline is licensed under the [Apache License 2.0](https://github.com/groundline-dev/groundline/blob/main/LICENSE); see also [NOTICE](https://github.com/groundline-dev/groundline/blob/main/NOTICE). The test fixtures described under [Data attribution](#data-attribution) keep their own CC BY 4.0 license.
