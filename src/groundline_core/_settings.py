@@ -30,33 +30,33 @@ type EnvFile = str | Path | None
 
 class MissingAPIKeyError(SetupError):
     """No usable Anthropic API key: none was found, or the caller passed a blank
-    one. `missing_key_error` builds the usual one."""
+    one. `path` is the `.env` file that was searched, if one was named."""
 
 
-class UnreadableSettingsError(SetupError):
+class SettingsError(SetupError):
+    """The settings can't be read: the environment holds an invalid value, or the
+    named `.env` file isn't readable UTF-8 text. `path` is that file, if one was
+    named. The message never repeats the rejected value."""
+
     def __init__(self, error_type: str, env_file: EnvFile) -> None:
         if env_file is None:
-            fix = api_fix = "check the environment variables groundline reads."
+            fix = "check the environment variables groundline reads."
         else:
-            path = Path(env_file)
-            fix = f"check that {path.absolute()} is a readable UTF-8 text file."
-            api_fix = (
-                f"check that the server's {path.name} is a readable UTF-8 text file."
-            )
+            fix = f"check that {Path(env_file).name} is a readable UTF-8 text file."
         super().__init__(
-            _unreadable_message(error_type, fix),
-            _unreadable_message(error_type, api_fix),
+            f"can't read the settings ({error_type}).\n  Fix: {fix}", path=env_file
         )
 
 
 @dataclass(frozen=True)
 class AnthropicKey:
-    """The Anthropic API key to use, with what errors should call it and where
-    it came from. The key is a `SecretStr`, so printing this never shows it."""
+    """The Anthropic API key to use, with what errors should call it and the
+    `.env` file it came from, if any. The key is a `SecretStr`, so printing this
+    never shows it."""
 
     value: SecretStr
     name: str
-    source: str
+    path: Path | None
 
 
 class APILimitsSettings(BaseSettings):
@@ -152,7 +152,7 @@ class Settings(CheckSettings, ModelSettings):
                 "DATABASE_URL is not set. Add it to the environment or .env; "
                 "see DEVELOPMENT.md for database setup."
             )
-            raise SetupError(message, message)
+            raise SetupError(message)
         return self.database_url.get_secret_value()
 
 
@@ -173,7 +173,7 @@ def _read_settings[T: BaseSettings](settings_type: type[T], env_file: EnvFile) -
     try:
         return settings_type(_env_file=env_file)  # pyright: ignore[reportCallIssue]
     except Exception as error:
-        raise UnreadableSettingsError(type(error).__name__, env_file) from error
+        raise SettingsError(type(error).__name__, env_file) from None
 
 
 def anthropic_key(
@@ -199,26 +199,23 @@ def anthropic_key(
                 fix="pass the Anthropic API key, or leave "
                 f"{ANTHROPIC_KEY_PARAMETER} out to use {ANTHROPIC_KEY_VARIABLE}.",
             )
-            raise MissingAPIKeyError(message, message)
-        return AnthropicKey(
-            value, "The Anthropic API key", f"the {ANTHROPIC_KEY_PARAMETER} argument"
-        )
+            raise MissingAPIKeyError(message)
+        return AnthropicKey(value, "The Anthropic API key", None)
     from_settings = read_settings(env_file).anthropic_api_key
     if from_settings is None:
         raise missing_key_error(needed_by, env_file)
-    if os.environ.get(ANTHROPIC_KEY_VARIABLE) or env_file is None:
-        source = "the environment"
-    else:
-        source = str(Path(env_file).absolute())
-    return AnthropicKey(from_settings, ANTHROPIC_KEY_VARIABLE, source)
+    from_file = env_file is not None and not os.environ.get(ANTHROPIC_KEY_VARIABLE)
+    path = Path(env_file).absolute() if from_file and env_file is not None else None
+    return AnthropicKey(from_settings, ANTHROPIC_KEY_VARIABLE, path)
 
 
 def missing_key_error(needed_by: str | None, env_file: EnvFile) -> MissingAPIKeyError:
     """The error for an Anthropic API key found nowhere.
 
-    The message says where the key was looked for and how to fix it. Without an
-    `env_file`, it names no path. With one, the HTTP response still leaves the
-    path out, since the path is a detail of the server.
+    The message says where the key was looked for and how to fix it. It names
+    the `env_file` only by its name and doesn't say whether the file exists, so
+    it describes nothing about the machine; the error's `path` holds the full
+    path.
     """
     if env_file is None:
         message = _key_message(
@@ -228,12 +225,8 @@ def missing_key_error(needed_by: str | None, env_file: EnvFile) -> MissingAPIKey
             f"and {ANTHROPIC_KEY_VARIABLE} in the environment",
             fix=f"pass {ANTHROPIC_KEY_PARAMETER}=..., or set {ANTHROPIC_KEY_VARIABLE}.",
         )
-        return MissingAPIKeyError(message, message)
-    path = Path(env_file).absolute()
-    if not path.is_file():
-        status = "not found"
-    else:
-        status = f"found, but it has no {ANTHROPIC_KEY_VARIABLE}, or it's blank"
+        return MissingAPIKeyError(message)
+    path = Path(env_file)
     headline = f"{ANTHROPIC_KEY_VARIABLE} is not set."
     fix = (
         f"export {ANTHROPIC_KEY_VARIABLE}=..., or copy .env.example to "
@@ -243,10 +236,10 @@ def missing_key_error(needed_by: str | None, env_file: EnvFile) -> MissingAPIKey
         _key_message(
             headline,
             needed_by,
-            looked_in=f"the environment, and {path} ({status})",
+            looked_in=f"the environment, and {path.name}",
             fix=fix,
         ),
-        _key_message(headline, needed_by, fix=fix),
+        path=path,
     )
 
 
@@ -262,7 +255,3 @@ def _key_message(
         lines.append(f"  Looked in: {looked_in}")
     lines.append(f"  Fix: {fix}")
     return "\n".join(lines)
-
-
-def _unreadable_message(error_type: str, fix: str) -> str:
-    return f"can't read the settings ({error_type}).\n  Fix: {fix}"

@@ -44,7 +44,7 @@ def make_engine(raw: str, *, timeout: float | None = None) -> AsyncEngine:
         url = make_url(raw)
         if url.drivername not in DRIVERS:
             message = "DATABASE_URL must use postgresql+psycopg://"
-            raise SetupError(message, message)
+            raise SetupError(message)
         return create_async_engine(
             url,
             hide_parameters=True,
@@ -57,7 +57,7 @@ def make_engine(raw: str, *, timeout: float | None = None) -> AsyncEngine:
         )
     except (SQLAlchemyError, ValueError, ImportError):
         message = "DATABASE_URL is not a usable PostgreSQL URL"
-        raise SetupError(message, message) from None
+        raise SetupError(message) from None
 
 
 async def check_connection(

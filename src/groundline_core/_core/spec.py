@@ -15,6 +15,8 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from pydantic.json_schema import models_json_schema
 
 from groundline_core._core.cache import stable_hash
+from groundline_core._core.errors import SetupError, redact_keys
+from groundline_core._core.file_problems import file_problems, read_text
 from groundline_core._core.implementation import Implementation
 from groundline_core._core.profile import DomainProfile, Placeholders
 from groundline_core._core.registry import Registry
@@ -97,10 +99,12 @@ def spec_json_schema(registry: Registry) -> dict[str, Any]:
 def load_spec(path: str | Path) -> PipelineSpec:
     """Load a spec from a YAML or JSON file (JSON is valid YAML)."""
     path = Path(path)
+    text = read_text(path, lambda problem: SpecError([problem], path=path))
     try:
-        return PipelineSpec.model_validate(yaml.safe_load(path.read_text()))
-    except (OSError, yaml.YAMLError, ValidationError) as error:
-        raise ValueError(f"{path}: {error}") from error
+        return PipelineSpec.model_validate(yaml.safe_load(text))
+    except (yaml.YAMLError, ValidationError) as error:
+        problems = [f"{path.name}: {problem}" for problem in file_problems(error)]
+        raise SpecError(problems, path=path) from None
 
 
 def with_settings(spec: PipelineSpec, step: str, **settings: Any) -> PipelineSpec:
@@ -141,12 +145,18 @@ class Pipeline:
         return self.profile.placeholders if self.profile else Placeholders()
 
 
-class SpecError(ValueError):
-    def __init__(self, problems: list[str]) -> None:
-        self.problems = problems
+class SpecError(SetupError, ValueError):
+    """The pipeline spec can't be used: it isn't a full check, names an unknown
+    preset, step or implementation, or its file can't be read. Raised before any
+    model is called. `path` is the spec's file, if it came from one."""
+
+    def __init__(self, problems: list[str], *, path: str | Path | None = None) -> None:
         super().__init__(
-            "invalid pipeline spec:\n" + "\n".join(f"- {p}" for p in problems)
+            "invalid pipeline spec:\n" + "\n".join(f"- {p}" for p in problems),
+            path=path,
         )
+        self.problems = [redact_keys(problem) for problem in problems]
+        """Every problem found, one per line of the message."""
 
 
 def build_pipeline(

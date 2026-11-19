@@ -15,12 +15,14 @@ from anthropic import DefaultAsyncHttpxClient
 from groundline_core._clients.anthropic import AnthropicClient
 from groundline_core._core import (
     APIKeyRejectedError,
-    ModelError,
+    ModelFailureError,
     ModelRefusal,
     ModelReply,
+    SetupError,
+    UnusableReplyError,
 )
 from groundline_core._core.errors import ModelTimeoutError
-from groundline_core._settings import ModelSettings, UnreadableSettingsError
+from groundline_core._settings import ModelSettings, SettingsError
 from tests.anthropic_helpers import api_error, message
 from tests.async_helpers import finish_before_watchdog
 
@@ -37,7 +39,7 @@ def complete(
     async def go() -> ModelReply:
         client = AnthropicClient(
             "sk-test",
-            key_source="/repo/.env",
+            key_path=Path("/repo/.env"),
             **options,
             http_client=DefaultAsyncHttpxClient(
                 transport=httpx2.MockTransport(handler)
@@ -102,7 +104,7 @@ def test_a_refusal_is_an_error_naming_its_category():
 
 
 def test_a_reply_cut_off_at_max_tokens_is_an_error():
-    with pytest.raises(ModelError, match="max_tokens") as error:
+    with pytest.raises(UnusableReplyError, match="max_tokens") as error:
         complete(message(stop_reason="max_tokens"))
 
     assert error.value.reply is not None
@@ -116,7 +118,8 @@ def test_a_rejected_key_gets_a_clear_message():
     message = str(error.value)
     assert message.startswith("ANTHROPIC_API_KEY was rejected by the Anthropic API")
     assert "invalid x-api-key" not in message
-    assert "Key from: /repo/.env" in message
+    assert "/repo" not in message
+    assert error.value.path == Path("/repo/.env")
 
 
 def test_a_rejected_key_is_named_as_the_caller_says():
@@ -207,8 +210,8 @@ def test_permanent_errors_ignore_retry_true(status: int):
             json=api_error("api_error", "private-body"),
         )
 
-    expected = APIKeyRejectedError if status in (401, 403) else anthropic.APIStatusError
-    with pytest.raises(expected):
+    expected = {401: APIKeyRejectedError, 403: APIKeyRejectedError, 404: SetupError}
+    with pytest.raises(expected.get(status, ModelFailureError)):
         run_outage_transport(handler)
     assert len(calls) == 1
 
@@ -227,7 +230,7 @@ def test_provider_retry_false_vetoes_transient_status(status: int, veto: str):
             json=api_error("api_error", "private-body"),
         )
 
-    with pytest.raises(anthropic.APIStatusError):
+    with pytest.raises(ModelFailureError):
         run_outage_transport(handler)
     assert len(calls) == 1
 
@@ -243,7 +246,7 @@ def test_attempt_setting_counts_original_attempt(
         calls.append(request)
         return httpx2.Response(529, json=api_error("overloaded_error", "private-body"))
 
-    with pytest.raises(anthropic.APIStatusError):
+    with pytest.raises(ModelFailureError):
         run_outage_transport(handler)
     assert len(calls) == attempts
 
@@ -263,7 +266,7 @@ def test_explicit_client_rejects_invalid_model_policy(
 ):
     monkeypatch.setenv("GROUNDLINE_MODEL_MAX_ATTEMPTS", "invalid-private-value")
 
-    with pytest.raises(UnreadableSettingsError) as error:
+    with pytest.raises(SettingsError) as error:
         AnthropicClient("dummy-key")
 
     assert "invalid-private-value" not in str(error.value)
@@ -289,7 +292,7 @@ def test_explicit_max_retries_counts_retries_with_sdk_retries_disabled(
             ),
         )
         try:
-            with pytest.raises(anthropic.APIStatusError):
+            with pytest.raises(ModelFailureError):
                 await client.complete(
                     "a", model="claude-opus-5-5", effort="medium", max_tokens=100
                 )
@@ -346,7 +349,7 @@ def test_retry_after_that_cannot_fit_stops_immediately(headers: dict[str, str]):
             ),
         )
         try:
-            with pytest.raises(anthropic.APIStatusError):
+            with pytest.raises(ModelFailureError):
                 await finish_before_watchdog(
                     client.complete(
                         "private-prompt",

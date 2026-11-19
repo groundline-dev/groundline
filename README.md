@@ -115,7 +115,7 @@ Cost             $0.29 · 4 calls · 31,620 input / 8,140 output tokens · 48.3 
 
 - `0`: checked, not flagged.
 - `1`: checked and flagged.
-- `2`: couldn't check: bad arguments or files, an invalid pipeline or profile, a missing or rejected Anthropic API key, a failed stage, an unwritable `--json` path, or an unexpected error. The command prints a one-line `error:` message, and if a stage failed after making model calls, what those calls cost. If the command can't load at all, it also exits 2: without the `cli` extra it prints which extra to install, and otherwise the error's traceback.
+- `2`: couldn't check: bad arguments or files, an invalid pipeline or profile, a missing or rejected Anthropic API key, a failed stage, an unwritable `--json` path, or an unexpected error. The command prints an `error:` message, and if a stage failed after making model calls, what those calls cost. When a file is at fault, such as `.env`, a `File:` line gives its full path, marked `(not found)` if it doesn't exist. An unexpected error is a bug in groundline: the command prints only its type, since its message wasn't written by groundline and could quote the source or summary, and asks you to report it. If the command can't load at all, it also exits 2: without the `cli` extra it prints which extra to install, and otherwise the error's traceback.
 
 ### Options
 
@@ -172,7 +172,7 @@ result = evaluate_sync(transcript_text, note_text, anthropic_api_key=my_key)
 result = evaluate_sync(transcript_text, note_text, env_file="config/groundline.env")
 ```
 
-The argument wins over the environment, and the environment wins over `env_file`. A blank argument raises an error; it doesn't fall back to the environment or `env_file`. With no key, `evaluate_sync` raises an error (`MissingAPIKeyError`) before any paid call; unless you named an `env_file`, the message names no file paths. The key never appears in logs, errors or the result.
+The argument wins over the environment, and the environment wins over `env_file`. A blank argument raises an error; it doesn't fall back to the environment or `env_file`. With no key, `evaluate_sync` raises `MissingAPIKeyError` before any paid call. Its message names an `env_file` only by its name; the error's `path` holds the full path. The key never appears in logs, errors or the result.
 
 ### Running a check
 
@@ -204,7 +204,34 @@ The fields mean what the API's do (see [Findings](#findings) and [Scores](#score
 
 `evaluate()` is the async version, for FastAPI or other async code. Both take a `spec`, a `client` (your own `ModelClient`, such as a fake one so your app's tests cost nothing) and `anthropic_api_key` or `env_file` for the key. Pass `client` or `anthropic_api_key`, not both: a `client` brings its own key. They also accept `profile`, `cache` and `registry`, but those take internal types, so they aren't part of the public interface yet.
 
-A spec has to make one full check: the alarm step, plus the steps one check's findings come from. Anything else raises an error before the key is looked up or a model is called. The error types aren't public yet: an invalid spec raises a `ValueError`, and a missing or rejected key or a failed step raises another `Exception`.
+A spec has to make one full check: the alarm step, plus the steps one check's findings come from. Anything else raises `SpecError` before the key is looked up or a model is called.
+
+### Errors
+
+Every error groundline raises on purpose is a `GroundlineError`, of one of three kinds:
+
+| Error | Raised when | What to do |
+|---|---|---|
+| `SetupError` | The setup stops the check: an invalid spec (`SpecError`) or a domain profile it can't load (`ProfileError`), a missing key (`MissingAPIKeyError`), a rejected key (`APIKeyRejectedError`), a model the Anthropic API doesn't have, settings that can't be read (`SettingsError`), or both `client` and `anthropic_api_key` passed. | Fix the setup. Trying again won't help. |
+| `InvalidInputError` | The source or summary isn't text, or is empty or only whitespace. It's raised before the key is looked up or a model is called. | Fix the input. |
+| `ModelFailureError` | Anthropic's API kept failing, the model declined, or its reply stayed unusable. `ModelTimeoutError`, a kind of `ModelFailureError`, means a time limit ran out. `step` names the step that failed, or is `None` when the whole check ran out of time between steps. | Try again later. |
+
+```python
+from groundline_core import InvalidInputError, ModelFailureError, SetupError, evaluate_sync
+
+try:
+    result = evaluate_sync(transcript_text, note_text)
+except ModelFailureError as error:
+    ...  # error.step is the step that failed, such as "extract"
+except SetupError as error:
+    ...  # error.path is the file at fault, or None
+except InvalidInputError:
+    ...  # the source or summary can't be checked
+```
+
+A message is safe to log or show: it never quotes the source, the summary, the key or Anthropic's own error text, and it names a file only by its name. It does quote names from a spec or profile, such as an unknown step, with anything shaped like an Anthropic or groundline API key replaced by `<redacted key>`; other kinds of secret aren't recognized. When groundline's error comes from another library's error, such as YAML's, pydantic's or the Anthropic SDK's, a traceback doesn't print that original, since its text could quote a file, a setting or the request. `SetupError.path` holds the file's full path, and the CLI prints it on a `File:` line of its own. `SpecError`, `ProfileError` and `InvalidInputError` are also `ValueError`s, but `ModelTimeoutError` isn't a `TimeoutError`.
+
+An exception from your own `client`, or from a bug in groundline, comes out as it was raised rather than as a `GroundlineError` ([ADR 0020](docs/adr/0020-only-groundlines-own-failures-are-groundline-errors.md)), and it doesn't say what the check had spent. To report your model's failure as a `ModelFailureError`, your client can raise one itself.
 
 ### Public interface
 
@@ -218,6 +245,7 @@ Import from `groundline_core` itself. Its names, and the documented fields of th
 | `PipelineSpec` | A pipeline spec, as `load_preset` returns it. |
 | `ModelClient`, `ModelReply` | What a `client` implements (an async `complete(prompt, *, model, effort, max_tokens)`), and what it returns. |
 | `EvaluationResult`, `Finding`, `Counts`, `Alarm`, `Usage` | The result and its parts. |
+| `GroundlineError`, `SetupError`, `SpecError`, `ProfileError`, `MissingAPIKeyError`, `APIKeyRejectedError`, `SettingsError`, `InvalidInputError`, `ModelFailureError`, `ModelTimeoutError` | What a check raises (see [Errors](#errors)). |
 | `EvaluationType`, `Severity` | The types of `evaluation_type` (`omissions` or `commissions`) and of a finding's `severity` (`critical`, `supporting` or `peripheral`). |
 
 The package includes its type information, so type checkers such as pyright and mypy check your code against these names.

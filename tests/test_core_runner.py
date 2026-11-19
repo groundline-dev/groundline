@@ -6,11 +6,11 @@ import pytest
 
 from groundline_core._core import (
     Inputs,
+    ModelFailureError,
     Pipeline,
     PipelineSpec,
     RunResult,
     SetupError,
-    StageError,
     StageSpec,
     build_pipeline,
     run_pipeline,
@@ -83,19 +83,18 @@ def test_a_failing_stage_stops_the_run_and_names_the_step():
     )
 
     started = time.perf_counter()
-    with pytest.raises(StageError) as error:
+    with pytest.raises(ModelFailureError) as error:
         run(p)
 
     assert error.value.step == "left"
-    assert "model unavailable" in str(error.value)
-    assert isinstance(error.value.__cause__, RuntimeError)
+    assert str(error.value) == "stage 'left' failed: model unavailable"
     assert time.perf_counter() - started < 1  # the slow stage was canceled
 
 
 def test_a_failed_run_still_reports_the_calls_it_paid_for():
     p = pipeline(UPPER, {"step": "left", "implementation": "left.paid_boom"})
 
-    with pytest.raises(StageError) as error:
+    with pytest.raises(ModelFailureError) as error:
         run(p)
 
     assert [(c.step, c.input_tokens) for c in error.value.calls] == [
@@ -110,12 +109,12 @@ def test_setup_errors_are_not_reported_as_a_stage_failure():
 
 
 def test_a_stage_cannot_read_an_output_it_did_not_declare():
-    with pytest.raises(StageError, match="didn't declare it in `reads`"):
+    with pytest.raises(LookupError, match="didn't declare it in `reads`"):
         run(pipeline(UPPER, {"step": "join", "implementation": "join.sneaky"}))
 
 
 def test_a_stage_must_return_its_step_output_type():
-    with pytest.raises(StageError, match="returned WrongOutput, expected Text"):
+    with pytest.raises(TypeError, match="returned WrongOutput, expected Text"):
         run(pipeline({"step": "upper", "implementation": "upper.wrong"}))
 
 

@@ -8,6 +8,8 @@ from typing import Literal, Protocol
 
 from pydantic import BaseModel
 
+from groundline_core._core.errors import ModelFailureError
+
 Effort = Literal["low", "medium", "high", "xhigh", "max"]
 
 
@@ -19,7 +21,7 @@ class ModelReply(BaseModel):
     output_tokens: int
 
 
-class ModelError(Exception):
+class UnusableReplyError(ModelFailureError):
     """The model call finished but its reply can't be used.
 
     `reply` is set when the call was still billed, such as a refusal or a reply
@@ -30,7 +32,7 @@ class ModelError(Exception):
         self.reply = reply
 
 
-class ModelRefusal(ModelError):
+class ModelRefusal(UnusableReplyError):
     """The model declined to answer."""
 
 

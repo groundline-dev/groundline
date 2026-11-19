@@ -1,6 +1,6 @@
 import pytest
 
-from groundline_core._core import StageError
+from groundline_core._core import ModelFailureError
 from groundline_core._evaluators.omissions.models import RankOutput
 from tests.omission_helpers import (
     EXTRACT,
@@ -73,7 +73,7 @@ def test_severity_case_is_normalized():
 )
 def test_invalid_replies_retry_once_then_fail(bad: str):
     with pytest.raises(
-        StageError, match="stage 'rank'.*after a request for correction"
+        ModelFailureError, match="stage 'rank'.*after a request for correction"
     ):
         ranked([bad, bad])
 

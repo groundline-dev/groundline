@@ -17,7 +17,6 @@ from groundline_core._core import APIKeyRejectedError
 from groundline_core._evaluators.report import result_json
 from groundline_core._settings import MissingAPIKeyError
 from tests.anthropic_helpers import api_error, fake_anthropic, keys_sent
-from tests.fakes import FakeClient
 from tests.omission_helpers import SOURCE, SUMMARY, not_flagged_script
 
 SENTINEL = "sk-ant-sentinel-0123456789"
@@ -56,14 +55,6 @@ def test_evaluate_sync_takes_the_key_too(sent: list[httpx2.Request]):
     evaluate_sync(SOURCE, SUMMARY, anthropic_api_key="sk-arg")
 
     assert keys_sent(sent) == {"sk-arg"}
-
-
-def test_a_client_and_a_key_together_are_refused_before_any_call():
-    client = FakeClient(not_flagged_script())
-
-    with pytest.raises(ValueError, match="client or anthropic_api_key, not both"):
-        evaluate_sync(SOURCE, SUMMARY, client=client, anthropic_api_key="sk-arg")
-    assert client.requests == []
 
 
 # --- no .env unless the caller asks ------------------------------------------
@@ -138,7 +129,7 @@ def test_the_key_appears_nowhere_in_the_result_or_the_logs(
     assert SENTINEL not in caplog.text
 
 
-def test_a_rejected_argument_key_says_where_it_came_from_but_not_what_it_is(
+def test_a_rejected_argument_key_names_neither_the_key_nor_a_file(
     monkeypatch: pytest.MonkeyPatch,
 ):
     rejection = httpx2.Response(
@@ -151,13 +142,12 @@ def test_a_rejected_argument_key_says_where_it_came_from_but_not_what_it_is(
 
     message = str(error.value)
     assert message.startswith("The Anthropic API key was rejected")
-    assert "Key from: the anthropic_api_key argument" in message
     assert SENTINEL not in message
-    assert SENTINEL not in error.value.api_message()
+    assert error.value.path is None
 
 
 def test_the_client_hides_its_key_when_printed():
-    client = AnthropicClient(SENTINEL, key_source="the anthropic_api_key argument")
+    client = AnthropicClient(SENTINEL)
 
     assert SENTINEL not in repr(client)
     assert SENTINEL not in str(client)

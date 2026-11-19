@@ -21,8 +21,8 @@ from groundline_core._core.inputs import InputName, Inputs
 from groundline_core._core.model_client import (
     Effort,
     ModelClient,
-    ModelError,
     ModelReply,
+    UnusableReplyError,
 )
 from groundline_core._core.profile import Placeholders
 from groundline_core._core.templates import fill
@@ -95,7 +95,7 @@ class StageContext:
             reply = await self.client.complete(
                 prompt, model=model, effort=effort, max_tokens=max_tokens
             )
-        except ModelError as error:
+        except UnusableReplyError as error:
             if error.reply is not None:  # failed, but billed
                 self._record_reply(error.reply, started)
             raise

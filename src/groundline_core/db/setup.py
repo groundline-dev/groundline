@@ -20,7 +20,7 @@ from psycopg import sql
 from sqlalchemy import URL, make_url
 from sqlalchemy.exc import ArgumentError, SQLAlchemyError
 
-from groundline_core._core.errors import SetupError
+from groundline_core._core.errors import SetupError, file_line
 from groundline_core._settings import ENV_FILE, read_settings
 from groundline_core.db.config import DRIVERS
 from groundline_core.db.connection import scrub
@@ -31,10 +31,7 @@ CONNECT_TIMEOUT_SECONDS = 5
 
 class DatabaseSetupError(SetupError):
     """Raised only by the db-setup command, never while answering a request, so
-    its messages may name anything; an HTTP response would get a generic line."""
-
-    def __init__(self, message: str) -> None:
-        super().__init__(message, "Database setup failed; see the server log.")
+    its messages may name anything, such as a database login."""
 
 
 def setup_database(app_raw: str, admin_raw: str) -> None:
@@ -175,7 +172,7 @@ def main() -> None:
     try:
         settings = read_settings(ENV_FILE)
     except SetupError as error:
-        sys.exit(f"error: {error}")
+        sys.exit(f"error: {error}{file_line(error.path)}")
     if settings.database_url is None:
         sys.exit(
             "error: DATABASE_URL is not set.\n"

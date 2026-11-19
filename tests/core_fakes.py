@@ -8,6 +8,7 @@ from pydantic import BaseModel
 from groundline_core._core import (
     Implementation,
     InputName,
+    ModelFailureError,
     Registry,
     SetupError,
     StageContext,
@@ -112,7 +113,7 @@ class Boom(Implementation):
     step: ClassVar[str] = "left"
 
     async def run(self, ctx: StageContext) -> Text:
-        raise RuntimeError("model unavailable")
+        raise ModelFailureError("model unavailable")
 
 
 class PaidBoom(Implementation):
@@ -124,7 +125,7 @@ class PaidBoom(Implementation):
 
     async def run(self, ctx: StageContext) -> Text:
         ctx.record_call(model="fake-model", input_tokens=50, output_tokens=5)
-        raise RuntimeError("reply unusable")
+        raise ModelFailureError("reply unusable")
 
 
 class SetupProblem(Implementation):
@@ -134,7 +135,7 @@ class SetupProblem(Implementation):
     step: ClassVar[str] = "left"
 
     async def run(self, ctx: StageContext) -> Text:
-        raise SetupError("key was rejected", "key was rejected")
+        raise SetupError("key was rejected")
 
 
 class Peeker(Implementation):

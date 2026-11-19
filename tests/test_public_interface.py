@@ -9,8 +9,12 @@ import textwrap
 from pydantic import BaseModel
 
 import groundline_core
+from tests.test_errors import PUBLIC_BASES
+
+PUBLIC_ERRORS = sorted(PUBLIC_BASES)
 
 PUBLIC_NAMES = [
+    *PUBLIC_ERRORS,
     "Alarm",
     "CommissionPreset",
     "Counts",
@@ -110,5 +114,16 @@ def test_every_field_of_the_result_types_has_a_docstring():
             )
             if not documented:
                 undocumented.append(f"{name}.{statement.target.id}")
+
+    assert undocumented == []
+
+
+def test_every_public_error_says_when_it_is_raised():
+    """A class's docstring isn't inherited, so each error needs its own."""
+    undocumented: list[str] = []
+    for name in PUBLIC_ERRORS:
+        error = getattr(groundline_core, name, None)
+        if not isinstance(error, type) or not (error.__doc__ or "").strip():
+            undocumented.append(name)
 
     assert undocumented == []

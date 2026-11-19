@@ -142,6 +142,20 @@ _Avoid_: template, default pipeline
 A preset whose results have been measured. A run counts as using it only if nothing about the pipeline or profile was changed, apart from choosing a threshold level.
 _Avoid_: approved pipeline, certified pipeline
 
+## When a check can't finish
+
+**Setup error**:
+Something about how groundline is set up stops a check, such as a pipeline spec that isn't a full check, a missing or rejected Anthropic API key, or settings that can't be read. Trying again won't help until the setup is fixed.
+_Avoid_: configuration error, config error
+
+**Invalid input**:
+A source or summary that can't be checked, such as an empty one.
+_Avoid_: bad request, validation error (the API's names for its own rejections)
+
+**Model failure**:
+A check stopped because the model couldn't give a usable answer in time: Anthropic's API kept failing, the model declined, its reply stayed unusable, or the time limit ran out. Trying again later may work.
+_Avoid_: upstream error, API error (the API is groundline's own)
+
 ## Running groundline
 
 **Deployment**:

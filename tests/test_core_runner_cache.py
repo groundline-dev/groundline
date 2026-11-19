@@ -10,7 +10,6 @@ from groundline_core._core import (
     Inputs,
     PipelineSpec,
     RunResult,
-    StageError,
     StageSpec,
     build_pipeline,
     run_pipeline,
@@ -115,7 +114,7 @@ def test_records_calls_and_usage():
 
 
 def test_a_stage_cannot_read_an_input_it_did_not_declare():
-    with pytest.raises(StageError, match="didn't declare it in `uses`"):
+    with pytest.raises(LookupError, match="didn't declare it in `uses`"):
         run({"step": "upper", "implementation": "upper.peeker"})
 
 

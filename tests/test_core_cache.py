@@ -1,9 +1,11 @@
 import stat
+import warnings
 from pathlib import Path
 
 import pytest
 
 from groundline_core._core import FileCache, stable_hash
+from tests.fakes import unwritable_folder
 
 
 def test_stores_and_returns_entries(tmp_path: Path):
@@ -41,8 +43,8 @@ def test_put_replaces_the_entry_whole_and_leaves_no_temporary_files(tmp_path: Pa
     assert [p.name for p in (tmp_path / "extract").iterdir()] == ["abc.json"]
 
 
-def test_a_failed_write_leaves_the_old_entry_and_no_temporary_files(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_a_failed_write_warns_and_leaves_the_old_entry_and_no_temporary_files(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
 ):
     cache = FileCache(tmp_path)
     cache.put("extract", "abc", {"output": {"facts": ["old"]}, "calls": []})
@@ -51,8 +53,10 @@ def test_a_failed_write_leaves_the_old_entry_and_no_temporary_files(
         raise OSError("disk full")
 
     monkeypatch.setattr("groundline_core._core.cache.os.replace", fail)
-    with pytest.raises(OSError, match="disk full"):
-        cache.put("extract", "abc", {"output": {"facts": ["new"]}, "calls": []})
+    cache.put("extract", "abc", {"output": {"facts": ["new"]}, "calls": []})
+
+    assert "couldn't write to the stage cache (disk full)" not in caplog.text
+    assert "couldn't write to the stage cache (OSError)" in caplog.text
 
     assert cache.get("extract", "abc") == {"output": {"facts": ["old"]}, "calls": []}
     assert [p.name for p in (tmp_path / "extract").iterdir()] == ["abc.json"]
@@ -80,3 +84,37 @@ def test_names_cannot_reach_outside_the_cache_folder(
     with pytest.raises(ValueError, match="not a safe cache name"):
         cache.get(step, key)
     assert list(tmp_path.iterdir()) == []
+
+
+def test_a_failed_write_names_neither_the_folder_nor_the_entry(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+):
+    cache = FileCache(unwritable_folder(tmp_path, "private-folder"))
+
+    cache.put("extract", "abc", {"output": {"facts": []}, "calls": []})
+
+    assert "couldn't write to the stage cache" in caplog.text
+    assert "private-folder" not in caplog.text
+    assert cache.get("extract", "abc") is None
+
+
+def test_only_the_first_failed_write_is_logged(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+):
+    cache = FileCache(unwritable_folder(tmp_path))
+
+    for step in ("extract", "rank", "check"):
+        cache.put(step, "abc", {"output": {}, "calls": []})
+
+    assert caplog.text.count("couldn't write to the stage cache") == 1
+
+
+def test_a_failed_write_is_not_a_python_warning(tmp_path: Path):
+    # A warnings filter set to "error" would turn a warning into an exception
+    # that fails the check, so a failed write must not warn at all.
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
+        FileCache(unwritable_folder(tmp_path)).put(
+            "extract", "abc", {"output": {}, "calls": []}
+        )
