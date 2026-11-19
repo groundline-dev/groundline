@@ -1,4 +1,4 @@
-"""ALL-134 R3/R6/R7: cancellation and one deadline through real API/evaluate.
+"""ALL-134: cancellation and one deadline through real API/evaluate.
 
 Short application allowances use generous watchdogs. The watchdog never stands
 in for the application timeout: tests assert cancellation happened before it.
