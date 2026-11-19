@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
 from groundline_core._core.errors import SetupError
 from groundline_core._core.file_problems import file_problems, os_reason, read_text
@@ -55,13 +55,6 @@ class DomainProfile(BaseModel):
     placeholders: Placeholders = Placeholders()
     texts: dict[str, str]
     """Text contents by name."""
-
-    @field_validator("disclaimer")
-    @classmethod
-    def _one_line(cls, sentence: str) -> str:
-        """YAML can split the sentence over lines; it joins the disclaimer's
-        paragraph, so keep it on one line, and blank counts as none."""
-        return " ".join(sentence.split())
 
 
 class _ProfileFile(BaseModel):

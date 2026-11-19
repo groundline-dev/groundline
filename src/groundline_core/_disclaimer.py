@@ -17,12 +17,20 @@ AFTER_LEAD = (
 )
 SHORT_DISCLAIMER = (
     "Results need a person's review: a summary that isn't flagged can still leave "
-    "out or misstate facts. See https://github.com/groundline-dev/groundline#disclaimer."
+    "out or misstate facts. Full disclaimer: "
+    "https://github.com/groundline-dev/groundline#disclaimer"
 )
+"""Ends with the link, so no period can end up inside it."""
 
 
 def full_disclaimer(profile: DomainProfile | None) -> str:
     """The disclaimer for a check that used `profile`: the core, with the
-    profile's disclaimer sentence, if it has one, after the lead."""
-    sentence = profile.disclaimer if profile else ""
+    profile's disclaimer sentence, if it has one, after the lead.
+
+    The sentence goes inside one paragraph, so its line breaks become spaces,
+    and it gets a period if it ends without one. A blank one counts as none.
+    """
+    sentence = " ".join(profile.disclaimer.split()) if profile else ""
+    if sentence and not sentence.endswith((".", "!", "?")):
+        sentence += "."
     return " ".join(part for part in (LEAD, sentence, AFTER_LEAD) if part)

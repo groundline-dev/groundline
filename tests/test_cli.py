@@ -274,7 +274,7 @@ def test_a_pipeline_that_is_not_a_full_check_exits_with_2(
     assert "score and rank (omissions)" in result.stderr
 
 
-def test_the_report_ends_with_the_disclaimer_wrapped_to_80_columns(
+def test_the_report_ends_with_the_wrapped_disclaimer(
     files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
 ):
     use_client(monkeypatch, not_flagged_script())
@@ -284,7 +284,9 @@ def test_the_report_ends_with_the_disclaimer_wrapped_to_80_columns(
     assert result.exit_code == 0, result.output
     report, disclaimer = result.stdout.rstrip("\n").rsplit("\n\n", 1)
     assert one_line(disclaimer) == clinical_disclaimer(), result.stdout[-600:]
-    assert max(len(line) for line in disclaimer.splitlines()) <= 80, disclaimer
+    assert max(len(line) for line in disclaimer.splitlines()) <= cli.REPORT_WIDTH, (
+        disclaimer
+    )
     assert report.splitlines()[-1].startswith("Cost"), report[-300:]
 
 

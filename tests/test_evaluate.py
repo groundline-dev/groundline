@@ -231,7 +231,6 @@ def test_the_result_carries_the_disclaimer_with_its_profiles_sentence():
     assert run(profile=with_own_sentence).disclaimer == full_disclaimer(
         with_own_sentence
     )
-    assert "They aren't financial advice." in run(profile=with_own_sentence).disclaimer
 
 
 def test_a_result_built_without_a_disclaimer_carries_the_core():

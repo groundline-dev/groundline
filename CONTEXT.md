@@ -104,6 +104,10 @@ _Avoid_: failed, rejected, unsafe
 What every result says about relying on it: a domain-neutral core, plus the disclaimer sentence a domain profile can add.
 _Avoid_: notice, warning (a warning is something to know about one run)
 
+**Disclaimer sentence**:
+The one sentence a domain profile adds to the disclaimer, after its first sentence.
+_Avoid_: profile sentence
+
 **Omission score**:
 A summary's alarm score from the omission check, turned around and rescaled to run from 0 to 1, so that higher is better and a score below 0.5 means the summary is flagged.
 _Avoid_: alarm score, completeness, note score
@@ -143,7 +147,7 @@ A pipeline spec that ships with groundline.
 _Avoid_: template, default pipeline
 
 **Validated preset**:
-A preset whose results have been measured. A run counts as using it only if nothing that affects the check was changed, apart from choosing a threshold level. A profile's name and its disclaimer sentence don't affect the check.
+A preset whose results have been measured. A run counts as using it only if nothing that affects the check was changed, apart from choosing a threshold level.
 _Avoid_: approved pipeline, certified pipeline
 
 ## When a check can't finish
