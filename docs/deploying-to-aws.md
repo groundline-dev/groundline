@@ -229,8 +229,8 @@ On a lasting deployment, each upgrade to a newer commit first takes a snapshot o
 
 1. In the EC2 console, create a volume from the snapshot: gp3, encrypted, the same size as the data volume (`terraform -chdir=infra/data output -raw data_volume_gib`), in its Availability Zone (`terraform -chdir=infra/data output -raw availability_zone`). A volume that differs would be replaced by the next plan, which `make aws-deploy` refuses.
 2. Run `make aws-destroy`, which keeps a lasting deployment's data volume.
-3. Remove the old data volume's `deployment` and `role` tags, so the server can't find it, and give the new one the old one's `app`, `deployment`, `role` and `Name` tags. Keep the old volume until the restored deployment passes `make aws-smoke`, then delete it.
-4. Run `terraform -chdir=infra/data import aws_ebs_volume.data <new volume ID>` after `terraform -chdir=infra/data state rm aws_ebs_volume.data`, with `TF_WORKSPACE` set to the account ID, as in [Checking the server by hand](#checking-the-server-by-hand).
+3. Remove the old data volume's `deployment` and `role` tags, so the server can't find it, and give the new one all the old one's tags: `app`, `deployment`, `role`, `lifetime` and `Name`. Keep the old volume until the restored deployment passes `make aws-smoke`, then delete it.
+4. With `TF_WORKSPACE` set to the account ID, as in [Checking the server by hand](#checking-the-server-by-hand), run `terraform -chdir=infra/data state rm aws_ebs_volume.data`, then `terraform -chdir=infra/data import -var region=<Region> -var deployment_name=<name> -var lifetime=lasting aws_ebs_volume.data <new volume ID>`. `terraform -chdir=infra/data plan` with the same `-var`s should then show no changes.
 5. Run `REF=<the older commit> make aws-deploy`.
 
 A commit from before deployments had a data volume can't be deployed.
