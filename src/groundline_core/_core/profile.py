@@ -48,6 +48,10 @@ class DomainProfile(BaseModel):
 
     name: str
     description: str = ""
+    disclaimer_sentence: str = ""
+    """The disclaimer sentence: what the profile adds to the disclaimer every
+    result carries, such as "They aren't financial advice." Empty if it adds
+    none."""
     placeholders: Placeholders = Placeholders()
     texts: dict[str, str]
     """Text contents by name."""
@@ -60,6 +64,12 @@ class _ProfileFile(BaseModel):
 
     name: str = Field(description="The profile's name, such as `clinical`.")
     description: str = Field(default="", description="What the profile is for.")
+    disclaimer_sentence: str = Field(
+        default="",
+        description="A sentence to add to the disclaimer every result carries, "
+        "after its opening sentence, such as `They aren't financial advice.` It "
+        "can't remove any of the disclaimer, and the pipeline stages don't read it.",
+    )
     placeholders: Placeholders = Field(
         description="The placeholders the prompts use for the source and summary."
     )
@@ -118,6 +128,7 @@ def load_profile(folder: str | Path) -> DomainProfile:
     return DomainProfile(
         name=spec.name,
         description=spec.description,
+        disclaimer_sentence=spec.disclaimer_sentence,
         placeholders=spec.placeholders,
         texts=texts,
     )

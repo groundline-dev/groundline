@@ -3,6 +3,19 @@
 The Python SDK for the groundline API: one `GroundlineClient` with a method per
 endpoint, typed requests and responses, sync and async.
 
+## Disclaimer
+
+groundline's results help a person review a summary. A summary that isn't
+flagged can still leave out or misstate important facts, so check it before
+relying on it. You're responsible for any decision made using groundline's
+results. groundline is provided "as is", and its authors accept no liability for
+outcomes from its use (see sections 7 and 8 of the Apache License 2.0).
+
+The API's built-in clinical profile adds a disclaimer sentence after the first
+one: "They aren't medical advice or a clinical decision." Every check's response
+carries the full text in `metadata.disclaimer`: show it next to the result
+wherever people read it.
+
 ## Connect
 
 Give the client your deployment's URL and an API key. Either set the two

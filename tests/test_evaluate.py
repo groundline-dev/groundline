@@ -1,4 +1,5 @@
 import asyncio
+import dataclasses
 from pathlib import Path
 
 import pytest
@@ -19,6 +20,7 @@ from groundline_core._core import (
     with_settings,
 )
 from groundline_core._core.deadline import check_deadline
+from groundline_core._disclaimer import full_disclaimer
 from groundline_core._evaluators.models import AlarmOutput
 from groundline_core._evaluators.omissions.models import ScoreOutput
 from groundline_core._settings import MissingAPIKeyError, SettingsError
@@ -219,6 +221,39 @@ def test_an_identical_profile_under_another_name_is_still_validated():
     renamed = load_builtin_profile("clinical").model_copy(update={"name": "my-copy"})
 
     assert run(profile=renamed).validated_preset == "omission_all_opus"
+
+
+def test_the_result_carries_the_disclaimer_with_its_profiles_sentence():
+    with_own_sentence = load_builtin_profile("clinical").model_copy(
+        update={"disclaimer_sentence": "They aren't financial advice."}
+    )
+
+    assert run(profile=with_own_sentence).disclaimer == full_disclaimer(
+        with_own_sentence
+    )
+
+
+def test_a_result_built_without_a_disclaimer_carries_the_core():
+    result = run()
+    built = EvaluationResult(
+        **{
+            field.name: getattr(result, field.name)
+            for field in dataclasses.fields(result)
+            if field.name != "disclaimer"
+        }
+    )
+
+    assert built.disclaimer == full_disclaimer(None)
+
+
+def test_a_changed_disclaimer_is_still_the_validated_preset():
+    # The disclaimer sentence isn't a prompt or the rubric, so the measured results
+    # hold.
+    changed = load_builtin_profile("clinical").model_copy(
+        update={"disclaimer_sentence": ""}
+    )
+
+    assert run(profile=changed).validated_preset == "omission_all_opus"
 
 
 def test_an_invalid_spec_fails_before_any_call():

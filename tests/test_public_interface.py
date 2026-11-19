@@ -50,6 +50,7 @@ RESULT_FIELDS = {
         "usage",
         "run",
         "warnings",
+        "disclaimer",
     ],
     "Finding": [
         "type",

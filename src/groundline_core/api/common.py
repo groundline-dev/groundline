@@ -28,6 +28,7 @@ from groundline_core._core import (
     summarize_usage,
 )
 from groundline_core._core.deadline import check_deadline
+from groundline_core._disclaimer import full_disclaimer
 from groundline_core._evaluate import default_registry, model_users
 from groundline_core._evaluators.report import usage_text
 from groundline_core._result import Alarm, Counts, Finding, Usage
@@ -38,6 +39,7 @@ from groundline_core.api.errors import (
     UNEXPECTED,
 )
 from groundline_core.api.limits import BODY_TOO_LARGE, LIMITS
+from groundline_core.presets import load_preset
 from groundline_core.profiles import load_builtin_profile
 
 logger = logging.getLogger("groundline.api")
@@ -276,6 +278,19 @@ class Metadata[A: Alarm](ApiModel):
     level. The summary is flagged when the alarm score reaches the threshold."""
     usage: Usage
     """The model calls the check made, and what they cost."""
+    disclaimer: str
+    """What a person relying on this result should know: it helps them review
+    the summary, and a summary that isn't flagged can still leave out or misstate
+    important facts. It includes the sentence the pipeline's domain profile adds,
+    if any. Show it next to the result wherever people read it."""
+
+
+def example_disclaimer(preset: str) -> str:
+    """The disclaimer a check with this built-in preset answers with, for the
+    API docs' examples."""
+    spec = load_preset(preset)
+    profile = load_builtin_profile(spec.profile) if spec.profile else None
+    return full_disclaimer(profile)
 
 
 class CheckResponse[E: str, M: ApiModel](ApiModel):

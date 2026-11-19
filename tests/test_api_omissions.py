@@ -24,6 +24,7 @@ from tests.anthropic_helpers import (
 )
 from tests.auth_helpers import SECRET as API_KEY
 from tests.auth_helpers import FakeKeys
+from tests.disclaimer_helpers import clinical_disclaimer
 from tests.fakes import FakeClient
 from tests.omission_helpers import (
     EXTRACTED,
@@ -76,6 +77,7 @@ def test_a_summary_that_is_not_flagged():
     assert metadata == {
         "pipeline": DEFAULT_PRESET,
         "alarm": {"score": 0.0, "threshold": 0.9, "level": "strict"},
+        "disclaimer": clinical_disclaimer(),
     }
 
 

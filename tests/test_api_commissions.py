@@ -39,6 +39,7 @@ from tests.commissions_helpers import (
     lean_script,
     verdicts_reply,
 )
+from tests.disclaimer_helpers import clinical_disclaimer
 from tests.fakes import FakeClient
 from tests.omission_helpers import SOURCE
 
@@ -83,6 +84,7 @@ def test_a_flagged_summary_answers_200_with_its_commissions_most_important_first
     assert metadata == {
         "pipeline": DEFAULT_COMMISSIONS_PRESET,
         "alarm": {"score": 0.95, "threshold": 0.85, "level": "default"},
+        "disclaimer": clinical_disclaimer(),
     }
     assert [(f["statement"], f["verdict"]) for f in body["findings"]] == [
         (DOSE, "contradicted"),
@@ -104,7 +106,7 @@ def test_the_response_has_only_the_documented_fields():
         "counts",
         "metadata",
     }
-    assert set(body["metadata"]) == {"pipeline", "alarm", "usage"}
+    assert set(body["metadata"]) == {"pipeline", "alarm", "usage", "disclaimer"}
     assert set(body["findings"][0]) == {
         "type",
         "severity",
@@ -429,7 +431,7 @@ def test_the_lean_preset_answers_in_the_same_shape_with_its_own_metadata():
         None,
     )
     metadata = body["metadata"]
-    assert set(metadata) == {"pipeline", "alarm", "usage"}
+    assert set(metadata) == {"pipeline", "alarm", "usage", "disclaimer"}
     assert metadata["pipeline"] == LEAN
     assert metadata["alarm"] == {"score": 0.95, "threshold": 0.8, "level": "default"}
     assert metadata["usage"]["calls"] == 3

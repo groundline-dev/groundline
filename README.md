@@ -2,7 +2,7 @@
 
 groundline checks an AI-written summary against its source. Its **omission check** reports which important facts the summary leaves out, how much each one matters, and whether the summary should be flagged. Its **commission check** (often called hallucination detection) reports which claims in the summary the source doesn't support, either because it contradicts them or doesn't mention them. Its first domain is clinical notes checked against the consultation transcript.
 
-**Status:** early development. It is research code, **not for clinical use**, and must not be used with real patient data yet (see [Caching and sensitive data](#caching-and-sensitive-data)).
+**Status:** early development. It is research code, **not for clinical use**, and must not be used with real patient data yet (see [Caching and sensitive data](#caching-and-sensitive-data)). Read the [Disclaimer](#disclaimer) before relying on a result.
 
 ## Ways to use groundline
 
@@ -109,6 +109,13 @@ Not fully recorded (rank order):
 
 35 facts: 29 present · 3 partial · 3 absent
 Cost             $0.29 · 4 calls · 31,620 input / 8,140 output tokens · 48.3 s
+
+groundline's results help a person review a summary. They aren't medical advice
+or a clinical decision. A summary that isn't flagged can still leave out or
+misstate important facts, so check it before relying on it. You're responsible
+for any decision made using groundline's results. groundline is provided "as
+is", and its authors accept no liability for outcomes from its use (see sections
+7 and 8 of the Apache License 2.0).
 ```
 
 ### Exit codes
@@ -124,7 +131,7 @@ Cost             $0.29 · 4 calls · 31,620 input / 8,140 output tokens · 48.3 
 | `--pipeline SPEC.yaml` | Run a custom pipeline spec instead of the preset. |
 | `--profile DIR` | Use a domain profile folder instead of the pipeline's built-in profile. |
 | `--cache` | Cache each step's output so identical re-runs are free. Off by default; see below. |
-| `--json PATH` | Also write the full result as JSON: every step's output, call records, usage and the flag decision. |
+| `--json PATH` | Also write the full result as JSON: every step's output, call records, usage, the flag decision and the [disclaimer](#disclaimer). |
 
 ## Checking for commissions
 
@@ -147,6 +154,13 @@ Not supported by the source (severity order):
   supporting  unsupported   0.70        neurovascular examination intact
 
 Cost              $0.0020 · 1 calls · 14,820 input / 1,040 output tokens · 4.1 s
+
+groundline's results help a person review a summary. They aren't medical advice
+or a clinical decision. A summary that isn't flagged can still leave out or
+misstate important facts, so check it before relying on it. You're responsible
+for any decision made using groundline's results. groundline is provided "as
+is", and its authors accept no liability for outcomes from its use (see sections
+7 and 8 of the Apache License 2.0).
 ```
 
 The [exit codes](#exit-codes) and [options](#options) are the same as for omissions, plus `--preset NAME`, which picks the validated preset to run: `commission_quick` (the default) or `commission_reverse_lean` (not confirmed to its pre-registered standard, as above). Use `--preset` or `--pipeline`, not both, since a pipeline spec file replaces the preset. An unknown name, or both options together, stops the command with exit code 2. If the model's quote of the source passage isn't found word for word in the source, the report still shows it, marked `(not found word for word in the source)`. If a pipeline switches refute on, the report adds a `Cleared by refute` line.
@@ -186,7 +200,7 @@ for finding in result.findings:
     print(finding.severity, finding.verdict, finding.confidence, finding.statement)
 print(result.counts)  # total=35 present=29 partial=3 absent=3
 print(result.alarm)  # score=0.97 threshold=0.9 level='strict'
-print(result.validated_preset)  # "omission_all_opus", or None if anything was changed
+print(result.validated_preset)  # "omission_all_opus", or None if anything that affects the check was changed
 print(result.usage.cost_usd)
 ```
 
@@ -200,7 +214,7 @@ result = evaluate_sync(
 )
 ```
 
-The fields mean what the API's do (see [Findings](#findings) and [Scores](#scores)), and `None` stands for the API's `null`. What the API puts in `metadata` is in separate fields in Python: `alarm`, `usage`, `pipeline` (the name of the pipeline that ran) and `validated_preset` (the preset it matched). `result.run` holds every step's output for inspection; its shape follows the pipeline's steps and may change without notice.
+The fields mean what the API's do (see [Findings](#findings) and [Scores](#scores)), and `None` stands for the API's `null`. What the API puts in `metadata` is in separate fields in Python: `alarm`, `usage`, `pipeline` (the name of the pipeline that ran), `validated_preset` (the preset it matched) and `disclaimer` (the [Disclaimer](#disclaimer), to show with the result). `result.run` holds every step's output for inspection; its shape follows the pipeline's steps and may change without notice.
 
 `evaluate()` is the async version, for FastAPI or other async code. Both take a `spec`, a `client` (your own `ModelClient`, such as a fake one so your app's tests cost nothing) and `anthropic_api_key` or `env_file` for the key. Pass `client` or `anthropic_api_key`, not both: a `client` brings its own key. They also accept `profile`, `cache` and `registry`, but those take internal types, so they aren't part of the public interface yet.
 
@@ -290,7 +304,8 @@ curl -s http://127.0.0.1:8000/v1/omissions \
   "metadata": {
     "pipeline": "omission_all_opus",
     "alarm": {"score": 0.97, "threshold": 0.9, "level": "strict"},
-    "usage": {"calls": 4, "input_tokens": 31620, "output_tokens": 8140, "cost_usd": 0.29}
+    "usage": {"calls": 4, "input_tokens": 31620, "output_tokens": 8140, "cost_usd": 0.29},
+    "disclaimer": "groundline's results help a person review a summary. …"
   }
 }
 ```
@@ -324,7 +339,8 @@ curl -s http://127.0.0.1:8000/v1/commissions \
   "metadata": {
     "pipeline": "commission_quick",
     "alarm": {"score": 0.95, "threshold": 0.85, "level": "default"},
-    "usage": {"calls": 1, "input_tokens": 9800, "output_tokens": 420, "cost_usd": 0.0012}
+    "usage": {"calls": 1, "input_tokens": 9800, "output_tokens": 420, "cost_usd": 0.0012},
+    "disclaimer": "groundline's results help a person review a summary. …"
   }
 }
 ```
@@ -347,7 +363,7 @@ Both endpoints return `evaluation_type` (`omissions` or `commissions`), `flagged
 | `evidence_found` | Whether `source_evidence` appears in the source word for word, ignoring case, punctuation and spacing. `true` means verified. `false` only means it couldn't be matched, which a reworded quote or markup in the source, such as a scribe's `<UNSURE>` tags, can cause, so check it by eye rather than assuming it was invented. `null` when there is no evidence. |
 | `explanation` | A fixed sentence for each type and verdict, with no text from the source or summary in it. Use the other fields for the details. |
 
-`counts` is the facts found in the source and how many were present, partial or absent; it is `null` for a check that doesn't count facts, such as the commission check. `metadata` is how the check ran: `pipeline` is the validated preset, `alarm` is the alarm score, threshold and level behind the flag, and `usage` is the model calls the check made and what they cost.
+`counts` is the facts found in the source and how many were present, partial or absent; it is `null` for a check that doesn't count facts, such as the commission check. `metadata` is how the check ran: `pipeline` is the validated preset, `alarm` is the alarm score, threshold and level behind the flag, and `usage` is the model calls the check made and what they cost. `metadata.disclaimer` is the [Disclaimer](#disclaimer), to show next to the result.
 
 ### Scores
 
@@ -405,7 +421,7 @@ make aws-destroy   # when you're done
   ```yaml
   # yaml-language-server: $schema=https://raw.githubusercontent.com/groundline-dev/groundline/main/src/groundline_core/presets/pipeline.schema.json
   ```
-- **A domain profile** says what matters in a domain: the prompts for each step and the severity rubric, in a folder with a `profile.yaml`. [`clinical`](src/groundline_core/profiles/clinical/) is built in. A new domain, such as finance, needs a new profile folder, not code changes.
+- **A domain profile** says what matters in a domain: the prompts for each step and the severity rubric, in a folder with a `profile.yaml`. It can also add a disclaimer sentence to the [Disclaimer](#disclaimer). [`clinical`](src/groundline_core/profiles/clinical/) is built in. A new domain, such as finance, needs a new profile folder, not code changes.
 
 ## Caching and sensitive data
 
@@ -418,6 +434,12 @@ See [DEVELOPMENT.md](DEVELOPMENT.md) for the git hooks, running the tests (inclu
 ## Data attribution
 
 The test fixtures in `tests/fixtures/parity/` are rows of OmissionBench (Composo AI, CC BY 4.0), derived from PriMock57 (Babylon Health, CC BY 4.0). Full credits are in each fixture's ATTRIBUTION.md, such as [this one](tests/fixtures/parity/primock__day2_consultation05__omit/ATTRIBUTION.md).
+
+## Disclaimer
+
+groundline's results help a person review a summary. A summary that isn't flagged can still leave out or misstate important facts, so check it before relying on it. You're responsible for any decision made using groundline's results. groundline is provided "as is", and its authors accept no liability for outcomes from its use (see sections 7 and 8 of the Apache License 2.0).
+
+Each domain profile can add a disclaimer sentence after the first one; keep it to one sentence, since it goes into every result. The built-in clinical profile adds "They aren't medical advice or a clinical decision.", which is why the example reports above end with the full text a clinical-profile run prints. Every result carries the full text: in `metadata.disclaimer` in an API response, in `result.disclaimer` in Python, and in the CLI's `--json` file. Each CLI report ends with the full text, and the `--help` of `groundline-core` and of its two checks ends with a short version.
 
 ## License
 

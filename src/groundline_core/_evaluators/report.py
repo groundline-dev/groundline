@@ -88,6 +88,7 @@ def result_json(result: EvaluationResult) -> dict[str, Any]:
         "profile": result.profile,
         "validated_preset": result.validated_preset,
         "warnings": result.warnings,
+        "disclaimer": result.disclaimer,
         "flagged": result.flagged,
         "outputs": {
             step: output.model_dump(mode="json")

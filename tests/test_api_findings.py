@@ -24,6 +24,7 @@ from tests.commissions_helpers import (
 )
 from tests.commissions_helpers import SUMMARY as COMMISSION_SUMMARY
 from tests.commissions_helpers import Script as CommissionScript
+from tests.disclaimer_helpers import clinical_disclaimer
 from tests.fakes import FakeClient
 from tests.omission_helpers import (
     SOURCE,
@@ -87,7 +88,7 @@ def without_usage(metadata: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in metadata.items() if key != "usage"}
 
 
-# --- R1: one structure ----------------------------------------------------------
+# --- one structure --------------------------------------------------------------
 
 
 def test_both_checks_answer_with_the_same_top_level_fields():
@@ -110,7 +111,7 @@ def test_usage_is_in_the_metadata_for_both_checks():
     }
 
 
-# --- R4: the agreed body --------------------------------------------------------
+# --- the agreed body ------------------------------------------------------------
 
 
 def test_a_flagged_omission_check_reports_its_score_findings_and_metadata():
@@ -122,6 +123,7 @@ def test_a_flagged_omission_check_reports_its_score_findings_and_metadata():
     assert without_usage(body["metadata"]) == {
         "pipeline": "omission_all_opus",
         "alarm": {"score": 0.95, "threshold": 0.9, "level": "strict"},
+        "disclaimer": clinical_disclaimer(),
     }
     first, second, third = body["findings"]
     assert first == {
@@ -153,6 +155,7 @@ def test_a_flagged_commission_check_reports_its_score_findings_and_metadata():
     assert without_usage(body["metadata"]) == {
         "pipeline": "commission_quick",
         "alarm": {"score": 0.95, "threshold": 0.85, "level": "default"},
+        "disclaimer": clinical_disclaimer(),
     }
     contradicted, unsupported = body["findings"]
     assert contradicted == {
@@ -198,7 +201,7 @@ def test_a_check_with_nothing_to_report_scores_one_and_has_no_findings():
     assert no_claims["counts"] is None
 
 
-# --- R3: findings a program can use ---------------------------------------------
+# --- findings a program can use -------------------------------------------------
 
 
 def test_a_quote_the_model_gives_for_an_absent_fact_is_not_reported():
@@ -240,7 +243,7 @@ def test_an_explanation_never_repeats_the_source_or_the_summary():
     assert "Motrin" not in explanations
 
 
-# --- R2: the meanings are written in the docs -----------------------------------
+# --- the meanings are written in the docs ---------------------------------------
 
 
 @pytest.mark.parametrize("model", ["OmissionsResponse", "CommissionsResponse"])

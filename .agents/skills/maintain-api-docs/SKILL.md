@@ -29,7 +29,7 @@ If a file, symbol or test named here no longer exists, find what replaced it (gr
 - Error descriptions say when the status happens, in one or two sentences, plus what the caller can do if useful.
 - Examples: go through `error_response` with a picker label; use the invented consultation; write a null where the response has one (a commission's `summary_evidence`), because `app.py` puts each response model's own examples back after FastAPI strips them. Never echo rejected input.
 - Derive stage names, models, and costs from presets; don't hard-code them.
-- Intro keeps three parts: purpose + "not for clinical use", Authentication, Versions (until the API is public, v1 may still break a caller; once it is public, v1 only adds).
+- Intro keeps three parts: (1) purpose, "not for clinical use" and the short disclaimer (`_disclaimer.SHORT_DISCLAIMER`; `test_the_docs_intro_carries_the_short_disclaimer_and_asks_to_show_the_field` checks it), (2) Authentication, (3) Versions (until the API is public, v1 may still break a caller; once it is public, v1 only adds).
 
 ## When X changes, update Y
 

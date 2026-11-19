@@ -7,7 +7,9 @@ import pytest
 from typer.testing import CliRunner, Result
 
 from groundline_core import GroundlineError, cli
+from groundline_core._disclaimer import SHORT_DISCLAIMER
 from tests.anthropic_helpers import fake_anthropic, keys_sent
+from tests.disclaimer_helpers import clinical_disclaimer, one_line
 from tests.fakes import FakeClient, unwritable_folder
 from tests.omission_helpers import (
     SOURCE,
@@ -208,6 +210,7 @@ def test_json_writes_the_full_result(
     assert data["outputs"]["alarm"]["rescaled_score"] == pytest.approx(0.25)
     assert [c["step"] for c in data["calls"]] == ["extract", "rank", "check", "refute"]
     assert data["usage"]["calls"] == 4
+    assert data.get("disclaimer") == clinical_disclaimer(), sorted(data)
 
 
 def test_cache_warns_and_makes_reruns_free(
@@ -269,6 +272,31 @@ def test_a_pipeline_that_is_not_a_full_check_exits_with_2(
     assert result.exit_code == 2
     assert "doesn't make a full check" in result.stderr
     assert "score and rank (omissions)" in result.stderr
+
+
+def test_the_report_ends_with_the_wrapped_disclaimer(
+    files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+):
+    use_client(monkeypatch, not_flagged_script())
+
+    result = omissions(files)
+
+    assert result.exit_code == 0, result.output
+    report, disclaimer = result.stdout.rstrip("\n").rsplit("\n\n", 1)
+    assert one_line(disclaimer) == clinical_disclaimer(), result.stdout[-600:]
+    assert max(len(line) for line in disclaimer.splitlines()) <= cli.REPORT_WIDTH, (
+        disclaimer
+    )
+    assert report.splitlines()[-1].startswith("Cost"), report[-300:]
+
+
+@pytest.mark.parametrize("args", [[], ["omissions"], ["commissions"]])
+def test_help_ends_with_the_short_disclaimer(args: list[str]):
+    result = runner.invoke(cli.app, [*args, "--help"])
+
+    assert result.exit_code == 0, result.output
+    # The help is wrapped to the terminal's width.
+    assert one_line(result.stdout).endswith(SHORT_DISCLAIMER), result.stdout
 
 
 def test_help_lists_the_omissions_command():

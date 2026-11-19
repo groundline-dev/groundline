@@ -15,6 +15,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict
 
 from groundline_core._core import RunResult
+from groundline_core._disclaimer import full_disclaimer
 from groundline_core._evaluators.models import Severity
 
 EvaluationType = Literal["omissions", "commissions"]
@@ -124,7 +125,8 @@ class EvaluationResult:
     `clinical`; None if it used none."""
     validated_preset: str | None
     """The built-in preset this run matched exactly (ignoring selectable
-    settings), or None if the pipeline or profile was changed."""
+    settings), or None if anything that affects the check was changed. A
+    profile's name and its disclaimer sentence don't affect the check."""
     evaluation_type: EvaluationType
     """Which check ran: `omissions` or `commissions`."""
     flagged: bool
@@ -150,3 +152,8 @@ class EvaluationResult:
     warnings: list[str] = field(default_factory=list[str])
     """Things to know about this run, such as alarm thresholds copied from a
     preset the pipeline no longer matches."""
+    disclaimer: str = full_disclaimer(None)
+    """What a person relying on this result should know: it helps them review
+    the summary, and a summary that isn't flagged can still leave out or misstate
+    important facts. It includes the domain profile's disclaimer sentence, if
+    any. Show it with the result."""

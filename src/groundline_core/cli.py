@@ -12,6 +12,7 @@ any unexpected error). Only a finished check that flags the summary exits with 1
 import json
 import logging
 import os
+import textwrap
 import time
 from collections.abc import Callable
 from dataclasses import dataclass, replace
@@ -34,6 +35,7 @@ from groundline_core._core import (
     summarize_usage,
 )
 from groundline_core._core.file_problems import os_reason, read_text
+from groundline_core._disclaimer import SHORT_DISCLAIMER
 from groundline_core._evaluate import (
     DEFAULT_COMMISSIONS_PRESET,
     DEFAULT_PRESET,
@@ -53,10 +55,14 @@ from groundline_core.presets import load_preset
 
 app = typer.Typer(
     help="Check AI-written summaries against their source.",
+    epilog=SHORT_DISCLAIMER,
     no_args_is_help=True,
     pretty_exceptions_enable=False,
 )
 app.add_typer(keys_app, name="keys")
+
+REPORT_WIDTH = 80
+"""The width the disclaimer under a report is wrapped to."""
 
 CACHE_WARNING = (
     "warning: caching is on. The cache stores sources, summaries and the facts "
@@ -166,7 +172,7 @@ COMMISSIONS = Check(
 )
 
 
-@app.command()
+@app.command(epilog=SHORT_DISCLAIMER)
 def omissions(
     source: SourceArg,
     summary: SummaryArg,
@@ -181,7 +187,7 @@ def omissions(
     )
 
 
-@app.command()
+@app.command(epilog=SHORT_DISCLAIMER)
 def commissions(
     source: SourceArg,
     summary: SummaryArg,
@@ -330,6 +336,14 @@ def _check(
     typer.echo(
         check.render(result, source=source.name, summary=summary.name, seconds=seconds)
     )
+    # Keep links whole: no breaks at hyphens or inside long words.
+    disclaimer = textwrap.fill(
+        result.disclaimer,
+        width=REPORT_WIDTH,
+        break_on_hyphens=False,
+        break_long_words=False,
+    )
+    typer.echo(f"\n{disclaimer}")
     if json_path:
         _write_json(json_path, result)
     return EXIT_FLAGGED if result.flagged else EXIT_NOT_FLAGGED

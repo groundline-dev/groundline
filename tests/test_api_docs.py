@@ -8,6 +8,7 @@ from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 from openapi_spec_validator import validate
 
+from groundline_core._disclaimer import SHORT_DISCLAIMER
 from groundline_core._evaluate import DEFAULT_COMMISSIONS_PRESET, DEFAULT_PRESET
 from groundline_core.api.commissions import CommissionsRequest, CommissionsResponse
 from groundline_core.api.common import ApiModel, ErrorBody, InvalidRequestBody
@@ -16,6 +17,7 @@ from groundline_core.api.omissions import OmissionsRequest, OmissionsResponse
 from groundline_core.app import app
 from groundline_core.presets import load_preset
 from tests.auth_helpers import ENDPOINTS, HEADERS, FakeKeys
+from tests.disclaimer_helpers import clinical_disclaimer, one_line
 
 http = TestClient(app)  # no API key: the docs are public
 schema = app.openapi()
@@ -42,6 +44,22 @@ def test_the_docs_show_groundlines_release_and_label_the_api_version():
     assert [tag["name"] for tag in schema["tags"]] == ["v1"]
     for path in CHECKS:
         assert schema["paths"][path]["post"]["tags"] == ["v1"]
+
+
+def test_the_docs_intro_carries_the_short_disclaimer_and_asks_to_show_the_field():
+    description = one_line(schema["info"]["description"])
+
+    assert SHORT_DISCLAIMER in description
+    # It ends with a bare link, so it needs its own paragraph.
+    assert f"\n{SHORT_DISCLAIMER}\n\n" in schema["info"]["description"]
+    assert "`metadata.disclaimer`" in description
+
+
+@pytest.mark.parametrize("model", ["OmissionsResponse", "CommissionsResponse"])
+def test_each_checks_example_shows_the_clinical_disclaimer(model: str):
+    metadata = schema["components"]["schemas"][model]["examples"][0]["metadata"]
+
+    assert metadata.get("disclaimer") == clinical_disclaimer(), metadata
 
 
 def test_every_documented_route_has_the_global_body_limit_response():

@@ -13,7 +13,7 @@ The AI-written text being checked against its source, such as a clinical note.
 _Avoid_: note, output, generation (note is clinical wording, kept in the clinical profile)
 
 **Domain profile**:
-What matters in one domain: its prompts, its severity rubric, and the words its prompts use for the source and the summary.
+What matters in one domain: its prompts, its severity rubric, the words its prompts use for the source and the summary, and its disclaimer sentence, if any.
 _Avoid_: config, domain config
 
 **Severity rubric**:
@@ -100,6 +100,14 @@ _Avoid_: cut-off, threshold (when used as a bare number)
 The outcome for a summary whose alarm score reaches the chosen threshold level.
 _Avoid_: failed, rejected, unsafe
 
+**Disclaimer**:
+What every result says about relying on it: a domain-neutral core, plus the disclaimer sentence a domain profile can add.
+_Avoid_: notice, warning (a warning is something to know about one run)
+
+**Disclaimer sentence**:
+The one sentence a domain profile adds to the disclaimer, after its first sentence.
+_Avoid_: profile sentence
+
 **Omission score**:
 A summary's alarm score from the omission check, turned around and rescaled to run from 0 to 1, so that higher is better and a score below 0.5 means the summary is flagged.
 _Avoid_: alarm score, completeness, note score
@@ -139,7 +147,7 @@ A pipeline spec that ships with groundline.
 _Avoid_: template, default pipeline
 
 **Validated preset**:
-A preset whose results have been measured. A run counts as using it only if nothing about the pipeline or profile was changed, apart from choosing a threshold level.
+A preset whose results have been measured. A run counts as using it only if nothing that affects the check was changed, apart from choosing a threshold level.
 _Avoid_: approved pipeline, certified pipeline
 
 ## When a check can't finish

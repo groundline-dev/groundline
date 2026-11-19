@@ -2,7 +2,7 @@
   "openapi": "3.1.0",
   "info": {
     "title": "groundline",
-    "description": "\ngroundline checks an AI-written summary, such as a clinical note, against the\nsource it was written from, such as a consultation transcript. It reports the\nfacts the summary leaves out (omissions) and the claims in it the source\ndoesn't support (commissions). It is research code, **not for clinical use**,\nand must not be used with real patient data yet.\n\n### Authentication\n\nBoth checks need a groundline API key, sent as `Authorization: Bearer gl_...`.\nCreate one with `groundline-core keys create`, then use **Authorize** below.\n`/health` and `/ready` are public.\n\nThe body-byte allowance applies to every HTTP path and method, including public\nand unknown routes. A declared oversized body can return **413 Content Too Large**\nbefore authentication or **404 Not Found** / **405 Method Not Allowed** responses.\nFor streamed bodies, the allowance is enforced as the application reads them;\nroutes that do not read a body do not buffer it to check its size.\n\n### Versions\n\nBoth checks are under `/v1`. groundline isn't public yet, so v1 can still\nchange in ways that break a caller, such as removing or renaming a field. Once\nthe API is public, v1 will only add: new endpoints, or new fields in a\nresponse. A change that could break a caller, such as removing or renaming a\nfield or changing a status code, will then get a new prefix, `/v2`. groundline\nis still pre-1.0, so it doesn't yet promise how long an old version stays\navailable after a new one ships. The version next to the title is groundline's\nrelease, not the API version.\n\nSee the [README](https://github.com/groundline-dev/groundline#using-the-api)\nfor more, including what each status means.\n",
+    "description": "\ngroundline checks an AI-written summary, such as a clinical note, against the\nsource it was written from, such as a consultation transcript. It reports the\nfacts the summary leaves out (omissions) and the claims in it the source\ndoesn't support (commissions). It is research code, **not for clinical use**,\nand must not be used with real patient data yet.\n\nResults need a person's review: a summary that isn't flagged can still leave out or misstate facts. Full disclaimer: https://github.com/groundline-dev/groundline#disclaimer\n\nEvery check's response carries the full disclaimer in `metadata.disclaimer`:\nshow it next to the result wherever people read it.\n\n### Authentication\n\nBoth checks need a groundline API key, sent as `Authorization: Bearer gl_...`.\nCreate one with `groundline-core keys create`, then use **Authorize** below.\n`/health` and `/ready` are public.\n\nThe body-byte allowance applies to every HTTP path and method, including public\nand unknown routes. A declared oversized body can return **413 Content Too Large**\nbefore authentication or **404 Not Found** / **405 Method Not Allowed** responses.\nFor streamed bodies, the allowance is enforced as the application reads them;\nroutes that do not read a body do not buffer it to check its size.\n\n### Versions\n\nBoth checks are under `/v1`. groundline isn't public yet, so v1 can still\nchange in ways that break a caller, such as removing or renaming a field. Once\nthe API is public, v1 will only add: new endpoints, or new fields in a\nresponse. A change that could break a caller, such as removing or renaming a\nfield or changing a status code, will then get a new prefix, `/v2`. groundline\nis still pre-1.0, so it doesn't yet promise how long an old version stays\navailable after a new one ships. The version next to the title is groundline's\nrelease, not the API version.\n\nSee the [README](https://github.com/groundline-dev/groundline#using-the-api)\nfor more, including what each status means.\n",
     "version": "0.1.0"
   },
   "paths": {
@@ -584,6 +584,11 @@
           "usage": {
             "$ref": "#/components/schemas/Usage",
             "description": "The model calls the check made, and what they cost."
+          },
+          "disclaimer": {
+            "type": "string",
+            "title": "Disclaimer",
+            "description": "What a person relying on this result should know: it helps them review\nthe summary, and a summary that isn't flagged can still leave out or misstate\nimportant facts. It includes the sentence the pipeline's domain profile adds,\nif any. Show it next to the result wherever people read it."
           }
         },
         "additionalProperties": false,
@@ -591,7 +596,8 @@
         "required": [
           "pipeline",
           "alarm",
-          "usage"
+          "usage",
+          "disclaimer"
         ],
         "title": "CommissionsMetadata"
       },
@@ -712,6 +718,7 @@
                 "score": 0.95,
                 "threshold": 0.85
               },
+              "disclaimer": "groundline's results help a person review a summary. They aren't medical advice or a clinical decision. A summary that isn't flagged can still leave out or misstate important facts, so check it before relying on it. You're responsible for any decision made using groundline's results. groundline is provided \"as is\", and its authors accept no liability for outcomes from its use (see sections 7 and 8 of the Apache License 2.0).",
               "pipeline": "commission_quick",
               "usage": {
                 "calls": 1,
@@ -946,6 +953,11 @@
           "usage": {
             "$ref": "#/components/schemas/Usage",
             "description": "The model calls the check made, and what they cost."
+          },
+          "disclaimer": {
+            "type": "string",
+            "title": "Disclaimer",
+            "description": "What a person relying on this result should know: it helps them review\nthe summary, and a summary that isn't flagged can still leave out or misstate\nimportant facts. It includes the sentence the pipeline's domain profile adds,\nif any. Show it next to the result wherever people read it."
           }
         },
         "additionalProperties": false,
@@ -953,7 +965,8 @@
         "required": [
           "pipeline",
           "alarm",
-          "usage"
+          "usage",
+          "disclaimer"
         ],
         "title": "OmissionsMetadata"
       },
@@ -1070,6 +1083,7 @@
                 "score": 0.475,
                 "threshold": 0.9
               },
+              "disclaimer": "groundline's results help a person review a summary. They aren't medical advice or a clinical decision. A summary that isn't flagged can still leave out or misstate important facts, so check it before relying on it. You're responsible for any decision made using groundline's results. groundline is provided \"as is\", and its authors accept no liability for outcomes from its use (see sections 7 and 8 of the Apache License 2.0).",
               "pipeline": "omission_all_opus",
               "usage": {
                 "calls": 4,

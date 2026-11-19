@@ -365,12 +365,13 @@ src/groundline_core/       a leading underscore marks the library's internals (A
   _evaluators/             what the checks share, and the registry of built-in checks
   _evaluators/omissions/   the omission check
   _evaluators/commissions/ the commission check
-  profiles/clinical/       the clinical profile: prompts and severity rubric
+  profiles/clinical/       the clinical profile: prompts, severity rubric, disclaimer sentence
   presets/                 validated pipeline specs (omission_all_opus, commission_quick,
                            commission_reverse_lean)
   __init__.py              the public interface: the names library callers import
   _evaluate.py             evaluate(): the entry point the CLI and API share
   _result.py, _findings.py the result evaluate() returns, and how findings are built from a run
+  _disclaimer.py           the disclaimer every result carries
   _settings.py             secrets and settings, from the environment or a .env file
   api_keys.py              API-key creation, revocation and authentication
   auth.py                  the Bearer authentication dependency

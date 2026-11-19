@@ -34,6 +34,7 @@ from tests.commissions_helpers import (
 )
 from tests.commissions_helpers import SUMMARY as COMMISSION_SUMMARY
 from tests.commissions_helpers import Script as CommissionScript
+from tests.disclaimer_helpers import clinical_disclaimer
 from tests.omission_helpers import (
     CLEAR_SUMMARY,
     SOURCE,
@@ -227,6 +228,7 @@ def test_omission_success_uses_environment_key_and_returns_expected_values(
             "metadata": {
                 "pipeline": "omission_all_opus",
                 "alarm": {"score": score, "threshold": 0.9, "level": "strict"},
+                "disclaimer": clinical_disclaimer(),
             },
         },
         calls,
@@ -273,6 +275,7 @@ def test_commission_success_uses_environment_key_and_returns_expected_values(
             "metadata": {
                 "pipeline": "commission_quick",
                 "alarm": {"score": score, "threshold": 0.85, "level": "default"},
+                "disclaimer": clinical_disclaimer(),
             },
         },
         1,
