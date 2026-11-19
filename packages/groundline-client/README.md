@@ -64,12 +64,12 @@ handle all of them, or catch a subclass to decide what to do:
 
 | Error | Raised for | What you can do |
 | --- | --- | --- |
-| `AuthenticationError` | 401, 403 | Fix the API key. |
-| `RateLimitError` | 429 | Wait `error.retry_after` seconds (`None` if the answer gave none). |
-| `InvalidRequestError` | 400, 422 | Fix the request; `error.detail` says where. |
-| `RequestTooLargeError` | 413 | Send less text. |
-| `ServerUnavailableError` | 500, 502, 503, or the server couldn't be reached | Try again later. |
-| `GroundlineTimeoutError` | 504, 408, or the call ran out of its time limits | Try again later, or raise the limits. |
+| `AuthenticationError` | a 401 or 403 | Fix the API key. |
+| `RateLimitError` | a 429 | Wait `error.retry_after` seconds (`None` if the answer gave none). |
+| `InvalidRequestError` | a 400 or 422 | Fix the request; `error.detail` says where. |
+| `RequestTooLargeError` | a 413 | Send less text. |
+| `ServerUnavailableError` | a 500, 502 or 503, or the server couldn't be reached | Try again later. |
+| `GroundlineTimeoutError` | a 504 or 408, or the call ran out of its time limits | Try again later, or raise the limits. |
 | `GroundlineError` itself | Anything else: a redirect, a 404, a status the API doesn't document, or an answer the SDK can't read | Check the URL. |
 
 `GroundlineConfigError` (a bad URL, key or option when you create the client) is
