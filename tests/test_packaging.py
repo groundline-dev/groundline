@@ -1,4 +1,4 @@
-"""Check what pyproject.toml installs, and under which names (ALL-160, ADR 0016).
+"""Check what pyproject.toml installs, and under which names (ADR 0016).
 
 - A plain install of groundline-core gets only what the pipelines need.
 - The server extra adds the API, and the cli extra adds the groundline-core

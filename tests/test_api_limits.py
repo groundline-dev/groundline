@@ -1,4 +1,5 @@
-"""ALL-136 size policy: shared enforcement plus three fresh-process checks."""
+"""Request size limits: the settings, the body limit every route shares, and
+the checks that need a fresh process or a real server."""
 
 import asyncio
 import http.client

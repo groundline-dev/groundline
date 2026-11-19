@@ -1,4 +1,4 @@
-"""The committed OpenAPI file and the folder of generated SDK code (ALL-155).
+"""The committed OpenAPI file and the folder of generated SDK code.
 
 The SDK is generated from packages/groundline-client/openapi.json. These tests
 check what only the server's side can see: that the file is the app's current
