@@ -31,6 +31,10 @@ The rules below apply only when discussing or changing the design. In other work
 
 A server started with `make aws-deploy` costs money until `make aws-destroy` deletes it or its time limit runs out. If you deployed one, don't finish your work until you've either run `make aws-destroy`, when the developer asked you to, or told the developer that the server is still running and when it terminates itself (`make aws-status` shows this).
 
+## Releases
+
+Starting the Release workflow (`.github/workflows/release.yml`) can publish to PyPI, and a published version can't be removed or replaced. Don't start it, and don't change the PyPI publishers or the `pypi` environment, unless the developer asks (see DEVELOPMENT.md, "Releasing groundline-core").
+
 ## Skills
 
 Skills live in `.agents/skills/`. `.claude/skills/` links to the same folders, so edit only the `.agents/` copy.
