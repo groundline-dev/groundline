@@ -36,10 +36,10 @@
       "title": "Description",
       "type": "string"
     },
-    "disclaimer": {
+    "disclaimer_sentence": {
       "default": "",
       "description": "A sentence to add to the disclaimer every result carries, after its opening sentence, such as `They aren't financial advice.` It can't remove any of the disclaimer, and the pipeline stages don't read it.",
-      "title": "Disclaimer",
+      "title": "Disclaimer Sentence",
       "type": "string"
     },
     "placeholders": {

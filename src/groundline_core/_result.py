@@ -152,7 +152,7 @@ class EvaluationResult:
     warnings: list[str] = field(default_factory=list[str])
     """Things to know about this run, such as alarm thresholds copied from a
     preset the pipeline no longer matches."""
-    disclaimer: str = field(default_factory=lambda: full_disclaimer(None))
+    disclaimer: str = full_disclaimer(None)
     """What a person relying on this result should know: it helps them review
     the summary, and a summary that isn't flagged can still leave out or misstate
     important facts. It includes the domain profile's disclaimer sentence, if

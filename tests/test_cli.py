@@ -296,7 +296,7 @@ def test_help_ends_with_the_short_disclaimer(args: list[str]):
 
     assert result.exit_code == 0, result.output
     # The help is wrapped to the terminal's width.
-    assert SHORT_DISCLAIMER in one_line(result.stdout), result.stdout
+    assert one_line(result.stdout).endswith(SHORT_DISCLAIMER), result.stdout
 
 
 def test_help_lists_the_omissions_command():

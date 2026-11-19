@@ -18,8 +18,8 @@ ROOT = Path(__file__).resolve().parents[1]
 READMES = [ROOT / "README.md", ROOT / "packages" / "groundline-client" / "README.md"]
 
 
-def finance(disclaimer: str) -> DomainProfile:
-    return DomainProfile(name="finance", disclaimer=disclaimer, texts={})
+def finance(sentence: str) -> DomainProfile:
+    return DomainProfile(name="finance", disclaimer_sentence=sentence, texts={})
 
 
 def test_a_profiles_disclaimer_sentence_follows_the_lead():
@@ -28,7 +28,11 @@ def test_a_profiles_disclaimer_sentence_follows_the_lead():
     )
 
 
-@pytest.mark.parametrize("profile", [None, finance("")], ids=["no profile", "none"])
+@pytest.mark.parametrize(
+    "profile",
+    [None, finance(""), finance("  \n ")],
+    ids=["no profile", "none", "blank"],
+)
 def test_without_a_disclaimer_sentence_the_disclaimer_is_the_core(
     profile: DomainProfile | None,
 ):
@@ -41,8 +45,16 @@ def test_without_a_disclaimer_sentence_the_disclaimer_is_the_core(
         ("They aren't\n  financial advice.\n", "They aren't financial advice."),
         ("They aren't financial advice", "They aren't financial advice."),
         ("Is this financial advice?", "Is this financial advice?"),
+        ('They aren\'t "financial advice."', 'They aren\'t "financial advice."'),
+        ("They aren't advice (see our terms.)", "They aren't advice (see our terms.)"),
     ],
-    ids=["over several lines", "without a period", "ending in a question mark"],
+    ids=[
+        "over several lines",
+        "without a period",
+        "ending in a question mark",
+        "ending in a quote",
+        "ending in a bracket",
+    ],
 )
 def test_a_disclaimer_sentence_is_one_line_ending_in_punctuation(
     written: str, added: str
@@ -50,12 +62,8 @@ def test_a_disclaimer_sentence_is_one_line_ending_in_punctuation(
     assert full_disclaimer(finance(written)) == f"{LEAD} {added} {AFTER_LEAD}"
 
 
-def test_a_blank_disclaimer_sentence_counts_as_none():
-    assert full_disclaimer(finance("  \n ")) == f"{LEAD} {AFTER_LEAD}"
-
-
 def test_both_readmes_carry_the_core_and_the_clinical_sentence():
-    clinical = load_builtin_profile("clinical").disclaimer
+    clinical = load_builtin_profile("clinical").disclaimer_sentence
     for readme in READMES:
         text = one_line(readme.read_text())
         assert f"{LEAD} {AFTER_LEAD}" in text, f"{readme} lacks the disclaimer's core"

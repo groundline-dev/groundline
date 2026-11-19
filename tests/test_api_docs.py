@@ -50,6 +50,8 @@ def test_the_docs_intro_carries_the_short_disclaimer_and_asks_to_show_the_field(
     description = one_line(schema["info"]["description"])
 
     assert SHORT_DISCLAIMER in description
+    # It ends with a bare link, so it needs its own paragraph.
+    assert f"\n{SHORT_DISCLAIMER}\n\n" in schema["info"]["description"]
     assert "`metadata.disclaimer`" in description
 
 

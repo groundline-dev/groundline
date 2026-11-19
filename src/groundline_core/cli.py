@@ -336,7 +336,14 @@ def _check(
     typer.echo(
         check.render(result, source=source.name, summary=summary.name, seconds=seconds)
     )
-    typer.echo("\n" + textwrap.fill(result.disclaimer, width=REPORT_WIDTH))
+    # Keep links whole: no breaks at hyphens or inside long words.
+    disclaimer = textwrap.fill(
+        result.disclaimer,
+        width=REPORT_WIDTH,
+        break_on_hyphens=False,
+        break_long_words=False,
+    )
+    typer.echo(f"\n{disclaimer}")
     if json_path:
         _write_json(json_path, result)
     return EXIT_FLAGGED if result.flagged else EXIT_NOT_FLAGGED

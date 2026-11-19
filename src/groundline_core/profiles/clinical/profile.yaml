@@ -10,7 +10,7 @@ description: Clinical notes checked against the consultation transcript.
 
 # Added to the disclaimer every result carries. No stage reads it, so changing it
 # doesn't change the measured results.
-disclaimer: They aren't medical advice or a clinical decision.
+disclaimer_sentence: They aren't medical advice or a clinical decision.
 
 # The placeholders the prompts use for the source and the summary.
 placeholders:

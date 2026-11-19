@@ -48,7 +48,7 @@ class DomainProfile(BaseModel):
 
     name: str
     description: str = ""
-    disclaimer: str = ""
+    disclaimer_sentence: str = ""
     """The disclaimer sentence: what the profile adds to the disclaimer every
     result carries, such as "They aren't financial advice." Empty if it adds
     none."""
@@ -64,7 +64,7 @@ class _ProfileFile(BaseModel):
 
     name: str = Field(description="The profile's name, such as `clinical`.")
     description: str = Field(default="", description="What the profile is for.")
-    disclaimer: str = Field(
+    disclaimer_sentence: str = Field(
         default="",
         description="A sentence to add to the disclaimer every result carries, "
         "after its opening sentence, such as `They aren't financial advice.` It "
@@ -128,7 +128,7 @@ def load_profile(folder: str | Path) -> DomainProfile:
     return DomainProfile(
         name=spec.name,
         description=spec.description,
-        disclaimer=spec.disclaimer,
+        disclaimer_sentence=spec.disclaimer_sentence,
         placeholders=spec.placeholders,
         texts=texts,
     )

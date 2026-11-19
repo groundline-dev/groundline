@@ -225,7 +225,7 @@ def test_an_identical_profile_under_another_name_is_still_validated():
 
 def test_the_result_carries_the_disclaimer_with_its_profiles_sentence():
     with_own_sentence = load_builtin_profile("clinical").model_copy(
-        update={"disclaimer": "They aren't financial advice."}
+        update={"disclaimer_sentence": "They aren't financial advice."}
     )
 
     assert run(profile=with_own_sentence).disclaimer == full_disclaimer(
@@ -247,8 +247,11 @@ def test_a_result_built_without_a_disclaimer_carries_the_core():
 
 
 def test_a_changed_disclaimer_is_still_the_validated_preset():
-    # The disclaimer isn't a prompt or the rubric, so the measured results hold.
-    changed = load_builtin_profile("clinical").model_copy(update={"disclaimer": ""})
+    # The disclaimer sentence isn't a prompt or the rubric, so the measured results
+    # hold.
+    changed = load_builtin_profile("clinical").model_copy(
+        update={"disclaimer_sentence": ""}
+    )
 
     assert run(profile=changed).validated_preset == "omission_all_opus"
 

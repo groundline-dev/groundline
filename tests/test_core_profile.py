@@ -155,16 +155,16 @@ def test_loads_a_profile_folder(tmp_path: Path):
     assert loaded.name == "finance"
     assert loaded.placeholders == Placeholders(source="call", summary="brief")
     assert loaded.texts == {"extract_v1": "List {call}"}
-    assert loaded.disclaimer == ""
+    assert loaded.disclaimer_sentence == ""
 
 
 def test_a_profile_can_add_a_sentence_to_the_disclaimer(tmp_path: Path):
-    yaml = GOOD_YAML + "disclaimer: They aren't financial advice.\n"
+    yaml = GOOD_YAML + "disclaimer_sentence: They aren't financial advice.\n"
     folder = write_profile(
         tmp_path / "finance", yaml, {"prompts/extract_v1.txt": "List {call}"}
     )
 
-    assert load_profile(folder).disclaimer == "They aren't financial advice."
+    assert load_profile(folder).disclaimer_sentence == "They aren't financial advice."
 
 
 def test_a_missing_text_file_is_an_error(tmp_path: Path):
@@ -209,7 +209,9 @@ def test_the_clinical_profile_is_built_in():
     }
     assert "{transcript}" in clinical.texts["extract_coarse_v1"]
     assert "{note}" in clinical.texts["check_batch_v1"]
-    assert clinical.disclaimer == "They aren't medical advice or a clinical decision."
+    assert clinical.disclaimer_sentence == (
+        "They aren't medical advice or a clinical decision."
+    )
 
 
 def test_an_unknown_built_in_profile_is_an_error():

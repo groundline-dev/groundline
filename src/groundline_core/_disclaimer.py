@@ -5,6 +5,8 @@ The README and the SDK README repeat the core word for word, and
 `tests/test_disclaimer.py` checks that they still do.
 """
 
+import re
+
 from groundline_core._core.profile import DomainProfile
 
 LEAD = "groundline's results help a person review a summary."
@@ -22,15 +24,19 @@ SHORT_DISCLAIMER = (
 )
 """Ends with the link, so no period can end up inside it."""
 
+ENDS_A_SENTENCE = re.compile(r"[.!?…][\"'”’)\]]*$")
+"""Final punctuation, allowing closing quotes and brackets after it."""
+
 
 def full_disclaimer(profile: DomainProfile | None) -> str:
     """The disclaimer for a check that used `profile`: the core, with the
     profile's disclaimer sentence, if it has one, after the lead.
 
     The sentence goes inside one paragraph, so its line breaks become spaces,
-    and it gets a period if it ends without one. A blank one counts as none.
+    and it gets a period if it doesn't already end a sentence. A blank one counts
+    as none.
     """
-    sentence = " ".join(profile.disclaimer.split()) if profile else ""
-    if sentence and not sentence.endswith((".", "!", "?")):
+    sentence = " ".join(profile.disclaimer_sentence.split()) if profile else ""
+    if sentence and not ENDS_A_SENTENCE.search(sentence):
         sentence += "."
     return " ".join(part for part in (LEAD, sentence, AFTER_LEAD) if part)
