@@ -26,6 +26,9 @@ infra/data/.terraform/
 infra/terraform.tfvars*
 !infra/terraform.tfvars.example
 
+# Each make aws-* run's log and record, which name your email address and IP
+infra/runs/
+
 # Database backups, which hold API-key hashes
 *.dump
 

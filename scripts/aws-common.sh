@@ -112,6 +112,9 @@ say() {
 # so there's one line break, not one from each.
 if [ -z "${GROUNDLINE_AWS_SCRIPT:-}" ]; then
   export GROUNDLINE_AWS_SCRIPT=$$
+  # The command you ran, such as make aws-up, for messages that say to run it
+  # again, whichever script prints them.
+  export GROUNDLINE_AWS_COMMAND="make $(basename "$0")"
   trap 'echo; exit 130' INT
 fi
 
@@ -210,6 +213,101 @@ prompt_line() {
     done
   fi
   prompt="  ${wrapped[${#wrapped[@]} - 1]} "
+}
+
+# duration SECONDS: how long something took, such as "42s" or "1m 02s".
+duration() {
+  if [ "$1" -lt 60 ]; then
+    echo "${1}s"
+  else
+    printf '%dm %02ds\n' $(($1 / 60)) $(($1 % 60))
+  fi
+}
+
+# The run's log: everything the tools it runs print, such as Terraform's apply
+# output, which the screen leaves out. It's in infra/runs/, which git ignores,
+# and only you can read it, since Terraform's output names your email address
+# and IP. One run, such as make aws-up with the aws-deploy it runs, has one log.
+runs_dir=infra/runs
+
+# ensure_run_log: set $run_log, creating this run's log the first time.
+ensure_run_log() {
+  if [ -n "${GROUNDLINE_RUN_LOG:-}" ]; then
+    run_log="$GROUNDLINE_RUN_LOG"
+    return
+  fi
+  local command name stamp base next=2
+  command="${GROUNDLINE_AWS_COMMAND:-make $(basename "$0")}"
+  command="${command#make aws-}"
+  name="$(tfvars_value deployment_name)"
+  stamp="$(date -u +%Y-%m-%dT%H-%M-%SZ)"
+  mkdir -p "$runs_dir"
+  base="$runs_dir/${stamp}_${account:-unknown}_${name:-new}_${command}"
+  run_log="$base.log"
+  while [ -e "$run_log" ]; do
+    run_log="$base-$next.log"
+    next=$((next + 1))
+  done
+  (umask 077 && : >"$run_log")
+  export GROUNDLINE_RUN_LOG="$run_log"
+}
+
+# run_logged DOING DONE NOTE COMMAND...: say "DOING...", run COMMAND with its
+# output in the run's log, then say "ok: DONE (NOTE, 1m 02s)", leaving NOTE out
+# when it's empty. If COMMAND fails, show the end of the log and where the
+# whole of it is.
+#
+# Ctrl-C: COMMAND runs in a process group of its own, so the terminal's Ctrl-C
+# reaches only this script, which passes each one on, once. Terraform finishes
+# the change it's making on the first and stops at once on the second, so the
+# first says it's stopping safely. Either way the run then stops, saying to run
+# the command again, since Terraform picks up from what exists.
+run_logged() {
+  local doing_text="$1" done_text="$2" note="$3" started status pid saved_trap
+  shift 3
+  ensure_run_log
+  doing "$doing_text"
+  started=$SECONDS
+  printf '\n$ %s\n' "$*" >>"$run_log"
+  saved_trap="$(trap -p INT)"
+  interrupts=0
+  set -m
+  "$@" >>"$run_log" 2>&1 </dev/null &
+  pid=$!
+  set +m
+  trap 'interrupts=$((interrupts + 1)); stopping "$interrupts"; kill -INT "$pid" 2>/dev/null || true' INT
+  while :; do
+    status=0
+    wait "$pid" || status=$?
+    # A Ctrl-C interrupts wait, not COMMAND, so wait again until it ends.
+    if [ "$status" -gt 128 ] && kill -0 "$pid" 2>/dev/null; then
+      continue
+    fi
+    break
+  done
+  if [ -n "$saved_trap" ]; then eval "$saved_trap"; else trap - INT; fi
+  if [ "$interrupts" -gt 0 ]; then
+    echo >&2
+    error "canceled partway. Run ${GROUNDLINE_AWS_COMMAND:-it} again to carry on from what exists. The full log is $run_log."
+    echo >&2
+    exit 130
+  fi
+  if [ "$status" != 0 ]; then
+    explain "Its last lines, from $run_log:" >&2
+    tail -n 30 "$run_log" | sed 's/^/    /' >&2
+    fail "that didn't finish: see the error above. The full log is $run_log."
+  fi
+  check_ok "$done_text (${note:+$note, }$(duration $((SECONDS - started))))"
+}
+
+# stopping COUNT: what the COUNTth Ctrl-C during run_logged does.
+stopping() {
+  echo >&2
+  if [ "$1" = 1 ]; then
+    check_warn "Stopping safely: Terraform is finishing the change it's making. Run ${GROUNDLINE_AWS_COMMAND:-it} again to carry on. Ctrl-C again stops it at once, which can leave a change half-made."
+  else
+    check_warn "Stopping at once."
+  fi
 }
 
 # hint TEXT: why an answer wasn't accepted, indented like the question, which
@@ -1062,7 +1160,35 @@ make_plan() {
     terraform -chdir="$root" apply -input=false "$plan" >/dev/null
     return
   fi
+  plan_label "$root" "$plan_json" >"$plan.label"
   planned="$plan"
+}
+
+# plan_label ROOT PLAN_JSON: what applying the plan does, as three lines for
+# run_logged: the -ing phrase, the past tense, and how many resources it
+# changes, so each Terraform folder's apply is a step of its own, such as
+# "Deleting the server and what it uses".
+plan_label() {
+  local root="$1" changes count server deleting
+  changes='[.resource_changes[]? | select(.mode == "managed" and .change.actions != ["no-op"])]'
+  count="$(jq "$changes | length" <<<"$2")"
+  deleting="$(jq "$changes | all(.change.actions == [\"delete\"])" <<<"$2")"
+  server="$(jq -r "[$changes[] | select(.type == \"aws_instance\") | .change.actions | join(\"+\")][0] // \"\"" <<<"$2")"
+  if [ "$deleting" = true ] && [ "$root" = infra/data ]; then
+    printf '%s\n' "Deleting the saved data and address" "deleted the saved data and address"
+  elif [ "$deleting" = true ]; then
+    printf '%s\n' "Deleting the server and what it uses" "deleted the server and what it uses"
+  elif [ "$root" = infra/data ]; then
+    printf '%s\n' "Setting up the data volume and address" "set up the data volume and address"
+  else
+    case "$server" in
+      create) printf '%s\n' "Creating your server" "created your server" ;;
+      delete+create | create+delete) printf '%s\n' "Replacing your server" "replaced your server" ;;
+      update) printf '%s\n' "Applying your settings to the server" "applied them to the server" ;;
+      *) printf '%s\n' "Changing the server's AWS resources" "changed them" ;;
+    esac
+  fi
+  if [ "$count" = 1 ]; then echo "1 resource"; else echo "$count resources"; fi
 }
 
 # apply_plans NOTHING_TO_DO SUMMARY ROOT PLAN [ROOT PLAN]...: say what applying
@@ -1102,9 +1228,15 @@ apply_plans() {
   fi
   [ "$answer" = 1 ] || fail "${cancel_message:-canceled: nothing changed}"
   plan_changed=yes
-  doing "Making the changes"
+  # Each folder's apply is a step of its own, named for what it does, with
+  # Terraform's output in the run's log.
+  local label=() line
   for ((index = 0; index + 1 < ${#pairs[@]}; index += 2)); do
-    [ -z "${pairs[index + 1]}" ] || terraform -chdir="${pairs[index]}" apply -input=false "${pairs[index + 1]}"
+    [ -n "${pairs[index + 1]}" ] || continue
+    label=()
+    while IFS= read -r line; do label+=("$line"); done <"${pairs[index + 1]}.label"
+    run_logged "${label[0]}" "${label[1]}" "${label[2]}" \
+      terraform -chdir="${pairs[index]}" apply -input=false -no-color "${pairs[index + 1]}"
   done
 }
 

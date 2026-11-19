@@ -55,7 +55,9 @@ needs more shows up as a test failure instead of a silent pass.
 import json
 import os
 import re
+import signal
 import sys
+import time
 from pathlib import Path
 from typing import Any, cast
 
@@ -232,7 +234,15 @@ def _terraform(world: dict[str, Any], args: list[str]) -> int:
         print("(the full Terraform plan)")
         return 0
     if args[:1] == ["apply"] and args[-1].endswith("tfplan"):
+        # What the scripts keep off the screen, in the run's log.
+        print(f"Applying the plan in {chdir or 'infra'}...")
+        if world.get("apply_seconds") and not _apply_like_terraform(world):
+            return 1
+        if world.get("apply_error"):
+            print(f"Error: {world['apply_error']}", file=sys.stderr)
+            return 1
         plan = json.loads(Path(args[-1]).read_text())
+        print(f"Apply complete! Resources: {len(plan['resource_changes'])} changed.")
         if plan.get("destroy") and plan["resource_changes"]:
             world[destroyed_key] = True
         elif plan["resource_changes"]:
@@ -243,6 +253,32 @@ def _terraform(world: dict[str, Any], args: list[str]) -> int:
         return 0
     print(f"fake terraform: unsupported call: {args}", file=sys.stderr)
     return 2
+
+
+def _apply_like_terraform(world: dict[str, Any]) -> bool:
+    """Take world["apply_seconds"] to apply, stopping on SIGINT as Terraform does.
+
+    The first SIGINT lets the change in progress finish, then stops; a second
+    stops at once. Each one received is counted in world["apply_interrupts"].
+    Returns whether the apply ran to the end.
+    """
+    world["apply_interrupts"] = 0
+    deadline = time.monotonic() + float(world["apply_seconds"])
+
+    def interrupted(signum: int, frame: object) -> None:
+        nonlocal deadline
+        world["apply_interrupts"] += 1
+        if world["apply_interrupts"] == 1:
+            print("Interrupt received. Gracefully shutting down...")
+            deadline = min(deadline, time.monotonic() + 1)
+        else:
+            print("Two interrupts received. Exiting immediately.")
+            raise SystemExit(1)
+
+    signal.signal(signal.SIGINT, interrupted)
+    while time.monotonic() < deadline:
+        time.sleep(0.05)
+    return world["apply_interrupts"] == 0
 
 
 # The resource each output names, as `terraform show -json` gives its type.

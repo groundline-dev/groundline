@@ -121,6 +121,12 @@ cancel_message="$canceled" plan_and_apply infra "Terraform configuration is unch
   -var "region=$region" ${tester_args[@]+"${tester_args[@]}"} -var "git_ref=$commit" \
   -var "access_mode=$access_mode" \
   -var "repository_url=$repository_url"
+# What the server's apply left it running, under its result.
+if [ -n "$plan_changed" ]; then
+  detail "Commit: ${commit:0:7}"
+  app_url="$(optional_output app_url)"
+  [ -z "$app_url" ] || detail "URL: $app_url"
+fi
 
 instance="$(terraform -chdir=infra output -raw instance_id)"
 hours="$(terraform -chdir=infra output -raw auto_terminate_hours)"
@@ -225,6 +231,9 @@ if [ "$instance" = "$previous_instance" ]; then
     | tr '\n' ' ' | sed 's/ $//')"
   doing "Upgrading your server ($instance) in place to ${commit:0:7}"
   explain "It keeps its data, address and HTTPS certificate. This takes a few minutes."
+  # Ctrl-C stops the waiting, not the upgrade: the server carries on with it.
+  saved_trap="$(trap -p INT)"
+  trap 'echo >&2; warn "stopped waiting. The server keeps upgrading to ${commit:0:7} on its own; make aws-status shows what it runs."; echo >&2; exit 130' INT
   upgraded="$(on_server "set -eu; cd /opt/groundline; attempts=0
 until infra/https/refresh-address '$access_mode' '$allowed_cidr'; do
   attempts=\$((attempts + 1)); [ \"\$attempts\" -lt 12 ] || exit 1; sleep 5
@@ -235,13 +244,14 @@ ${reset_deadline}
 GROUNDLINE_EXPECTED_SETTINGS='$expected_settings' infra/server/apply
 docker compose exec -T caddy caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile" 1800)" \
     || fail "couldn't upgrade the server; do not report deployment success. Retry make aws-deploy, or run REF=<the previous commit> make aws-deploy to go back."
+  if [ -n "$saved_trap" ]; then eval "$saved_trap"; else trap - INT; fi
   grep --quiet "groundline: running $commit" <<<"$upgraded" \
     || fail "the server didn't report running ${commit:0:7} after the upgrade; retry make aws-deploy"
   echo
   ok "upgraded your server ($instance) to ${commit:0:7}. It kept its data and address."
 elif [ -n "$plan_changed" ]; then
   echo
-  ok "created your server. It takes about 5 to 10 minutes to start."
+  explain "A new server takes about 5 to 10 minutes to start."
 fi
 
 # The settings that differ from the app's defaults, so what the server runs

@@ -228,6 +228,8 @@ fi
 }
 
 echo
-ok "your deployment is deleted. To deploy again, run make aws-up."
+ok "your deployment is deleted."
+echo
+explain "To deploy again, run make aws-up."
 other_deployments
 echo
