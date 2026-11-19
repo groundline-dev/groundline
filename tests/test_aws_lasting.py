@@ -499,6 +499,26 @@ def test_data_delete_deletes_everything_once_the_name_is_typed(checkout: Path):
     assert all("deployment_name=staging" in plan for plan in plans), plans
 
 
+def test_data_delete_reports_snapshots_it_couldnt_check(checkout: Path):
+    # A failed lookup isn't "no snapshots": they may still be there, and cost money.
+    lasting(checkout)
+    world = aws_fakes.new_world(
+        outputs=DESTROYABLE,
+        existing={"i-test": "terminated"},
+        snapshots=["snap-1"],
+        snapshot_lookup_error="AccessDenied",
+    )
+
+    result, world = destroy(checkout, world, "staging\n1\n", "--data", "delete")
+
+    assert result.returncode != 0
+    assert "couldn't check for pre-upgrade snapshots of staging" in result.stderr
+    assert "your deployment is deleted" not in result.stdout
+    # The rest of the cleanup still ran.
+    assert world["destroyed"] and world["data_destroyed"]
+    assert not world["parameter_exists"]
+
+
 def test_data_delete_after_keeping_the_data_reports_no_leftovers(checkout: Path):
     # make aws-destroy deleted the server and kept the data; DATA=delete now
     # finds no server outputs, and nothing of the server to check.

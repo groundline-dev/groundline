@@ -37,7 +37,8 @@ They answer only the calls the scripts make, the way the real tools answer:
 - `aws ec2 create-snapshot` adds to `snapshots` (the ids of the deployment's
   pre-upgrade snapshots), `describe-snapshots` lists them and
   `delete-snapshot` removes one. `aws ec2 wait snapshot-completed` succeeds,
-  or fails when `snapshot_fails` is set.
+  or fails when `snapshot_fails` is set. With `snapshot_lookup_error` set,
+  `describe-snapshots` fails with that error code.
 - An SSM command asking the server which commit it runs (`rev-parse HEAD`)
   gets `server_commit`, by default a commit the checkout doesn't know.
 - With `error` set, every aws call fails with that error code, as with an
@@ -400,6 +401,8 @@ def _reply(
             world["snapshots"].append(snapshot_id)
             return {"SnapshotId": snapshot_id, "VolumeId": options.get("--volume-id")}
         case ("ec2", "describe-snapshots"):
+            if world.get("snapshot_lookup_error"):
+                raise AWSError(world["snapshot_lookup_error"], "DescribeSnapshots")
             return {"Snapshots": [{"SnapshotId": i} for i in world["snapshots"]]}
         case ("ec2", "wait"):
             if world.get("snapshot_fails"):

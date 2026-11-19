@@ -135,9 +135,13 @@ if [ -n "$keep_data" ]; then
   exit 0
 fi
 
-# A deployment's pre-upgrade snapshots go with its data.
-if [ -n "$name" ]; then
-  for snapshot in $(pre_upgrade_snapshots "$name" 2>/dev/null || true); do
+# A deployment's pre-upgrade snapshots go with its data. A failed lookup isn't
+# "none": they may still be there, and cost money.
+if [ -n "$name" ] && ! snapshots="$(pre_upgrade_snapshots "$name")"; then
+  check_error "couldn't check for pre-upgrade snapshots of $name; look for snapshots tagged groundline-pre-upgrade in the EC2 console"
+  leftover=1
+elif [ -n "$name" ]; then
+  for snapshot in $snapshots; do
     doing "Deleting the pre-upgrade snapshot $snapshot"
     if aws ec2 delete-snapshot --region "$region" --snapshot-id "$snapshot"; then
       check_ok "deleted $snapshot"
