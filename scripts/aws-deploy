@@ -194,7 +194,9 @@ snapshot_before_upgrade() {
     || fail "the snapshot $snapshot of $volume didn't complete, so the server wasn't upgraded. The older snapshots are kept; run make aws-deploy again"
   check_ok "took $snapshot of $volume"
   for old in $(pre_upgrade_snapshots "$name"); do
-    [ "$old" != "$snapshot" ] || continue
+    if [ "$old" = "$snapshot" ]; then
+      continue
+    fi
     if aws ec2 delete-snapshot --region "$region" --snapshot-id "$old"; then
       check_ok "deleted the older snapshot $old"
     else
@@ -214,7 +216,9 @@ snapshot_before_upgrade() {
 if [ "$instance" = "$previous_instance" ]; then
   reset_deadline=""
   [ "$hours" = 0 ] || reset_deadline="echo \$((\$(date +%s) + $hours * 3600)) >$deadline_file.new && mv $deadline_file.new $deadline_file"
-  [ "$lifetime" != lasting ] || snapshot_before_upgrade
+  if [ "$lifetime" = lasting ]; then
+    snapshot_before_upgrade
+  fi
   # The settings Terraform just tagged, which infra/server/apply waits to see.
   # A commit from before it waited ignores them.
   expected_settings="$(jq -r 'to_entries | sort_by(.key)[] | "\(.key)=\(.value)"' <<<"$app_settings" \

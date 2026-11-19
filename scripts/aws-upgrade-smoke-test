@@ -32,7 +32,9 @@ commit="$(git rev-parse --verify --quiet "$REF^{commit}")" || fail "$REF isn't a
 require_running
 
 before_snapshots=""
-[ "$lifetime" != lasting ] || before_snapshots="$(pre_upgrade_snapshots "$(deployment_name)")"
+if [ "$lifetime" = lasting ]; then
+  before_snapshots="$(pre_upgrade_snapshots "$(deployment_name)")"
+fi
 
 # https_check.py describes its checks on stderr, shown here only if it fails.
 certificate() {

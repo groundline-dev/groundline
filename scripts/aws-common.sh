@@ -420,7 +420,9 @@ configured_access_mode() {
 # which a lasting deployment's callers need).
 choose_access_mode() {
   local default="${1:-1}" first="" second=" (recommended)"
-  [ "$default" != 1 ] || { first=" (recommended)" second=""; }
+  if [ "$default" = 1 ]; then
+    first=" (recommended)" second=""
+  fi
   echo "  1) IP-restricted HTTPS for testing from this computer$first"
   echo "  2) Unrestricted HTTPS for callers from any IP$second"
   bullet "Both use automatic certificates; protected API endpoints require API keys."
@@ -757,7 +759,9 @@ describe_commit() {
     | .change.before.tags["groundline-git-ref"] // empty][0] // empty' <<<"$1")"
   to="$(jq -r '[.resource_changes[] | select(.type == "aws_instance" and .change.actions == ["update"])
     | .change.after.tags["groundline-git-ref"] // empty][0] // empty' <<<"$1")"
-  [ -n "$from" ] && [ -n "$to" ] && [ "$from" != "$to" ] || return 0
+  if [ -z "$from" ] || [ -z "$to" ] || [ "$from" = "$to" ]; then
+    return 0
+  fi
   echo "    It's upgraded from ${from:0:7} to ${to:0:7}."
   if [ "$(commit_change "$from" "$to")" = rollback ]; then
     echo "    ${to:0:7} is older than ${from:0:7}, so this rolls it back. If a database"
