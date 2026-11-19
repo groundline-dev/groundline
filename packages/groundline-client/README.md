@@ -64,7 +64,8 @@ handle all of them, or catch a subclass to decide what to do:
 
 | Error | Raised for | What you can do |
 | --- | --- | --- |
-| `AuthenticationError` | a 401 or 403 | Fix the API key. A 403 never comes from the API itself, so check any proxy or firewall in front of it too. |
+| `AuthenticationError` | a 401 | Fix the API key. |
+| `AuthenticationError` | a 403 | Check any proxy or firewall in front of the API: the API itself never sends a 403. |
 | `RateLimitError` | a 429 | Wait `error.retry_after` seconds (`None` if the answer gave none). |
 | `InvalidRequestError` | a 400 or 422 | Fix the request; `error.detail` says where. |
 | `RequestTooLargeError` | a 413 | Send less text. |

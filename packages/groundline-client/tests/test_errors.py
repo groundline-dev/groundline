@@ -1,4 +1,4 @@
-"""The SDK's error classes and the rules that turn an answer into one .
+"""The SDK's error classes and the rules that turn an answer into one.
 
 These tests build errors and call the mapping directly, with no server. The
 client tests in `test_client_errors.py` show the same rules through a call.

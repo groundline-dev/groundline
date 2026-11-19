@@ -1,9 +1,11 @@
 """What each client method sends and returns, sync and async."""
 
+import ast
 import importlib
 import inspect
 import pkgutil
-from typing import Any
+import textwrap
+from typing import Any, cast
 
 import groundline_client as sdk
 import pytest
@@ -143,3 +145,50 @@ def test_every_generated_operation_has_the_two_helpers_the_client_calls():
             if not callable(getattr(generated, helper, None)):
                 missing.append(f"{module.name}.{helper}")
     assert not missing, f"the client calls these generated helpers: {missing}"
+
+
+def _steps(function: Any) -> list[str]:
+    """The statements of a function's body, as text, without its docstring."""
+    tree = ast.parse(textwrap.dedent(inspect.getsource(function)))
+    body = cast(ast.FunctionDef | ast.AsyncFunctionDef, tree.body[0]).body[1:]
+    return [ast.unparse(statement) for statement in body]
+
+
+def test_every_generated_operation_still_takes_the_steps_the_client_copies():
+    # `_call` and `_call_async` repeat the steps of the generated `sync_detailed`
+    # and `asyncio_detailed`: build the request, send it, parse the answer. If a
+    # regeneration changed them, such as renaming a keyword, the parsing would
+    # fail on every answer and each success would look unreadable, after the
+    # paid call. So this fails when a regeneration changes the steps.
+    api = importlib.import_module("groundline_client._generated.api")
+    changed: list[str] = []
+    for module in pkgutil.walk_packages(api.__path__, f"{api.__name__}."):
+        if module.ispkg:
+            continue
+        generated = importlib.import_module(module.name)
+        sync = _steps(generated.sync_detailed)
+        asynchronous = _steps(generated.asyncio_detailed)
+        built = ast.parse(
+            textwrap.dedent(inspect.getsource(generated._build_response))  # pyright: ignore[reportPrivateUsage]
+        )
+        expected_parse = "parsed=_parse_response(client=client, response=response)"
+        ok = (
+            len(sync) == 3
+            and sync[0].startswith("kwargs = _get_kwargs(")
+            and sync[1] == "response = client.get_httpx_client().request(**kwargs)"
+            and sync[2] == "return _build_response(client=client, response=response)"
+            and len(asynchronous) == 3
+            and asynchronous[0].startswith("kwargs = _get_kwargs(")
+            and asynchronous[1]
+            == "response = await client.get_async_httpx_client().request(**kwargs)"
+            and asynchronous[2] == sync[2]
+            and any(
+                ast.unparse(keyword) == expected_parse
+                for node in ast.walk(built)
+                if isinstance(node, ast.Call)
+                for keyword in node.keywords
+            )
+        )
+        if not ok:
+            changed.append(module.name)
+    assert not changed, f"update `_call` in client.py for the regenerated: {changed}"

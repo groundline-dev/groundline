@@ -1,4 +1,4 @@
-"""No SDK error shows the API key, source or summary text, or the request .
+"""No SDK error shows the API key, source or summary text, or the request.
 
 An `httpx2` error carries its request, and the request's headers hold the API
 key, so the SDK drops the original error instead of chaining it. Each test

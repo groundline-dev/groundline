@@ -1,4 +1,4 @@
-"""What a client method raises for each answer, sync and async .
+"""What a client method raises for each answer, sync and async.
 
 Every case goes through `GroundlineClient` and the fake server, so no test
 reaches the real API. `max_attempts=1` keeps a retryable status (408, 429, 5xx)
