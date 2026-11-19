@@ -22,6 +22,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/aws-common.sh
+start_run
 
 delete_data=""
 case "$*" in
@@ -53,6 +54,11 @@ size="$(optional_output data_volume_gib infra/data)"
 public_ip="$(optional_output public_ip infra/data)"
 
 keep_data=""
+if [ -n "$delete_data" ]; then
+  record_decision data delete chosen
+elif [ "$lifetime" = lasting ]; then
+  record_decision data keep default
+fi
 if [ "$lifetime" = lasting ] && [ -z "$delete_data" ]; then
   keep_data=yes
   explain "Deleting the server of your lasting deployment $name in $(project_label). Its data volume, address, pre-upgrade snapshot and Anthropic API key stay, so make aws-up can bring it back with its data, API keys and address."

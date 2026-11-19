@@ -76,6 +76,7 @@ BOOLEAN_FLAGS = {
     "--with-decryption",
     "--no-with-decryption",
     "--no-cli-pager",
+    "--overwrite",
     "--no-paginate",
     "--debug",
 }
@@ -334,6 +335,9 @@ class AWSError(Exception):
 
 
 def _aws(world: dict[str, Any], args: list[str]) -> int:
+    if args == ["--version"]:
+        print("aws-cli/2.31.0 Python/3.13.7 Darwin/25.5.0 source/arm64")
+        return 0
     positional, options = _parse(args)
     if len(positional) < 2:
         return _unsupported(args)
@@ -434,6 +438,16 @@ def _reply(
                 raise AWSError("ParameterNotFound", "DeleteParameter", "")
             world["parameter_exists"] = False
             return {}
+        case ("ssm", "put-parameter"):
+            # The value has to come on stdin, never as an argument; the fake
+            # keeps only how long it was, not the key itself.
+            if options.get("--value") != "file:///dev/stdin":
+                raise AWSError("FakeAWSRefused", "PutParameter", "key in arguments")
+            if world["parameter_exists"] and "--overwrite" not in options:
+                raise AWSError("ParameterAlreadyExists", "PutParameter", "")
+            world["parameter_exists"] = True
+            world["stored_key_length"] = len(sys.stdin.read())
+            return {"Version": 1}
         case ("ec2", "describe-instances") if "--instance-ids" not in options:
             servers = [
                 {

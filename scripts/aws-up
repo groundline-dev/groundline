@@ -21,6 +21,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 source scripts/aws-common.sh
+start_run
 
 # dotenv_value NAME: NAME's value in .env, without quotes, or nothing. It reads
 # the file as text, so nothing in it runs.
@@ -63,7 +64,11 @@ if signed_in; then
   echo
   explain "Your deployment will run in the AWS project you're signed in to:"
   bullet "$(project_label), in $region"
-  confirm "Deploy to $(project_label)?" || choose_project
+  if confirm "Deploy to $(project_label)?"; then
+    project_source="$answer_source"
+  else
+    choose_project
+  fi
 elif previous="$(previous_account)" && [ -n "$previous" ]; then
   echo
   explain "Your sign-in to project $previous has expired. To sign in again, your browser opens and you choose that project's session."
@@ -78,10 +83,12 @@ fi
 use_project
 project="$(project_label)"
 answer_ok "deploying to $project in $region"
+record_decision project "$project, $region" "${project_source:-chosen}"
 
 # --- Your deployment's name and email address ---
 
 if [ ! -f infra/terraform.tfvars ]; then
+  fresh_settings=yes
   echo
   explain "Your deployment needs a name and an email address."
   bullet "The name has to be unique in the projects you deploy to, such as your first name, or staging for a lasting deployment."
@@ -94,14 +101,17 @@ if [ ! -f infra/terraform.tfvars ]; then
     hint "Use 1 to 20 lowercase letters, digits and hyphens, starting with a letter."
   done
   name="$answer"
+  record_decision deployment_name "$name" "$answer_source"
   while :; do
     ask "Email address for budget alerts" "$(git config user.email || true)"
     [[ "$answer" =~ ^[^@[:space:]\"\\]+@[^@[:space:]\"\\]+\.[^@[:space:]\"\\]+$ ]] && break
     hint "That doesn't look like an email address."
   done
   email="$answer"
+  record_decision budget_alert_email "$email" "$answer_source"
   echo
   choose_lifetime
+  record_decision lifetime "$lifetime" "$answer_source"
   budget="" access_default=1
   if [ "$lifetime" = lasting ]; then
     access_default=2
@@ -115,9 +125,11 @@ if [ ! -f infra/terraform.tfvars ]; then
       hint "Enter a whole number of dollars, such as 35."
     done
     budget="$answer"
+    record_decision budget_amount "$budget" "$answer_source"
   fi
   echo
   choose_access_mode "$access_default"
+  record_decision access_mode "$access_mode" "$answer_source"
   # Written only once every question is answered, so stopping partway saves nothing.
   awk -v name="$name" -v email="$email" '
     /^deployment_name[[:space:]]*=/ { print "deployment_name = \"" name "\""; next }
@@ -137,6 +149,13 @@ access_mode="$(configured_access_mode ask)"
 [ -n "$name" ] || fail "infra/terraform.tfvars has no deployment_name: add one, such as deployment_name = \"alice\""
 lifetime="$(configured_lifetime)"
 guard_lasting_folder "$name" "$lifetime"
+# Settings an earlier run saved count as previous answers in the run record.
+if [ -z "${fresh_settings:-}" ]; then
+  record_decision deployment_name "$name" previous
+  record_decision budget_alert_email "$(tfvars_value budget_alert_email)" previous
+  record_decision lifetime "$lifetime" previous
+  record_decision access_mode "$access_mode" previous
+fi
 # The groundline servers running in this project, as "name lifetime" lines.
 running="$(running_lifetimes 2>/dev/null || true)"
 shared_project_warning "$name" "$lifetime" "$running"
@@ -181,7 +200,8 @@ if [ -n "$instance" ] \
         allowed_cidr="$(output allowed_cidr)"
         [ "$current_ip/32" = "$allowed_cidr" ] || fail "this server allows $allowed_cidr, but your current public IP is $current_ip. To update access without replacing the server, run REF=$running_ref make aws-deploy, then make aws-smoke."
       fi
-      keep=yes
+      keep=yes ref_source=previous
+      record_decision keep_server yes "$answer_source"
       REF="$running_ref" REF_NAME=""
       answer_ok "keeping $instance, running ${running_ref:0:7} in $running_mode HTTPS mode"
     fi
@@ -204,7 +224,7 @@ if [ -z "$keep" ]; then
     else
       bullet "make aws-destroy deletes it."
     fi
-    confirm "Keep the Anthropic API key you gave on an earlier run?" && replace=""
+    confirm "Keep the Anthropic API key you gave on an earlier run?" && replace="" && record_decision anthropic_key kept "$answer_source"
   else
     case "$errors" in
       *ParameterNotFound*) ;;
@@ -224,12 +244,12 @@ if [ -z "$keep" ]; then
       bullet "In a shared project, use a key from an Anthropic Console workspace with a low spend limit, so anyone who copies it can't spend more than that."
       [ -z "$others" ] || bullet "Other deployments running in this project now: $others."
     fi
-    key=""
+    key="" key_source=chosen
     for variable in AWS_ANTHROPIC_API_KEY ANTHROPIC_API_KEY; do
       candidate="$(dotenv_value "$variable")"
       [ -n "$candidate" ] || continue
       if confirm "Use $variable from .env (ending ${candidate: -4}) as the server's Anthropic API key?"; then
-        key="$candidate"
+        key="$candidate" key_source="$answer_source"
         break
       fi
     done
@@ -250,6 +270,8 @@ if [ -z "$keep" ]; then
       else
         answer_ok "stored your Anthropic API key; make aws-destroy deletes it"
       fi
+      # Only what happened to the key: the key itself never goes in the record.
+      record_decision anthropic_key "$([ -n "$stored" ] && echo replaced || echo stored)" "$key_source"
       # The server reads the key when it starts and when it's upgraded, which
       # step 2 does.
       if [ -n "$stored" ] && cut -d' ' -f1 <<<"$running" | grep -qx "$name"; then
@@ -257,8 +279,10 @@ if [ -z "$keep" ]; then
       fi
     elif [ -n "$stored" ]; then
       answer_ok "kept the Anthropic API key you gave on an earlier run"
+      record_decision anthropic_key kept chosen
     else
       answer_warn "no Anthropic API key: the server starts and make aws-smoke passes, but every model call fails with 503."
+      record_decision anthropic_key none chosen
     fi
     unset key
   fi
@@ -267,13 +291,14 @@ if [ -z "$keep" ]; then
 
   # On main there's nothing to choose.
   branch="$(git branch --show-current)"
-  answer=1
+  answer=1 ref_source=default
   if [ -n "$branch" ] && [ "$branch" != main ]; then
     echo
     explain "The server clones the code it runs from GitHub."
     option 1 "main, from groundline-dev/groundline"
     option 2 "your branch $branch ($(git rev-parse --short HEAD))"
     choose "Which code should the server run? (1 main, 2 your branch)" 2 1
+    ref_source="$answer_source"
     # Callers rely on a lasting deployment, so a branch goes to it only on purpose.
     if [ "$answer" = 2 ] && [ "$lifetime" = lasting ]; then
       echo
@@ -326,6 +351,7 @@ if [ -z "$keep" ]; then
   fi
 fi
 export REF REF_NAME
+record '.decisions.git_ref = {value: $v, name: $n, source: $s}' --arg v "$REF" --arg n "${REF_NAME:-}" --arg s "$ref_source"
 answer_ok "step 1 done: deployment $name in $project, running ${REF:0:7}${REF_NAME:+ ($REF_NAME)}"
 if [ -z "$keep" ] && [ "$lifetime" = lasting ] && [ -n "${running_ref:-}" ]; then
   # scripts/aws-deploy decides from what the server runs; this says what to expect.
@@ -345,6 +371,8 @@ fi
 
 step "Step 3 of 3: check the server"
 explain "A new server takes about 5 to 10 minutes to start. Then a few requests check that it works, without calling the model."
+record_result smoke_test failed
 scripts/aws-smoke-test
+record_result smoke_test passed
 
 what_next

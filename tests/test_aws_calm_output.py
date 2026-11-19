@@ -82,9 +82,9 @@ def test_a_failed_apply_shows_the_end_of_the_log_and_where_it_is(checkout: Path)
     assert result.returncode != 0
     [log] = run_logs(checkout)
     assert "Error: creating EC2 Instance: UnauthorizedOperation" in result.stderr
-    assert f"The full log is {log.relative_to(checkout)}" in aws_fakes.flat(
-        result.stderr
-    )
+    # The last line points to the log and the run record, which share a name.
+    record = log.with_suffix(".json").relative_to(checkout)
+    assert result.stderr.endswith(f"Log and run record: {record}\n\n")
 
 
 def interrupt(checkout: Path, world: dict[str, Any], times: int):

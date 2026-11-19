@@ -21,6 +21,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 source scripts/aws-common.sh
+start_run
 
 for tool in terraform aws git curl jq; do
   command -v "$tool" >/dev/null || fail "$tool isn't installed (see docs/deploying-to-aws.md)"
@@ -59,6 +60,11 @@ GIT_TERMINAL_PROMPT=0 git ls-remote --quiet "$repository_url" HEAD >/dev/null 2>
   || fail "the server can't clone $repository_url: it clones without signing in, so the repository has to be public on GitHub"
 # What to call the commit: REF_NAME from make aws-up, REF as given, or the branch checked out.
 ref_name="${REF_NAME:-${REF:-$(git branch --show-current)}}"
+# make aws-up records the commit it chose; run directly, REF chooses it.
+if top_level; then
+  record '.decisions.git_ref = {value: $v, name: $n, source: $s}' --arg v "$commit" \
+    --arg n "$ref_name" --arg s "$([ -n "${REF:-}" ] && echo chosen || echo default)"
+fi
 
 tester_args=()
 allowed_cidr=0.0.0.0/0
@@ -130,6 +136,9 @@ fi
 
 instance="$(terraform -chdir=infra output -raw instance_id)"
 hours="$(terraform -chdir=infra output -raw auto_terminate_hours)"
+record_result instance "$instance"
+record_result commit "$commit"
+record_result app_url "$(optional_output app_url)"
 app_settings="$(deployed_app_settings)"
 # A disposable server's data volume goes with it when it terminates itself, so
 # a forgotten one leaves nothing that costs money; a lasting one's never does.
@@ -199,6 +208,7 @@ snapshot_before_upgrade() {
   aws ec2 wait snapshot-completed --region "$region" --snapshot-ids "$snapshot" \
     || fail "the snapshot $snapshot of $volume didn't complete, so the server wasn't upgraded. The older snapshots are kept; run make aws-deploy again"
   check_ok "took $snapshot of $volume"
+  record_result snapshot "$snapshot"
   for old in $(pre_upgrade_snapshots "$name"); do
     if [ "$old" = "$snapshot" ]; then
       continue

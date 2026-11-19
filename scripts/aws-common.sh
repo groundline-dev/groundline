@@ -122,6 +122,8 @@ ok() { say "$out_width" 4 "${green}ok:${reset} " "$*"; }
 warn() { say "$err_width" 9 "${yellow}warning:${reset_err} " "$*" >&2; }
 error() { say "$err_width" 7 "${red}error:${reset_err} " "$*" >&2; }
 fail() {
+  # A message starting "canceled" is a cancel, wherever it ends the run.
+  case "$*" in canceled*) record '.outcome = "canceled"' ;; esac
   error "$*"
   echo >&2
   exit 1
@@ -171,9 +173,10 @@ explain() { say "$out_width" 0 "" "$*"; }
 #   its answer leads to.
 # - A question whose answer can delete data has no default (choose with no
 #   DEFAULT), so a number has to be typed.
-# - Each command that leaves the server running ends with what_next.
+# - Each command that leaves the server running ends with what_next, followed
+#   by the run record's path when the command writes one (finish_run).
 # - Every command, errors included, ends with a blank line before the shell
-#   prompt (fail and what_next print it).
+#   prompt (fail, what_next and finish_run print it).
 # - Each value is looked up once and reused, so a later lookup that fails
 #   can't change it partway through a run.
 bullet() { say "$out_width" 4 "  $dot " "$*"; }
@@ -230,26 +233,165 @@ duration() {
 # and IP. One run, such as make aws-up with the aws-deploy it runs, has one log.
 runs_dir=infra/runs
 
-# ensure_run_log: set $run_log, creating this run's log the first time.
-ensure_run_log() {
-  if [ -n "${GROUNDLINE_RUN_LOG:-}" ]; then
-    run_log="$GROUNDLINE_RUN_LOG"
-    return
-  fi
-  local command name stamp base next=2
+# --- The run record ---
+#
+# Each run of make aws-up, aws-deploy or aws-destroy leaves a record beside its
+# log: infra/runs/<UTC time>_<account>_<deployment>_<command>.json. It says
+# what was decided and where each answer came from (default, chosen or
+# previous), the plan in plain words and whether it was approved, how the run
+# ended, and the tool versions. It never holds a secret: for the Anthropic API
+# key it says only whether it was kept, replaced or left out. Its path is the
+# last thing every run prints, however it ends. The last 10 records of each
+# deployment in each account are kept.
+#
+# While the run goes on, the record is a JSON file named by
+# GROUNDLINE_RUN_STATE, which a script the run starts, such as aws-deploy run
+# by make aws-up, adds to; the script you ran writes it out when it exits.
+
+# on_exit COMMAND: run COMMAND when the script exits, after any added before.
+# One EXIT trap runs them all, so adding one never replaces another.
+exit_actions=()
+on_exit() {
+  exit_actions+=("$1")
+  trap run_exit_actions EXIT
+}
+run_exit_actions() {
+  exit_status=$?
+  local action
+  for action in ${exit_actions[@]+"${exit_actions[@]}"}; do
+    eval "$action" || true
+  done
+}
+
+# start_run: start this run's record, in the script you ran. In a script it
+# runs, this does nothing, so both add to one record.
+start_run() {
+  [ -z "${GROUNDLINE_RUN_STATE:-}" ] || return 0
+  local started command
+  started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  command="${GROUNDLINE_AWS_COMMAND:-make $(basename "$0")}"
+  GROUNDLINE_RUN_STATE="$(mktemp)"
+  export GROUNDLINE_RUN_STATE
+  jq -n --arg command "${command#make aws-}" --arg started "$started" --arg stamp "${started//:/-}" \
+    '{format_version: "1.0", command: $command, started_at: $started, stamp: $stamp,
+      decisions: {}, plan: {approved: false, summary: []}, result: {}}' >"$GROUNDLINE_RUN_STATE"
+  on_exit finish_run
+}
+
+# record FILTER [JQ_ARGS...]: change this run's record with a jq filter.
+record() {
+  [ -n "${GROUNDLINE_RUN_STATE:-}" ] && [ -f "$GROUNDLINE_RUN_STATE" ] || return 0
+  local filter="$1" updated
+  shift
+  updated="$(jq "$@" "$filter" "$GROUNDLINE_RUN_STATE")" \
+    && printf '%s\n' "$updated" >"$GROUNDLINE_RUN_STATE"
+}
+
+# record_decision NAME VALUE SOURCE: record an answer and whether it was the
+# default, chosen or kept from a previous run.
+record_decision() { record '.decisions[$k] = {value: $v, source: $s}' --arg k "$1" --arg v "$2" --arg s "$3"; }
+
+# record_result NAME VALUE: record something the run did, such as the commit
+# the server runs.
+record_result() { record '.result[$k] = $v' --arg k "$1" --arg v "$2"; }
+
+# run_value NAME: a top-level value of this run's record, or nothing.
+run_value() {
+  [ -n "${GROUNDLINE_RUN_STATE:-}" ] && [ -f "$GROUNDLINE_RUN_STATE" ] || return 0
+  jq -r --arg k "$1" '.[$k] // empty' "$GROUNDLINE_RUN_STATE"
+}
+
+# run_base: infra/runs/<time>_<account>_<deployment>_<command>, with _2 and
+# so on added when a run already used it in the same second. The suffix starts
+# with _, which sorts after the . of .json, so a later run's record still sorts
+# after the earlier one's, as prune_runs needs.
+run_base() {
+  local stamp command name base next=2
+  stamp="$(run_value stamp)"
+  stamp="${stamp:-$(date -u +%Y-%m-%dT%H-%M-%SZ)}"
   command="${GROUNDLINE_AWS_COMMAND:-make $(basename "$0")}"
   command="${command#make aws-}"
   name="$(tfvars_value deployment_name)"
-  stamp="$(date -u +%Y-%m-%dT%H-%M-%SZ)"
-  mkdir -p "$runs_dir"
   base="$runs_dir/${stamp}_${account:-unknown}_${name:-new}_${command}"
-  run_log="$base.log"
-  while [ -e "$run_log" ]; do
-    run_log="$base-$next.log"
+  local candidate="$base"
+  while [ -e "$candidate.json" ] || [ -e "$candidate.log" ]; do
+    candidate="${base}_$next"
     next=$((next + 1))
   done
+  echo "$candidate"
+}
+
+# ensure_run_log: set $run_log, creating this run's log the first time.
+ensure_run_log() {
+  run_log="$(run_value log_path)"
+  [ -z "$run_log" ] || return 0
+  mkdir -p "$runs_dir"
+  run_log="$(run_base).log"
   (umask 077 && : >"$run_log")
-  export GROUNDLINE_RUN_LOG="$run_log"
+  record '.log_path = $p' --arg p "$run_log"
+}
+
+# tool_version COMMAND...: the first line COMMAND prints, or nothing.
+tool_version() { "$@" 2>/dev/null | head -n 1 || true; }
+
+# finish_run: write this run's record and print its path, last. On exit only.
+finish_run() {
+  local status="${exit_status:-0}" outcome log path label terraform_version name
+  [ -f "${GROUNDLINE_RUN_STATE:-}" ] || return 0
+  outcome="$(run_value outcome)"
+  if [ -z "$outcome" ]; then
+    case "$status" in
+      0) outcome=succeeded ;;
+      130) outcome=canceled ;;
+      *) outcome=failed ;;
+    esac
+  fi
+  mkdir -p "$runs_dir"
+  log="$(run_value log_path)"
+  if [ -n "$log" ]; then path="${log%.log}.json"; else path="$(run_base).json"; fi
+  terraform_version="$(tool_version terraform version -json | jq -r '.terraform_version // empty' 2>/dev/null || true)"
+  name="$(tfvars_value deployment_name)"
+  (umask 077 && jq --arg finished "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg outcome "$outcome" \
+    --arg commit "$(tool_version git rev-parse --short HEAD)" --arg terraform "$terraform_version" \
+    --arg aws_cli "$(tool_version aws --version | cut -d' ' -f1)" \
+    --arg account "${account:-}" --arg region "${region:-}" --arg name "$name" \
+    'del(.stamp) + {finished_at: $finished, outcome: $outcome,
+      tool: {commit: $commit, terraform: $terraform, aws_cli: $aws_cli},
+      project: {account: $account, region: $region}, deployment: $name}
+      | .tool |= with_entries(select(.value != ""))' \
+    "$GROUNDLINE_RUN_STATE" >"$path")
+  rm -f "$GROUNDLINE_RUN_STATE"
+  prune_runs "${account:-unknown}" "${name:-new}"
+  label="Run record:"
+  [ "$outcome" != failed ] || [ -z "$log" ] || label="Log and run record:"
+  if [ "$outcome" = succeeded ]; then
+    printf '%s %s\n\n' "$label" "$(file_link 1 "$path")"
+  else
+    printf '%s %s\n\n' "$label" "$(file_link 2 "$path")" >&2
+  fi
+}
+
+# file_link FD PATH: PATH, as a link a terminal can open when FD is one that
+# shows links (OSC 8); the path itself is always the text, so it can be copied.
+file_link() {
+  if [ -t "$1" ] && ! plain_terminal; then
+    printf '\033]8;;file://%s/%s\033\\%s\033]8;;\033\\' "$PWD" "$2" "$2"
+  else
+    printf '%s' "$2"
+  fi
+}
+
+# prune_runs ACCOUNT NAME: keep the last 10 records of deployment NAME in
+# ACCOUNT, with their logs. The time comes first in each name, so they sort in
+# order.
+prune_runs() {
+  local records=() record_file index
+  for record_file in "$runs_dir"/*_"$1"_"$2"_*.json; do
+    [ -e "$record_file" ] && records+=("$record_file")
+  done
+  for ((index = 0; index + 10 < ${#records[@]}; index++)); do
+    rm -f -- "${records[index]}" "${records[index]%.json}.log"
+  done
 }
 
 # run_logged DOING DONE NOTE COMMAND...: say "DOING...", run COMMAND with its
@@ -286,16 +428,17 @@ run_logged() {
     break
   done
   if [ -n "$saved_trap" ]; then eval "$saved_trap"; else trap - INT; fi
+  # The run record's line, printed last, says where the whole log is.
   if [ "$interrupts" -gt 0 ]; then
     echo >&2
-    error "canceled partway. Run ${GROUNDLINE_AWS_COMMAND:-it} again to carry on from what exists. The full log is $run_log."
+    error "canceled partway. Run ${GROUNDLINE_AWS_COMMAND:-it} again to carry on from what exists."
     echo >&2
     exit 130
   fi
   if [ "$status" != 0 ]; then
-    explain "Its last lines, from $run_log:" >&2
+    explain "Its last lines, from the log:" >&2
     tail -n 30 "$run_log" | sed 's/^/    /' >&2
-    fail "that didn't finish: see the error above. The full log is $run_log."
+    fail "that didn't finish: see the error above."
   fi
   check_ok "$done_text (${note:+$note, }$(duration $((SECONDS - started))))"
 }
@@ -321,6 +464,9 @@ ask() {
   echo
   prompt_line "$1$suffix:"
   read -rp "$prompt" answer || fail "canceled: no answer to \"$1\""
+  # For the run record: whether Enter kept the default.
+  answer_source=chosen
+  [ -n "$answer" ] || [ -z "${2:-}" ] || answer_source=default
   answer="${answer:-${2:-}}"
 }
 
@@ -343,6 +489,8 @@ confirm() {
   echo
   prompt_line "$1 [Y/n]:"
   read -rp "$prompt" reply || return 1
+  answer_source=chosen
+  [ -n "$reply" ] || answer_source=default
   case "$reply" in "" | [Yy] | [Yy][Ee][Ss]) return 0 ;; *) return 1 ;; esac
 }
 
@@ -1133,7 +1281,7 @@ make_plan() {
   # first one's behind.
   plan_dir="$(mktemp -d)"
   plan_dirs+=("$plan_dir")
-  trap 'rm -rf "${plan_dirs[@]}"' EXIT
+  on_exit "rm -rf -- '$plan_dir'"
   plan="$plan_dir/tfplan"
   terraform -chdir="$root" plan -input=false -detailed-exitcode -out="$plan" "$@" \
     >"$plan_dir/plan.log" 2>&1 || status=$?
@@ -1161,6 +1309,9 @@ make_plan() {
     return
   fi
   plan_label "$root" "$plan_json" >"$plan.label"
+  # The same summary for the run record, a sentence a line, unwrapped.
+  (out_width=100000 && describe_plan "$plan_json") \
+    | sed -e 's/^  [·-] //' -e 's/^    //' | jq -R . | jq -s . >"$plan.record"
   planned="$plan"
 }
 
@@ -1225,6 +1376,16 @@ apply_plans() {
     option 2 "Cancel, changing nothing"
     choose "Make the changes above? (1 make them, 2 cancel)" 2
     [ "$answer" = 1 ] || answer=3
+  fi
+  # The run record keeps the plan, approved or not.
+  for ((index = 0; index + 1 < ${#pairs[@]}; index += 2)); do
+    [ -z "${pairs[index + 1]}" ] \
+      || record '.plan.summary += $lines[0]' --slurpfile lines "${pairs[index + 1]}.record"
+  done
+  if [ "$answer" = 1 ]; then
+    record '.plan.approved = true'
+  else
+    record '.plan.approved = false'
   fi
   [ "$answer" = 1 ] || fail "${cancel_message:-canceled: nothing changed}"
   plan_changed=yes
