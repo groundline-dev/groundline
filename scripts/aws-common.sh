@@ -297,6 +297,17 @@ pre_upgrade_snapshots() {
     | tr '\t ' '\n\n' | { grep -v -e '^None$' -e '^$' || true; } | sort
 }
 
+# kept_snapshot NAME: "ID COMMIT" for deployment NAME's newest pre-upgrade
+# snapshot, COMMIT being the short commit it was taken before upgrading to;
+# nothing if there's none. Fails if AWS can't say.
+kept_snapshot() {
+  aws ec2 describe-snapshots --region "$region" --owner-ids self \
+    --filters "Name=tag:deployment,Values=$1" Name=tag-key,Values=groundline-pre-upgrade \
+    --output json \
+    | jq -r '.Snapshots | sort_by(.StartTime) | last // empty
+      | "\(.SnapshotId) \((.Tags // []) | map(select(.Key == "groundline-pre-upgrade"))[0].Value // "unknown")"'
+}
+
 # commit_change FROM TO: same, rollback (TO is older than FROM) or forward,
 # which is also the answer when git doesn't know FROM. A lasting deployment
 # takes a snapshot only before moving forward.

@@ -133,6 +133,35 @@ delete_on_termination=true
 aws ec2 modify-instance-attribute --region "$region" --instance-id "$instance" \
   --block-device-mappings "[{\"DeviceName\":\"/dev/sdf\",\"Ebs\":{\"DeleteOnTermination\":$delete_on_termination}}]" \
   || fail "couldn't set whether the data volume of $instance goes with it; run make aws-deploy again"
+# report_kept_snapshot CHANGE FROM: say which pre-upgrade snapshot a run that
+# takes none keeps (CHANGE is same or rollback, FROM the short commit the
+# server runs), from the snapshot AWS has rather than what it should have.
+report_kept_snapshot() {
+  local change="$1" from="$2" kept snapshot before reason
+  if [ "$change" = same ]; then
+    reason="the server already runs $from"
+  else
+    reason="this rolls back from $from"
+  fi
+  if ! kept="$(kept_snapshot "$name")"; then
+    check_warn "no new snapshot: $reason. Couldn't check which pre-upgrade snapshot it has; look for snapshots tagged groundline-pre-upgrade in the EC2 console"
+    return
+  fi
+  if [ -z "$kept" ]; then
+    check_ok "no snapshot: $reason, and it has no pre-upgrade snapshot yet. The next upgrade to a newer commit takes one."
+    return
+  fi
+  read -r snapshot before <<<"$kept"
+  if [ "$change" = same ]; then
+    check_ok "no new snapshot: $reason. Kept $snapshot, taken before upgrading to $before."
+  elif [ "$before" = "$from" ]; then
+    check_ok "no new snapshot: $reason. Kept $snapshot, taken before upgrading to $from, for restoring."
+  else
+    check_ok "no new snapshot: $reason. Kept $snapshot, taken before upgrading to $before."
+    check_warn "restoring $snapshot brings back the data from before $before, not from before $from."
+  fi
+}
+
 # snapshot_before_upgrade: copy a lasting deployment's data before it moves to
 # a newer commit, so a bad database migration can be undone: restore the
 # snapshot, then deploy the older commit. Only the newest is kept; it's a way
@@ -140,22 +169,17 @@ aws ec2 modify-instance-attribute --region "$region" --instance-id "$instance" \
 # same commit, for settings or a retry, or a rollback) keeps it rather than
 # replacing it with a copy of data the newer commit may already have migrated.
 snapshot_before_upgrade() {
-  local server_commit volume snapshot old
+  local server_commit change volume snapshot old
   # What the server runs: Terraform has already moved the tag, and an upgrade
   # that failed partway leaves a tag the server never reached.
   server_commit="$(on_server "git -C /opt/groundline rev-parse HEAD" | tr -d '[:space:]')" \
     && [[ "$server_commit" =~ ^[0-9a-f]{40}$ ]] \
     || fail "couldn't ask the server which commit it runs, so it wasn't upgraded; run make aws-deploy again"
-  case "$(commit_change "$server_commit" "$commit")" in
-    same)
-      check_ok "no snapshot: the server already runs ${commit:0:7}, so its pre-upgrade snapshot is kept"
-      return
-      ;;
-    rollback)
-      check_ok "no snapshot: this rolls back from ${server_commit:0:7}, so the snapshot from before it is kept, for restoring"
-      return
-      ;;
-  esac
+  change="$(commit_change "$server_commit" "$commit")"
+  if [ "$change" != forward ]; then
+    report_kept_snapshot "$change" "${server_commit:0:7}"
+    return
+  fi
   doing "Taking a snapshot of the data volume"
   echo "It waits until the snapshot is complete, which takes a minute or more."
   volume="$(output volume_id infra/data)"

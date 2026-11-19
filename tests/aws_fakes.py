@@ -36,8 +36,10 @@ They answer only the calls the scripts make, the way the real tools answer:
   {"name": ..., "lifetime": ...}, as servers with those tags.
 - `aws ec2 create-snapshot` adds to `snapshots` (the ids of the deployment's
   pre-upgrade snapshots), `describe-snapshots` lists them and
-  `delete-snapshot` removes one. `aws ec2 wait snapshot-completed` succeeds,
-  or fails when `snapshot_fails` is set. With `snapshot_lookup_error` set,
+  `delete-snapshot` removes one. `snapshot_commits` maps an id to the short
+  commit in its `groundline-pre-upgrade` tag (1234567 if not given).
+  `aws ec2 wait snapshot-completed` succeeds, or fails when `snapshot_fails`
+  is set. With `snapshot_lookup_error` set,
   `describe-snapshots` fails with that error code.
 - An SSM command asking the server which commit it runs (`rev-parse HEAD`)
   gets `server_commit`, by default a commit the checkout doesn't know.
@@ -109,6 +111,7 @@ def new_world(**fields: Any) -> dict[str, Any]:
         "existing": {},
         "running": [],
         "snapshots": [],
+        "snapshot_commits": {},
         "error": None,
         "delete_parameter_error": None,
     }
@@ -399,11 +402,32 @@ def _reply(
         case ("ec2", "create-snapshot"):
             snapshot_id = f"snap-{len(world['snapshots']) + 1:017d}"
             world["snapshots"].append(snapshot_id)
+            tags = options.get("--tag-specifications") or ""
+            found = re.search(r"Key=groundline-pre-upgrade,Value=(\w+)", tags)
+            if found:
+                world["snapshot_commits"][snapshot_id] = found.group(1)
             return {"SnapshotId": snapshot_id, "VolumeId": options.get("--volume-id")}
         case ("ec2", "describe-snapshots"):
             if world.get("snapshot_lookup_error"):
                 raise AWSError(world["snapshot_lookup_error"], "DescribeSnapshots")
-            return {"Snapshots": [{"SnapshotId": i} for i in world["snapshots"]]}
+            # Oldest first, each tagged with the commit it came before.
+            return {
+                "Snapshots": [
+                    {
+                        "SnapshotId": snapshot_id,
+                        "StartTime": f"2026-11-17T10:{minute:02d}:00+00:00",
+                        "Tags": [
+                            {
+                                "Key": "groundline-pre-upgrade",
+                                "Value": world["snapshot_commits"].get(
+                                    snapshot_id, "1234567"
+                                ),
+                            }
+                        ],
+                    }
+                    for minute, snapshot_id in enumerate(world["snapshots"])
+                ]
+            }
         case ("ec2", "wait"):
             if world.get("snapshot_fails"):
                 raise AWSError("Waiter SnapshotCompleted failed", "DescribeSnapshots")

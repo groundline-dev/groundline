@@ -251,38 +251,83 @@ def test_a_snapshot_that_doesnt_complete_keeps_the_older_one_and_stops(
     assert not any("server/apply" in c["script"] for c in world["commands"])
 
 
-def test_the_same_commit_keeps_the_snapshot(checkout: Path):
-    # A settings change or a retry: the server already runs this commit, and
-    # its data may already be migrated.
+@pytest.mark.parametrize(
+    ("server_commit", "snapshot_commits", "said", "warned"),
+    [
+        # A settings change or a retry: the server already runs this commit.
+        (
+            "a" * 40,
+            {"snap-old": "aaaaaaa"},
+            "no new snapshot: the server already runs aaaaaaa. Kept snap-old, "
+            "taken before upgrading to aaaaaaa.",
+            None,
+        ),
+        # The first settings change after the first deploy has none yet.
+        (
+            "a" * 40,
+            None,
+            "no snapshot: the server already runs aaaaaaa, and it has no "
+            "pre-upgrade snapshot yet.",
+            None,
+        ),
+        # The fake git says the deployed commit is older than bbbbbbb.
+        (
+            "b" * 40,
+            {"snap-old": "bbbbbbb"},
+            "Kept snap-old, taken before upgrading to bbbbbbb, for restoring.",
+            None,
+        ),
+        # A second rollback: the snapshot came before a later upgrade.
+        (
+            "b" * 40,
+            {"snap-old": "ccccccc"},
+            "this rolls back from bbbbbbb. Kept snap-old, taken before upgrading "
+            "to ccccccc.",
+            "brings back the data from before ccccccc, not from before bbbbbbb",
+        ),
+    ],
+)
+def test_a_run_that_doesnt_move_forward_says_which_snapshot_it_keeps(
+    checkout: Path,
+    server_commit: str,
+    snapshot_commits: dict[str, str] | None,
+    said: str,
+    warned: str | None,
+):
     lasting(checkout)
+    snapshots = list(snapshot_commits or {})
     world = aws_fakes.new_world(
-        outputs=RUNNING, snapshots=["snap-old"], server_commit="a" * 40
+        outputs=RUNNING,
+        snapshots=snapshots,
+        snapshot_commits=snapshot_commits or {},
+        server_commit=server_commit,
     )
 
     result, world = invoke(checkout, "aws-deploy", world)
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert not calls(world, "ec2", "create-snapshot")
-    assert world["snapshots"] == ["snap-old"]
-    assert "the server already runs aaaaaaa, so its pre-upgrade snapshot is kept" in (
-        result.stdout
-    )
+    assert world["snapshots"] == snapshots
+    assert said in result.stdout
+    output = result.stdout + result.stderr
+    if warned:
+        assert warned in output
+    else:
+        assert "brings back the data" not in output
     assert any("server/apply" in c["script"] for c in world["commands"])
 
 
-def test_a_rollback_keeps_the_snapshot_from_before_the_newer_commit(checkout: Path):
-    # The fake git says the deployed commit is older than the server's.
+def test_a_snapshot_it_cant_check_is_a_warning_not_a_failed_upgrade(checkout: Path):
     lasting(checkout)
     world = aws_fakes.new_world(
-        outputs=RUNNING, snapshots=["snap-old"], server_commit="b" * 40
+        outputs=RUNNING, server_commit="a" * 40, snapshot_lookup_error="AccessDenied"
     )
 
     result, world = invoke(checkout, "aws-deploy", world)
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert not calls(world, "ec2", "create-snapshot")
-    assert world["snapshots"] == ["snap-old"]
-    assert "this rolls back from bbbbbbb" in result.stdout
+    assert "Couldn't check which pre-upgrade snapshot it has" in result.stderr
+    assert any("server/apply" in c["script"] for c in world["commands"])
 
 
 def test_an_upgrade_stops_if_the_server_cant_say_what_it_runs(checkout: Path):
