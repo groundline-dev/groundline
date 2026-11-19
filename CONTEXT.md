@@ -148,6 +148,10 @@ _Avoid_: approved pipeline, certified pipeline
 A running copy of groundline, with its own database and API keys, that serves callers. An organization may run more than one, such as staging and production.
 _Avoid_: install, instance, environment, stack (instance and stack name the cloud resources a deployment runs on)
 
+**Deployment name**:
+The name that identifies a deployment within an AWS project and names its AWS resources. It can't change once the deployment exists.
+_Avoid_: stack name, environment, instance name
+
 **Lifetime**:
 Whether a deployment is disposable or lasting. It's chosen once, separately from the access mode.
 _Avoid_: kind, type, mode (mode is the access mode)
@@ -171,3 +175,11 @@ _Avoid_: deployment mode, network mode
 **Upgrade**:
 Moving an existing deployment to another commit or to changed settings, keeping its data, API keys and address.
 _Avoid_: redeploy, update
+
+**Run**:
+One use of a deployment command, such as setting up, upgrading, changing settings or destroying, from its first question to its outcome.
+_Avoid_: session, invocation, deploy (a run can also change settings or destroy)
+
+**Run record**:
+The file a run leaves behind, saying what was decided, where each answer came from, what was planned and how it ended.
+_Avoid_: log (the log is the tools' full output), deploy record, answer file
