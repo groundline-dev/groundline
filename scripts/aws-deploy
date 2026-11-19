@@ -123,10 +123,14 @@ canceled=""
 if [ -z "$previous_instance" ] && [ -n "$(optional_output volume_id infra/data)" ]; then
   canceled="canceled: no server was created. Its data volume and address stay, for about \$$(kept_data_cost "$(optional_output data_volume_gib infra/data)") a month: make aws-deploy uses them, and make aws-destroy deletes them."
 fi
-cancel_message="$canceled" plan_and_apply infra "Terraform configuration is unchanged for ${commit:0:7}; checking live HTTPS access next." \
+# A new Anthropic API key from make aws-up is stored once this plan is
+# approved, before the server that reads it is made or upgraded.
+before_apply=store_pending_key cancel_message="$canceled" plan_and_apply infra "Terraform configuration is unchanged for ${commit:0:7}; checking live HTTPS access next." \
   -var "region=$region" ${tester_args[@]+"${tester_args[@]}"} -var "git_ref=$commit" \
   -var "access_mode=$access_mode" \
   -var "repository_url=$repository_url"
+# With nothing to approve, it's stored now, before the upgrade below reads it.
+store_pending_key
 # What the server's apply left it running, under its result.
 if [ -n "$plan_changed" ]; then
   detail "Commit: ${commit:0:7}"

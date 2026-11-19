@@ -878,6 +878,31 @@ deployed_access_mode() {
   esac
 }
 
+# store_pending_key: store the Anthropic API key make aws-up handed this script
+# on file descriptor 3, once. aws-deploy calls it once the server's plan is
+# approved, before Terraform applies it, so cancelling stores nothing, and
+# cancelling a run that would replace a key keeps the old one. With nothing to
+# approve, it's stored after the apply. The key goes from the pipe to the AWS
+# CLI's stdin: never in an argument, an environment variable or a file.
+store_pending_key() {
+  [ "${GROUNDLINE_KEY_ON_FD3:-}" = yes ] && [ -z "${key_stored:-}" ] || return 0
+  key_stored=yes
+  local key
+  key="$(cat <&3)"
+  exec 3<&-
+  doing "Storing your Anthropic API key"
+  # printf is a shell builtin, so the key isn't in any process's arguments.
+  printf '%s' "$key" | aws ssm put-parameter --region "$region" --name "$anthropic_parameter" \
+    --type SecureString --value file:///dev/stdin ${GROUNDLINE_KEY_OVERWRITE:+--overwrite} >/dev/null \
+    || fail "couldn't store your Anthropic API key in $anthropic_parameter, so nothing was changed"
+  unset key
+  if [ "$lifetime" = lasting ]; then
+    check_ok "stored it in $(project_label)'s Parameter Store; make aws-destroy DATA=delete deletes it"
+  else
+    check_ok "stored it in $(project_label)'s Parameter Store; make aws-destroy deletes it"
+  fi
+}
+
 # anthropic_parameter NAME: the Parameter Store name for deployment NAME's
 # Anthropic API key, as infra/main.tf builds it.
 anthropic_parameter() { echo "/groundline/$1/anthropic-api-key"; }
@@ -1416,6 +1441,9 @@ apply_plans() {
   fi
   [ "$answer" = 1 ] || fail "${cancel_message:-canceled: nothing changed}"
   plan_changed=yes
+  # What has to wait for approval but come before the apply, such as storing
+  # the Anthropic API key (store_pending_key).
+  [ -z "${before_apply:-}" ] || "$before_apply"
   # Each folder's apply is a step of its own, named for what it does, with
   # Terraform's output in the run's log.
   local label=() line

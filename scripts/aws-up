@@ -266,16 +266,11 @@ if [ -z "$keep" ]; then
       echo
     fi
     if [ -n "$key" ]; then
-      # Sends the key through stdin, since other processes can read a command's
-      # arguments. printf is a shell builtin, so it doesn't start one.
-      printf '%s' "$key" | aws ssm put-parameter --region "$region" --name "$anthropic_parameter" \
-        --type SecureString --value file:///dev/stdin ${stored:+--overwrite} >/dev/null
-      if [ "$lifetime" = lasting ]; then
-        answer_ok "stored your Anthropic API key; make aws-destroy DATA=delete deletes it"
-      else
-        answer_ok "stored your Anthropic API key; make aws-destroy deletes it"
-      fi
-      # Only what happened to the key: the key itself never goes in the record.
+      # Kept in this shell until step 2, which stores it once you approve the
+      # plan (store_pending_key), so cancelling stores nothing.
+      pending_key=yes
+      answer_ok "your Anthropic API key is stored once you approve the plan in step 2"
+      # Only what happens to the key: the key itself never goes in the record.
       record_decision anthropic_key "$([ -n "$stored" ] && echo replaced || echo stored)" "$key_source"
       # The server reads the key when it starts and when it's upgraded, which
       # step 2 does.
@@ -289,7 +284,6 @@ if [ -z "$keep" ]; then
       answer_warn "no Anthropic API key: the server starts and make aws-smoke passes, but every model call fails with 503."
       record_decision anthropic_key none chosen
     fi
-    unset key
   fi
 
   # --- The code the server runs ---
@@ -370,6 +364,13 @@ fi
 step "Step 2 of 3: deploy"
 if [ -n "$keep" ]; then
   ok "kept the running server and its access settings"
+elif [ -n "${pending_key:-}" ]; then
+  # The key goes to aws-deploy on a pipe (file descriptor 3): not in an
+  # argument, an environment variable or a file. Questions use stdin, so it
+  # can't go there. printf is a builtin, so no process gets it as an argument.
+  GROUNDLINE_KEY_ON_FD3=yes GROUNDLINE_KEY_OVERWRITE="${stored:+yes}" \
+    scripts/aws-deploy 3< <(printf '%s' "$key")
+  unset key
 else
   scripts/aws-deploy
 fi
