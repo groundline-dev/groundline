@@ -1,4 +1,4 @@
-"""Write the API's OpenAPI description to the SDK's openapi.json (ALL-155).
+"""Write the API's OpenAPI description to the SDK's openapi.json.
 
 The SDK is generated from that file. Run it through scripts/generate-sdk (make
 generate-sdk), which also regenerates the SDK.

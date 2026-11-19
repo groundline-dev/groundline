@@ -1,4 +1,4 @@
-"""A fake groundline API on a local port, for the client's tests (ALL-156).
+"""A fake groundline API on a local port, for the client's tests.
 
 The fake answers each route with the example from openapi.json, records every
 request it receives, and can be told to answer a route differently. No test

@@ -1,5 +1,5 @@
 """The response both checks share: the same top-level fields, and findings that
-mean the same thing whichever check made them (ALL-140)."""
+mean the same thing whichever check made them."""
 
 import json
 from collections.abc import Callable, Iterator
