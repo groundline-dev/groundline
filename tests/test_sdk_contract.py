@@ -49,7 +49,7 @@ from tests.omission_helpers import (
 WRONG_KEY = "gl_" + "b" * 43
 
 
-class Database:
+class FakeDatabase:
     """Stands in for the app's database check, which `/ready` reports."""
 
     def __init__(self) -> None:
@@ -66,7 +66,7 @@ def api_url(
     """The real app, listening on a free loopback port until the test ends."""
 
     assert app.state.api_keys is keys  # the server checks keys against the fake
-    monkeypatch.setattr(app.state, "database", Database(), raising=False)
+    monkeypatch.setattr(app.state, "database", FakeDatabase(), raising=False)
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
         port = listener.getsockname()[1]
@@ -90,7 +90,7 @@ def api_url(
             thread.join(timeout=10)
 
 
-def call(
+def call_through_client(
     api_url: str,
     method: str,
     *arguments: Any,
@@ -113,45 +113,45 @@ def call(
 
 
 @dataclass(frozen=True)
-class Check:
+class CheckCase:
     """One check endpoint as the SDK calls it, with a model script that flags
     the summary and one that doesn't."""
 
     method: str
     request: Callable[[], Any]
-    flagged_replies: Callable[[], Callable[[str], str]]
-    clear_replies: Callable[[], Callable[[str], str]]
+    flagged_script: Callable[[], Callable[[str], str]]
+    clear_script: Callable[[], Callable[[str], str]]
     pipeline: str
-    flagged_findings: int
-    clear_findings: int
+    flagged_finding_count: int
+    clear_finding_count: int
 
 
-CHECKS = [
+CHECK_CASES = [
     pytest.param(
-        Check(
+        CheckCase(
             method="evaluate_omissions",
             request=lambda: OmissionsRequest(source=SOURCE, summary=SUMMARY),
-            flagged_replies=flagged_script,
-            clear_replies=not_flagged_script,
+            flagged_script=flagged_script,
+            clear_script=not_flagged_script,
             pipeline="omission_all_opus",
-            flagged_findings=3,
-            clear_findings=2,
+            flagged_finding_count=3,
+            clear_finding_count=2,
         ),
         id="omissions",
     ),
     pytest.param(
-        Check(
+        CheckCase(
             method="evaluate_commissions",
             request=lambda: CommissionsRequest(
                 source=SOURCE, summary=COMMISSION_SUMMARY
             ),
-            flagged_replies=lambda: CommissionScript(
+            flagged_script=lambda: CommissionScript(
                 commissions_check=issues_reply(DOSE_ISSUE, EXAM_ISSUE)
             ),
-            clear_replies=lambda: CommissionScript(commissions_check=issues_reply()),
+            clear_script=lambda: CommissionScript(commissions_check=issues_reply()),
             pipeline="commission_quick",
-            flagged_findings=2,
-            clear_findings=0,
+            flagged_finding_count=2,
+            clear_finding_count=0,
         ),
         id="commissions",
     ),
@@ -160,21 +160,23 @@ CHECKS = [
 BOTH_WAYS = pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])
 
 
-@pytest.mark.parametrize("check", CHECKS)
+@pytest.mark.parametrize("check", CHECK_CASES)
 @BOTH_WAYS
 def test_a_flagged_summary_comes_back_as_a_result(
-    check: Check,
+    check: CheckCase,
     is_async: bool,
     api_url: str,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    sent = fake_anthropic(monkeypatch, check.flagged_replies())
+    sent = fake_anthropic(monkeypatch, check.flagged_script())
 
-    result = call(api_url, check.method, check.request(), is_async=is_async)
+    result = call_through_client(
+        api_url, check.method, check.request(), is_async=is_async
+    )
 
     assert result.flagged is True
     assert result.score < 0.5
-    assert len(result.findings) == check.flagged_findings
+    assert len(result.findings) == check.flagged_finding_count
     assert result.findings[0].statement
     assert result.metadata.pipeline == check.pipeline
     assert result.metadata.alarm.score > 0
@@ -182,28 +184,30 @@ def test_a_flagged_summary_comes_back_as_a_result(
     assert result.metadata.disclaimer == clinical_disclaimer()
 
 
-@pytest.mark.parametrize("check", CHECKS)
+@pytest.mark.parametrize("check", CHECK_CASES)
 @BOTH_WAYS
 def test_a_summary_that_is_not_flagged_comes_back_as_a_result(
-    check: Check,
+    check: CheckCase,
     is_async: bool,
     api_url: str,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    fake_anthropic(monkeypatch, check.clear_replies())
+    fake_anthropic(monkeypatch, check.clear_script())
 
-    result = call(api_url, check.method, check.request(), is_async=is_async)
+    result = call_through_client(
+        api_url, check.method, check.request(), is_async=is_async
+    )
 
     assert result.flagged is False
     assert result.score == 1.0
-    assert len(result.findings) == check.clear_findings
+    assert len(result.findings) == check.clear_finding_count
     assert result.metadata.alarm.score == 0.0
 
 
 @pytest.mark.parametrize("method", ["health", "ready"])
 @BOTH_WAYS
 def test_the_probes_report_ok(method: str, is_async: bool, api_url: str):
-    result = call(api_url, method, is_async=is_async)
+    result = call_through_client(api_url, method, is_async=is_async)
 
     assert result.additional_properties == {"status": "ok"}
 
@@ -212,23 +216,23 @@ def test_ready_raises_a_server_error_when_the_database_is_down(api_url: str):
     app.state.database.answers = False
 
     with pytest.raises(ServerUnavailableError) as raised:
-        call(api_url, "ready", is_async=False, max_attempts=1)
+        call_through_client(api_url, "ready", is_async=False, max_attempts=1)
 
     assert raised.value.status_code == 503
 
 
-@pytest.mark.parametrize("check", CHECKS)
+@pytest.mark.parametrize("check", CHECK_CASES)
 @BOTH_WAYS
 def test_a_wrong_api_key_raises_an_authentication_error_before_any_model_call(
-    check: Check,
+    check: CheckCase,
     is_async: bool,
     api_url: str,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    sent = fake_anthropic(monkeypatch, check.flagged_replies())
+    sent = fake_anthropic(monkeypatch, check.flagged_script())
 
     with pytest.raises(AuthenticationError) as raised:
-        call(
+        call_through_client(
             api_url,
             check.method,
             check.request(),
@@ -260,7 +264,7 @@ def test_a_blank_source_raises_an_invalid_request_error_that_says_where(
     )
 
     with pytest.raises(InvalidRequestError) as raised:
-        call(
+        call_through_client(
             api_url,
             method,
             request_class(source=" ", summary=SUMMARY),
