@@ -54,9 +54,69 @@ its block has ended, so make the calls inside the block.
 `health()` and `ready()` send the API key too, though those two routes are public
 and don't need it.
 
-A method returns the parsed response model. When the API answers with an error
-status, it returns the parsed `ErrorBody` instead of raising, and an answer the
-API doesn't document comes back as `None`. Typed exceptions are planned.
+A method returns the parsed response model, or raises an error (see
+[Errors](#errors)). A flagged summary is a normal result, not an error.
+
+## Errors
+
+Every error the SDK raises on purpose is a `GroundlineError`. Catch that to
+handle all of them, or catch a subclass to decide what to do:
+
+| Error | Raised for | What you can do |
+| --- | --- | --- |
+| `AuthenticationError` | a 401 | Fix the API key. |
+| `AuthenticationError` | a 403 | Check any proxy or firewall in front of the API: the API itself never sends a 403. |
+| `RateLimitError` | a 429 | Wait `error.retry_after` seconds (`None` if the answer gave none). |
+| `InvalidRequestError` | a 400 or 422 | Fix the request; `error.detail` says where. |
+| `RequestTooLargeError` | a 413 | Send less text. |
+| `ServerUnavailableError` | a 500, 502 or 503, or the server couldn't be reached | Try again later. |
+| `GroundlineTimeoutError` | a 504 or 408, or the call ran out of its time limits | Try again later, or raise the limits. |
+| `GroundlineError` itself | Anything else: a redirect, a 404, a status the API doesn't document, or an answer the SDK can't read | Check the URL. |
+
+`GroundlineSetupError` (a bad URL, key or option when you create the client) is
+a `GroundlineError` too, and still a `ValueError`. An error that doesn't come
+from the HTTP layer, such as one in your own code, passes through as it is.
+
+```python
+from groundline_client import (
+    GroundlineClient,
+    GroundlineError,
+    OmissionsRequest,
+    RateLimitError,
+)
+
+try:
+    with GroundlineClient() as client:
+        result = client.evaluate_omissions(
+            OmissionsRequest(source="...", summary="...")
+        )
+except RateLimitError as error:
+    print(f"Too many requests: wait {error.retry_after} seconds")
+except GroundlineError as error:
+    print(error, error.status_code, error.detail)
+```
+
+Each error has `status_code` (`None` when there was no answer) and `detail`, the
+server's own explanation when it sent one in the documented shape (`None`
+otherwise, such as for a proxy's HTML page). `GroundlineError` here is a
+different class from `groundline_core`'s, so catch the one from the package you
+call.
+
+An error's message, `repr` and `detail` are safe to log:
+
+- The message is fixed wording plus the status, such as `The API refused the API
+  key (status 401).` It never holds the source, the summary, the API key or the
+  server's text.
+- `detail` is cut to 250 characters, and anything shaped like an Anthropic key
+  (`sk-ant-…`) or a groundline key (`gl_…`), or equal to your own API key (when it is 8 characters or more), is
+  replaced with `<redacted key>`. Another kind of secret that a server echoes
+  back would not be recognized.
+- The `httpx2` error behind a timeout or connection failure is dropped instead
+  of chained, because it carries the request, and the request holds your API
+  key. The message says whether it was a timeout or a connection failure.
+
+The parsed `ErrorBody` and `InvalidRequestBody` models are still exported, but
+no method returns them anymore.
 
 ## Retries and time limits
 
@@ -66,7 +126,7 @@ or 422, because your request or key has to change, and it never retries a
 flagged summary: that is a normal 200 result. After a failed attempt the call
 waits a random time of up to 1 second, then 2, 4 and 8 seconds, and 8 from then
 on. A `Retry-After` header sets the minimum wait. If the wait doesn't fit in the
-time left, the call stops at once and gives you the last error.
+time left, the call stops at once and raises the error for the last attempt.
 
 You can change the limits when you create the client:
 
@@ -84,13 +144,12 @@ client = GroundlineClient(max_attempts=1, timeout_seconds=60)
 Each attempt is also cut off at whatever is left of `max_retry_seconds`, and no
 retry starts with less than `connect_timeout_seconds` left. So if
 `connect_timeout_seconds` is as long as `max_retry_seconds` or longer, nothing
-is retried. A value that isn't valid raises `GroundlineConfigError` when you
+is retried. A value that isn't valid raises `GroundlineSetupError` when you
 create the client: `max_attempts` must be a whole number of 1 or more, and the
 other three a finite number above 0.
 
-When the retries run out, you get what the last attempt gave: the parsed
-`ErrorBody` for an error answer (or `None` for one the API doesn't document), or
-the `httpx2` exception for a timeout or connection error.
+When the retries run out, the call raises the error for what the last attempt
+gave (see [Errors](#errors)).
 
 Things to know:
 

@@ -28,7 +28,12 @@ API_KEY_VARIABLE = "GROUNDLINE_API_KEY"
 
 @dataclass(frozen=True)
 class Step:
-    """One scripted answer: a status, a JSON body and optional response headers."""
+    """One scripted answer: a status, a body and optional response headers.
+
+    A `bytes` body is sent as it is, with the content type `text/html` unless
+    `headers` gives one (a proxy's error page, or a broken reply). Any other
+    body is sent as JSON.
+    """
 
     status: int
     body: Any
@@ -75,7 +80,7 @@ class FakeServer:
         body: Any,
         headers: dict[str, str] | None = None,
     ) -> None:
-        """Answer this route with this status and JSON body from now on."""
+        """Answer this route with this status and body from now on (see `Step`)."""
         self._replies[(method, path)] = Step(status, body, headers)
 
     def script(self, method: str, path: str, steps: list[Step]) -> None:
@@ -115,10 +120,17 @@ class FakeServer:
                         route, Step(404, {"detail": "no such route"})
                     )
                 )
-                payload = json.dumps(step.body).encode()
+                headers = step.headers or {}
+                if isinstance(step.body, bytes):
+                    payload = step.body
+                    content_type = "text/html"
+                else:
+                    payload = json.dumps(step.body).encode()
+                    content_type = "application/json"
                 self.send_response(step.status)
-                self.send_header("Content-Type", "application/json")
-                for name, value in (step.headers or {}).items():
+                if "Content-Type" not in headers:
+                    self.send_header("Content-Type", content_type)
+                for name, value in headers.items():
                     self.send_header(name, value)
                 self.send_header("Content-Length", str(len(payload)))
                 self.end_headers()

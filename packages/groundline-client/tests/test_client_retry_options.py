@@ -45,7 +45,7 @@ def test_valid_options_are_accepted(
 def test_a_bad_attempt_count_is_refused_before_any_request(
     name: str, value: Any, fake_server: FakeServer, api_key: str
 ):
-    with pytest.raises(sdk.GroundlineConfigError) as refused:
+    with pytest.raises(sdk.GroundlineSetupError) as refused:
         make_client(fake_server, api_key, **{name: value})
 
     assert f"{name}=" in str(refused.value)
@@ -59,7 +59,7 @@ def test_a_bad_attempt_count_is_refused_before_any_request(
 def test_a_bad_number_of_seconds_is_refused_before_any_request(
     name: str, value: Any, fake_server: FakeServer, api_key: str
 ):
-    with pytest.raises(sdk.GroundlineConfigError) as refused:
+    with pytest.raises(sdk.GroundlineSetupError) as refused:
         make_client(fake_server, api_key, **{name: value})
 
     assert f"{name}=" in str(refused.value)
@@ -72,7 +72,7 @@ def test_the_error_names_the_option_but_never_the_value(
 ):
     value = "not-a-number-7391"
 
-    with pytest.raises(sdk.GroundlineConfigError) as refused:
+    with pytest.raises(sdk.GroundlineSetupError) as refused:
         make_client(fake_server, api_key, **{name: value})
 
     assert value not in str(refused.value)
@@ -80,7 +80,7 @@ def test_the_error_names_the_option_but_never_the_value(
 
 
 def test_every_bad_option_is_reported_together(fake_server: FakeServer, api_key: str):
-    with pytest.raises(sdk.GroundlineConfigError) as refused:
+    with pytest.raises(sdk.GroundlineSetupError) as refused:
         make_client(fake_server, api_key, max_attempts=0, timeout_seconds=-1)
 
     message = str(refused.value)
@@ -89,10 +89,10 @@ def test_every_bad_option_is_reported_together(fake_server: FakeServer, api_key:
 
 
 @pytest.mark.parametrize("name", SECONDS_OPTIONS)
-def test_a_whole_number_too_big_for_a_float_is_refused_with_a_config_error(
+def test_a_whole_number_too_big_for_a_float_is_refused_with_a_setup_error(
     name: str, fake_server: FakeServer, api_key: str
 ):
-    with pytest.raises(sdk.GroundlineConfigError) as refused:
+    with pytest.raises(sdk.GroundlineSetupError) as refused:
         make_client(fake_server, api_key, **{name: 10**400})
 
     assert f"{name}=" in str(refused.value)

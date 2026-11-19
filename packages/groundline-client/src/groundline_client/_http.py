@@ -5,6 +5,13 @@ the environment, redirects and connection reuse work as they do in a plain
 `httpx2` client. The rules are in `_retry.py`; the options are the ones
 `GroundlineClient` takes. `clock`, `sleep` and `random` can be replaced so the
 tests don't wait for real.
+
+`ErrorRaisingClient` and its async twin wrap those two and turn every answer
+that isn't a success, and every failure to get an answer, into the SDK's error
+(`_error_mapping.py`), after the retries have run out. The generated code then
+only ever sees a 2xx. The error is raised outside any `except` block, so it
+has no `__context__`: the `httpx2` error it replaces carries the request, and
+the request's headers hold the API key.
 """
 
 import asyncio
@@ -17,12 +24,14 @@ from typing import Any
 
 import httpx2
 
+from ._error_mapping import error_for_failure, error_for_status
 from ._retry import (
     is_retryable_error,
     is_retryable_status,
     next_wait,
-    retry_after_seconds,
+    retry_after_of,
 )
+from .errors import GroundlineError
 
 logger = logging.getLogger("groundline_client.retry")
 
@@ -73,7 +82,7 @@ class _RetryBudget:
         """
         self.attempt += 1
         # Sleeping can overshoot the budget a little; an attempt then gets a sliver
-        # of time, fails at once, and the call ends with that failure.
+        # of time, fails at once, and the call ends with that error.
         remaining = max(self._remaining(), _SMALLEST_ATTEMPT_SECONDS)
         attempt_seconds = min(self._limits.timeout_seconds, remaining)
         request.extensions["timeout"] = {
@@ -99,9 +108,7 @@ class _RetryBudget:
     def wait_after_status(self, response: httpx2.Response) -> float | None:
         if not is_retryable_status(response.status_code):
             return None
-        retry_after = retry_after_seconds(
-            response.headers.get("retry-after"), now=time.time()
-        )
+        retry_after = retry_after_of(response.headers, now=time.time())
         return self.wait_before_retry(retry_after)
 
     def wait_after_error(self, error: Exception) -> float | None:
@@ -121,7 +128,7 @@ class _RetryBudget:
 
 
 class RetryingClient(httpx2.Client):
-    """A sync `httpx2` client that retries temporary failures within a time budget."""
+    """A sync `httpx2` client that retries temporary errors within a time budget."""
 
     def __init__(
         self,
@@ -169,7 +176,7 @@ class RetryingClient(httpx2.Client):
 
 
 class AsyncRetryingClient(httpx2.AsyncClient):
-    """An async `httpx2` client that retries temporary failures within a time budget.
+    """An async `httpx2` client that retries temporary errors within a time budget.
 
     Each attempt is also cut off at its time limit by the event loop, so an
     attempt that never answers, or trickles bytes, can't outlast it.
@@ -234,3 +241,76 @@ class AsyncRetryingClient(httpx2.AsyncClient):
             call.log_retry(wait, status=response.status_code, error=None)
             await response.aclose()
             await self._sleep(wait)
+
+
+def _error_for_answer(
+    request: httpx2.Request, response: httpx2.Response
+) -> GroundlineError | None:
+    """The error for an answer that isn't a success, or None for a 2xx.
+
+    The API key is read from the request's header here and passed straight to
+    the mapping, so no frame of the error's own traceback holds it.
+    """
+    if response.is_success:
+        return None
+    credential = request.headers.get("authorization", "").removeprefix("Bearer ")
+    return error_for_status(
+        response.status_code, response.headers, response.content, credential
+    )
+
+
+class ErrorRaisingClient(RetryingClient):
+    """A `RetryingClient` that raises the SDK's error for a final failure."""
+
+    def send(
+        self,
+        request: httpx2.Request,
+        *,
+        stream: bool = False,
+        auth: Any = httpx2.USE_CLIENT_DEFAULT,
+        follow_redirects: Any = httpx2.USE_CLIENT_DEFAULT,
+    ) -> httpx2.Response:
+        try:
+            response = super().send(
+                request, stream=stream, auth=auth, follow_redirects=follow_redirects
+            )
+        except Exception as caught:
+            error = error_for_failure(caught)
+            if error is None:
+                raise
+        else:
+            response.read()
+            error = _error_for_answer(request, response)
+            if error is None:
+                return response
+            response.close()
+        # Outside the `except` block, so the error has no `__context__`.
+        raise error
+
+
+class AsyncErrorRaisingClient(AsyncRetryingClient):
+    """An `AsyncRetryingClient` that raises the SDK's error for a final failure."""
+
+    async def send(
+        self,
+        request: httpx2.Request,
+        *,
+        stream: bool = False,
+        auth: Any = httpx2.USE_CLIENT_DEFAULT,
+        follow_redirects: Any = httpx2.USE_CLIENT_DEFAULT,
+    ) -> httpx2.Response:
+        try:
+            response = await super().send(
+                request, stream=stream, auth=auth, follow_redirects=follow_redirects
+            )
+        except Exception as caught:
+            error = error_for_failure(caught)
+            if error is None:
+                raise
+        else:
+            await response.aread()
+            error = _error_for_answer(request, response)
+            if error is None:
+                return response
+            await response.aclose()
+        raise error

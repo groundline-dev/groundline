@@ -54,8 +54,8 @@ def test_the_generated_client_inside_hides_the_api_key_before_and_after_a_call(
     assert api_key not in repr(client._client)
 
 
-def test_a_config_error_does_not_contain_the_api_key(api_key: str):
-    with pytest.raises(sdk.GroundlineConfigError) as raised:
+def test_a_setup_error_does_not_contain_the_api_key(api_key: str):
+    with pytest.raises(sdk.GroundlineSetupError) as raised:
         make_client("not-a-url", api_key)
     assert api_key not in str(raised.value)
     assert api_key not in repr(raised.value)
@@ -93,19 +93,20 @@ def test_logs_at_debug_level_never_contain_the_key(
     client.health()
     asyncio.run(client.ready_async())
     fake_server.reply("GET", "/health", 500, {"detail": "boom"})
-    client.health()
+    with pytest.raises(sdk.ServerUnavailableError):
+        client.health()
 
     assert api_key not in caplog.text
 
 
 def test_the_message_for_a_missing_key_names_the_variable_not_a_value():
-    with pytest.raises(sdk.GroundlineConfigError) as raised:
+    with pytest.raises(sdk.GroundlineSetupError) as raised:
         sdk.GroundlineClient(base_url="http://example.test")
     assert API_KEY_VARIABLE in str(raised.value)
 
 
-def test_a_config_error_traceback_does_not_hold_the_api_key_in_local_variables():
-    with pytest.raises(sdk.GroundlineConfigError) as raised:
+def test_a_setup_error_traceback_does_not_hold_the_api_key_in_local_variables():
+    with pytest.raises(sdk.GroundlineSetupError) as raised:
         sdk.GroundlineClient(api_key=SECRET_KEY)  # no URL, so creation fails
     assert SECRET_KEY not in with_locals(raised.value)
 

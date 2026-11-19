@@ -486,7 +486,7 @@ def test_every_route_retries_a_temporary_failure_and_returns_the_next_answer(
     )
 
     assert [(r.method, r.path) for r in fake_server.requests] == [(method, path)] * 2
-    assert not isinstance(result, sdk.ErrorBody)
+    assert result is not None
 
 
 @SYNC_AND_ASYNC
@@ -496,16 +496,16 @@ def test_a_client_made_without_options_makes_three_attempts(
     fake_server.reply("POST", "/v1/omissions", 503, {"detail": "still down"})
     client = make_client(fake_server, api_key)
 
-    result = call(
-        client,
-        "evaluate_omissions",
-        request_for(fake_server, "OmissionsRequest"),
-        is_async=is_async,
-    )
+    with pytest.raises(sdk.ServerUnavailableError) as raised:
+        call(
+            client,
+            "evaluate_omissions",
+            request_for(fake_server, "OmissionsRequest"),
+            is_async=is_async,
+        )
 
     assert len(fake_server.requests) == 3
-    assert isinstance(result, sdk.ErrorBody)
-    assert result.detail == "still down"
+    assert raised.value.detail == "still down"
 
 
 @SYNC_AND_ASYNC
@@ -519,7 +519,8 @@ def test_the_retry_log_of_a_whole_client_never_holds_the_api_key(
     fake_server.reply("GET", "/health", 503, {"detail": "still down"})
     client = make_client(fake_server, api_key)
 
-    call(client, "health", request_for(fake_server, None), is_async=is_async)
+    with pytest.raises(sdk.GroundlineError):
+        call(client, "health", request_for(fake_server, None), is_async=is_async)
 
     assert len(retry_records(caplog)) == 2
     assert api_key not in caplog.text
@@ -534,12 +535,13 @@ def test_a_permanent_error_is_not_retried(
     fake_server.reply("POST", "/v1/omissions", status, {"detail": "no"})
     client = make_client(fake_server, api_key)
 
-    call(
-        client,
-        "evaluate_omissions",
-        request_for(fake_server, "OmissionsRequest"),
-        is_async=is_async,
-    )
+    with pytest.raises(sdk.GroundlineError):
+        call(
+            client,
+            "evaluate_omissions",
+            request_for(fake_server, "OmissionsRequest"),
+            is_async=is_async,
+        )
 
     assert len(fake_server.requests) == 1
 
@@ -551,12 +553,13 @@ def test_a_rejected_request_is_not_retried(
     fake_server.reply("POST", "/v1/omissions", 422, {"detail": []})
     client = make_client(fake_server, api_key)
 
-    call(
-        client,
-        "evaluate_omissions",
-        request_for(fake_server, "OmissionsRequest"),
-        is_async=is_async,
-    )
+    with pytest.raises(sdk.InvalidRequestError):
+        call(
+            client,
+            "evaluate_omissions",
+            request_for(fake_server, "OmissionsRequest"),
+            is_async=is_async,
+        )
 
     assert len(fake_server.requests) == 1
 
@@ -585,10 +588,10 @@ def test_a_call_that_hangs_is_cut_off_at_the_total_timeout(
     is_async: bool, fake_server: FakeServer, api_key: str
 ):
     fake_server.hang("GET", "/health")
-    client = make_client(fake_server, api_key, max_attempts=1, timeout_seconds=0.3)
+    client = make_client(fake_server, api_key, max_attempts=1, timeout_seconds=0.05)
     started = time.monotonic()
 
-    with pytest.raises(httpx2.TimeoutException):
+    with pytest.raises(sdk.GroundlineTimeoutError):
         call(client, "health", request_for(fake_server, None), is_async=is_async)
 
     assert time.monotonic() - started < 3.0
@@ -597,13 +600,26 @@ def test_a_call_that_hangs_is_cut_off_at_the_total_timeout(
 
 @SYNC_AND_ASYNC
 def test_the_timeout_raised_for_a_hung_call_knows_its_request(
-    is_async: bool, fake_server: FakeServer, api_key: str
+    is_async: bool, fake_server: FakeServer
 ):
+    # The retrying clients raise `httpx2`'s own timeout, and it has its request,
+    # so `.request` works on it. `GroundlineClient` turns it into the SDK's
+    # error, which has none (the request's headers hold the API key), so this
+    # drives the retrying clients directly.
     fake_server.hang("GET", "/health")
-    client = make_client(fake_server, api_key, max_attempts=1, timeout_seconds=0.3)
+    limits = Limits(
+        max_attempts=1,
+        max_retry_seconds=5.0,
+        timeout_seconds=0.05,
+        connect_timeout_seconds=0.1,
+    )
+    request = httpx2.Request("GET", f"{fake_server.url}/health")
 
     with pytest.raises(httpx2.TimeoutException) as timed_out:
-        call(client, "health", request_for(fake_server, None), is_async=is_async)
+        if is_async:
+            asyncio.run(AsyncRetryingClient(limits=limits).send(request))
+        else:
+            RetryingClient(limits=limits).send(request)
 
     assert timed_out.value.request.url.path == "/health"
 
@@ -623,7 +639,7 @@ def test_hung_attempts_are_retried_within_the_retry_budget(
     )
     started = time.monotonic()
 
-    with pytest.raises(httpx2.TimeoutException):
+    with pytest.raises(sdk.GroundlineTimeoutError):
         call(client, "health", request_for(fake_server, None), is_async=is_async)
 
     assert time.monotonic() - started < 3.0  # the 1 s budget, not 5 x 0.4 s
@@ -642,7 +658,7 @@ def test_a_refused_connection_is_retried_then_raised(
         base_url=f"http://127.0.0.1:{closed_port}", api_key=api_key, max_attempts=3
     )
 
-    with pytest.raises(httpx2.ConnectError):
+    with pytest.raises(sdk.ServerUnavailableError):
         if is_async:
             asyncio.run(client.health_async())
         else:
@@ -667,6 +683,9 @@ def test_a_proxy_set_in_the_environment_is_still_used(
         base_url="http://api.test.invalid", api_key=api_key
     )
 
-    call(client, "health", request_for(fake_server, None), is_async=is_async)
+    # The fake server has no route for that path, so the call raises; only the
+    # request it received matters here.
+    with pytest.raises(sdk.GroundlineError):
+        call(client, "health", request_for(fake_server, None), is_async=is_async)
 
     assert fake_server.requests[0].path == "http://api.test.invalid/health"
