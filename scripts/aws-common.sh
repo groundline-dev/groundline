@@ -346,8 +346,9 @@ init_roots() {
 }
 
 # saved_app_settings: the app_settings in infra/terraform.tfvars, as JSON with
-# sorted keys, such as {"GROUNDLINE_MAX_SOURCE_CHARS":150000}; nothing if
-# Terraform can't read them. Terraform parses the file, since it's HCL.
+# sorted keys, such as {"GROUNDLINE_MAX_SOURCE_CHARS":150000}; nothing, after
+# Terraform's error, if they're unreadable or break modules/app-settings' rules.
+# Terraform parses the file, since it's HCL.
 saved_app_settings() {
   local encoded
   # Terraform's default is none, and console takes a few seconds.
@@ -355,7 +356,7 @@ saved_app_settings() {
     echo '{}'
     return
   fi
-  encoded="$(echo 'jsonencode(var.app_settings)' | terraform -chdir=infra console 2>/dev/null)" || return 0
+  encoded="$(echo 'jsonencode(var.app_settings)' | terraform -chdir=infra console)" || return 0
   jq -r . <<<"$encoded" 2>/dev/null | jq -cS . 2>/dev/null || true
 }
 

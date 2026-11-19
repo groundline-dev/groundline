@@ -495,7 +495,7 @@ def test_unreadable_app_settings_stop_before_anything_is_created(checkout: Path)
     result, world = invoke(checkout, "aws-deploy", world)
 
     assert result.returncode != 0
-    assert "couldn't read app_settings" in result.stderr
+    assert "app_settings in infra/terraform.tfvars aren't valid" in result.stderr
     assert not any("plan" in call for call in world["calls"])
 
 

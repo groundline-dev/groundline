@@ -103,10 +103,11 @@ for setting in instance_type data_volume_gib; do
   value="$(tfvars_value "$setting")"
   [ -z "$value" ] || data_args+=(-var "$setting=$value")
 done
-# Its plan checks the app settings, so bad ones stop before anything is created.
+# Bad app settings stop here, before anything is created; infra/data/'s plan
+# checks them again.
 saved_settings="$(saved_app_settings)"
 [ -n "$saved_settings" ] \
-  || fail "Terraform couldn't read app_settings in infra/terraform.tfvars; run terraform -chdir=infra validate to see why"
+  || fail "the app_settings in infra/terraform.tfvars aren't valid (Terraform's error is above), so nothing was changed"
 data_args+=(-var "app_settings=$saved_settings")
 plan_and_apply infra/data "the data volume and address are unchanged." "${data_args[@]}"
 
