@@ -222,10 +222,11 @@ def test_api_limits_forward_overrides_without_compose_defaults(
 
 
 def test_aws_app_settings_are_the_settings_compose_forwards(services: dict[str, Any]):
-    """infra/variables.tf lists the settings app_settings may set on AWS. A new
-    setting added to compose.yaml has to be added there too, or AWS can't set it."""
-    variables = (ROOT / "infra" / "variables.tf").read_text()
-    block = variables[variables.index('variable "app_settings"') :]
+    """infra/modules/app-settings lists the settings app_settings may set on AWS.
+    A new setting added to compose.yaml has to be added there too, or AWS can't
+    set it."""
+    module = (ROOT / "infra" / "modules" / "app-settings" / "main.tf").read_text()
+    block = module[module.index('variable "settings"') :]
     allowed = set(
         re.findall(r'"(GROUNDLINE_[A-Z_]+)"', block.split("error_message")[0])
     )

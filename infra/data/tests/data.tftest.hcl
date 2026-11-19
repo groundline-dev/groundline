@@ -128,3 +128,16 @@ run "the_volume_and_outputs_say_whose_it_is_and_how_long_it_lasts" {
     error_message = "The data volume and outputs should name the deployment and its lifetime, for the folder guard."
   }
 }
+
+run "the_app_settings_are_checked_before_anything_is_created" {
+  command = plan
+  variables {
+    app_settings = { GROUNDLINE_CHECK_TIMEOUT_SECONDS = 180 }
+  }
+
+  assert {
+    # The module's rules reject bad ones; infra/tests/ tests them.
+    condition     = module.app_settings.settings["GROUNDLINE_CHECK_TIMEOUT_SECONDS"] == 180
+    error_message = "infra/data/ should pass app_settings to modules/app-settings, so bad settings stop before the volume and address are created."
+  }
+}

@@ -47,3 +47,9 @@ variable "lifetime" {
     error_message = "lifetime must be disposable or lasting."
   }
 }
+
+variable "app_settings" {
+  description = "The app_settings in infra/terraform.tfvars. Nothing here uses them: they're checked here, so bad settings stop before the data volume and Elastic IP are created."
+  type        = map(number)
+  default     = {}
+}

@@ -3,6 +3,12 @@
 # infra/data/ attached. bootstrap.sh.tftpl runs on its first boot.
 
 data "aws_partition" "current" {}
+
+# Rejects app_settings it doesn't allow before anything changes.
+module "app_settings" {
+  source   = "./modules/app-settings"
+  settings = var.app_settings
+}
 data "aws_caller_identity" "current" {}
 
 # AWS's public parameter for the newest Amazon Linux 2023 arm64 AMI. It holds no
@@ -277,7 +283,7 @@ resource "aws_instance" "app" {
     # serves HTTPS on the address it has for its first few seconds.
     groundline-public-ip = coalesce(local.public_ip, "none")
     }, {
-    for name, value in var.app_settings : "groundline-setting-${name}" => tostring(value)
+    for name, value in module.app_settings.settings : "groundline-setting-${name}" => tostring(value)
   })
 
   lifecycle {

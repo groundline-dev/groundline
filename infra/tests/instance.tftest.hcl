@@ -395,28 +395,38 @@ run "app_settings_reach_the_server_as_tags" {
   }
 }
 
+# modules/app-settings holds the rules; both roots pass app_settings to it.
 run "an_unknown_app_setting_is_rejected" {
   command = plan
-  variables {
-    app_settings = { GROUNDLINE_MAX_BODY_SIZE = 1048576 }
+  module {
+    source = "./modules/app-settings"
   }
-  expect_failures = [var.app_settings]
+  variables {
+    settings = { GROUNDLINE_MAX_BODY_SIZE = 1048576 }
+  }
+  expect_failures = [var.settings]
 }
 
 run "an_app_setting_of_zero_is_rejected" {
   command = plan
-  variables {
-    app_settings = { GROUNDLINE_MODEL_MAX_ATTEMPTS = 0 }
+  module {
+    source = "./modules/app-settings"
   }
-  expect_failures = [var.app_settings]
+  variables {
+    settings = { GROUNDLINE_MODEL_MAX_ATTEMPTS = 0 }
+  }
+  expect_failures = [var.settings]
 }
 
 run "a_fractional_attempt_count_is_rejected" {
   command = plan
-  variables {
-    app_settings = { GROUNDLINE_MODEL_MAX_ATTEMPTS = 2.5 }
+  module {
+    source = "./modules/app-settings"
   }
-  expect_failures = [var.app_settings]
+  variables {
+    settings = { GROUNDLINE_MODEL_MAX_ATTEMPTS = 2.5 }
+  }
+  expect_failures = [var.settings]
 }
 
 run "a_lasting_deployment_has_no_time_limit_and_says_so" {

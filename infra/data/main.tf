@@ -3,6 +3,12 @@
 # delete a lasting deployment's server and keep these. infra/main.tf attaches
 # both to the server, finding them by their deployment and role tags.
 
+# Rejects bad app_settings before the volume and address are created.
+module "app_settings" {
+  source   = "../modules/app-settings"
+  settings = var.app_settings
+}
+
 # The default VPC's subnets, one for each Availability Zone, and the zones that
 # offer the server's instance type. The server has to run in the volume's zone.
 data "aws_vpc" "default" {

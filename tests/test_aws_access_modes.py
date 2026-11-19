@@ -466,6 +466,39 @@ def test_deploy_makes_the_data_volume_first_then_attaches_the_server(checkout: P
     assert '"DeleteOnTermination":true' in " ".join(marks[0])
 
 
+def test_the_data_plan_checks_the_saved_app_settings(checkout: Path):
+    # infra/data/'s plan rejects bad settings, so nothing is created first.
+    settings(checkout, "unrestricted")
+    with (checkout / "infra/terraform.tfvars").open("a") as tfvars:
+        tfvars.write("app_settings = { GROUNDLINE_MAX_SOURCE_CHARS = 150000 }\n")
+    world = aws_fakes.new_world(
+        outputs={"instance_id": "i-test", "auto_terminate_hours": "8"},
+        saved_app_settings={"GROUNDLINE_MAX_SOURCE_CHARS": 150000},
+    )
+
+    result, world = invoke(checkout, "aws-deploy", world)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    [data_plan] = [
+        c for c in world["calls"] if "plan" in c and "-chdir=infra/data" in c
+    ]
+    assert 'app_settings={"GROUNDLINE_MAX_SOURCE_CHARS":150000}' in data_plan
+
+
+def test_unreadable_app_settings_stop_before_anything_is_created(checkout: Path):
+    settings(checkout, "unrestricted")
+    with (checkout / "infra/terraform.tfvars").open("a") as tfvars:
+        tfvars.write('app_settings = { GROUNDLINE_MAX_SOURCE_CHARS = "lots" }\n')
+    # The fake console fails without saved_app_settings, as Terraform does here.
+    world = aws_fakes.new_world()
+
+    result, world = invoke(checkout, "aws-deploy", world)
+
+    assert result.returncode != 0
+    assert "couldn't read app_settings" in result.stderr
+    assert not any("plan" in call for call in world["calls"])
+
+
 def test_deploy_refuses_a_server_made_before_data_volumes(checkout: Path):
     settings(checkout, "unrestricted")
     world = aws_fakes.new_world(
