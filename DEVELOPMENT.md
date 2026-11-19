@@ -351,10 +351,43 @@ To require an API key on a route, add `dependencies=[Depends(require_api_key)]` 
 
 Every route needs it except probes such as `/health` and `/ready` and the docs pages ([ADR 0012](docs/adr/0012-only-probes-and-docs-pages-are-public.md)). A test in `tests/test_api_auth.py` lists the public probes and fails if any other route lacks an API key.
 
+## Releasing groundline-core
+
+`groundline-core` is published to PyPI by `.github/workflows/release.yml`, which runs only when a maintainer starts it.
+
+### Versions
+
+The version is written in `pyproject.toml`, and the package follows semantic versioning: until 1.0, a minor release may break callers' code and a patch release never does. To release, raise the version in a pull request and merge it. Each version can be published only once.
+
+### Running a release
+
+1. In GitHub, open **Actions → Release → Run workflow** and choose `main`.
+2. The workflow builds the wheel and sdist once, checks their files (`scripts/core-install-check --dist`), uploads them to TestPyPI, installs them from there and checks them again. This takes about five minutes.
+3. The `pypi` job then waits for approval. Any of the `pypi` environment's reviewers except the person who started the run can approve it on the run's page.
+4. After approval, the workflow uploads the same files to PyPI, tags the commit `groundline-core-v<version>` and creates a GitHub release, with notes listing the merged pull requests.
+
+The run stops before uploading anything if the version is already on PyPI or already tagged (`scripts/release_version.py`).
+
+Started from any other branch, the workflow publishes a development version, such as `0.1.0.dev12` (the run number), to TestPyPI and stops there. Use it to try a change to the release process. TestPyPI also never accepts the same version twice, and the development version leaves the real one free.
+
+### If a release is wrong
+
+Nobody can delete a version from PyPI and upload it again. Yank the bad version instead (on PyPI, **Manage → Releases**): pip then skips it unless someone pinned that exact version. Fix the problem and release a patch version.
+
+### One-time setup
+
+A PyPI account holder and a repository admin do this once, before the first release:
+
+- On pypi.org and on test.pypi.org (separate accounts, each with two-factor authentication), add a pending publisher under **Account settings → Publishing**: project `groundline-core`, owner `groundline-dev`, repository `groundline`, workflow `release.yml`, and environment `pypi` on pypi.org or `testpypi` on test.pypi.org. Trusted publishing then lets the workflow upload without a stored token.
+- In the repository's **Settings → Environments**, create `testpypi` with no reviewers, and `pypi` with the team as required reviewers and **Prevent self-review** on.
+- After the first release, add at least one more owner to the project on PyPI, so that one lost login can't lock it.
+
 ## Layout
 
 ```
 .agents/skills/            agent skills (see AGENTS.md)
+.github/workflows/         ci.yml, the checks on every pull request, and release.yml, which publishes
+                           groundline-core (see Releasing groundline-core)
 .claude/skills/            links to .agents/skills/, so Claude Code finds the same skills
 Dockerfile                 the app image
 compose.yaml               the stack: Postgres, the setup service and the app
@@ -383,8 +416,9 @@ infra/                     Terraform for AWS test deployments, the startup scrip
 packages/groundline-client/  the SDK: its pyproject.toml, openapi.json, src/ (the generated code is
                            in _generated/) and tests/
 scripts/                   db-setup, the stack check behind make docker-smoke, the install check
-                           behind make core-check, make generate-sdk and the SDK install check, and the AWS
-                           scripts behind make aws-deploy, aws-smoke, aws-smoke-live and aws-destroy
+                           behind make core-check, make generate-sdk and the SDK install check, the
+                           release's version check, and the AWS scripts behind make aws-deploy,
+                           aws-smoke, aws-smoke-live and aws-destroy
 tests/                     the tests
 ```
 

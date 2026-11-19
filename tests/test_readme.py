@@ -1,0 +1,44 @@
+"""The README is also the package's page on PyPI, and SECURITY.md says where to
+report a vulnerability."""
+
+import re
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+REPOSITORY = "https://github.com/groundline-dev/groundline"
+
+LINK_TARGET = re.compile(r"\]\(([^)\s]+)|<a\s[^>]*href=\"([^\"]+)\"")
+"""The target of a Markdown link or image, or of an HTML link."""
+
+
+def link_targets(text: str) -> list[str]:
+    return [m.group(1) or m.group(2) for m in LINK_TARGET.finditer(text)]
+
+
+def test_the_readme_has_no_relative_links():
+    # PyPI shows the README without the repository around it, so a relative
+    # link there leads nowhere. Anchors within the page still work.
+    targets = link_targets((ROOT / "README.md").read_text())
+
+    relative = [
+        target
+        for target in targets
+        if not target.startswith(("https://", "http://", "mailto:", "#"))
+    ]
+    assert relative == []
+
+
+def test_the_readme_says_to_install_from_pypi():
+    text = (ROOT / "README.md").read_text()
+
+    assert "pip install groundline-core" in text
+    assert "isn't on PyPI yet" not in text
+
+
+def test_security_reports_go_to_the_shared_address_privately():
+    security = (ROOT / "SECURITY.md").read_text()
+
+    assert "groundlinedevs@gmail.com" in security
+    assert f"{REPOSITORY}/blob/main/SECURITY.md" in link_targets(
+        (ROOT / "README.md").read_text()
+    ), "the README doesn't link to SECURITY.md"

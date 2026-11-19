@@ -2,6 +2,8 @@
 # Install groundline-core with no extras, as a user of the library would, and
 # check that:
 #   - `from groundline_core import evaluate, evaluate_sync, load_preset` works
+#   - every built-in preset and profile loads, which reads every prompt and
+#     rubric, and both schema files are there
 #   - none of the server or CLI packages came with it
 #   - the groundline-core command says to install the cli extra, and exits 2
 #   - importing the API says to install the server extra
@@ -9,10 +11,20 @@
 #     scripts/library_typing_check.py, which uses only the public names, against
 #     the installed package
 #
-# It builds the wheel, then installs it into two new, empty environments: one
-# with pip and one with uv pip, since users may install with either.
+# Before installing built files, it also checks that the wheel and the sdist
+# hold only the package and its license, readme and metadata (no .env, tests,
+# fixtures or other local files), and that a wheel built from the sdist has the
+# same files as the wheel.
 #
-# Usage: scripts/core-install-check   (or make core-check)
+# It installs into new, empty environments: one with pip and one with uv pip,
+# since users may install with either.
+#
+# Usage:
+#   scripts/core-install-check                           build, then check (make core-check)
+#   scripts/core-install-check --dist DIR                check the wheel and sdist in DIR
+#   scripts/core-install-check --from-index URL VERSION  install VERSION from the index at
+#                                                        URL (its dependencies from PyPI)
+#                                                        and check it
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -27,16 +39,87 @@ fail() {
 cli_message='The groundline-core command needs the cli extra: pip install "groundline-core[cli]"'
 server_message='groundline_core.app needs the server extra: pip install "groundline-core[server]"'
 
-uv build --wheel --out-dir "$work/dist" --quiet
-wheels=("$work"/dist/groundline_core-*.whl)
-[ -f "${wheels[0]}" ] || fail "uv build made no groundline_core wheel: $(ls "$work/dist")"
-wheel="${wheels[0]}"
-# The project's Python reads the wheel, so a broken python3 on PATH can't pass for
-# a missing marker.
-has_marker="$(uv run --quiet python -I -c 'import sys, zipfile; print("groundline_core/py.typed" in zipfile.ZipFile(sys.argv[1]).namelist())' "$wheel")" \
-  || fail "couldn't read the wheel with the project's Python"
-[ "$has_marker" = True ] \
-  || fail "the wheel has no groundline_core/py.typed, so type checkers ignore its types"
+mode=build
+case "${1:-}" in
+  "") ;;
+  --dist) [ $# = 2 ] || fail "usage: --dist DIR"; mode=dist; dist="$2" ;;
+  --from-index) [ $# = 3 ] || fail "usage: --from-index URL VERSION"; mode=index; index="$2"; version="$3" ;;
+  *) fail "unknown option: $1" ;;
+esac
+
+# The built-in presets and profiles in this checkout, which the installed package
+# must also have.
+presets="$(cd src/groundline_core/presets && ls -- *.yaml | sed 's/\.yaml$//' | sort | tr '\n' ' ')"
+profiles="$(cd src/groundline_core/profiles && for d in */; do [ -f "$d/profile.yaml" ] && echo "${d%/}"; done | sort | tr '\n' ' ')"
+
+if [ "$mode" = build ]; then
+  dist="$work/dist"
+  uv build --out-dir "$dist" --quiet
+fi
+
+if [ "$mode" != index ]; then
+  wheels=("$dist"/groundline_core-*.whl)
+  sdists=("$dist"/groundline_core-*.tar.gz)
+  [ -f "${wheels[0]}" ] || fail "no groundline_core wheel in $dist: $(ls "$dist")"
+  [ -f "${sdists[0]}" ] || fail "no groundline_core sdist in $dist: $(ls "$dist")"
+  wheel="${wheels[0]}"
+  sdist="${sdists[0]}"
+
+  # The project's Python reads the files, so a broken python3 on PATH can't pass
+  # for a clean package.
+  uv run --quiet python -I - "$wheel" "$sdist" <<'EOF' \
+    || fail "the built files hold something they shouldn't (listed above)"
+import re
+import sys
+import tarfile
+import zipfile
+
+wheel, sdist = sys.argv[1], sys.argv[2]
+# Never shipped, wherever they appear.
+FORBIDDEN = re.compile(r"(^|/)(\.env|__pycache__|\.DS_Store)|\.pyc$")
+WHEEL = re.compile(r"groundline_core/.+|groundline_core-[^/]+\.dist-info/.+")
+SDIST = re.compile(
+    r"groundline_core-[^/]+/(PKG-INFO|README\.md|LICENSE|NOTICE|pyproject\.toml"
+    r"|pyproject\.toml\.orig|src/groundline_core/.+)"
+)
+names = [(n, WHEEL) for n in zipfile.ZipFile(wheel).namelist()]
+names += [(m.name, SDIST) for m in tarfile.open(sdist).getmembers() if m.isfile()]
+unexpected = [
+    name
+    for name, allowed in names
+    if not name.endswith("/") and (FORBIDDEN.search(name) or not allowed.fullmatch(name))
+]
+for name in unexpected:
+    print(f"  unexpected: {name}", file=sys.stderr)
+sys.exit(1 if unexpected else 0)
+EOF
+
+  has_marker="$(uv run --quiet python -I -c 'import sys, zipfile; print("groundline_core/py.typed" in zipfile.ZipFile(sys.argv[1]).namelist())' "$wheel")" \
+    || fail "couldn't read the wheel with the project's Python"
+  [ "$has_marker" = True ] \
+    || fail "the wheel has no groundline_core/py.typed, so type checkers ignore its types"
+
+  # pip falls back to the sdist where no wheel fits, and builds it itself.
+  uv build --wheel --out-dir "$work/from-sdist" --quiet "$sdist" \
+    || fail "a wheel can't be built from the sdist"
+  rebuilt=("$work"/from-sdist/groundline_core-*.whl)
+  uv run --quiet python -I - "$wheel" "${rebuilt[0]}" <<'EOF' \
+    || fail "a wheel built from the sdist has different files from the wheel"
+import sys
+import zipfile
+
+
+def files(path: str) -> set[str]:
+    return {n for n in zipfile.ZipFile(path).namelist() if not n.endswith("RECORD")}
+
+
+wheel, rebuilt = files(sys.argv[1]), files(sys.argv[2])
+for name in sorted(wheel ^ rebuilt):
+    where = "the wheel" if name in wheel else "the rebuilt wheel"
+    print(f"  only in {where}: {name}", file=sys.stderr)
+sys.exit(1 if wheel != rebuilt else 0)
+EOF
+fi
 
 # The typing check file is checked from its own folder, away from this repository's
 # pyright settings and source, so only the installed package can satisfy it.
@@ -50,6 +133,32 @@ check() {
 
   "$python" -I -c 'from groundline_core import evaluate, evaluate_sync, load_preset' \
     || fail "$installer: the library doesn't load without extras"
+
+  "$python" -I - "$presets" "$profiles" <<'EOF' \
+    || fail "$installer: the installed package is missing built-in files (listed above)"
+import sys
+from importlib.resources import files
+
+from groundline_core import builtin_presets, load_preset
+from groundline_core.profiles import builtin_profiles, load_builtin_profile
+
+expected_presets, expected_profiles = sys.argv[1].split(), sys.argv[2].split()
+problems = []
+if builtin_presets() != expected_presets:
+    problems.append(f"presets {builtin_presets()}, expected {expected_presets}")
+if builtin_profiles() != expected_profiles:
+    problems.append(f"profiles {builtin_profiles()}, expected {expected_profiles}")
+for name in builtin_presets():
+    load_preset(name)
+for name in builtin_profiles():
+    load_builtin_profile(name)  # reads every prompt and rubric it lists
+for schema in ("presets/pipeline.schema.json", "profiles/profile.schema.json"):
+    if not (files("groundline_core") / schema).is_file():
+        problems.append(f"no {schema}")
+for problem in problems:
+    print(f"  {problem}", file=sys.stderr)
+sys.exit(1 if problems else 0)
+EOF
 
   unwanted="$("$python" -I - <<'EOF'
 from importlib.metadata import PackageNotFoundError, version
@@ -85,10 +194,26 @@ EOF
   echo "ok: $installer installs groundline-core without extras"
 }
 
-uv venv --seed --quiet "$work/pip"
-"$work/pip/bin/python" -m pip install --quiet --disable-pip-version-check "$wheel"
-check pip "$work/pip"
+if [ "$mode" = index ]; then
+  # The index may not host the dependencies (TestPyPI doesn't), so they come from
+  # PyPI. Only groundline-core itself is pinned to the index's VERSION.
+  uv venv --seed --quiet "$work/pip"
+  "$work/pip/bin/python" -m pip install --quiet --disable-pip-version-check \
+    --index-url "$index" --extra-index-url https://pypi.org/simple/ \
+    "groundline-core==$version"
+  check "pip from $index" "$work/pip"
 
-uv venv --quiet "$work/uv"
-uv pip install --quiet --python "$work/uv/bin/python" "$wheel"
-check "uv pip" "$work/uv"
+  uv venv --quiet "$work/uv"
+  uv pip install --quiet --python "$work/uv/bin/python" \
+    --index-url "$index" --extra-index-url https://pypi.org/simple/ \
+    --index-strategy unsafe-best-match "groundline-core==$version"
+  check "uv pip from $index" "$work/uv"
+else
+  uv venv --seed --quiet "$work/pip"
+  "$work/pip/bin/python" -m pip install --quiet --disable-pip-version-check "$wheel"
+  check pip "$work/pip"
+
+  uv venv --quiet "$work/uv"
+  uv pip install --quiet --python "$work/uv/bin/python" "$wheel"
+  check "uv pip" "$work/uv"
+fi

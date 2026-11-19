@@ -1,0 +1,138 @@
+name: Release
+
+# Publish groundline-core: build it once, upload it to TestPyPI, install it from
+# there and check it, then, after a reviewer approves, upload the same files to
+# PyPI and tag the release. Only someone starting it by hand runs it. From a
+# branch other than main it stops after TestPyPI, with a development version.
+# DEVELOPMENT.md, "Releasing groundline-core", explains how to run it.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One release at a time, and never one cancelled halfway.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+env:
+  # Fail instead of silently updating uv.lock when it is out of date.
+  UV_LOCKED: "1"
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # Every tag, so the version check can see earlier releases.
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Choose the version
+        id: version
+        run: python3 scripts/release_version.py >> "$GITHUB_OUTPUT"
+      - name: Use a development version for a run from a branch
+        if: github.ref != 'refs/heads/main'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: uv version --frozen "$VERSION"
+      - name: Build
+        run: uv build --out-dir dist
+      - name: Check the built files
+        run: scripts/core-install-check --dist dist
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: dist
+          path: dist/
+          if-no-files-found: error
+
+  testpypi:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment:
+      name: testpypi
+      url: https://test.pypi.org/project/groundline-core/${{ needs.build.outputs.version }}/
+    permissions:
+      # Trusted publishing: a short-lived token instead of a stored secret.
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  verify:
+    needs: [build, testpypi]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      VERSION: ${{ needs.build.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+      - name: Wait for TestPyPI to list the upload
+        # A new upload can take a minute or two to appear in the index.
+        run: |
+          for attempt in $(seq 20); do
+            if curl --silent --fail "https://test.pypi.org/simple/groundline-core/" |
+              grep --quiet "groundline_core-$VERSION"; then
+              exit 0
+            fi
+            echo "waiting for groundline-core $VERSION on TestPyPI ($attempt)"
+            sleep 15
+          done
+          echo "groundline-core $VERSION didn't appear on TestPyPI within 5 minutes"
+          exit 1
+      - name: Install from TestPyPI and check it
+        run: scripts/core-install-check --from-index https://test.pypi.org/simple/ "$VERSION"
+
+  pypi:
+    needs: [build, verify]
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # The environment's required reviewers approve before this job starts.
+    environment:
+      name: pypi
+      url: https://pypi.org/project/groundline-core/${{ needs.build.outputs.version }}/
+    permissions:
+      id-token: write
+    steps:
+      # The files checked from TestPyPI, not a new build.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist/
+      - uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # v1.14.3
+
+  release:
+    needs: [build, pypi]
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # To create the tag and the GitHub release.
+      contents: write
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: dist
+          path: dist/
+      - name: Tag the release and publish its notes
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          gh release create "groundline-core-v$VERSION" dist/* \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "groundline-core $VERSION" \
+            --generate-notes

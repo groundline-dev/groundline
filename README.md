@@ -1,6 +1,6 @@
 # groundline
 
-groundline checks an AI-written summary against its source. Its **omission check** reports which important facts the summary leaves out, how much each one matters, and whether the summary should be flagged. Its **commission check** (often called hallucination detection) reports which claims in the summary the source doesn't support, either because it contradicts them or doesn't mention them. Its first domain is clinical notes checked against the consultation transcript.
+groundline checks an AI-written summary against its source. Its **omission check** reports which important facts the summary leaves out, how much each one matters, and whether the summary should be flagged. Its **commission check** (often called hallucination detection) reports which claims in the summary the source doesn't support, either because it contradicts them or doesn't mention them. It comes with one domain profile, for clinical notes and the consultation transcripts they're written from; other domains need their own profile.
 
 **Status:** early development. It is research code, **not for clinical use**, and must not be used with real patient data yet (see [Caching and sensitive data](#caching-and-sensitive-data)). Read the [Disclaimer](#disclaimer) before relying on a result.
 
@@ -21,7 +21,7 @@ The default pipeline, the **all-Opus omission check**, runs six steps:
 5. **Score:** counts and ratios of what's missing.
 6. **Alarm:** flag the summary when a critical fact is confidently missing. The alarm score is the highest missing confidence among critical facts still flagged, with partials at half weight.
 
-Every step uses Claude Opus 5.5, so the pipeline can run under Anthropic's BAA once it's in production. On 50 held-out notes from [OmissionBench](https://huggingface.co/datasets/ComposoAI/OmissionBench), with thresholds fixed in advance, it caught 16/50 omissions with 1/50 clean notes flagged, at about $0.21 per note. Those results hold only for the unchanged `omission_all_opus` preset. The report tells you whether a run used it.
+Every step uses Claude Opus 5.5. On 50 held-out notes from [OmissionBench](https://huggingface.co/datasets/ComposoAI/OmissionBench), with thresholds fixed in advance, it caught 16/50 omissions with 1/50 clean notes flagged, at about $0.21 per note. Those results hold only for the unchanged `omission_all_opus` preset. The report tells you whether a run used it.
 
 The default commission pipeline, the **quick commission check**, runs three steps:
 
@@ -33,7 +33,7 @@ Measured on 172 held-out commission pairs (pre-registered), it caught 151, flagg
 
 On realistic notes outside that benchmark, it flagged about a third of them. A blind review found that most of those flags were on genuine content the transcript doesn't say aloud, such as exam findings, which the check can't tell apart from invented content. A flag means the note needs a look; it isn't proof that anything was invented.
 
-The quick check uses Claude Haiku 5.5, not Opus. Anthropic's BAA is understood to cover services and features rather than specific models, but confirm that before production (see [ADR 0007](docs/adr/0007-commission-check-ships-quick.md)).
+The quick check uses Claude Haiku 5.5, not Opus (see [ADR 0007](https://github.com/groundline-dev/groundline/blob/main/docs/adr/0007-commission-check-ships-quick.md)).
 
 groundline can also run the **lean commission check** (`commission_reverse_lean`), which uses Claude Opus 5.5 throughout:
 
@@ -42,7 +42,7 @@ groundline can also run the **lean commission check** (`commission_reverse_lean`
 3. **Commissions refute:** a second look at every flagged claim, whatever its severity, which can only clear one, and only with a verified quote from the source.
 4. **Alarm:** as above, with its own threshold level, `default`, at 0.80.
 
-Measured on 172 commission pairs, it caught 166, flagged 0 of 110 clean notes, and cost about $0.14 and 19 seconds per note. It matched the exact preset's catches, but failed both of its pre-registered tests, a paired-score margin less than two pairs wide and a false-alarm limit on notes from other sources, so it isn't confirmed to that standard (see [ADR 0017](docs/adr/0017-the-commission-check-also-offers-lean.md)). Those results hold only for the unchanged `commission_reverse_lean` preset. The CLI's `commissions` command runs quick unless you pass `--preset commission_reverse_lean`.
+Measured on 172 commission pairs, it caught 166, flagged 0 of 110 clean notes, and cost about $0.14 and 19 seconds per note. It matched the exact preset's catches, but failed both of its pre-registered tests, a paired-score margin less than two pairs wide and a false-alarm limit on notes from other sources, so it isn't confirmed to that standard (see [ADR 0017](https://github.com/groundline-dev/groundline/blob/main/docs/adr/0017-the-commission-check-also-offers-lean.md)). Those results hold only for the unchanged `commission_reverse_lean` preset. The CLI's `commissions` command runs quick unless you pass `--preset commission_reverse_lean`.
 
 ## Setup
 
@@ -52,15 +52,15 @@ This project uses [uv](https://docs.astral.sh/uv/getting-started/installation/) 
 make setup
 ```
 
-`make` targets sync automatically; run `uv sync` after a pull if your editor shows missing imports. Use `uv run <command>` to run anything else inside the environment without activating it.
+`make` targets sync automatically; run `uv sync` after a pull if your editor shows missing imports. Use `uv run <command>` to run anything else inside the environment without activating it. The examples in this README run from a clone like this; if you installed the package with pip instead, leave out `uv run`, as in `groundline-core omissions transcript.txt note.txt`.
 
-Model calls need an Anthropic API key. Copy `.env.example` to `.env` and add your key, or export `ANTHROPIC_API_KEY`. groundline stores its own API-key hashes and metadata in PostgreSQL. HTTP checks require PostgreSQL for authentication; CLI and Python checks do not. [DEVELOPMENT.md](DEVELOPMENT.md#getting-started) explains how to set it up. `.env` is git-ignored; never commit a key. The CLI and the API read `.env` from the folder you run them in, so run commands from the repo root. The Python library reads a `.env` file only if you name one (see [The Anthropic API key in your code](#the-anthropic-api-key-in-your-code)). A missing or rejected Anthropic API key produces an error saying where groundline looked and how to fix it, before any paid call.
+Model calls need an Anthropic API key. Copy `.env.example` to `.env` and add your key, or export `ANTHROPIC_API_KEY`. groundline stores its own API-key hashes and metadata in PostgreSQL. HTTP checks require PostgreSQL for authentication; CLI and Python checks do not. [DEVELOPMENT.md](https://github.com/groundline-dev/groundline/blob/main/DEVELOPMENT.md#getting-started) explains how to set it up. `.env` is git-ignored; never commit a key. The CLI and the API read `.env` from the folder you run them in, so run commands from the repo root. The Python library reads a `.env` file only if you name one (see [The Anthropic API key in your code](#the-anthropic-api-key-in-your-code)). A missing or rejected Anthropic API key produces an error saying where groundline looked and how to fix it, before any paid call.
 
 **Live calls cost money.** A typical clinical note costs about $0.21 for the omission check, and about $0.001 for the quick commission check or $0.14 for the lean one. Agree a budget with your team before running anything at scale.
 
 ## Managing API keys
 
-These are groundline API keys for callers of protected HTTP endpoints, separate from the Anthropic API key used for model calls. Complete the [database setup](DEVELOPMENT.md#getting-started) first; these commands access PostgreSQL directly and do not require the API server to be running or an Anthropic API key.
+These are groundline API keys for callers of protected HTTP endpoints, separate from the Anthropic API key used for model calls. Complete the [database setup](https://github.com/groundline-dev/groundline/blob/main/DEVELOPMENT.md#getting-started) first; these commands access PostgreSQL directly and do not require the API server to be running or an Anthropic API key.
 
 ```sh
 uv run groundline-core keys create
@@ -77,7 +77,7 @@ Creation prints the name, full UUID identifier, expiry, and plaintext API key **
 
 `keys list` shows every API key newest first in aligned columns, with its full UUID, name, identifying prefix, status, and UTC expiry (`never` when unset). Values are not truncated. It includes revoked and expired keys; an active key past its expiry displays as `expired` without changing its stored status. No credentials or hashes are shown. An empty database prints `No API keys found.` Prefixes help identify a key but are not guaranteed unique: use the full UUID to revoke it.
 
-Callers send `Authorization: Bearer <api-key>` to a protected route. Authentication checks the primary database on every request, so revocation affects subsequent checks across workers and app instances; requests already authorized may finish. Invalid, revoked, or expired API keys receive 401; unavailable authentication storage produces 503. `/health` and `/ready` remain public. The reusable dependency is available as described in [DEVELOPMENT.md](DEVELOPMENT.md#protecting-an-endpoint). `POST /v1/omissions` and `POST /v1/commissions` use this dependency. Missing API keys also receive 401; all credential rejections use `{"detail": "Invalid or missing API key"}` and `WWW-Authenticate: Bearer`.
+Callers send `Authorization: Bearer <api-key>` to a protected route. Authentication checks the primary database on every request, so revocation affects subsequent checks across workers and app instances; requests already authorized may finish. Invalid, revoked, or expired API keys receive 401; unavailable authentication storage produces 503. `/health` and `/ready` remain public. The reusable dependency is available as described in [DEVELOPMENT.md](https://github.com/groundline-dev/groundline/blob/main/DEVELOPMENT.md#protecting-an-endpoint). `POST /v1/omissions` and `POST /v1/commissions` use this dependency. Missing API keys also receive 401; all credential rejections use `{"detail": "Invalid or missing API key"}` and `WWW-Authenticate: Bearer`.
 
 A connection error or timeout during commit does not prove the change failed. The database may have saved it before the connection dropped. Groundline does not automatically repeat the operation.
 
@@ -167,15 +167,19 @@ The [exit codes](#exit-codes) and [options](#options) are the same as for omissi
 
 ## Using it from Python
 
-To use groundline inside your own app, install the `groundline-core` package. It isn't on PyPI yet, so install it from a clone of this repository. A plain install brings only what the checks need: `anthropic`, `pydantic-settings` and `pyyaml`. Add an extra for the rest:
+To use groundline inside your own app, install the `groundline-core` package from PyPI. A plain install brings only what the checks need: `anthropic`, `pydantic-settings` and `pyyaml`. Add an extra for the rest:
 
 ```sh
-pip install path/to/groundline                 # the library only
-pip install "path/to/groundline[cli]"          # plus the groundline-core command and key management
-pip install "path/to/groundline[server]"       # plus the API
+pip install groundline-core              # the library only
+pip install "groundline-core[cli]"       # plus the groundline-core command and key management
+pip install "groundline-core[server]"    # plus the API
 ```
 
-`uv pip install` takes the same arguments, and `uv add` adds it to a uv project. The package is installed as `groundline-core`, imported as `groundline_core` and run as `groundline-core`, because an unrelated project already uses the name `groundline` on PyPI ([ADR 0016](docs/adr/0016-published-as-groundline-core.md)). Without the `cli` extra, the `groundline-core` command says which extra to install, and so does importing `groundline_core.app` without the `server` extra.
+`uv pip install` takes the same arguments, and `uv add` adds it to a uv project. The package is installed as `groundline-core`, imported as `groundline_core` and run as `groundline-core`, because an unrelated project already uses the name `groundline` on PyPI ([ADR 0016](https://github.com/groundline-dev/groundline/blob/main/docs/adr/0016-published-as-groundline-core.md)). Without the `cli` extra, the `groundline-core` command says which extra to install, and so does importing `groundline_core.app` without the `server` extra.
+
+### Versions
+
+`groundline-core` follows semantic versioning. Until 1.0, a minor release (0.1 to 0.2) may break your code and a patch release (0.1.0 to 0.1.1) never does, so pin a minor version, such as `groundline-core>=0.1,<0.2`.
 
 ### The Anthropic API key in your code
 
@@ -245,7 +249,7 @@ except InvalidInputError:
 
 A message is safe to log or show: it never quotes the source, the summary, the key or Anthropic's own error text, and it names a file only by its name. It does quote names from a spec or profile, such as an unknown step, with anything shaped like an Anthropic or groundline API key replaced by `<redacted key>`; other kinds of secret aren't recognized. When groundline's error comes from another library's error, such as YAML's, pydantic's or the Anthropic SDK's, a traceback doesn't print that original, since its text could quote a file, a setting or the request. `SetupError.path` holds the file's full path, and the CLI prints it on a `File:` line of its own. `SpecError`, `ProfileError` and `InvalidInputError` are also `ValueError`s, but `ModelTimeoutError` isn't a `TimeoutError`.
 
-An exception from your own `client`, or from a bug in groundline, comes out as it was raised rather than as a `GroundlineError` ([ADR 0020](docs/adr/0020-only-groundlines-own-failures-are-groundline-errors.md)), and it doesn't say what the check had spent. To report your model's failure as a `ModelFailureError`, your client can raise one itself.
+An exception from your own `client`, or from a bug in groundline, comes out as it was raised rather than as a `GroundlineError` ([ADR 0020](https://github.com/groundline-dev/groundline/blob/main/docs/adr/0020-only-groundlines-own-failures-are-groundline-errors.md)), and it doesn't say what the check had spent. To report your model's failure as a `ModelFailureError`, your client can raise one itself.
 
 ### Public interface
 
@@ -266,13 +270,13 @@ The package includes its type information, so type checkers such as pyright and 
 
 ## Using the API
 
-Complete the [development setup](DEVELOPMENT.md#getting-started) first. Start the API with `make dev`; it serves at http://127.0.0.1:8000, with interactive docs at `/docs` (also at `/api`) and a read-only reference at `/redoc`. The docs list each endpoint with example requests and responses, and explain how the API is versioned. To run the API and Postgres together in Docker instead, see [Running the whole stack in Docker](DEVELOPMENT.md#running-the-whole-stack-in-docker); to run them as a test deployment in your AWS project, see [Deploying to AWS](docs/deploying-to-aws.md). Both check endpoints require a groundline API key, and every check spends your Anthropic credit. `/health` and `/ready` are public. `/health` answers 200 while the app is running, and `/ready` answers 503 while the database is unavailable.
+Complete the [development setup](https://github.com/groundline-dev/groundline/blob/main/DEVELOPMENT.md#getting-started) first. Start the API with `make dev`; it serves at http://127.0.0.1:8000, with interactive docs at `/docs` (also at `/api`) and a read-only reference at `/redoc`. The docs list each endpoint with example requests and responses, and explain how the API is versioned. To run the API and Postgres together in Docker instead, see [Running the whole stack in Docker](https://github.com/groundline-dev/groundline/blob/main/DEVELOPMENT.md#running-the-whole-stack-in-docker); to run them as a test deployment in your AWS project, see [Deploying to AWS](https://github.com/groundline-dev/groundline/blob/main/docs/deploying-to-aws.md). Both check endpoints require a groundline API key, and every check spends your Anthropic credit. `/health` and `/ready` are public. `/health` answers 200 while the app is running, and `/ready` answers 503 while the database is unavailable.
 
 ### Request limits and timeouts
 
-Every API route has a default request-body limit of 5 MiB, including JSON formatting and escaping. Both check endpoints also require nonblank `source` and `summary` text, with up to 200,000 characters in each field by default. Your server may use different size limits: check its [/docs](http://127.0.0.1:8000/docs) or [/api](http://127.0.0.1:8000/api) page for the current values. To change them, see [request size limits](DEVELOPMENT.md#request-size-limits).
+Every API route has a default request-body limit of 5 MiB, including JSON formatting and escaping. Both check endpoints also require nonblank `source` and `summary` text, with up to 200,000 characters in each field by default. Your server may use different size limits: check its [/docs](http://127.0.0.1:8000/docs) or [/api](http://127.0.0.1:8000/api) page for the current values. To change them, see [request size limits](https://github.com/groundline-dev/groundline/blob/main/DEVELOPMENT.md#request-size-limits).
 
-By default, the server allows 120 seconds to complete either check, including authentication, model calls and waits between retries. Set your HTTP client's timeout a little higher so it also has time to send the request and receive the result. You can leave the server's timeout at its default; see [the overall check limit](DEVELOPMENT.md#overall-check-limit) if you need to change it.
+By default, the server allows 120 seconds to complete either check, including authentication, model calls and waits between retries. Set your HTTP client's timeout a little higher so it also has time to send the request and receive the result. You can leave the server's timeout at its default; see [the overall check limit](https://github.com/groundline-dev/groundline/blob/main/DEVELOPMENT.md#overall-check-limit) if you need to change it.
 
 ### `POST /v1/omissions`
 
@@ -373,7 +377,7 @@ A score shows whether a critical problem was found, not how good the summary is 
 
 ### Statuses and errors
 
-A completed check returns **200 OK**, whether or not it flags the summary ([ADR 0008](docs/adr/0008-the-api-returns-200-for-a-flagged-summary.md)). A flagged summary is a completed result that requires review. Other statuses indicate that the request did not produce a completed check.
+A completed check returns **200 OK**, whether or not it flags the summary ([ADR 0008](https://github.com/groundline-dev/groundline/blob/main/docs/adr/0008-the-api-returns-200-for-a-flagged-summary.md)). A flagged summary is a completed result that requires review. Other statuses indicate that the request did not produce a completed check.
 
 Both check endpoints use the following statuses. Every error response is JSON with a `detail` field describing the error.
 
@@ -392,7 +396,7 @@ Both check endpoints use the following statuses. Every error response is JSON wi
 
 For **502 Bad Gateway** responses, `detail` identifies the step that failed and any usage recorded before it stopped. Anthropic API errors include the provider's status and error type. If a retry ends in a model error, the response is 502 even if an earlier attempt timed out.
 
-For **503** responses, `detail` provides configuration guidance or reports that authentication is unavailable. The operator should check the [service configuration and database](DEVELOPMENT.md#getting-started).
+For **503** responses, `detail` provides configuration guidance or reports that authentication is unavailable. The operator should check the [service configuration and database](https://github.com/groundline-dev/groundline/blob/main/DEVELOPMENT.md#getting-started).
 
 **Failed checks may still incur model charges.** Interrupted model requests can incur charges without returning usage, so costs reported in errors cover only recorded usage. The provider's bill may be higher. A retry near the deadline can also use the remaining time and incur charges without producing a result.
 
@@ -409,19 +413,19 @@ make aws-up        # choose the project and the code, deploy, and check the serv
 make aws-destroy   # when you're done
 ```
 
-[Deploying to AWS](docs/deploying-to-aws.md) explains each step, the settings, the costs and how to check the server.
+[Deploying to AWS](https://github.com/groundline-dev/groundline/blob/main/docs/deploying-to-aws.md) explains each step, the settings, the costs and how to check the server.
 
 ## Pipelines, presets and profiles
 
 - **A pipeline spec** says how to check: which steps run, which implementation does each (for example `check.llm_batch`), whether each step is on, and each step's settings, such as model, effort and thresholds. Specs are YAML or JSON. Every spec is validated before any model call, and the validation reports every problem at once.
-- **A preset** is a validated spec that ships with groundline. [`omission_all_opus`](src/groundline_core/presets/omission_all_opus.yaml) is the default; the commission presets are [`commission_quick`](src/groundline_core/presets/commission_quick.yaml) and [`commission_reverse_lean`](src/groundline_core/presets/commission_reverse_lean.yaml). To try a variation, copy it, change it, and pass it with `--pipeline`. The report then says it isn't the validated preset, and warns if it still uses the preset's alarm thresholds, since those were calibrated only for the preset.
+- **A preset** is a validated spec that ships with groundline. [`omission_all_opus`](https://github.com/groundline-dev/groundline/blob/main/src/groundline_core/presets/omission_all_opus.yaml) is the default; the commission presets are [`commission_quick`](https://github.com/groundline-dev/groundline/blob/main/src/groundline_core/presets/commission_quick.yaml) and [`commission_reverse_lean`](https://github.com/groundline-dev/groundline/blob/main/src/groundline_core/presets/commission_reverse_lean.yaml). To try a variation, copy it, change it, and pass it with `--pipeline`. The report then says it isn't the validated preset, and warns if it still uses the preset's alarm thresholds, since those were calibrated only for the preset.
 
   Editors with YAML schema support, such as VS Code with Red Hat's YAML extension, can check a spec as you write it and suggest each implementation's settings. The preset's first line does this; in your own copy, point it at the published schema:
 
   ```yaml
   # yaml-language-server: $schema=https://raw.githubusercontent.com/groundline-dev/groundline/main/src/groundline_core/presets/pipeline.schema.json
   ```
-- **A domain profile** says what matters in a domain: the prompts for each step and the severity rubric, in a folder with a `profile.yaml`. It can also add a disclaimer sentence to the [Disclaimer](#disclaimer). [`clinical`](src/groundline_core/profiles/clinical/) is built in. A new domain, such as finance, needs a new profile folder, not code changes.
+- **A domain profile** says what matters in a domain: the prompts for each step and the severity rubric, in a folder with a `profile.yaml`. It can also add a disclaimer sentence to the [Disclaimer](#disclaimer). [`clinical`](https://github.com/groundline-dev/groundline/tree/main/src/groundline_core/profiles/clinical/) is built in. A new domain, such as finance, needs a new profile folder, not code changes.
 
 ## Caching and sensitive data
 
@@ -429,11 +433,13 @@ The library caches only when it's given a cache, and the CLI caches only with `-
 
 ## Contributing
 
-See [DEVELOPMENT.md](DEVELOPMENT.md) for the git hooks, running the tests (including the live smoke test and the parity test), lint and type checks, the project layout, and commit conventions. Contributions are accepted under the project's license, as section 5 of the [Apache License 2.0](LICENSE) sets out.
+See [DEVELOPMENT.md](https://github.com/groundline-dev/groundline/blob/main/DEVELOPMENT.md) for the git hooks, running the tests (including the live smoke test and the parity test), lint and type checks, the project layout, and commit conventions. Contributions are accepted under the project's license, as section 5 of the [Apache License 2.0](https://github.com/groundline-dev/groundline/blob/main/LICENSE) sets out.
+
+To report a vulnerability, see [SECURITY.md](https://github.com/groundline-dev/groundline/blob/main/SECURITY.md): please don't open a public issue.
 
 ## Data attribution
 
-The test fixtures in `tests/fixtures/parity/` are rows of OmissionBench (Composo AI, CC BY 4.0), derived from PriMock57 (Babylon Health, CC BY 4.0). Full credits are in each fixture's ATTRIBUTION.md, such as [this one](tests/fixtures/parity/primock__day2_consultation05__omit/ATTRIBUTION.md).
+The test fixtures in `tests/fixtures/parity/` are rows of OmissionBench (Composo AI, CC BY 4.0), derived from PriMock57 (Babylon Health, CC BY 4.0). Full credits are in each fixture's ATTRIBUTION.md, such as [this one](https://github.com/groundline-dev/groundline/blob/main/tests/fixtures/parity/primock__day2_consultation05__omit/ATTRIBUTION.md).
 
 ## Disclaimer
 
@@ -443,4 +449,4 @@ Each domain profile can add a disclaimer sentence after the first one. The built
 
 ## License
 
-Copyright 2026 The groundline Authors. groundline is licensed under the [Apache License 2.0](LICENSE); see also [NOTICE](NOTICE). The test fixtures described under [Data attribution](#data-attribution) keep their own CC BY 4.0 license.
+Copyright 2026 The groundline Authors. groundline is licensed under the [Apache License 2.0](https://github.com/groundline-dev/groundline/blob/main/LICENSE); see also [NOTICE](https://github.com/groundline-dev/groundline/blob/main/NOTICE). The test fixtures described under [Data attribution](#data-attribution) keep their own CC BY 4.0 license.
