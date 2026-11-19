@@ -76,3 +76,20 @@ def test_security_reports_go_to_the_shared_address_privately():
     assert f"{REPOSITORY}/blob/main/SECURITY.md" in link_targets(
         (ROOT / "README.md").read_text()
     ), "the README doesn't link to SECURITY.md"
+
+
+def test_each_link_into_the_repository_has_a_file_and_heading_to_go_to():
+    # The README's links into the repository are absolute and pinned to main,
+    # so a moved file or a renamed heading would break them silently.
+    prefix = f"{REPOSITORY}/blob/main/"
+    broken: list[str] = []
+    for target in link_targets((ROOT / "README.md").read_text()):
+        if not target.startswith(prefix):
+            continue
+        path, _, anchor = target.removeprefix(prefix).partition("#")
+        file = ROOT / path
+        if not file.is_file():
+            broken.append(target)
+        elif anchor and anchor not in heading_ids(file.read_text()):
+            broken.append(target)
+    assert broken == []

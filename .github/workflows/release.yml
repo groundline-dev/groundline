@@ -95,10 +95,12 @@ jobs:
       - name: Wait for TestPyPI to list the upload
         # A new upload can take a minute or two to appear in the index.
         run: |
+          # Both files' exact names, so an earlier development version can't
+          # match, and the wheel the next step downloads is surely there.
           for attempt in $(seq 20); do
-            # The sdist's exact name, so an earlier development version can't match.
-            if curl --silent --fail --max-time 30 "https://test.pypi.org/simple/groundline-core/" |
-              grep --quiet --fixed-strings "groundline_core-$VERSION.tar.gz"; then
+            if page="$(curl --silent --fail --max-time 30 "https://test.pypi.org/simple/groundline-core/")" &&
+              grep --quiet --fixed-strings "groundline_core-$VERSION.tar.gz" <<< "$page" &&
+              grep --quiet --fixed-strings "groundline_core-$VERSION-py3-none-any.whl" <<< "$page"; then
               exit 0
             fi
             echo "waiting for groundline-core $VERSION on TestPyPI ($attempt)"
@@ -164,7 +166,7 @@ jobs:
           # Notes from the previous groundline-core release, not from whatever the
           # repository released last (the SDK releases here too). No pipe, so a
           # failed lookup fails the step.
-          previous="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 "${lookup[@]}" \
+          previous="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 1000 "${lookup[@]}" \
             --json tagName --jq '[.[].tagName | select(startswith("groundline-core-v"))][0] // empty')"
           if [ -n "$previous" ]; then
             options+=(--notes-start-tag "$previous")

@@ -386,6 +386,7 @@ A PyPI account holder and a repository admin do this once, before the first rele
 
 - On pypi.org and on test.pypi.org (separate accounts, each with two-factor authentication), add a pending publisher under **Account settings → Publishing**: project `groundline-core`, owner `groundline-dev`, repository `groundline`, workflow `release.yml`, and environment `pypi` on pypi.org or `testpypi` on test.pypi.org. Trusted publishing then lets the workflow upload without a stored token.
 - In the repository's **Settings → Environments**, create `testpypi` with no reviewers, and `pypi` with the team as required reviewers, **Prevent self-review** on, and **Deployment branches** limited to `main`. The branch limit is what stops a copy of the workflow pushed to another branch from publishing to PyPI.
+- In the repository's **Settings → Security** (Advanced Security), keep **Private vulnerability reporting** on: SECURITY.md sends reports there.
 - After the first release, add at least one more owner to the project on PyPI, so that one lost login can't lock it.
 
 ## Layout

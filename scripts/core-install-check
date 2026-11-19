@@ -54,12 +54,14 @@ esac
 # The built-in presets and profiles in this checkout, which the installed package
 # must also have. The same functions, run against the source tree, so there is
 # one definition of "built in".
-{ read -r presets; read -r profiles; } < <(uv run --quiet python -I -c '
+# Not a process substitution: bash ignores its exit status.
+builtins="$(uv run --quiet python -I -c '
 from groundline_core import builtin_presets
 from groundline_core.profiles import builtin_profiles
 print(" ".join(builtin_presets()))
 print(" ".join(builtin_profiles()))
-')
+')" || fail "couldn't list the built-in presets and profiles"
+{ read -r presets; read -r profiles; } <<< "$builtins"
 
 if [ "$mode" = build ]; then
   dist="$work/dist"
