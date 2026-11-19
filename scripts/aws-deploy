@@ -13,7 +13,8 @@
 # the Region is that project's, or AWS_REGION. It first makes the deployment's
 # data volume and Elastic IP (infra/data/), which outlive its servers, then the
 # server (infra/). A server that's already running is upgraded in place over
-# SSM: it checks out the commit and rebuilds and restarts the stack, keeping
+# SSM: it checks out the commit and rebuilds and restarts the Docker Compose
+# services, keeping
 # its data, address and certificate. Before changing anything, it says in plain
 # words what will change and asks.
 set -euo pipefail

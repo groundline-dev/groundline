@@ -4,7 +4,7 @@
 # variables are written $name, without braces, so Terraform leaves them alone.
 #
 # It installs what the server needs, mounts the data volume, clones the commit
-# and runs its infra/server/apply, which writes .env and starts the stack. It
+# and runs its infra/server/apply, which writes .env and starts the Docker Compose services. It
 # logs to /var/log/groundline-bootstrap.log, which scripts/aws-smoke-test prints
 # if the app doesn't start. At the end it leaves /var/lib/groundline/bootstrap-done,
 # or bootstrap-failed if a command failed. -E makes the ERR trap fire inside

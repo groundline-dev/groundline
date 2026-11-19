@@ -1,16 +1,8 @@
 #!/usr/bin/env bash
-# Runs on the server as root, from its checkout (/opt/groundline): on the first
-# boot (infra/bootstrap.sh.tftpl) and after each upgrade checks out a new commit
-# (scripts/aws-deploy, over SSM). It writes .env, then builds the image and starts or
-# updates the stack. Running it twice changes nothing the second time.
-#
-# .env holds the database passwords from the data volume, made on the first
-# run and kept after that, since Postgres only takes a password when it creates
-# its database. It also holds the Anthropic API key, read from Parameter Store
-# on every run, so a new key reaches the app without replacing the server, and
-# the app's settings, from the server's groundline-setting-<NAME> tags (the
-# app_settings in infra/terraform.tfvars). A setting without a tag isn't
-# written, so the app uses its default.
+# Writes the server's .env and builds and starts or updates the Docker Compose
+# services. Runs on the server as root, from its checkout (/opt/groundline): on
+# the first boot (infra/bootstrap.sh.tftpl), and after scripts/aws-deploy checks
+# out a new commit over SSM. Running it twice changes nothing the second time.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -29,7 +21,9 @@ read_metadata() {
 region="$(read_metadata placement/region)"
 deployment="$(read_metadata tags/instance/deployment)"
 parameter="/groundline/$deployment/anthropic-api-key"
-# read_settings: set $settings to NAME=VALUE lines from the setting tags.
+# read_settings: set $settings to NAME=VALUE lines from the server's
+# groundline-setting-<NAME> tags (app_settings in infra/terraform.tfvars). A
+# setting without a tag isn't written, so the app uses its default.
 read_settings() {
   local tags tag value
   settings=""
@@ -71,8 +65,9 @@ else
   done
 fi
 
-# The database passwords: hex, so they're safe in a URL and in Compose.
-# Generated first, since a failed command inside echo "$(...)" wouldn't stop
+# The database passwords, made on the first run and kept on the data volume,
+# since Postgres only takes a password when it creates its database. Hex, so
+# they're safe in a URL and in Compose. Generated first, since a failed command inside echo "$(...)" wouldn't stop
 # the script.
 umask 077
 secrets="$data/secrets/db.env"
@@ -88,8 +83,9 @@ if [ ! -s "$secrets" ]; then
   echo "groundline: made the database passwords, on the data volume"
 fi
 
-# The Anthropic API key is optional: without the parameter, the app starts and
-# answers everything except model calls. Any other error stops the run.
+# The Anthropic API key, read on every run, so a new key reaches the app
+# without replacing the server. It's optional: without the parameter, the app
+# starts and answers everything except model calls. Any other error stops the run.
 errors_file="$(mktemp)"
 trap 'rm -f "$errors_file" .env.new' EXIT
 anthropic_api_key=""

@@ -20,7 +20,8 @@ data "aws_ssm_parameter" "al2023_arm64" {
 
 locals {
   # Each deployment has its own Anthropic API key, which scripts/aws-up stores
-  # under this name and scripts/aws-destroy deletes.
+  # under this name. scripts/aws-destroy deletes a disposable deployment's; a
+  # lasting deployment keeps it until make aws-destroy DATA=delete.
   anthropic_parameter_name = "/groundline/${var.deployment_name}/anthropic-api-key"
   anthropic_parameter_arn = join("", [
     "arn:${data.aws_partition.current.partition}:ssm:${var.region}:",
@@ -269,9 +270,9 @@ resource "aws_instance" "app" {
     }
   }
 
-  # What the server runs, who may reach it and the app's settings. The server
-  # reads these through IMDS, so changing one updates the server in place
-  # instead of replacing it. They contain no secrets.
+  # Deployment settings go in instance tags so changes don't replace the server.
+  # scripts/aws-deploy applies them in place; the server reads them through the
+  # Instance Metadata Service (IMDS). These tags contain no secrets.
   tags = merge({
     Name                      = "groundline-${var.deployment_name}"
     groundline-lifetime       = var.lifetime

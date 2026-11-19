@@ -57,12 +57,21 @@ Terraform state stays in this folder and in `data/` (in `terraform.tfstate.d/<ac
 
 ## Tests
 
+The tests live in three places:
+
+| Test location | What it tests | Command |
+|---|---|---|
+| `infra/tests/` | The server's infrastructure, networking, permissions and settings | `make infra-check` |
+| `infra/data/tests/` | The data volume and Elastic IP, kept apart from the server | `make infra-check` |
+| `tests/` | The app and the deployment scripts, including checks of these files written in Python | `make check` |
+
 `make infra-check` runs `terraform fmt`, `validate` and `test`. The tests plan and apply against a mock AWS provider, so they need Terraform but no AWS credentials, and CI runs them. Each file covers one part:
 
 - `network.tftest.hcl`: public TCP 443, `tester_cidr` validation and access metadata independent of replacement-triggering bootstrap data
 - `iam.tftest.hcl`: the role's trust policy, its names, that it can read only the Anthropic parameter, and that only a server with a deadline can release its own Elastic IP
 - `instance.tftest.hcl`: IMDSv2 and the hop limit, CPU credits, the disk, the time limit, the `deployment_name` and `lifetime` validation, the startup script, the data volume and Elastic IP, app settings and the outputs
 - `budget.tftest.hcl`: the amount for each lifetime, the thresholds and leaving out credits
+- `instance.tftest.hcl` also tests `modules/app-settings`, which holds the rules for `app_settings` that both folders apply
 - `data/tests/data.tftest.hcl`: the data volume's size, encryption, tags and Availability Zone, the Elastic IP and the outputs
 
 The mock provider doesn't apply `default_tags` and can't list every resource of a kind, so [tests/test_infra.py](../tests/test_infra.py), which `make check` runs, reads the files instead. Among other things, it checks that every resource is tagged, that no Region or backend is written in, that the role gets no managed policy, that the security group has one inbound rule, and that only `server/apply` reads the Anthropic API key. [tests/test_server_apply.py](../tests/test_server_apply.py) runs `server/apply` against fake IMDS, AWS and Docker commands.

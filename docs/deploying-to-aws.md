@@ -118,7 +118,7 @@ For a lasting deployment, also set `lifetime = "lasting"` and `auto_terminate_ho
 
 To make model calls, your server needs your Anthropic API key in Parameter Store, as `/groundline/<deployment_name>/anthropic-api-key`. Its IAM role can read only that parameter. Without it, the server still starts and `make aws-smoke` still passes, but every model call fails with 503. `make aws-destroy` deletes a disposable deployment's parameter, so each new one needs it stored again. A lasting deployment's parameter stays until `make aws-destroy DATA=delete`.
 
-`make aws-up` stores it for you. It offers `AWS_ANTHROPIC_API_KEY` from your `.env` first, then `ANTHROPIC_API_KEY`, showing each key's last 4 characters before using it, and otherwise asks you to paste one. Set `AWS_ANTHROPIC_API_KEY` to keep a separate key for deployments next to your everyday one.
+`make aws-up` stores it for you. It first offers to reuse a key already stored for this deployment in AWS. If there's none, or you choose to replace it, it offers `AWS_ANTHROPIC_API_KEY` from your `.env`, then `ANTHROPIC_API_KEY`, showing each key's last 4 characters. If you accept neither, it asks you to paste one. Set `AWS_ANTHROPIC_API_KEY` to use a separate key for deployments alongside your everyday one.
 
 When a key is already stored, `make aws-up` asks whether to keep it. If you answer no, it asks for a new key and overwrites the stored one. The server reads the key when it starts and on every upgrade, so the running server switches to the new key when `make aws-up` upgrades it.
 
@@ -227,9 +227,9 @@ On a lasting deployment, each upgrade to a newer commit first takes a snapshot o
 
 **Rolling back.** To go back to an earlier commit, deploy it: `REF=<commit> make aws-deploy`. The plan warns that it's older than the running commit, and the rollback keeps the pre-upgrade snapshot. If the newer commit ran a database migration the older one doesn't understand, restore that snapshot first:
 
-1. In the EC2 console, create a volume from the snapshot, in the data volume's Availability Zone (`terraform -chdir=infra/data output -raw availability_zone`).
+1. In the EC2 console, create a volume from the snapshot: gp3, encrypted, the same size as the data volume (`terraform -chdir=infra/data output -raw data_volume_gib`), in its Availability Zone (`terraform -chdir=infra/data output -raw availability_zone`). A volume that differs would be replaced by the next plan, which `make aws-deploy` refuses.
 2. Run `make aws-destroy`, which keeps a lasting deployment's data volume.
-3. Delete the old data volume, and tag the new one with the old one's `app`, `deployment`, `role` and `Name` tags, so the server finds it.
+3. Remove the old data volume's `deployment` and `role` tags, so the server can't find it, and give the new one the old one's `app`, `deployment`, `role` and `Name` tags. Keep the old volume until the restored deployment passes `make aws-smoke`, then delete it.
 4. Run `terraform -chdir=infra/data import aws_ebs_volume.data <new volume ID>` after `terraform -chdir=infra/data state rm aws_ebs_volume.data`, with `TF_WORKSPACE` set to the account ID, as in [Checking the server by hand](#checking-the-server-by-hand).
 5. Run `REF=<the older commit> make aws-deploy`.
 

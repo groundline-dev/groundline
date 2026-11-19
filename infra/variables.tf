@@ -1,6 +1,6 @@
+# Defines the deployment's inputs, their defaults and their validation. Set a
+# deployment's own values in terraform.tfvars (see terraform.tfvars.example);
 # scripts/aws-deploy fills in region, tester_cidr and git_ref.
-# deployment_name and budget_alert_email go in terraform.tfvars (see
-# terraform.tfvars.example).
 
 variable "region" {
   description = "The AWS Region to deploy to: your AWS project's Region."
