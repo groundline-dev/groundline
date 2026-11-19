@@ -246,10 +246,10 @@ class GroundlineClient:
     `Retry-After` header. `max_attempts` counts the first request, so 1 turns
     retries off. `max_retry_seconds` limits the whole call, retries included, and
     `timeout_seconds` one attempt; `connect_timeout_seconds` limits setting up the
-    connection. Async calls are cut off at those limits; sync calls are limited
-    per step (connect, send, wait for a reply), so a sync call can run a little
-    over, and a server that keeps sending bytes can outlast it. Retrying a check can
-    repeat paid model work.
+    connection. Async calls are cut off at those limits. In a sync call each step
+    (waiting for a connection, connecting, sending, and each wait for reply data)
+    is limited separately, so an attempt can take longer than `timeout_seconds`.
+    Retrying a check can repeat paid model work.
 
     Each operation has a sync method and an `_async` one. Use the client in a
     `with` block (or `async with`) to close its connections when you are done.

@@ -44,7 +44,7 @@ _SMALLEST_ATTEMPT_SECONDS = 0.001
 _TIMED_OUT = "The request took longer than the time allowed for it."
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, kw_only=True)
 class Limits:
     """The attempts and time limits a client was created with."""
 
@@ -124,7 +124,7 @@ class _RetryBudget:
         # a body or an error's message, which can hold any of them.
         cause = f"status={status}" if error is None else f"error={type(error).__name__}"
         logger.info(
-            "retry after attempt=%d %s wait_seconds=%.3f", self.attempt, cause, wait
+            "retry after attempt=%d %s wait_seconds=%.2f", self.attempt, cause, wait
         )
 
 
