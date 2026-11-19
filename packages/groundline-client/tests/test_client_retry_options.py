@@ -2,7 +2,9 @@
 
 import ast
 import inspect
+import re
 import textwrap
+from pathlib import Path
 from typing import Any
 
 import groundline_client as sdk
@@ -96,24 +98,52 @@ def test_a_whole_number_too_big_for_a_float_is_refused_with_a_config_error(
     assert f"{name}=" in str(refused.value)
 
 
-def test_the_retrying_clients_get_the_arguments_the_generated_client_builds_with():
-    # `_httpx_arguments` copies the body of the generated `get_httpx_client`. If
+@pytest.mark.parametrize("getter", ["get_httpx_client", "get_async_httpx_client"])
+def test_the_retrying_clients_get_the_arguments_the_generated_client_builds_with(
+    getter: str,
+):
+    # `_httpx_arguments` copies the body of the generated getters. If
     # `make generate-sdk` adds or renames an argument there, this fails.
-    source = textwrap.dedent(inspect.getsource(AuthenticatedClient.get_httpx_client))
+    source = textwrap.dedent(inspect.getsource(getattr(AuthenticatedClient, getter)))
     construction = next(
         node
         for node in ast.walk(ast.parse(source))
         if isinstance(node, ast.Call)
         and isinstance(node.func, ast.Attribute)
-        and node.func.attr == "Client"
+        and node.func.attr in {"Client", "AsyncClient"}
     )
     generated = {keyword.arg for keyword in construction.keywords if keyword.arg}
 
     ours = client_module._ApiKeyHidingClient(  # pyright: ignore[reportPrivateUsage]
         base_url="http://example.invalid",
         token="not-a-real-key",  # betterleaks:allow a dummy value
-        limits=Limits(1, 1.0, 1.0, 1.0),
+        limits=Limits(
+            max_attempts=1,
+            max_retry_seconds=1.0,
+            timeout_seconds=1.0,
+            connect_timeout_seconds=1.0,
+        ),
     )._httpx_arguments()  # pyright: ignore[reportPrivateUsage]
 
     # `timeout` is left out on purpose: each attempt sets its own.
     assert set(ours) == generated - {"timeout"}
+
+
+def test_the_readme_lists_the_defaults_the_client_uses():
+    readme = (Path(__file__).resolve().parents[1] / "README.md").read_text()
+    in_readme = {
+        name: float(value)
+        for name, value in re.findall(r"^\| `(\w+)` \| ([\d.]+) \|", readme, re.M)
+    }
+
+    assert in_readme == {
+        "max_attempts": client_module.DEFAULT_MAX_ATTEMPTS,
+        "max_retry_seconds": client_module.DEFAULT_MAX_RETRY_SECONDS,
+        "timeout_seconds": client_module.DEFAULT_TIMEOUT_SECONDS,
+        "connect_timeout_seconds": client_module.DEFAULT_CONNECT_TIMEOUT_SECONDS,
+    }
+
+
+def test_the_limits_are_given_by_name_so_two_numbers_cannot_be_swapped():
+    with pytest.raises(TypeError):
+        Limits(1, 1.0, 1.0, 1.0)  # pyright: ignore[reportCallIssue]

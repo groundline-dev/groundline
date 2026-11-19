@@ -410,7 +410,7 @@ def test_each_retry_logs_the_attempt_the_cause_and_the_wait(
     assert all(m.startswith("retry after") for m in messages)
     assert "attempt=1" in messages[0]
     assert "status=503" in messages[0]
-    assert "wait_seconds=2" in messages[0]
+    assert messages[0].endswith("wait_seconds=2.00")
     assert "attempt=2" in messages[1]
     assert "error=ReadTimeout" in messages[1]
 
