@@ -151,12 +151,13 @@ shared_project_warning "$name" "$lifetime" "$running"
 # The Terraform state names your server, if you have one in this project. Its
 # git_ref output says which commit it runs; servers deployed before that output
 # existed don't have it, so they can't be kept from here.
-keep=""
+keep="" running_server=""
 instance="$(optional_output instance_id)"
 if [ -n "$instance" ] \
   && instance_state="$(aws ec2 describe-instances --region "$region" --instance-ids "$instance" \
     --query 'Reservations[0].Instances[0].State.Name' --output text 2>/dev/null)" \
   && [[ "$instance_state" =~ ^(pending|running)$ ]]; then
+  running_server=yes
   running_ref="$(optional_output git_ref)"
   running_repository="$(optional_output repository_url)"
   echo
@@ -204,7 +205,11 @@ if [ -z "$keep" ]; then
     echo "Your server will use the Anthropic API key you gave on an earlier run."
     bullet "It's stored in AWS, encrypted, in $project's Parameter Store as"
     echo "    $anthropic_parameter, not in this repository."
-    bullet "make aws-destroy deletes it."
+    if [ "$lifetime" = lasting ]; then
+      bullet "make aws-destroy keeps it; make aws-destroy DATA=delete deletes it."
+    else
+      bullet "make aws-destroy deletes it."
+    fi
     confirm "Keep the Anthropic API key you gave on an earlier run?" && replace=""
   else
     case "$errors" in
@@ -248,7 +253,11 @@ if [ -z "$keep" ]; then
       # arguments. printf is a shell builtin, so it doesn't start one.
       printf '%s' "$key" | aws ssm put-parameter --region "$region" --name "$anthropic_parameter" \
         --type SecureString --value file:///dev/stdin ${stored:+--overwrite} >/dev/null
-      answer_ok "stored your Anthropic API key; make aws-destroy deletes it"
+      if [ "$lifetime" = lasting ]; then
+        answer_ok "stored your Anthropic API key; make aws-destroy DATA=delete deletes it"
+      else
+        answer_ok "stored your Anthropic API key; make aws-destroy deletes it"
+      fi
       # The server reads the key when it starts and when it's upgraded, which
       # step 2 does.
       if [ -n "$stored" ] && cut -d' ' -f1 <<<"$running" | grep -qx "$name"; then
@@ -279,7 +288,16 @@ if [ -z "$keep" ]; then
       echo "$name is a lasting deployment, which callers rely on. Your branch puts code"
       echo "that isn't on main in front of them."
       ask "To deploy $branch to it anyway, type the deployment's name ($name)"
-      [ "$answer" = "$name" ] || fail "canceled: $name keeps running what it runs now"
+      if [ "$answer" != "$name" ]; then
+        # Say what's there: a running server, data kept by make aws-destroy, or nothing.
+        if [ -n "$running_server" ]; then
+          fail "canceled: $name keeps running what it runs now"
+        elif [ -n "$(optional_output volume_id infra/data)" ]; then
+          fail "canceled: no server was started. $name's data and address are unchanged."
+        else
+          fail "canceled: nothing was created."
+        fi
+      fi
       answer=2
     fi
   fi

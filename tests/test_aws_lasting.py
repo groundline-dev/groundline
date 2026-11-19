@@ -378,17 +378,62 @@ def test_aws_up_says_whether_an_upgrade_takes_a_snapshot(
     assert says in result.stdout
 
 
-def test_a_lasting_deployment_runs_main_unless_you_type_its_name(checkout: Path):
+@pytest.mark.parametrize(
+    ("fields", "says"),
+    [
+        (
+            {
+                "outputs": {**RUNNING, "access_mode": "unrestricted"},
+                "existing": {"i-test": "running"},
+            },
+            "canceled: staging keeps running what it runs now",
+        ),
+        # make aws-destroy kept the data; no server runs.
+        ({}, "canceled: no server was started. staging's data and address are"),
+        ({"data_outputs": {}}, "canceled: nothing was created."),
+    ],
+)
+def test_a_lasting_deployment_runs_main_unless_you_type_its_name(
+    checkout: Path, fields: dict[str, Any], says: str
+):
     lasting(checkout)
     stub_children(checkout)
-    world = aws_fakes.new_world(branch="fix-thing")
+    world = aws_fakes.new_world(branch="fix-thing", **fields)
 
     # Project, keep the stored key, choose the branch, mistype the name.
     result, _ = invoke(checkout, "aws-up", world, "\n\n2\nstagin\n")
 
     assert result.returncode != 0
-    assert "canceled: staging keeps running what it runs now" in result.stderr
+    assert says in result.stderr, result.stdout + result.stderr
     assert not (checkout / "aws-deploy-called").exists()
+
+
+@pytest.mark.parametrize(
+    ("lifetime", "says"),
+    [
+        (
+            "lasting",
+            "make aws-destroy keeps it; make aws-destroy DATA=delete deletes it.",
+        ),
+        ("disposable", "make aws-destroy deletes it."),
+    ],
+)
+def test_the_stored_key_says_what_destroy_does_with_it(
+    checkout: Path, lifetime: str, says: str
+):
+    lasting(
+        checkout,
+        name="alice" if lifetime == "disposable" else "staging",
+        lifetime=lifetime,
+    )
+    stub_children(checkout)
+    world = aws_fakes.new_world()
+
+    result, _ = invoke(checkout, "aws-up", world, "\n\n\n\n")
+
+    assert says in result.stdout, result.stdout + result.stderr
+    if lifetime == "lasting":
+        assert "make aws-destroy deletes it." not in result.stdout
 
 
 def test_what_next_says_destroy_keeps_a_lasting_deployments_data(checkout: Path):
