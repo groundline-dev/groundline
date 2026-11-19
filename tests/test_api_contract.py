@@ -17,8 +17,6 @@ from anthropic import DefaultAsyncHttpxClient
 from fastapi.testclient import TestClient
 
 from groundline_core._clients import AnthropicClient
-from groundline_core._disclaimer import full_disclaimer
-from groundline_core.profiles import load_builtin_profile
 from tests.anthropic_helpers import api_error, message
 from tests.api_integration_helpers import ANTHROPIC_KEY
 from tests.api_integration_helpers import http as http
@@ -36,6 +34,7 @@ from tests.commissions_helpers import (
 )
 from tests.commissions_helpers import SUMMARY as COMMISSION_SUMMARY
 from tests.commissions_helpers import Script as CommissionScript
+from tests.disclaimer_helpers import clinical_disclaimer
 from tests.omission_helpers import (
     CLEAR_SUMMARY,
     SOURCE,
@@ -229,9 +228,7 @@ def test_omission_success_uses_environment_key_and_returns_expected_values(
             "metadata": {
                 "pipeline": "omission_all_opus",
                 "alarm": {"score": score, "threshold": 0.9, "level": "strict"},
-                "disclaimer": full_disclaimer(
-                    load_builtin_profile("clinical").disclaimer
-                ),
+                "disclaimer": clinical_disclaimer(),
             },
         },
         calls,
@@ -278,9 +275,7 @@ def test_commission_success_uses_environment_key_and_returns_expected_values(
             "metadata": {
                 "pipeline": "commission_quick",
                 "alarm": {"score": score, "threshold": 0.85, "level": "default"},
-                "disclaimer": full_disclaimer(
-                    load_builtin_profile("clinical").disclaimer
-                ),
+                "disclaimer": clinical_disclaimer(),
             },
         },
         1,

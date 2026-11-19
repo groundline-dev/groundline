@@ -15,7 +15,7 @@ try:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from groundline_core._core.errors import SetupError, file_line
-    from groundline_core._disclaimer import SHORT
+    from groundline_core._disclaimer import SHORT_DISCLAIMER
     from groundline_core._settings import (
         ENV_FILE,
         SettingsError,
@@ -135,8 +135,9 @@ facts the summary leaves out (omissions) and the claims in it the source
 doesn't support (commissions). It is research code, **not for clinical use**,
 and must not be used with real patient data yet.
 
-{SHORT} Every check's answer carries the full disclaimer in
-`metadata.disclaimer`: show it next to the result wherever people read it.
+{SHORT_DISCLAIMER} Every check's response carries the full
+disclaimer in `metadata.disclaimer`: show it next to the result wherever people
+read it.
 
 ### Authentication
 

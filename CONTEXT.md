@@ -13,7 +13,7 @@ The AI-written text being checked against its source, such as a clinical note.
 _Avoid_: note, output, generation (note is clinical wording, kept in the clinical profile)
 
 **Domain profile**:
-What matters in one domain: its prompts, its severity rubric, the words its prompts use for the source and the summary, and any sentence it adds to the disclaimer.
+What matters in one domain: its prompts, its severity rubric, the words its prompts use for the source and the summary, and its disclaimer sentence, if any.
 _Avoid_: config, domain config
 
 **Severity rubric**:
@@ -99,6 +99,10 @@ _Avoid_: cut-off, threshold (when used as a bare number)
 **Flagged**:
 The outcome for a summary whose alarm score reaches the chosen threshold level.
 _Avoid_: failed, rejected, unsafe
+
+**Disclaimer**:
+What every result says about relying on it: a domain-neutral core, plus the disclaimer sentence a domain profile can add.
+_Avoid_: notice, warning (a warning is something to know about one run)
 
 **Omission score**:
 A summary's alarm score from the omission check, turned around and rescaled to run from 0 to 1, so that higher is better and a score below 0.5 means the summary is flagged.

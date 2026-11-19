@@ -152,9 +152,9 @@ async def evaluate(
             output_tokens=run.usage.output_tokens,
             cost_usd=run.usage.cost_usd,
         ),
-        disclaimer=full_disclaimer(profile.disclaimer if profile else None),
         run=run,
         warnings=warnings,
+        disclaimer=full_disclaimer(profile),
     )
 
 

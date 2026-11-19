@@ -9,7 +9,6 @@ from fastapi.testclient import TestClient
 
 from groundline_core import builtin_presets, load_preset
 from groundline_core._core import APIKeyRejectedError
-from groundline_core._disclaimer import full_disclaimer
 from groundline_core._evaluate import DEFAULT_COMMISSIONS_PRESET
 
 # The route's module, imported as `api` because the tests patch the names it looks up
@@ -17,7 +16,6 @@ from groundline_core._evaluate import DEFAULT_COMMISSIONS_PRESET
 from groundline_core.api import commissions as api
 from groundline_core.api import common
 from groundline_core.app import app
-from groundline_core.profiles import load_builtin_profile
 from tests.anthropic_helpers import (
     bad_request,
     unreachable,
@@ -41,6 +39,7 @@ from tests.commissions_helpers import (
     lean_script,
     verdicts_reply,
 )
+from tests.disclaimer_helpers import clinical_disclaimer
 from tests.fakes import FakeClient
 from tests.omission_helpers import SOURCE
 
@@ -85,7 +84,7 @@ def test_a_flagged_summary_answers_200_with_its_commissions_most_important_first
     assert metadata == {
         "pipeline": DEFAULT_COMMISSIONS_PRESET,
         "alarm": {"score": 0.95, "threshold": 0.85, "level": "default"},
-        "disclaimer": full_disclaimer(load_builtin_profile("clinical").disclaimer),
+        "disclaimer": clinical_disclaimer(),
     }
     assert [(f["statement"], f["verdict"]) for f in body["findings"]] == [
         (DOSE, "contradicted"),

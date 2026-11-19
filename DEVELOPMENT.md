@@ -371,6 +371,7 @@ src/groundline_core/       a leading underscore marks the library's internals (A
   __init__.py              the public interface: the names library callers import
   _evaluate.py             evaluate(): the entry point the CLI and API share
   _result.py, _findings.py the result evaluate() returns, and how findings are built from a run
+  _disclaimer.py           the disclaimer every result carries
   _settings.py             secrets and settings, from the environment or a .env file
   api_keys.py              API-key creation, revocation and authentication
   auth.py                  the Bearer authentication dependency

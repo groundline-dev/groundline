@@ -167,6 +167,26 @@ def test_a_profile_can_add_a_sentence_to_the_disclaimer(tmp_path: Path):
     assert load_profile(folder).disclaimer == "They aren't financial advice."
 
 
+@pytest.mark.parametrize(
+    ("written", "loaded"),
+    [
+        ("|\n  They aren't\n  financial advice.\n", "They aren't financial advice."),
+        ("'   '", ""),
+    ],
+    ids=["over several lines", "blank"],
+)
+def test_a_disclaimer_sentence_is_kept_on_one_line(
+    tmp_path: Path, written: str, loaded: str
+):
+    folder = write_profile(
+        tmp_path / "finance",
+        GOOD_YAML + f"disclaimer: {written}\n",
+        {"prompts/extract_v1.txt": "List {call}"},
+    )
+
+    assert load_profile(folder).disclaimer == loaded
+
+
 def test_a_missing_text_file_is_an_error(tmp_path: Path):
     folder = write_profile(tmp_path / "finance", GOOD_YAML, {})
 

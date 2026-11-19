@@ -48,9 +48,9 @@ RESULT_FIELDS = {
         "counts",
         "alarm",
         "usage",
-        "disclaimer",
         "run",
         "warnings",
+        "disclaimer",
     ],
     "Finding": [
         "type",

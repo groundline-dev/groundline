@@ -110,7 +110,12 @@ Not fully recorded (rank order):
 35 facts: 29 present · 3 partial · 3 absent
 Cost             $0.29 · 4 calls · 31,620 input / 8,140 output tokens · 48.3 s
 
-Results need a person's review: a summary that isn't flagged can still leave out or misstate facts. See https://github.com/groundline-dev/groundline#disclaimer.
+groundline's results help a person review a summary. They aren't medical advice
+or a clinical decision. A summary that isn't flagged can still leave out or
+misstate important facts, so check it before relying on it. You're responsible
+for any decision made using groundline's results. groundline is provided "as
+is", and its authors accept no liability for outcomes from its use (see sections
+7 and 8 of the Apache License 2.0).
 ```
 
 ### Exit codes
@@ -150,7 +155,12 @@ Not supported by the source (severity order):
 
 Cost              $0.0020 · 1 calls · 14,820 input / 1,040 output tokens · 4.1 s
 
-Results need a person's review: a summary that isn't flagged can still leave out or misstate facts. See https://github.com/groundline-dev/groundline#disclaimer.
+groundline's results help a person review a summary. They aren't medical advice
+or a clinical decision. A summary that isn't flagged can still leave out or
+misstate important facts, so check it before relying on it. You're responsible
+for any decision made using groundline's results. groundline is provided "as
+is", and its authors accept no liability for outcomes from its use (see sections
+7 and 8 of the Apache License 2.0).
 ```
 
 The [exit codes](#exit-codes) and [options](#options) are the same as for omissions, plus `--preset NAME`, which picks the validated preset to run: `commission_quick` (the default) or `commission_reverse_lean` (not confirmed to its pre-registered standard, as above). Use `--preset` or `--pipeline`, not both, since a pipeline spec file replaces the preset. An unknown name, or both options together, stops the command with exit code 2. If the model's quote of the source passage isn't found word for word in the source, the report still shows it, marked `(not found word for word in the source)`. If a pipeline switches refute on, the report adds a `Cleared by refute` line.
@@ -300,7 +310,7 @@ curl -s http://127.0.0.1:8000/v1/omissions \
 }
 ```
 
-`findings` lists the facts not fully recorded, most important first. The example is shortened: `counts` implies six findings, and it shows one. Every response has the same shape; see [Findings](#findings). `metadata.disclaimer` is the full [Disclaimer](#disclaimer), with the clinical profile's sentence; show it next to the result wherever people read it.
+`findings` lists the facts not fully recorded, most important first. The example is shortened: `counts` implies six findings, and it shows one. Every response has the same shape; see [Findings](#findings).
 
 ### `POST /v1/commissions`
 
@@ -411,7 +421,7 @@ make aws-destroy   # when you're done
   ```yaml
   # yaml-language-server: $schema=https://raw.githubusercontent.com/groundline-dev/groundline/main/src/groundline_core/presets/pipeline.schema.json
   ```
-- **A domain profile** says what matters in a domain: the prompts for each step and the severity rubric, in a folder with a `profile.yaml`. It can also add a sentence to the [Disclaimer](#disclaimer). [`clinical`](src/groundline_core/profiles/clinical/) is built in. A new domain, such as finance, needs a new profile folder, not code changes.
+- **A domain profile** says what matters in a domain: the prompts for each step and the severity rubric, in a folder with a `profile.yaml`. It can also add a disclaimer sentence to the [Disclaimer](#disclaimer). [`clinical`](src/groundline_core/profiles/clinical/) is built in. A new domain, such as finance, needs a new profile folder, not code changes.
 
 ## Caching and sensitive data
 
@@ -429,7 +439,7 @@ The test fixtures in `tests/fixtures/parity/` are rows of OmissionBench (Composo
 
 groundline's results help a person review a summary. A summary that isn't flagged can still leave out or misstate important facts, so check it before relying on it. You're responsible for any decision made using groundline's results. groundline is provided "as is", and its authors accept no liability for outcomes from its use (see sections 7 and 8 of the Apache License 2.0).
 
-Each domain profile can add a sentence after the first one. The built-in clinical profile adds "They aren't medical advice or a clinical decision." Every result carries the full text: in `metadata.disclaimer` in an API response, in `result.disclaimer` in Python, and in the CLI's `--json` file. Each CLI report ends with a short version, and so does the `--help` of `groundline-core` and of its two checks.
+Each domain profile can add a disclaimer sentence after the first one. The built-in clinical profile adds "They aren't medical advice or a clinical decision." Every result carries the full text: in `metadata.disclaimer` in an API response, in `result.disclaimer` in Python, and in the CLI's `--json` file. Each CLI report ends with the full text, and the `--help` of `groundline-core` and of its two checks ends with a short version.
 
 ## License
 

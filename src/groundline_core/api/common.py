@@ -290,7 +290,7 @@ def example_disclaimer(preset: str) -> str:
     API docs' examples."""
     spec = load_preset(preset)
     profile = load_builtin_profile(spec.profile) if spec.profile else None
-    return full_disclaimer(profile.disclaimer if profile else None)
+    return full_disclaimer(profile)
 
 
 class CheckResponse[E: str, M: ApiModel](ApiModel):
