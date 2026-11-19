@@ -89,13 +89,22 @@ def run(shell: str, body: str, **env: str) -> str:
 
 def run_in_terminal(shell: str, body: str, **env: str) -> str:
     """Like run, but with stdout and stderr on a pseudo-terminal, so colour is on."""
+    return terminal(shell, body, False, env)
+
+
+def run_typing(shell: str, body: str, **env: str) -> str:
+    """Like run_in_terminal, with stdin on it too, as when someone is typing."""
+    return terminal(shell, body, True, env)
+
+
+def terminal(shell: str, body: str, typing: bool, env: dict[str, str]) -> str:
     leader, follower = pty.openpty()
     try:
         process = subprocess.Popen(
             [shell, "-c", f"source scripts/aws-common.sh\n{body}"],
             cwd=ROOT,
             env=environment(**env),
-            stdin=subprocess.DEVNULL,
+            stdin=follower if typing else subprocess.DEVNULL,
             stdout=follower,
             stderr=follower,
         )
@@ -231,6 +240,16 @@ def test_a_long_question_wraps_and_keeps_its_last_line_for_the_answer(shell: str
     # prompt_line: only the last line is left for read -p.
     assert output.endswith("[Y/n]: |")
     assert output.startswith("  ") and len(output.rstrip("|")) <= 60
+
+
+@pytest.mark.parametrize("shell", shells())
+def test_how_enter_and_ctrl_c_work_is_said_once(shell: str):
+    hint = "Press Enter to keep the value in [brackets]. Ctrl-C cancels"
+    body = 'prompt_line "First? [Y/n]:"; prompt_line "Second? [Y/n]:"'
+    typed = run_typing(shell, body, GROUNDLINE_ENTER_HINT="")
+    assert typed.count(hint) == 1, typed
+    # Nobody is typing, so there's nobody to tell.
+    assert hint not in run(shell, body)
 
 
 @pytest.mark.parametrize("shell", shells())

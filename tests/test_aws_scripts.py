@@ -250,6 +250,9 @@ def test_the_live_smoke_test_sends_the_test_key_with_its_commission_check(
     assert result.returncode == 0, result.output
     assert ("POST", "/v1/commissions") in app.requests
     assert any(f"keys revoke {KEY_ID}" in c for c in result.sent_commands())
+    # It called the model, so it doesn't say it didn't.
+    assert "ok: all checks passed.\n" in result.output
+    assert "Model calls were not tested" not in result.output
 
 
 DESTROY_OUTPUTS = {
@@ -652,6 +655,14 @@ def test_a_passing_smoke_test_ends_with_what_next(app: FakeApp, tmp_path: Path):
 
     assert result.returncode == 0, result.output
     assert_ends_with_what_next(result.output)
+    # Each check says what it confirms (U1 in ignore/ALL-133-pr48-ux-notes.md).
+    assert "ok: the server answers (GET /health returned 200)" in result.output
+    assert "ok: an unknown API key is turned away (401)" in result.output
+    assert (
+        "the test API key passes authentication through PostgreSQL; missing fields "
+        "return 422" in aws_fakes.flat(result.output)
+    )
+    assert "ok: all checks passed. Model calls were not tested." in result.output
 
 
 @pytest.mark.parametrize(

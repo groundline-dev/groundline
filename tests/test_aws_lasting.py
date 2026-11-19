@@ -449,7 +449,9 @@ def test_what_next_says_destroy_keeps_a_lasting_deployments_data(checkout: Path)
     result, _ = invoke(checkout, "aws-deploy", world)
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "It's a lasting deployment, so it has no time limit" in result.stdout
+    assert "It's a lasting deployment, so it has no time limit" in aws_fakes.flat(
+        result.stdout
+    )
     assert "make aws-destroy DATA=delete deletes those too" in result.stdout
     assert "$4.05 a month" in result.stdout
 

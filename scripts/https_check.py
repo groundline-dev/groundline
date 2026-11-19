@@ -15,7 +15,19 @@ import socket
 import ssl
 import sys
 from concurrent.futures import ThreadPoolExecutor
+from datetime import UTC, datetime
 from typing import Any
+
+
+def readable_time(certificate_time: str) -> str:
+    """A certificate's time, such as "Nov 25 14:10:38 2026 GMT", as
+    "Nov 25, 2026 at 14:10:38 UTC", or as given if it's in another form."""
+    try:
+        seconds = ssl.cert_time_to_seconds(certificate_time)
+    except ValueError:
+        return certificate_time
+    moment = datetime.fromtimestamp(seconds, UTC)
+    return f"{moment:%b} {moment.day}, {moment:%Y at %H:%M:%S} UTC"
 
 
 def endpoint(url: str, public_ip: str) -> str:
@@ -51,10 +63,14 @@ def check(address: str) -> dict[str, Any]:
                 "not_before": certificate["notBefore"],
                 "not_after": certificate["notAfter"],
             }
+            # Lines indented by two spaces are details of the result above
+            # them, which the scripts show under it (check_results).
             print(
-                f"Trusted IP certificate without SNI; expires {certificate['notAfter']}"
+                "HTTPS works with a trusted certificate for the server's IP; "
+                "no domain needed"
             )
-            print(f"SHA256: {evidence['sha256']}")
+            print(f"  Certificate expires: {readable_time(certificate['notAfter'])}")
+            print(f"  SHA-256 fingerprint: {evidence['sha256']}")
     # A positive trusted handshake precedes these probes: an unreachable host
     # must not turn every negative connection test into a false pass.
     with ThreadPoolExecutor(max_workers=6) as pool:
@@ -64,7 +80,10 @@ def check(address: str) -> dict[str, Any]:
                 (80, 8000, 8001, 5432, 5433, 2019),
             )
         )
-    print("Direct HTTP, app, PostgreSQL and Caddy admin ports are closed or filtered")
+    print(
+        "public connections to the HTTP, app, database and admin ports are "
+        "blocked; use HTTPS"
+    )
     check_redirect(address, context)
     evidence["checks"] = {
         "public_trust": True,
@@ -102,9 +121,7 @@ def check_redirect(address: str, context: ssl.SSLContext) -> None:
             raise RuntimeError("The proxy must keep application redirects on HTTPS")
     finally:
         connection.close()
-    print(
-        "Application redirects preserve HTTPS, including with spoofed forwarded headers"
-    )
+    print("app redirects stay on HTTPS, even with forged headers claiming HTTP")
 
 
 def access_policy(mode: str, allowed_cidr: str) -> str:
@@ -146,7 +163,13 @@ def check_source_filter(address: str, mode: str, allowed_cidr: str) -> None:
                     )
             finally:
                 response.close()
-    print(f"Live {mode} source-IP policy verified with spoofed forwarded headers")
+    if mode == "restricted":
+        print(
+            "connections from outside the allowed IP are blocked (403), even "
+            "with forged client-IP headers"
+        )
+    else:
+        print("any IP can reach it over HTTPS; API requests still need an API key")
 
 
 def main() -> None:

@@ -161,8 +161,8 @@ if [ -z "$anthropic_parameter" ]; then
   check_warn "couldn't tell which Anthropic API key parameter is yours: infra/terraform.tfvars has no deployment_name"
 elif errors="$(aws ssm delete-parameter --region "$region" --name "$anthropic_parameter" 2>&1 >/dev/null)"; then
   check_ok "deleted it from Parameter Store ($anthropic_parameter)"
-  echo
-  explain "If anyone else can access this AWS project, they could have copied the key while your server ran. Revoke it in the Anthropic Console if that matters to you."
+  echo >&2
+  warn "deleting it from AWS doesn't revoke your Anthropic API key. Anyone with access to this AWS project could have copied it while it was stored. Revoke it in the Anthropic Console unless you'll use it again."
 else
   case "$errors" in
     *ParameterNotFound*) check_ok "no Anthropic API key was stored for this deployment" ;;

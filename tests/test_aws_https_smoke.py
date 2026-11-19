@@ -112,7 +112,7 @@ def test_requested_recovery_passes(
     assert world["lifecycle"]["restarts"] == 1
     assert world["lifecycle"]["reboots"] == reboots
     assert "same trusted certificate" in result.stdout
-    assert "still running and costing money" in result.stdout
+    assert "What it costs, and how to change or stop it" in result.stdout
 
 
 @pytest.mark.parametrize(

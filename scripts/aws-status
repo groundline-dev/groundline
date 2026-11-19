@@ -14,6 +14,16 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source scripts/aws-common.sh
 
+# Whatever stops it ends with a plain verdict below the error. The exit codes
+# say the same for scripts (docs/deploying-to-aws.md).
+needs_attention() {
+  if [ "$exit_status" != 0 ]; then
+    explain "Needs attention: see above." >&2
+    echo >&2
+  fi
+}
+on_exit needs_attention
+
 use_project
 # With nothing deployed, terraform output exits 0 and prints nothing.
 instance="$(optional_output instance_id)"
@@ -32,8 +42,9 @@ if [ -z "$instance" ]; then
   fi
   fail "you have nothing deployed to $(project_label): run make aws-up"
 fi
-# Runs on exit, so it also follows a failure, such as a terminated server.
-trap other_deployments EXIT
+# Runs on exit, so it also follows a failure, such as a terminated server,
+# before the verdict.
+exit_actions=(other_deployments needs_attention)
 
 require_running
 explain "The server ($instance) is running in $(project_label) at $(terraform -chdir=infra output -raw app_url)"
@@ -46,7 +57,9 @@ deadline="$(on_server "cat $deadline_file 2>/dev/null || echo none" | tr -d '[:s
 [ "$deadline" = none ] || [[ "$deadline" =~ ^[0-9]+$ ]] \
   || fail "the server's deadline file holds '$deadline', not a time"
 # Says where your other deployments are before What next, so What next comes last.
-trap - EXIT
+exit_actions=(needs_attention)
 other_deployments
+echo
+ok "all good: the server is running${running:+ ${running:0:7}}."
 # What next says when it terminates itself, and how to give it more time.
 what_next "$deadline"

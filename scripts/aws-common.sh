@@ -209,6 +209,11 @@ detail() { say "$out_width" 6 "      " "$*"; }
 # prints to stderr, and only when the answer comes from a terminal.
 prompt_line() {
   local index
+  # Said once a run, before its first question, where someone is typing.
+  if [ -t 0 ] && [ -z "${GROUNDLINE_ENTER_HINT:-}" ]; then
+    export GROUNDLINE_ENTER_HINT=shown
+    say "$err_width" 2 "  " "Press Enter to keep the value in [brackets]. Ctrl-C cancels, changing nothing." >&2
+  fi
   wrap_text "$err_width" 2 "$1"
   if [ -t 0 ]; then
     for ((index = 0; index + 1 < ${#wrapped[@]}; index++)); do
@@ -494,6 +499,18 @@ confirm() {
   case "$reply" in "" | [Yy] | [Yy][Ee][Ss]) return 0 ;; *) return 1 ;; esac
 }
 
+# confirm_no QUESTION: like confirm, but Enter means no, for a choice that's
+# easy to make by mistake, such as one that opens the browser.
+confirm_no() {
+  local reply prompt
+  echo
+  prompt_line "$1 [y/N]:"
+  read -rp "$prompt" reply || return 1
+  answer_source=chosen
+  [ -n "$reply" ] || answer_source=default
+  case "$reply" in [Yy] | [Yy][Ee][Ss]) return 0 ;; *) return 1 ;; esac
+}
+
 # use_project: pick the AWS project to act on and its Terraform state: the one
 # AWS_PROFILE is signed in to, or else the wizard's profile. Sets $region,
 # $account and $project_name, and exports TF_WORKSPACE, named after the
@@ -647,6 +664,15 @@ kept_data_cost() {
 # server_hourly_cost and running_monthly_cost: a running server, with its data
 # volume and address, as the plan and What next quote it.
 server_hourly_cost() { echo 0.024; }
+
+# budget_threshold AMOUNT PERCENT: the dollars at which the budget alert
+# (infra/budget.tf) emails, such as $17.50 for half of 35, or $35 for all of it.
+budget_threshold() {
+  awk -v amount="$1" -v percent="$2" 'BEGIN {
+    value = amount * percent / 100
+    if (value == int(value)) printf "$%d", value; else printf "$%.2f", value
+  }'
+}
 running_monthly_cost() { echo 18; }
 
 # optional_output NAME [ROOT]: output NAME of ROOT (infra by default), or
@@ -800,10 +826,10 @@ choose_access_mode() {
   if [ "$default" = 1 ]; then
     first=" (recommended)" second=""
   fi
-  option 1 "IP-restricted HTTPS for testing from this computer$first"
-  option 2 "Unrestricted HTTPS for callers from any IP$second"
-  bullet "Both use automatic certificates; protected API endpoints require API keys."
-  choose "Who may access the HTTPS application? (1 IP-restricted, 2 unrestricted)" 2 "$default"
+  option 1 "Only this computer can reach it (IP-restricted)$first"
+  option 2 "Open to any IP over HTTPS; checks need an API key (unrestricted)$second"
+  bullet "Both use HTTPS with an automatic certificate."
+  choose "Who can reach it? (1 only this computer, 2 any IP)" 2 "$default"
   access_mode=restricted
   [ "$answer" = 1 ] || access_mode=unrestricted
 }
@@ -1082,15 +1108,16 @@ what_next() {
   esac
   bullet "To call it from your app's backend, use $app_url as the base URL and an API key from make aws-key. See docs/deploying-to-aws.md, \"Calling it from your app\"."
   echo
-  explain "Your server is still running and costing money."
+  explain "What it costs, and how to change or stop it:"
   if [ "$(deployed_lifetime)" = lasting ]; then
-    bullet "It's a lasting deployment, so it has no time limit and costs about \$$(running_monthly_cost) a month."
+    bullet "It costs about \$$(running_monthly_cost) a month while it runs. It's a lasting deployment, so it has no time limit."
     bullet "make aws-up upgrades it to another commit or settings. It keeps its data and address."
     bullet "make aws-destroy deletes the server and keeps its data and address, for about \$$(kept_data_cost "$(optional_output data_volume_gib infra/data)") a month; make aws-destroy DATA=delete deletes those too."
     echo
     return
   fi
   hours="$(terraform -chdir=infra output -raw auto_terminate_hours 2>/dev/null || echo 8)"
+  [ "$deadline" = none ] || bullet "It costs about \$$(server_hourly_cost) an hour while it runs."
   case "$deadline" in
     "")
       bullet "make aws-status shows when it terminates itself."

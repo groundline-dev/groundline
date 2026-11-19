@@ -363,8 +363,8 @@ def test_configured_mode_separates_value_from_notices(
             in result.stderr
         )
     elif mode == "invalid":
-        assert "1) IP-restricted HTTPS" in result.stderr
-        assert "2) Unrestricted HTTPS" in result.stderr
+        assert "1) Only this computer can reach it" in result.stderr
+        assert "2) Open to any IP over HTTPS" in result.stderr
         assert "ok: saved unrestricted HTTPS access" in result.stderr
     else:
         assert result.stderr == ""

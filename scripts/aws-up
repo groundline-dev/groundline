@@ -66,8 +66,10 @@ if signed_in; then
   bullet "$(project_label), in $region"
   if confirm "Deploy to $(project_label)?"; then
     project_source="$answer_source"
-  else
+  elif confirm_no "Sign in to a different AWS project? Your browser opens to choose it."; then
     choose_project
+  else
+    fail "canceled: nothing changed"
   fi
 elif previous="$(previous_account)" && [ -n "$previous" ]; then
   echo
@@ -92,18 +94,18 @@ if [ ! -f infra/terraform.tfvars ]; then
   echo
   explain "Your deployment needs a name and an email address."
   bullet "The name has to be unique in the projects you deploy to, such as your first name, or staging for a lasting deployment."
-  bullet "The monthly budget alert goes to the email address."
+  bullet "Email alerts, such as the monthly budget alert, go to the email address."
   suggested="$(id -un | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9-' | cut -c1-20)"
   [[ "$suggested" =~ ^[a-z] ]] || suggested=""
   while :; do
-    ask "Name for your deployment" "$suggested"
+    ask "Deployment name (names its AWS resources)" "$suggested"
     [[ "$answer" =~ ^[a-z][a-z0-9-]{0,19}$ ]] && break
     hint "Use 1 to 20 lowercase letters, digits and hyphens, starting with a letter."
   done
   name="$answer"
   record_decision deployment_name "$name" "$answer_source"
   while :; do
-    ask "Email address for budget alerts" "$(git config user.email || true)"
+    ask "Email alerts to" "$(git config user.email || true)"
     [[ "$answer" =~ ^[^@[:space:]\"\\]+@[^@[:space:]\"\\]+\.[^@[:space:]\"\\]+$ ]] && break
     hint "That doesn't look like an email address."
   done
@@ -117,15 +119,18 @@ if [ ! -f infra/terraform.tfvars ]; then
     access_default=2
     echo
     explain "A lasting deployment costs about \$$(running_monthly_cost) a month while it runs, and about \$$(kept_data_cost "$(tfvars_value data_volume_gib)") a month for its data volume and address once make aws-destroy keeps them."
-    bullet "The budget alert emails you when the project's costs this month pass half its amount, and again at all of it."
+    bullet "The budget alert emails you when the project's AWS costs this month reach half of a monthly amount, and again when they reach all of it."
     bullet "It covers the whole AWS project, so a lasting deployment is best in a project of its own."
     while :; do
       ask "Monthly budget alert, in US dollars" 35
+      # $1,000 and 1 000 mean 1000.
+      answer="$(printf '%s' "$answer" | tr -d '$, ')"
       [[ "$answer" =~ ^[1-9][0-9]{0,4}$ ]] && break
-      hint "Enter a whole number of dollars, such as 35."
+      hint "Enter a whole number of dollars up to \$99,999, such as 35."
     done
     budget="$answer"
     record_decision budget_amount "$budget" "$answer_source"
+    answer_ok "you'll get an email when this month's AWS costs reach $(budget_threshold "$budget" 50), and again at $(budget_threshold "$budget" 100)."
   fi
   echo
   choose_access_mode "$access_default"
@@ -294,10 +299,10 @@ if [ -z "$keep" ]; then
   answer=1 ref_source=default
   if [ -n "$branch" ] && [ "$branch" != main ]; then
     echo
-    explain "The server clones the code it runs from GitHub."
+    explain "The server clones the code it runs from GitHub, so it runs a branch's last pushed commit."
     option 1 "main, from groundline-dev/groundline"
-    option 2 "your branch $branch ($(git rev-parse --short HEAD))"
-    choose "Which code should the server run? (1 main, 2 your branch)" 2 1
+    option 2 "your branch $branch, at your last commit ($(git rev-parse --short HEAD))"
+    choose "Which branch should the server run? (1 main, 2 your branch)" 2 1
     ref_source="$answer_source"
     # Callers rely on a lasting deployment, so a branch goes to it only on purpose.
     if [ "$answer" = 2 ] && [ "$lifetime" = lasting ]; then
@@ -375,4 +380,9 @@ record_result smoke_test failed
 scripts/aws-smoke-test
 record_result smoke_test passed
 
+app_url="$(optional_output app_url)"
+if [ -n "$app_url" ]; then
+  echo
+  ok "$name is up and running at $app_url"
+fi
 what_next

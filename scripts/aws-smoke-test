@@ -79,7 +79,7 @@ health_status="$(health)"
 check_access_response "$health_status"
 if [ "$health_status" = 200 ]; then
   echo
-  ok "the server has already started"
+  ok "the server is answering"
 else
   echo
   started=$SECONDS
@@ -155,7 +155,7 @@ revoke() {
   fi
 }
 trap 'status=$?; revoke || status=1; rm -f "$tls_errors"; exit "$status"' EXIT
-check_ok "created a test API key on the server"
+check_ok "created a test API key"
 
 # expect STATUS SHOWS FAILURE METHOD PATH [curl arguments...]: send the request,
 # and say what passing SHOWS or, on any other status, what FAILURE means.
@@ -174,7 +174,7 @@ expect() {
 expect 401 "an unknown API key is turned away (401)" \
   "the server didn't turn away an unknown API key" \
   POST /v1/omissions --json '{}' --header "Authorization: Bearer gl_unknown"
-expect 422 "the test API key is accepted: the empty request got past the key check and was rejected only for its missing fields (422), so the app, Postgres and API keys work" \
+expect 422 "the test API key passes authentication through PostgreSQL; missing fields return 422" \
   "the server didn't accept the API key it just created" \
   POST /v1/omissions --json '{}' --header "Authorization: Bearer $api_key"
 
@@ -198,5 +198,9 @@ revoke
 trap - EXIT
 rm -f "$tls_errors"
 echo
-ok "all checks passed"
+if $live; then
+  ok "all checks passed."
+else
+  ok "all checks passed. Model calls were not tested."
+fi
 what_next
