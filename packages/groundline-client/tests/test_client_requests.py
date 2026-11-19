@@ -1,6 +1,5 @@
 """What each client method sends and returns, sync and async."""
 
-import asyncio
 import importlib
 import inspect
 import pkgutil
@@ -8,40 +7,7 @@ from typing import Any
 
 import groundline_client as sdk
 import pytest
-from conftest import PROBE_REPLY, FakeServer
-
-# method name, HTTP method, path, request model, response model
-OPERATIONS = [
-    (
-        "evaluate_omissions",
-        "POST",
-        "/v1/omissions",
-        "OmissionsRequest",
-        "OmissionsResponse",
-    ),
-    (
-        "evaluate_commissions",
-        "POST",
-        "/v1/commissions",
-        "CommissionsRequest",
-        "CommissionsResponse",
-    ),
-    ("health", "GET", "/health", None, None),
-    ("ready", "GET", "/ready", None, None),
-]
-
-
-def call(client: Any, operation: str, request: Any, *, is_async: bool) -> Any:
-    arguments = [] if request is None else [request]
-    if is_async:
-        return asyncio.run(getattr(client, f"{operation}_async")(*arguments))
-    return getattr(client, operation)(*arguments)
-
-
-def request_for(fake_server: FakeServer, request_model: str | None) -> Any:
-    if request_model is None:
-        return None
-    return getattr(sdk, request_model).from_dict(fake_server.examples[request_model])
+from conftest import OPERATIONS, PROBE_REPLY, FakeServer, call, request_for
 
 
 @pytest.mark.parametrize("is_async", [False, True], ids=["sync", "async"])

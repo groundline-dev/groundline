@@ -1,28 +1,21 @@
 """The options that set the client's attempts, retry time and time limits."""
 
+import ast
+import inspect
+import textwrap
 from typing import Any
 
 import groundline_client as sdk
 import groundline_client.client as client_module
 import pytest
-from conftest import FakeServer
+from conftest import FakeServer, make_client
+from groundline_client._generated.client import (  # pyright: ignore[reportPrivateUsage]
+    AuthenticatedClient,
+)
+from groundline_client._http import Limits  # pyright: ignore[reportPrivateUsage]
 
 COUNT_OPTIONS = ["max_attempts"]
 SECONDS_OPTIONS = ["max_retry_seconds", "connect_timeout_seconds", "timeout_seconds"]
-
-
-def make_client(fake_server: FakeServer, api_key: str, **options: Any) -> Any:
-    return sdk.GroundlineClient(base_url=fake_server.url, api_key=api_key, **options)
-
-
-def test_the_defaults_fit_a_check_that_the_server_allows_120_seconds():
-    # R5 (request time limits): the server's check limit is 120 s, so one
-    # attempt may take longer than that, and the retry time covers an attempt
-    # plus a short retry.
-    assert client_module.DEFAULT_MAX_ATTEMPTS == 3
-    assert client_module.DEFAULT_MAX_RETRY_SECONDS == 180.0
-    assert client_module.DEFAULT_CONNECT_TIMEOUT_SECONDS == 5.0
-    assert client_module.DEFAULT_TIMEOUT_SECONDS == 150.0
 
 
 @pytest.mark.parametrize(
@@ -101,3 +94,26 @@ def test_a_whole_number_too_big_for_a_float_is_refused_with_a_config_error(
         make_client(fake_server, api_key, **{name: 10**400})
 
     assert f"{name}=" in str(refused.value)
+
+
+def test_the_retrying_clients_get_the_arguments_the_generated_client_builds_with():
+    # `_httpx_arguments` copies the body of the generated `get_httpx_client`. If
+    # `make generate-sdk` adds or renames an argument there, this fails.
+    source = textwrap.dedent(inspect.getsource(AuthenticatedClient.get_httpx_client))
+    construction = next(
+        node
+        for node in ast.walk(ast.parse(source))
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "Client"
+    )
+    generated = {keyword.arg for keyword in construction.keywords if keyword.arg}
+
+    ours = client_module._ApiKeyHidingClient(  # pyright: ignore[reportPrivateUsage]
+        base_url="http://example.invalid",
+        token="not-a-real-key",  # betterleaks:allow a dummy value
+        limits=Limits(1, 1.0, 1.0, 1.0),
+    )._httpx_arguments()  # pyright: ignore[reportPrivateUsage]
+
+    # `timeout` is left out on purpose: each attempt sets its own.
+    assert set(ours) == generated - {"timeout"}

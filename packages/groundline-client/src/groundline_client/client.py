@@ -4,7 +4,6 @@ import math
 import os
 import warnings
 from collections.abc import Awaitable, Callable
-from dataclasses import asdict
 from types import TracebackType
 from typing import Any, Self
 
@@ -190,6 +189,10 @@ class _ApiKeyHidingClient(AuthenticatedClient):
     Its `repr` would otherwise print the API key twice: as `token`, and in its
     headers after the first call. Tools that dump a traceback's local variables
     call `repr` on it.
+
+    `with_headers`, `with_cookies` and `with_timeout` of the generated client
+    don't work on it, because they rebuild the client without `limits`. Nothing
+    in the SDK calls them.
     """
 
     def __init__(self, *, limits: Limits, **arguments: Any) -> None:
@@ -200,6 +203,9 @@ class _ApiKeyHidingClient(AuthenticatedClient):
         return f"AuthenticatedClient(base_url={self._base_url!r}, token=<hidden>)"
 
     def _httpx_arguments(self) -> dict[str, Any]:
+        # Mirrors the body of the generated `AuthenticatedClient.get_httpx_client`,
+        # minus `timeout`, which each attempt sets itself. A test compares the
+        # argument names, so a regeneration that changes them fails it.
         self._headers[self.auth_header_name] = (
             f"{self.prefix} {self.token}" if self.prefix else self.token
         )
@@ -207,7 +213,6 @@ class _ApiKeyHidingClient(AuthenticatedClient):
             "base_url": self._base_url,
             "cookies": self._cookies,
             "headers": self._headers,
-            "timeout": self._timeout,
             "verify": self._verify_ssl,
             "follow_redirects": self._follow_redirects,
             **self._httpx_args,
@@ -216,14 +221,14 @@ class _ApiKeyHidingClient(AuthenticatedClient):
     def get_httpx_client(self) -> httpx2.Client:
         if self._client is None:
             self._client = ErrorRaisingClient(
-                **asdict(self._limits), **self._httpx_arguments()
+                limits=self._limits, **self._httpx_arguments()
             )
         return self._client
 
     def get_async_httpx_client(self) -> httpx2.AsyncClient:
         if self._async_client is None:
             self._async_client = AsyncErrorRaisingClient(
-                **asdict(self._limits), **self._httpx_arguments()
+                limits=self._limits, **self._httpx_arguments()
             )
         return self._async_client
 
@@ -237,11 +242,14 @@ class GroundlineClient:
     `GroundlineConfigError` here, before any request is made.
 
     A temporary failure (a 408, 429, 502, 503 or 504 answer, a timeout or a
-    connection error) is retried with a growing, randomised wait, honoring a
+    connection error) is retried with a growing, randomized wait, honoring a
     `Retry-After` header. `max_attempts` counts the first request, so 1 turns
     retries off. `max_retry_seconds` limits the whole call, retries included, and
     `timeout_seconds` one attempt; `connect_timeout_seconds` limits setting up the
-    connection. Retrying a check can repeat paid model work.
+    connection. Async calls are cut off at those limits; sync calls are limited
+    per step (connect, send, wait for a reply), so a sync call can run a little
+    over, and a server that keeps sending bytes can outlast it. Retrying a check can
+    repeat paid model work.
 
     Each operation has a sync method and an `_async` one. Use the client in a
     `with` block (or `async with`) to close its connections when you are done.

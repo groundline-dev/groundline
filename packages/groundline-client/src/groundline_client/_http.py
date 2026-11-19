@@ -112,6 +112,11 @@ class _RetryBudget:
         )
         return self.wait_before_retry(retry_after)
 
+    def wait_after_error(self, error: Exception) -> float | None:
+        if not is_retryable_error(error):
+            return None
+        return self.wait_before_retry(None)
+
     def log_retry(
         self, wait: float, *, status: int | None, error: Exception | None
     ) -> None:
@@ -129,19 +134,14 @@ class RetryingClient(httpx2.Client):
     def __init__(
         self,
         *,
-        max_attempts: int,
-        max_retry_seconds: float,
-        timeout_seconds: float,
-        connect_timeout_seconds: float,
+        limits: Limits,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
         random: Callable[[], float] = _jitter,
         **client_arguments: Any,
     ) -> None:
         super().__init__(**client_arguments)
-        self._limits = Limits(
-            max_attempts, max_retry_seconds, timeout_seconds, connect_timeout_seconds
-        )
+        self._limits = limits
         self._clock = clock
         self._sleep = sleep
         self._random = random
@@ -162,9 +162,7 @@ class RetryingClient(httpx2.Client):
                     request, stream=stream, auth=auth, follow_redirects=follow_redirects
                 )
             except Exception as error:
-                wait = (
-                    call.wait_before_retry(None) if is_retryable_error(error) else None
-                )
+                wait = call.wait_after_error(error)
                 if wait is None:
                     raise
                 call.log_retry(wait, status=None, error=error)
@@ -188,19 +186,14 @@ class AsyncRetryingClient(httpx2.AsyncClient):
     def __init__(
         self,
         *,
-        max_attempts: int,
-        max_retry_seconds: float,
-        timeout_seconds: float,
-        connect_timeout_seconds: float,
+        limits: Limits,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         random: Callable[[], float] = _jitter,
         **client_arguments: Any,
     ) -> None:
         super().__init__(**client_arguments)
-        self._limits = Limits(
-            max_attempts, max_retry_seconds, timeout_seconds, connect_timeout_seconds
-        )
+        self._limits = limits
         self._clock = clock
         self._sleep = sleep
         self._random = random
@@ -230,10 +223,12 @@ class AsyncRetryingClient(httpx2.AsyncClient):
                 # that happens to arrive as the timer fires is a different problem
                 # and is kept as it is.
                 timed_out = boundary.expired() and isinstance(caught, TimeoutError)
-                error = httpx2.TimeoutException(_TIMED_OUT) if timed_out else caught
-                wait = (
-                    call.wait_before_retry(None) if is_retryable_error(error) else None
+                error = (
+                    httpx2.TimeoutException(_TIMED_OUT, request=request)
+                    if timed_out
+                    else caught
                 )
+                wait = call.wait_after_error(error)
                 if wait is None:
                     if error is caught:
                         raise
