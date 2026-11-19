@@ -357,18 +357,18 @@ Every route needs it except probes such as `/health` and `/ready` and the docs p
 
 ### Versions
 
-The version is written in `pyproject.toml` and follows the policy in the README's [Versions](README.md#versions) section. To release, raise the version in a pull request and merge it. Each version can be published only once.
+The version is written in `pyproject.toml` and follows the policy in the README's [Versions](README.md#versions) section. Write it in the normalized form PyPI uses, such as `0.2.0` or `0.2.0rc1`; the workflow refuses anything else. To release, raise the version in a pull request and merge it. Each version can be published only once.
 
 ### Running a release
 
 1. In GitHub, open **Actions → Release → Run workflow** and choose `main`.
-2. The workflow builds the wheel and sdist once, checks their files (`scripts/core-install-check --dist`), uploads them to TestPyPI, installs them from there and checks them again. This takes about five minutes.
+2. The workflow builds the wheel and sdist once, checks their files (`scripts/core-install-check --dist`), uploads them to TestPyPI, installs the wheel back from there and checks it again. This takes about five minutes.
 3. The `pypi` job then waits for approval. Any of the `pypi` environment's reviewers except the person who started the run can approve it on the run's page.
 4. After approval, the workflow uploads the same files to PyPI, tags the commit `groundline-core-v<version>` and creates a GitHub release, with notes listing the merged pull requests.
 
-The run stops before uploading anything if the version is already on PyPI or TestPyPI, or already tagged (`scripts/release_version.py`). A run that reached TestPyPI and then stopped, because a check failed or the approval was rejected, leaves that version on TestPyPI for good, so raise the version before running again. Skipping a version number this way is normal.
+A run from `main` stops before uploading anything if the version is already on PyPI or TestPyPI, or already tagged (`scripts/release_version.py`). A run that reached TestPyPI and then stopped, because a check failed or the approval was rejected, leaves that version on TestPyPI for good, so raise the version before running again. Skipping a version number this way is normal. If a run uploaded to PyPI but its last job (the tag and GitHub release) failed, don't start a new run, which would be refused: use **Re-run failed jobs** on that same run.
 
-Started from any other branch, the workflow publishes a development version, such as `0.1.0.dev12` (the run number), to TestPyPI and stops there. Use it to try a change to the release process. TestPyPI also never accepts the same version twice, and the development version leaves the real one free.
+Started from any other branch, the workflow publishes a development version, such as `0.1.0.dev12` (the run number), to TestPyPI and stops there. Use it to try a change to the release process. Because TestPyPI never accepts the same version twice, the development version leaves the real one free for the release. To try again, start a new run: **Re-run all jobs** reuses the run number, and the run is refused.
 
 ### If a release is wrong
 

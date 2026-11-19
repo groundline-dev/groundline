@@ -12,9 +12,10 @@ on:
 permissions:
   contents: read
 
-# One release at a time, and never one cancelled halfway.
+# One run at a time per branch, and never one cancelled halfway. Per branch, so
+# a release from main waiting for approval doesn't hold up a trial elsewhere.
 concurrency:
-  group: release
+  group: release-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -36,7 +37,7 @@ jobs:
       - uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
       - name: Choose the version
         id: version
-        run: python3 scripts/release_version.py >> "$GITHUB_OUTPUT"
+        run: uv run --quiet python scripts/release_version.py >> "$GITHUB_OUTPUT"
       - name: Use a development version for a run from a branch
         if: github.ref != 'refs/heads/main'
         env:

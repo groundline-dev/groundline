@@ -17,7 +17,8 @@ def link_targets(text: str) -> list[str]:
 
 def test_the_readme_has_no_relative_links():
     # PyPI shows the README without the repository around it, so a relative
-    # link there leads nowhere. Anchors within the page still work.
+    # link there leads nowhere. Links within the page (#name) work on both: PyPI
+    # rewrites them to the user-content- ids it gives headings, as GitHub does.
     targets = link_targets((ROOT / "README.md").read_text())
 
     relative = [

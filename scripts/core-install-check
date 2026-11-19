@@ -51,8 +51,8 @@ esac
 
 # The built-in presets and profiles in this checkout, which the installed package
 # must also have.
-presets="$(cd src/groundline_core/presets && ls -- *.yaml | sed 's/\.yaml$//' | sort | tr '\n' ' ')"
-profiles="$(cd src/groundline_core/profiles && for d in */; do [ -f "$d/profile.yaml" ] && echo "${d%/}"; done | sort | tr '\n' ' ')"
+presets="$(cd src/groundline_core/presets && ls -- *.yaml | sed 's/\.yaml$//' | LC_ALL=C sort | tr '\n' ' ')"
+profiles="$(cd src/groundline_core/profiles && for d in */; do [ -f "$d/profile.yaml" ] && echo "${d%/}"; done | LC_ALL=C sort | tr '\n' ' ')"
 
 if [ "$mode" = build ]; then
   dist="$work/dist"
@@ -204,8 +204,8 @@ if [ "$mode" = index ]; then
   # Only groundline-core's own wheel comes from the index. Its dependencies come
   # from PyPI alone: on a test index anyone can upload a package with a
   # dependency's name and a higher version.
-  uv venv --seed --quiet "$work/download"
-  "$work/download/bin/python" -m pip download --quiet --disable-pip-version-check \
+  uv venv --seed --quiet "$work/pip"
+  "$work/pip/bin/python" -m pip download --quiet --disable-pip-version-check \
     --no-deps --only-binary :all: --dest "$work/from-index" \
     --index-url "$index_url" "groundline-core==$version" \
     || fail "couldn't download groundline-core $version from $index_url"
@@ -213,7 +213,7 @@ if [ "$mode" = index ]; then
   wheel="${downloaded[0]}"
 fi
 
-uv venv --seed --quiet "$work/pip"
+[ -d "$work/pip" ] || uv venv --seed --quiet "$work/pip"
 "$work/pip/bin/python" -m pip install --quiet --disable-pip-version-check "$wheel"
 check pip "$work/pip"
 

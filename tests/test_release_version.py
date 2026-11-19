@@ -66,19 +66,66 @@ def test_main_refuses_a_version_that_was_already_tagged():
         )
 
 
+BRANCH = "refs/heads/try-the-release"
+
+
 def test_another_branch_publishes_a_development_version():
     # TestPyPI never accepts the same version twice, so runs from a branch must
     # not use up the version the real release will need there.
     chosen = release_version(
         version="0.1.0",
-        ref="refs/heads/all-164-build-and-publish",
+        ref=BRANCH,
         run_number=42,
         on_pypi=must_not_be_asked,
-        on_testpypi=must_not_be_asked,
+        on_testpypi=never,
         tagged=must_not_be_asked,
     )
 
     assert chosen == "0.1.0.dev42"
+
+
+def test_a_rerun_of_a_branch_run_is_refused_before_uploading():
+    # Re-running all jobs keeps the run number, so the development version is
+    # already on TestPyPI.
+    with pytest.raises(ReleaseRefused, match="Start a new run"):
+        release_version(
+            version="0.1.0",
+            ref=BRANCH,
+            run_number=42,
+            on_pypi=must_not_be_asked,
+            on_testpypi=lambda version: version == "0.1.0.dev42",
+            tagged=must_not_be_asked,
+        )
+
+
+@pytest.mark.parametrize(
+    "version", ["0.2.0-rc1", "0.2.0.dev1", "0.2.0+local", "v0.2.0"]
+)
+def test_a_version_not_in_normalized_form_is_refused(version: str):
+    # The build normalizes the version in the file names, so anything else
+    # would make the tag and the checks disagree with the uploaded files.
+    with pytest.raises(ReleaseRefused, match="normalized form"):
+        release_version(
+            version=version,
+            ref=MAIN,
+            run_number=7,
+            on_pypi=never,
+            on_testpypi=never,
+            tagged=never,
+        )
+
+
+def test_a_prerelease_in_normalized_form_is_accepted():
+    chosen = release_version(
+        version="0.2.0rc1",
+        ref=MAIN,
+        run_number=7,
+        on_pypi=never,
+        on_testpypi=never,
+        tagged=never,
+    )
+
+    assert chosen == "0.2.0rc1"
 
 
 def test_a_release_is_tagged_with_the_package_name():
