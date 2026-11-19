@@ -28,6 +28,8 @@
 #                                                        its dependencies from PyPI, and
 #                                                        check it
 set -euo pipefail
+# Where it was run from, so a relative --dist DIR means what the caller meant.
+called_from="$PWD"
 cd "$(dirname "$0")/.."
 
 work="$(mktemp -d)"
@@ -44,15 +46,16 @@ server_message='groundline_core.app needs the server extra: pip install "groundl
 mode=build
 case "${1:-}" in
   "") ;;
-  --dist) [ $# = 2 ] || fail "usage: --dist DIR"; mode=dist; dist="$2" ;;
+  --dist) [ $# = 2 ] || fail "usage: --dist DIR"; mode=dist; dist="$(cd "$called_from" && cd "$2" && pwd)" ;;
   --from-index) [ $# = 3 ] || fail "usage: --from-index URL VERSION"; mode=index; index_url="$2"; version="$3" ;;
   *) fail "unknown option: $1" ;;
 esac
 
 # The built-in presets and profiles in this checkout, which the installed package
-# must also have.
-presets="$(cd src/groundline_core/presets && ls -- *.yaml | sed 's/\.yaml$//' | LC_ALL=C sort | tr '\n' ' ')"
-profiles="$(cd src/groundline_core/profiles && for d in */; do [ -f "$d/profile.yaml" ] && echo "${d%/}"; done | LC_ALL=C sort | tr '\n' ' ')"
+# must also have. The same functions, run against the source tree, so there is
+# one definition of "built in".
+presets="$(uv run --quiet python -I -c 'from groundline_core import builtin_presets; print(" ".join(builtin_presets()))')"
+profiles="$(uv run --quiet python -I -c 'from groundline_core.profiles import builtin_profiles; print(" ".join(builtin_profiles()))')"
 
 if [ "$mode" = build ]; then
   dist="$work/dist"
@@ -200,11 +203,12 @@ EOF
   echo "ok: $installer installs groundline-core without extras"
 }
 
+uv venv --seed --quiet "$work/pip"
+
 if [ "$mode" = index ]; then
   # Only groundline-core's own wheel comes from the index. Its dependencies come
   # from PyPI alone: on a test index anyone can upload a package with a
   # dependency's name and a higher version.
-  uv venv --seed --quiet "$work/pip"
   "$work/pip/bin/python" -m pip download --quiet --disable-pip-version-check \
     --no-deps --only-binary :all: --dest "$work/from-index" \
     --index-url "$index_url" "groundline-core==$version" \
@@ -213,7 +217,6 @@ if [ "$mode" = index ]; then
   wheel="${downloaded[0]}"
 fi
 
-[ -d "$work/pip" ] || uv venv --seed --quiet "$work/pip"
 "$work/pip/bin/python" -m pip install --quiet --disable-pip-version-check "$wheel"
 check pip "$work/pip"
 

@@ -33,7 +33,7 @@ def runs(job: dict[str, Any]) -> str:
 
 def test_only_a_maintainer_starting_it_by_hand_runs_it(workflow: dict[Any, Any]):
     # PyYAML reads the key `on` as True.
-    triggers: dict[str, Any] = workflow["on"] if "on" in workflow else workflow[True]
+    triggers: dict[str, Any] = workflow[True]
 
     assert set(triggers) == {"workflow_dispatch"}, triggers
     assert workflow["permissions"] == {"contents": "read"}
@@ -117,7 +117,31 @@ def test_the_tag_comes_from_the_version_script(workflow: dict[Any, Any]):
     # agree on which tag means "already released".
     release = jobs(workflow)["release"]
 
-    assert "groundline-core-v" not in runs(release)
+    assert 'gh release create "$TAG"' in runs(release)
+    assert "groundline-core-v$VERSION" not in runs(release)
     assert (
         jobs(workflow)["build"]["outputs"]["tag"] == "${{ steps.version.outputs.tag }}"
     )
+
+
+def test_release_jobs_build_without_the_shared_cache(workflow: dict[Any, Any]):
+    # Other workflows write the uv cache, so a release must not build from it.
+    cached = [
+        name
+        for name, job in jobs(workflow).items()
+        for step in steps(job)
+        if step.get("uses", "").startswith("astral-sh/setup-uv@")
+        and step.get("with", {}).get("enable-cache") is not False
+    ]
+
+    assert cached == []
+
+
+def test_a_partly_failed_pypi_upload_can_be_finished(workflow: dict[Any, Any]):
+    upload = next(
+        step
+        for step in steps(jobs(workflow)["pypi"])
+        if step.get("uses", "").startswith(PUBLISH_ACTION)
+    )
+
+    assert upload.get("with", {}).get("skip-existing") is True

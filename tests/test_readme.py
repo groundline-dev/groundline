@@ -29,6 +29,34 @@ def test_the_readme_has_no_relative_links():
     assert relative == []
 
 
+def heading_ids(markdown: str) -> set[str]:
+    """The ids GitHub and PyPI give the headings: lowercase, punctuation dropped,
+    spaces as hyphens, and -1, -2 for repeats."""
+    ids: set[str] = set()
+    for line in markdown.splitlines():
+        if match := re.match(r"#{1,6} (.+)", line):
+            slug = re.sub(r"[^\w\- ]", "", match.group(1).lower()).replace(" ", "-")
+            unique, n = slug, 0
+            while unique in ids:
+                n += 1
+                unique = f"{slug}-{n}"
+            ids.add(unique)
+    return ids
+
+
+def test_each_link_within_the_readme_has_a_heading_to_go_to():
+    text = (ROOT / "README.md").read_text()
+    ids = heading_ids(text)
+
+    missing = [
+        target
+        for target in link_targets(text)
+        if target.startswith("#")
+        if target[1:] not in ids
+    ]
+    assert missing == []
+
+
 def test_the_readme_says_to_install_from_pypi():
     text = (ROOT / "README.md").read_text()
 

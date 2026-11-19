@@ -258,7 +258,7 @@ There are three test suites. They differ in what they use for Postgres and Claud
 
 None of them starts the Docker stack, runs `terraform test` or touches AWS: `make docker-smoke`, `make infra-check` and `make aws-smoke` do that.
 
-`make core-check` builds the wheel and the sdist and checks that they hold only the package, its license, notice and readme, and the packaging metadata (no `.env`, tests or other local files), and that a wheel built from the sdist has the same files. It then installs the wheel with no extras, once with pip and once with uv pip, and checks that every built-in preset and profile loads (which reads every prompt and rubric), that both schema files are there, that the library loads without the server or CLI packages, and that the command and the API say which extra to install. It also type-checks `scripts/library_typing_check.py`, a file that uses only the public names, with pyright strict against each install, so a public name or result field whose type callers can't see fails it. Run it when you change the dependencies in `pyproject.toml`, what `groundline_core` imports when it loads, the public interface, or the files the package ships. CI runs it on every PR, and the release workflow runs it on the files it uploads (`--dist`) and on the copy it installs back from TestPyPI (`--from-index`).
+`make core-check` builds the wheel and the sdist and checks that they hold only the package, its license, notice and readme, and the packaging metadata (no `.env`, tests or other local files), and that a wheel built from the sdist has the same files. Anything inside `src/groundline_core/` counts as package, so on your own machine an untracked scratch file there is built in without a complaint; release runs build from a clean checkout. It then installs the wheel with no extras, once with pip and once with uv pip, and checks that every built-in preset and profile loads (which reads every prompt and rubric), that both schema files are there, that the library loads without the server or CLI packages, and that the command and the API say which extra to install. It also type-checks `scripts/library_typing_check.py`, a file that uses only the public names, with pyright strict against each install, so a public name or result field whose type callers can't see fails it. Run it when you change the dependencies in `pyproject.toml`, what `groundline_core` imports when it loads, the public interface, or the files the package ships. CI runs it on every PR, and the release workflow runs it on the files it uploads (`--dist`) and on the copy it installs back from TestPyPI (`--from-index`).
 
 CI runs the fast and database tests on every PR, but never the live tests.
 
@@ -366,7 +366,7 @@ The version is written in `pyproject.toml` and follows the policy in the README'
 3. The `pypi` job then waits for approval. Any of the `pypi` environment's reviewers except the person who started the run can approve it on the run's page.
 4. After approval, the workflow uploads the same files to PyPI, tags the commit `groundline-core-v<version>` and creates a GitHub release, with notes listing the merged pull requests.
 
-A run from `main` stops before uploading anything if the version is already on PyPI or TestPyPI, or already tagged (`scripts/release_version.py`). A run that reached TestPyPI and then stopped, because a check failed or the approval was rejected, leaves that version on TestPyPI for good, so raise the version before running again. Skipping a version number this way is normal. If a run uploaded to PyPI but its last job (the tag and GitHub release) failed, don't start a new run, which would be refused: use **Re-run failed jobs** on that same run.
+A run from `main` stops before uploading anything if the version is already on PyPI or TestPyPI, or already tagged (`scripts/release_version.py`). A run that reached TestPyPI and then stopped, because a check failed or the approval was rejected, leaves that version on TestPyPI for good, so raise the version before running again. Skipping a version number this way is normal. If a run's PyPI upload stopped partway, or the upload worked but its last job (the tag and GitHub release) failed, don't start a new run, which would be refused: use **Re-run failed jobs** on that same run, which uploads only the files PyPI doesn't have yet. Start one run at a time: GitHub keeps only one run waiting per branch, and a newer one cancels it.
 
 Started from any other branch, the workflow publishes a development version, such as `0.1.0.dev12` (the run number), to TestPyPI and stops there. Use it to try a change to the release process. Because TestPyPI never accepts the same version twice, the development version leaves the real one free for the release. To try again, start a new run: **Re-run all jobs** reuses the run number, and the run is refused.
 
@@ -386,9 +386,9 @@ A PyPI account holder and a repository admin do this once, before the first rele
 
 ```
 .agents/skills/            agent skills (see AGENTS.md)
+.claude/skills/            links to .agents/skills/, so Claude Code finds the same skills
 .github/workflows/         ci.yml, the checks on every pull request, and release.yml, which publishes
                            groundline-core (see Releasing groundline-core)
-.claude/skills/            links to .agents/skills/, so Claude Code finds the same skills
 Dockerfile                 the app image
 compose.yaml               the stack: Postgres, the setup service and the app
 src/groundline_core/       a leading underscore marks the library's internals (ADR 0018)
