@@ -36,6 +36,12 @@
       "title": "Description",
       "type": "string"
     },
+    "disclaimer": {
+      "default": "",
+      "description": "A sentence to add to the disclaimer every result carries, after its opening sentence, such as `They aren't financial advice.` It can't remove any of the disclaimer, and the pipeline stages don't read it.",
+      "title": "Disclaimer",
+      "type": "string"
+    },
     "placeholders": {
       "$ref": "#/$defs/Placeholders",
       "description": "The placeholders the prompts use for the source and summary."

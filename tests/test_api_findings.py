@@ -9,9 +9,11 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from groundline_core._disclaimer import full_disclaimer
 from groundline_core._findings import EXPLANATIONS
 from groundline_core.api import common
 from groundline_core.app import app
+from groundline_core.profiles import load_builtin_profile
 from tests.auth_helpers import HEADERS, FakeKeys
 from tests.commissions_helpers import (
     DOSE,
@@ -122,6 +124,7 @@ def test_a_flagged_omission_check_reports_its_score_findings_and_metadata():
     assert without_usage(body["metadata"]) == {
         "pipeline": "omission_all_opus",
         "alarm": {"score": 0.95, "threshold": 0.9, "level": "strict"},
+        "disclaimer": full_disclaimer(load_builtin_profile("clinical").disclaimer),
     }
     first, second, third = body["findings"]
     assert first == {
@@ -153,6 +156,7 @@ def test_a_flagged_commission_check_reports_its_score_findings_and_metadata():
     assert without_usage(body["metadata"]) == {
         "pipeline": "commission_quick",
         "alarm": {"score": 0.95, "threshold": 0.85, "level": "default"},
+        "disclaimer": full_disclaimer(load_builtin_profile("clinical").disclaimer),
     }
     contradicted, unsupported = body["findings"]
     assert contradicted == {

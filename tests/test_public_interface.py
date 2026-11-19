@@ -48,6 +48,7 @@ RESULT_FIELDS = {
         "counts",
         "alarm",
         "usage",
+        "disclaimer",
         "run",
         "warnings",
     ],

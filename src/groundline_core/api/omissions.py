@@ -28,6 +28,7 @@ from groundline_core.api.common import (
     begin_check,
     check_failures,
     check_responses,
+    example_disclaimer,
     model_client,
 )
 from groundline_core.auth import require_api_key
@@ -83,6 +84,7 @@ class OmissionsResponse(CheckResponse[Literal["omissions"], OmissionsMetadata]):
                             "output_tokens": 8140,
                             "cost_usd": 0.29,
                         },
+                        "disclaimer": example_disclaimer(DEFAULT_PRESET),
                     },
                 }
             ]
@@ -144,5 +146,6 @@ def _response(result: EvaluationResult) -> OmissionsResponse:
             pipeline=result.pipeline,
             alarm=alarm_of(result.alarm, OmissionsAlarm),
             usage=result.usage,
+            disclaimer=result.disclaimer,
         ),
     )

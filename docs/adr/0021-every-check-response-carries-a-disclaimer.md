@@ -1,0 +1,3 @@
+# Every check response carries a disclaimer
+
+groundline's results could be read as an all-clear, and an API result often reaches its reader through someone else's app, so every 200 response from a check carries `metadata.disclaimer`, as openFDA's responses carry `meta.disclaimer`. Most APIs keep this in their docs instead; we accept a paragraph of text in every response, and a field that can't be removed from `/v1` once the API is public, so that the disclaimer travels with every result that is stored or forwarded. Following ADR 0002, the core text is domain-neutral and lives in code, and a domain profile can add one sentence of its own, such as the clinical profile's "They aren't medical advice or a clinical decision."

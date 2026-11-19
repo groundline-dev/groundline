@@ -26,6 +26,7 @@ from groundline_core._core import (
 )
 from groundline_core._core.deadline import check_deadline, has_deadline, remaining
 from groundline_core._core.errors import InvalidInputError, SetupError
+from groundline_core._disclaimer import full_disclaimer
 from groundline_core._evaluators.builtin import default_registry
 from groundline_core._evaluators.models import ALARM_STEP, AlarmOutput
 from groundline_core._findings import evaluation_type_of, findings_and_counts
@@ -151,6 +152,7 @@ async def evaluate(
             output_tokens=run.usage.output_tokens,
             cost_usd=run.usage.cost_usd,
         ),
+        disclaimer=full_disclaimer(profile.disclaimer if profile else None),
         run=run,
         warnings=warnings,
     )

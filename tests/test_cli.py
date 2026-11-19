@@ -7,6 +7,8 @@ import pytest
 from typer.testing import CliRunner, Result
 
 from groundline_core import GroundlineError, cli
+from groundline_core._disclaimer import SHORT, full_disclaimer
+from groundline_core.profiles import load_builtin_profile
 from tests.anthropic_helpers import fake_anthropic, keys_sent
 from tests.fakes import FakeClient, unwritable_folder
 from tests.omission_helpers import (
@@ -208,6 +210,8 @@ def test_json_writes_the_full_result(
     assert data["outputs"]["alarm"]["rescaled_score"] == pytest.approx(0.25)
     assert [c["step"] for c in data["calls"]] == ["extract", "rank", "check", "refute"]
     assert data["usage"]["calls"] == 4
+    clinical = load_builtin_profile("clinical").disclaimer
+    assert data.get("disclaimer") == full_disclaimer(clinical), sorted(data)
 
 
 def test_cache_warns_and_makes_reruns_free(
@@ -269,6 +273,26 @@ def test_a_pipeline_that_is_not_a_full_check_exits_with_2(
     assert result.exit_code == 2
     assert "doesn't make a full check" in result.stderr
     assert "score and rank (omissions)" in result.stderr
+
+
+def test_the_report_ends_with_the_short_disclaimer(
+    files: tuple[Path, Path], monkeypatch: pytest.MonkeyPatch
+):
+    use_client(monkeypatch, not_flagged_script())
+
+    result = omissions(files)
+
+    assert result.exit_code == 0, result.output
+    assert result.stdout.endswith(f"\n\n{SHORT}\n"), result.stdout[-300:]
+
+
+@pytest.mark.parametrize("args", [[], ["omissions"], ["commissions"]])
+def test_help_ends_with_the_short_disclaimer(args: list[str]):
+    result = runner.invoke(cli.app, [*args, "--help"])
+
+    assert result.exit_code == 0, result.output
+    # The help is wrapped to the terminal's width.
+    assert SHORT in " ".join(result.stdout.split()), result.stdout
 
 
 def test_help_lists_the_omissions_command():

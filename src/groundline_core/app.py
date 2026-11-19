@@ -15,6 +15,7 @@ try:
     from sqlalchemy.ext.asyncio import AsyncEngine
 
     from groundline_core._core.errors import SetupError, file_line
+    from groundline_core._disclaimer import SHORT
     from groundline_core._settings import (
         ENV_FILE,
         SettingsError,
@@ -127,12 +128,15 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None]:
             await engine.dispose()
 
 
-DESCRIPTION = """
+DESCRIPTION = f"""
 groundline checks an AI-written summary, such as a clinical note, against the
 source it was written from, such as a consultation transcript. It reports the
 facts the summary leaves out (omissions) and the claims in it the source
 doesn't support (commissions). It is research code, **not for clinical use**,
 and must not be used with real patient data yet.
+
+{SHORT} Every check's answer carries the full disclaimer in
+`metadata.disclaimer`: show it next to the result wherever people read it.
 
 ### Authentication
 

@@ -32,6 +32,7 @@ from groundline_core.api.common import (
     begin_check,
     check_failures,
     check_responses,
+    example_disclaimer,
     model_client,
 )
 from groundline_core.auth import require_api_key
@@ -99,6 +100,7 @@ class CommissionsResponse(CheckResponse[Literal["commissions"], CommissionsMetad
                             "output_tokens": 420,
                             "cost_usd": 0.0012,
                         },
+                        "disclaimer": example_disclaimer(DEFAULT_COMMISSIONS_PRESET),
                     },
                 }
             ]
@@ -165,5 +167,6 @@ def _response(result: EvaluationResult) -> CommissionsResponse:
             pipeline=result.pipeline,
             alarm=alarm_of(result.alarm, CommissionsAlarm),
             usage=result.usage,
+            disclaimer=result.disclaimer,
         ),
     )

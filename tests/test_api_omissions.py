@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from groundline_core._core import APIKeyRejectedError, SpecError
+from groundline_core._disclaimer import full_disclaimer
 from groundline_core._evaluate import DEFAULT_PRESET
 from groundline_core.api import common
 
@@ -15,6 +16,7 @@ from groundline_core.api import common
 # (evaluate, load_preset and the response models) there, not in `common`.
 from groundline_core.api import omissions as api
 from groundline_core.app import app
+from groundline_core.profiles import load_builtin_profile
 from tests.anthropic_helpers import (
     bad_request,
     fake_anthropic,
@@ -76,6 +78,7 @@ def test_a_summary_that_is_not_flagged():
     assert metadata == {
         "pipeline": DEFAULT_PRESET,
         "alarm": {"score": 0.0, "threshold": 0.9, "level": "strict"},
+        "disclaimer": full_disclaimer(load_builtin_profile("clinical").disclaimer),
     }
 
 

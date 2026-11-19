@@ -34,6 +34,7 @@ from groundline_core._core import (
     summarize_usage,
 )
 from groundline_core._core.file_problems import os_reason, read_text
+from groundline_core._disclaimer import SHORT
 from groundline_core._evaluate import (
     DEFAULT_COMMISSIONS_PRESET,
     DEFAULT_PRESET,
@@ -53,6 +54,7 @@ from groundline_core.presets import load_preset
 
 app = typer.Typer(
     help="Check AI-written summaries against their source.",
+    epilog=SHORT,
     no_args_is_help=True,
     pretty_exceptions_enable=False,
 )
@@ -166,7 +168,7 @@ COMMISSIONS = Check(
 )
 
 
-@app.command()
+@app.command(epilog=SHORT)
 def omissions(
     source: SourceArg,
     summary: SummaryArg,
@@ -181,7 +183,7 @@ def omissions(
     )
 
 
-@app.command()
+@app.command(epilog=SHORT)
 def commissions(
     source: SourceArg,
     summary: SummaryArg,
@@ -330,6 +332,7 @@ def _check(
     typer.echo(
         check.render(result, source=source.name, summary=summary.name, seconds=seconds)
     )
+    typer.echo(f"\n{SHORT}")
     if json_path:
         _write_json(json_path, result)
     return EXIT_FLAGGED if result.flagged else EXIT_NOT_FLAGGED
