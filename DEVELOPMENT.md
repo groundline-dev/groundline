@@ -357,7 +357,7 @@ Every route needs it except probes such as `/health` and `/ready` and the docs p
 
 ### Versions
 
-The version is written in `pyproject.toml`, and the package follows semantic versioning: until 1.0, a minor release may break callers' code and a patch release never does. To release, raise the version in a pull request and merge it. Each version can be published only once.
+The version is written in `pyproject.toml` and follows the policy in the README's [Versions](README.md#versions) section. To release, raise the version in a pull request and merge it. Each version can be published only once.
 
 ### Running a release
 
