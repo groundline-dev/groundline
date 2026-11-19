@@ -100,13 +100,13 @@ key can still show up in those tools, and that part is up to you.
 
 Every example below reads the URL and API key from the environment variables
 above and runs as written. Start with `health()`: it fails fast when the URL is
-wrong.
+wrong, and prints `ok` when the deployment is up.
 
 ```python
 from groundline_client import GroundlineClient
 
 with GroundlineClient() as client:
-    print(client.health())
+    print(client.health()["status"])
 ```
 
 ### Omissions
@@ -224,6 +224,10 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
+If `health()` works but a check raises `ServerUnavailableError` (a 503), the
+deployment is up and can't run checks. Its Anthropic API key is usually missing or
+was rejected, which only the person who runs it can fix.
+
 A check can take up to two minutes, because it makes several model calls. A
 flagged summary is a normal result: read `flagged`, `score` and `findings`, and
 show `metadata.disclaimer` next to them.
@@ -340,7 +344,7 @@ You can change the limits when you create the client:
 from groundline_client import GroundlineClient
 
 with GroundlineClient(max_attempts=1, timeout_seconds=60) as client:
-    print(client.health())
+    print(client.health()["status"])
 ```
 
 Each attempt is also cut off at whatever is left of `max_retry_seconds`, and no
