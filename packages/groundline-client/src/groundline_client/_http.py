@@ -29,8 +29,9 @@ from ._retry import (
     is_retryable_error,
     is_retryable_status,
     next_wait,
-    retry_after_seconds,
+    retry_after_of,
 )
+from .errors import GroundlineError
 
 logger = logging.getLogger("groundline_client.retry")
 
@@ -107,9 +108,7 @@ class _RetryBudget:
     def wait_after_status(self, response: httpx2.Response) -> float | None:
         if not is_retryable_status(response.status_code):
             return None
-        retry_after = retry_after_seconds(
-            response.headers.get("retry-after"), now=time.time()
-        )
+        retry_after = retry_after_of(response.headers, now=time.time())
         return self.wait_before_retry(retry_after)
 
     def wait_after_error(self, error: Exception) -> float | None:
@@ -244,13 +243,20 @@ class AsyncRetryingClient(httpx2.AsyncClient):
             await self._sleep(wait)
 
 
-def _credentials_of(request: httpx2.Request) -> tuple[str, ...]:
-    """What the request's `Authorization` header holds, longest first: the
-    whole value (`Bearer <key>`) and the key alone. They are texts to hide from
-    an error, passed straight to the mapping so no frame of the error's
-    traceback holds them."""
-    value = request.headers.get("authorization", "")
-    return tuple(sorted({value, value.split(" ")[-1]} - {""}, key=len, reverse=True))
+def _error_for_answer(
+    request: httpx2.Request, response: httpx2.Response
+) -> GroundlineError | None:
+    """The error for an answer that isn't a success, or None for a 2xx.
+
+    The API key is read from the request's header here and passed straight to
+    the mapping, so no frame of the error's own traceback holds it.
+    """
+    if response.is_success:
+        return None
+    credential = request.headers.get("authorization", "").removeprefix("Bearer ")
+    return error_for_status(
+        response.status_code, response.headers, response.content, credential
+    )
 
 
 class ErrorRaisingClient(RetryingClient):
@@ -274,14 +280,9 @@ class ErrorRaisingClient(RetryingClient):
                 raise
         else:
             response.read()
-            if response.is_success:
+            error = _error_for_answer(request, response)
+            if error is None:
                 return response
-            error = error_for_status(
-                response.status_code,
-                response.headers,
-                response.content,
-                _credentials_of(request),
-            )
             response.close()
         # Outside the `except` block, so the error has no `__context__`.
         raise error
@@ -308,13 +309,8 @@ class AsyncErrorRaisingClient(AsyncRetryingClient):
                 raise
         else:
             await response.aread()
-            if response.is_success:
+            error = _error_for_answer(request, response)
+            if error is None:
                 return response
-            error = error_for_status(
-                response.status_code,
-                response.headers,
-                response.content,
-                _credentials_of(request),
-            )
             await response.aclose()
         raise error

@@ -145,10 +145,15 @@ def test_a_key_in_the_servers_detail_is_redacted_in_the_error(
 
 @SYNC_AND_ASYNC
 @pytest.mark.parametrize(
-    "echo", [SECRET_KEY, f"Bearer {SECRET_KEY}"], ids=["key", "header"]
+    ("echo", "shown"),
+    [
+        (SECRET_KEY, "upstream echoed <redacted key>"),
+        (f"Bearer {SECRET_KEY}", "upstream echoed Bearer <redacted key>"),
+    ],
+    ids=["key", "header"],
 )
 def test_the_clients_own_key_echoed_in_the_servers_detail_is_redacted(
-    echo: str, is_async: bool, fake_server: FakeServer
+    echo: str, shown: str, is_async: bool, fake_server: FakeServer
 ):
     # The key isn't one of the shapes `redact_keys` knows, so only the client's
     # own knowledge of it can hide it.
@@ -159,8 +164,24 @@ def test_the_clients_own_key_echoed_in_the_servers_detail_is_redacted(
 
     error = trigger(client, "health", is_async)
 
-    assert error.detail == "upstream echoed <redacted key>"
+    assert error.detail == shown
     assert_safe(error)
+
+
+@SYNC_AND_ASYNC
+def test_a_key_that_contains_a_space_is_hidden_whole_when_echoed(
+    is_async: bool, fake_server: FakeServer
+):
+    # The client's checks allow a printable key with a space in it.
+    spaced = "a key with spaces 123"
+    fake_server.reply("GET", "/health", 502, {"detail": f"upstream echoed {spaced}"})
+    client = sdk.GroundlineClient(
+        base_url=fake_server.url, api_key=spaced, max_attempts=1
+    )
+
+    error = trigger(client, "health", is_async)
+
+    assert error.detail == "upstream echoed <redacted key>"
 
 
 @SYNC_AND_ASYNC

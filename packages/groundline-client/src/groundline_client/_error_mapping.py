@@ -7,12 +7,13 @@ request's headers do). The classes are in `errors.py`; `_http.py` calls these.
 
 import json
 import time
-from collections.abc import Iterable, Mapping
-from typing import cast
+from collections.abc import Mapping
+from typing import Any, cast
 
 import httpx2
 
-from ._retry import retry_after_seconds
+from ._generated.models import ErrorBody, InvalidRequestBody
+from ._retry import retry_after_of
 from .errors import (
     AuthenticationError,
     GroundlineError,
@@ -23,50 +24,86 @@ from .errors import (
     ServerUnavailableError,
 )
 
-# Each status the SDK knows, with the class and the fixed wording for it. The
-# statuses are the API's own (400, 401, 413, 422, 500, 502, 503, 504) and the
+_INVALID = (InvalidRequestError, "The API rejected the request as invalid")
+_REFUSED_KEY = (AuthenticationError, "The API refused the API key")
+# The API never answers 403. It comes from a proxy or firewall in front of it,
+# often for a reason that has nothing to do with the key.
+_REFUSED_REQUEST = (AuthenticationError, "The API refused the request")
+_GAVE_UP = (GroundlineTimeoutError, "The API gave up waiting")
+_OUT_OF_TIME = (GroundlineTimeoutError, "The API ran out of time")
+_TOO_LARGE = (RequestTooLargeError, "The request is larger than the API accepts")
+_TOO_MANY = (RateLimitError, "The API says there were too many requests")
+_FAILED = (ServerUnavailableError, "The API couldn't handle the request")
+_UNEXPECTED = (GroundlineError, "The API gave an answer the SDK doesn't recognize")
+
+# The statuses the API sends (400, 401, 413, 422, 500, 502, 503, 504) and the
 # ones a proxy in front of it adds (403, 408, 429).
 _BY_STATUS: dict[int, tuple[type[GroundlineError], str]] = {
-    400: (InvalidRequestError, "The API rejected the request as invalid"),
-    401: (AuthenticationError, "The API refused the API key"),
-    403: (AuthenticationError, "The API refused the API key"),
-    408: (GroundlineTimeoutError, "The API gave up waiting"),
-    413: (RequestTooLargeError, "The request is larger than the API accepts"),
-    422: (InvalidRequestError, "The API rejected the request as invalid"),
-    429: (RateLimitError, "The API says there were too many requests"),
-    500: (ServerUnavailableError, "The API couldn't handle the request"),
-    502: (ServerUnavailableError, "The API couldn't handle the request"),
-    503: (ServerUnavailableError, "The API couldn't handle the request"),
-    504: (GroundlineTimeoutError, "The API ran out of time"),
+    400: _INVALID,
+    401: _REFUSED_KEY,
+    403: _REFUSED_REQUEST,
+    408: _GAVE_UP,
+    413: _TOO_LARGE,
+    422: _INVALID,
+    429: _TOO_MANY,
+    500: _FAILED,
+    502: _FAILED,
+    503: _FAILED,
+    504: _OUT_OF_TIME,
 }
-_UNEXPECTED = "The API gave an answer the SDK doesn't recognise"
 _SHORTEST_CREDENTIAL = 8
 
 
-def _problem_text(problem: object) -> str | None:
-    """One of a 422's problems as `location: message`, or None if it isn't one."""
-    if not isinstance(problem, dict):
-        return None
-    location = problem.get("loc")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
-    message = problem.get("msg")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
-    if not isinstance(location, list) or not isinstance(message, str):
-        return None
-    parts = cast(list[object], location)
-    # The server's locations are field names and list positions. Anything else
-    # is not the documented shape, and isn't copied into `detail`.
-    if not all(
+def _is_location(location: object) -> bool:
+    """Whether a 422 problem's location is a list of field names and positions."""
+    return isinstance(location, list) and all(
         isinstance(part, str) or (isinstance(part, int) and not isinstance(part, bool))
-        for part in parts
+        for part in cast(list[object], location)
+    )
+
+
+def _text_detail(body: dict[str, Any]) -> str | None:
+    """The `detail` of an `ErrorBody` (every error but a 422), if it is text."""
+    try:
+        error_body = ErrorBody.from_dict(body)
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return None
+    detail = cast(object, error_body.detail)
+    return detail if isinstance(detail, str) else None
+
+
+def _problems_detail(body: dict[str, Any]) -> str | None:
+    """A 422's problems as `location: message; ...`, if they are all well formed."""
+    items = body.get("detail")
+    if not isinstance(items, list) or not items:
+        return None
+    # The generated model would read a string location as a list of characters.
+    if not all(
+        isinstance(item, dict)
+        and isinstance(cast(dict[str, Any], item).get("loc"), list)
+        for item in cast(list[object], items)
     ):
         return None
-    return f"{'.'.join(str(part) for part in parts)}: {message}"
+    try:
+        invalid = InvalidRequestBody.from_dict(body)
+    except (KeyError, TypeError, ValueError, AttributeError):
+        return None
+    texts: list[str] = []
+    for problem in invalid.detail:
+        location = cast(object, problem.loc)
+        message = cast(object, problem.msg)
+        if not isinstance(message, str) or not _is_location(location):
+            return None
+        parts = cast(list[object], location)
+        texts.append(f"{'.'.join(str(part) for part in parts)}: {message}")
+    return "; ".join(texts)
 
 
 def _detail_from_body(content: bytes) -> str | None:
-    """The server's `detail`, if the body is the documented shape; else None.
+    """The server's `detail`, if the body is one of the documented shapes.
 
-    Documented shapes: `{"detail": "text"}` and a 422's list of problems.
-    Anything else, such as a proxy's HTML page, gives None.
+    The shapes are the generated `ErrorBody` and `InvalidRequestBody`. Anything
+    else, such as a proxy's HTML page, gives None.
     """
     try:
         body = json.loads(content)
@@ -74,57 +111,41 @@ def _detail_from_body(content: bytes) -> str | None:
         return None
     if not isinstance(body, dict):
         return None
-    detail = body.get("detail")  # pyright: ignore[reportUnknownMemberType, reportUnknownVariableType]
-    if isinstance(detail, str):
-        return detail
-    if isinstance(detail, list) and detail:
-        problems = [_problem_text(problem) for problem in cast(list[object], detail)]
-        if all(problem is not None for problem in problems):
-            return "; ".join(problem for problem in problems if problem is not None)
-    return None
+    fields = cast(dict[str, Any], body)
+    detail = _text_detail(fields)
+    return detail if detail is not None else _problems_detail(fields)
 
 
-def _without_credentials(text: str | None, credentials: Iterable[str]) -> str | None:
-    """`text` with each credential, such as the API key a proxy echoed, replaced.
+def _without_credential(text: str | None, credential: str) -> str | None:
+    """`text` with the credential, such as the API key a proxy echoed, replaced.
 
     A credential under `_SHORTEST_CREDENTIAL` characters isn't replaced: it would
     also match ordinary words.
     """
-    if text is None:
-        return None
-    for credential in credentials:
-        if len(credential) >= _SHORTEST_CREDENTIAL:
-            text = text.replace(credential, "<redacted key>")
-    return text
+    if text is None or len(credential) < _SHORTEST_CREDENTIAL:
+        return text
+    return text.replace(credential, "<redacted key>")
 
 
 def error_for_status(
-    status: int,
-    headers: Mapping[str, str],
-    content: bytes,
-    credentials: Iterable[str] = (),
+    status: int, headers: Mapping[str, str], content: bytes, credential: str = ""
 ) -> GroundlineError:
     """The error for an answer with this status, headers and body.
 
-    `credentials` are the texts to hide from `detail`, beyond the key shapes
-    `GroundlineError` already redacts: the client's own API key, in case the
-    server or a proxy echoes it. List the longest first.
+    `credential` is the client's own API key. It is hidden from `detail`, beyond
+    the key shapes `GroundlineError` already redacts, in case the server or a
+    proxy echoes it.
     """
-    error_class, start_of_message = _BY_STATUS.get(
-        status, (GroundlineError, _UNEXPECTED)
-    )
-    message = f"{start_of_message} (status {status})."
-    detail = _without_credentials(_detail_from_body(content), credentials)
+    error_class, start_of_message = _BY_STATUS.get(status, _UNEXPECTED)
+    extra: dict[str, Any] = {}
     if error_class is RateLimitError:
-        return RateLimitError(
-            message,
-            status_code=status,
-            detail=detail,
-            retry_after=retry_after_seconds(
-                headers.get("retry-after"), now=time.time()
-            ),
-        )
-    return error_class(message, status_code=status, detail=detail)
+        extra["retry_after"] = retry_after_of(headers, now=time.time())
+    return error_class(
+        f"{start_of_message} (status {status}).",
+        status_code=status,
+        detail=_without_credential(_detail_from_body(content), credential),
+        **extra,
+    )
 
 
 def error_for_failure(failure: BaseException) -> GroundlineError | None:

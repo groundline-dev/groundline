@@ -3,8 +3,7 @@
 import math
 import os
 import warnings
-from collections.abc import Awaitable, Callable
-from types import TracebackType
+from types import ModuleType, TracebackType
 from typing import Any, Self
 
 import httpx2
@@ -79,38 +78,57 @@ _PARSE_ERRORS = (ValueError, KeyError, TypeError, AttributeError, RecursionError
 _UNREADABLE_ANSWER = "The API's answer was not in the expected form."
 
 
-def _expect[Result](result: object, model: type[Result]) -> Result:
-    """`result`, if the generated code parsed it as `model`; else an error.
+def _read[Result](
+    operation: ModuleType,
+    model: type[Result],
+    client: AuthenticatedClient,
+    response: httpx2.Response,
+) -> Result:
+    """The 2xx `response` parsed as `model`, or an error with its status.
 
-    By now the answer was a 2xx. The generated code returns None for a 2xx it
-    doesn't document, such as a 202.
+    Only the parsing is inside the `try`: the generated code raises the errors
+    below when a body isn't what it expects, and returns None for a 2xx it
+    doesn't document, such as a 202. A mistake in the caller's own request is
+    raised earlier, in `_call`, and isn't reported as a bad answer.
     """
+    try:
+        result = operation._parse_response(  # pyright: ignore[reportPrivateUsage]
+            client=client, response=response
+        )
+    except _PARSE_ERRORS:
+        # Raised below, outside this block, so the error has no `__context__`.
+        result = None
     if not isinstance(result, model):
-        raise GroundlineError(_UNREADABLE_ANSWER)
+        raise GroundlineError(_UNREADABLE_ANSWER, status_code=response.status_code)
     return result
 
 
 def _call[Result](
-    operation: Callable[..., object], model: type[Result], **arguments: Any
+    operation: ModuleType,
+    model: type[Result],
+    client: AuthenticatedClient,
+    **arguments: Any,
 ) -> Result:
-    try:
-        result = operation(**arguments)
-    except _PARSE_ERRORS:
-        # Raised below, outside this block, so the error has no `__context__`.
-        result = None
-    return _expect(result, model)
+    """Run a generated operation: build the request, send it, read the answer.
+
+    These are the steps of the generated `sync`, done here so each can fail its
+    own way. `_get_kwargs` and `_parse_response` are the generated module's own
+    helpers; a test fails if a regeneration renames them.
+    """
+    request = operation._get_kwargs(**arguments)  # pyright: ignore[reportPrivateUsage]
+    response = client.get_httpx_client().request(**request)
+    return _read(operation, model, client, response)
 
 
 async def _call_async[Result](
-    operation: Callable[..., Awaitable[object]],
+    operation: ModuleType,
     model: type[Result],
+    client: AuthenticatedClient,
     **arguments: Any,
 ) -> Result:
-    try:
-        result = await operation(**arguments)
-    except _PARSE_ERRORS:
-        result = None
-    return _expect(result, model)
+    request = operation._get_kwargs(**arguments)  # pyright: ignore[reportPrivateUsage]
+    response = await client.get_async_httpx_client().request(**request)
+    return _read(operation, model, client, response)
 
 
 def _is_positive_finite_number(value: Any) -> bool:
@@ -333,57 +351,40 @@ class GroundlineClient:
 
     def evaluate_omissions(self, body: OmissionsRequest) -> OmissionsResponse:
         """Find the facts a summary leaves out (`POST /v1/omissions`)."""
-        return _call(
-            evaluate_omissions.sync, OmissionsResponse, client=self._client, body=body
-        )
+        return _call(evaluate_omissions, OmissionsResponse, self._client, body=body)
 
     async def evaluate_omissions_async(
         self, body: OmissionsRequest
     ) -> OmissionsResponse:
         """Find the facts a summary leaves out (`POST /v1/omissions`)."""
         return await _call_async(
-            evaluate_omissions.asyncio,
-            OmissionsResponse,
-            client=self._client,
-            body=body,
+            evaluate_omissions, OmissionsResponse, self._client, body=body
         )
 
     def evaluate_commissions(self, body: CommissionsRequest) -> CommissionsResponse:
         """Find the claims the source doesn't support (`POST /v1/commissions`)."""
-        return _call(
-            evaluate_commissions.sync,
-            CommissionsResponse,
-            client=self._client,
-            body=body,
-        )
+        return _call(evaluate_commissions, CommissionsResponse, self._client, body=body)
 
     async def evaluate_commissions_async(
         self, body: CommissionsRequest
     ) -> CommissionsResponse:
         """Find the claims the source doesn't support (`POST /v1/commissions`)."""
         return await _call_async(
-            evaluate_commissions.asyncio,
-            CommissionsResponse,
-            client=self._client,
-            body=body,
+            evaluate_commissions, CommissionsResponse, self._client, body=body
         )
 
     def health(self) -> GetHealthResponseGetHealth:
         """Whether the app is running (`GET /health`)."""
-        return _call(get_health.sync, GetHealthResponseGetHealth, client=self._client)
+        return _call(get_health, GetHealthResponseGetHealth, self._client)
 
     async def health_async(self) -> GetHealthResponseGetHealth:
         """Whether the app is running (`GET /health`)."""
-        return await _call_async(
-            get_health.asyncio, GetHealthResponseGetHealth, client=self._client
-        )
+        return await _call_async(get_health, GetHealthResponseGetHealth, self._client)
 
     def ready(self) -> GetReadyResponseGetReady:
         """Whether the app can serve checks (`GET /ready`)."""
-        return _call(get_ready.sync, GetReadyResponseGetReady, client=self._client)
+        return _call(get_ready, GetReadyResponseGetReady, self._client)
 
     async def ready_async(self) -> GetReadyResponseGetReady:
         """Whether the app can serve checks (`GET /ready`)."""
-        return await _call_async(
-            get_ready.asyncio, GetReadyResponseGetReady, client=self._client
-        )
+        return await _call_async(get_ready, GetReadyResponseGetReady, self._client)

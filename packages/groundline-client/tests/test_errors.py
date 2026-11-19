@@ -235,13 +235,21 @@ def test_a_422_location_that_is_not_names_and_positions_gives_no_detail(
 def test_a_credential_in_the_servers_detail_is_replaced():
     body = b'{"detail": "echo Bearer abcdef123456 and abcdef123456"}'
 
-    error = error_for_status(502, {}, body, ("Bearer abcdef123456", "abcdef123456"))
+    error = error_for_status(502, {}, body, "abcdef123456")
 
-    assert error.detail == "echo <redacted key> and <redacted key>"
+    assert error.detail == "echo Bearer <redacted key> and <redacted key>"
+
+
+def test_a_credential_that_contains_spaces_is_replaced_whole():
+    body = b'{"detail": "echo my secret key phrase done"}'
+
+    error = error_for_status(502, {}, body, "my secret key phrase")
+
+    assert error.detail == "echo <redacted key> done"
 
 
 def test_a_credential_too_short_to_be_a_key_is_left_alone():
-    error = error_for_status(502, {}, b'{"detail": "a key x here"}', ("x",))
+    error = error_for_status(502, {}, b'{"detail": "a key x here"}', "x")
     assert error.detail == "a key x here"
 
 

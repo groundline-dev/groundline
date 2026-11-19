@@ -222,17 +222,67 @@ def test_a_success_status_with_a_body_that_cannot_be_read_raises_a_plain_error(
     error = raised_by(fake_server, api_key, is_async, 200, body)
 
     assert type(error) is sdk.GroundlineError
+    assert error.status_code == 200
     assert "maintenance" not in str(error)
 
 
 @SYNC_AND_ASYNC
 @pytest.mark.parametrize("status", [201, 202])
-def test_a_success_status_the_api_does_not_document_raises_a_plain_error(
-    status: int, is_async: bool, fake_server: FakeServer, api_key: str
+@pytest.mark.parametrize(("name", "method", "path", "model"), OPERATIONS)
+def test_an_undocumented_success_status_raises_a_plain_error_on_every_route(
+    name: str,
+    method: str,
+    path: str,
+    model: str | None,
+    status: int,
+    is_async: bool,
+    fake_server: FakeServer,
+    api_key: str,
 ):
-    error = raised_by(fake_server, api_key, is_async, status, {"status": "ok"})
+    # A method that skipped the reading step would return None here.
+    error = raised_by(
+        fake_server,
+        api_key,
+        is_async,
+        status,
+        {"status": "ok"},
+        operation=(name, method, path, model),
+    )
 
     assert type(error) is sdk.GroundlineError
+    # The API did answer, and may have run paid work, so the status is kept.
+    assert error.status_code == status
+
+
+@SYNC_AND_ASYNC
+def test_a_request_the_caller_built_wrongly_raises_the_callers_own_error(
+    is_async: bool, fake_server: FakeServer, api_key: str
+):
+    client = make_client(fake_server, api_key)
+    wrong_body: Any = {"source": "a", "summary": "b"}  # a dict, not a request model
+
+    with pytest.raises((AttributeError, TypeError)) as raised:
+        if is_async:
+            asyncio.run(client.evaluate_omissions_async(wrong_body))
+        else:
+            client.evaluate_omissions(wrong_body)
+
+    assert not isinstance(raised.value, sdk.GroundlineError)
+    assert fake_server.requests == []
+
+
+@SYNC_AND_ASYNC
+def test_a_403_does_not_blame_the_api_key_but_a_401_does(
+    is_async: bool, fake_server: FakeServer, api_key: str
+):
+    # The API never sends a 403: it comes from a proxy or firewall, often for a
+    # reason that has nothing to do with the key.
+    forbidden = raised_by(fake_server, api_key, is_async, 403)
+    unauthorized = raised_by(fake_server, api_key, is_async, 401)
+
+    assert type(forbidden) is sdk.AuthenticationError
+    assert "API key" not in str(forbidden)
+    assert "API key" in str(unauthorized)
 
 
 @SYNC_AND_ASYNC

@@ -6,7 +6,7 @@ match the server's own model retries.
 """
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from datetime import UTC
 from email.utils import parsedate_to_datetime
 
@@ -63,6 +63,11 @@ def retry_after_seconds(value: str | None, *, now: float) -> float | None:
         return max(0.0, moment.timestamp() - now)
     except (OverflowError, OSError):
         return None
+
+
+def retry_after_of(headers: Mapping[str, str], *, now: float) -> float | None:
+    """The seconds the `Retry-After` header of an answer asks for, if any."""
+    return retry_after_seconds(headers.get("retry-after"), now=now)
 
 
 def next_wait(

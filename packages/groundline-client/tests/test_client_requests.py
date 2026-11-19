@@ -127,3 +127,19 @@ def test_each_client_method_takes_the_same_parameters_as_the_generated_function(
             if actual != expected:
                 mismatched.append(method_name + suffix)
     assert not mismatched, f"these methods differ from the generated ones: {mismatched}"
+
+
+def test_every_generated_operation_has_the_two_helpers_the_client_calls():
+    # `_call` builds the request and reads the answer with these, so a caller's
+    # own mistake isn't reported as a bad answer. A regeneration that renames
+    # them must fail here, not at a user's call.
+    api = importlib.import_module("groundline_client._generated.api")
+    missing: list[str] = []
+    for module in pkgutil.walk_packages(api.__path__, f"{api.__name__}."):
+        if module.ispkg:
+            continue
+        generated = importlib.import_module(module.name)
+        for helper in ("_get_kwargs", "_parse_response"):
+            if not callable(getattr(generated, helper, None)):
+                missing.append(f"{module.name}.{helper}")
+    assert not missing, f"the client calls these generated helpers: {missing}"
