@@ -22,10 +22,9 @@ class CommissionsMetadata:
         alarm (CommissionsAlarm):
         usage (Usage): The model calls a check made, and what they cost.
         disclaimer (str): What a person relying on this result should know: it helps them review
-            the summary, and isn't proof that the summary is complete. It includes the
-            sentence the pipeline's domain profile adds, such as the clinical profile's
-            "They aren't medical advice or a clinical decision." Show it next to the
-            result wherever people read it.
+            the summary, and a summary that isn't flagged can still leave out or misstate
+            important facts. It includes the sentence the pipeline's domain profile adds,
+            if any. Show it next to the result wherever people read it.
     """
 
     pipeline: str
