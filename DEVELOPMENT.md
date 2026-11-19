@@ -368,8 +368,9 @@ The version is written in `pyproject.toml` and follows the policy in the README'
 
 A run from `main` stops before uploading anything if the version is already on PyPI or TestPyPI, or already tagged (`scripts/release_version.py`). If a run stops partway:
 
-- **Before PyPI** (a check failed, or the approval was rejected): the version stays on TestPyPI for good, so raise the version before running again. Skipping a version number this way is normal.
-- **During the PyPI upload, or in the last job** (the tag and GitHub release): use **Re-run failed jobs** on that same run, which uploads only the files PyPI doesn't have yet. A new run would be refused, because the version is on PyPI.
+- **Before TestPyPI** (the build or its check failed): nothing was uploaded, so fix the problem and start a new run.
+- **After TestPyPI, before PyPI** (the check of the TestPyPI install failed, or the approval was rejected): the version stays on TestPyPI for good, so raise the version before running again. Skipping a version number this way is normal.
+- **During the PyPI upload, or in the last job** (the tag and GitHub release): use **Re-run failed jobs** on that same run, which uploads only the files PyPI doesn't have yet. A new run would be refused, because the version is already on TestPyPI, and perhaps on PyPI too.
 
 Start one run at a time: GitHub keeps only one run waiting per branch, and a newer one cancels it.
 

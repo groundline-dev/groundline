@@ -119,6 +119,9 @@ def test_the_tag_comes_from_the_version_script(workflow: dict[Any, Any]):
 
     assert 'gh release create "$TAG"' in runs(release)
     assert "groundline-core-v$VERSION" not in runs(release)
+    assert (
+        jobs(workflow)["build"]["outputs"]["tag"] == "${{ steps.version.outputs.tag }}"
+    )
 
 
 def test_whether_it_is_a_prerelease_comes_from_the_version_script(
@@ -130,11 +133,8 @@ def test_whether_it_is_a_prerelease_comes_from_the_version_script(
     assert jobs(workflow)["build"]["outputs"]["prerelease"] == (
         "${{ steps.version.outputs.prerelease }}"
     )
-    assert '"$PRERELEASE" = true' in runs(release)
+    assert 'case "$PRERELEASE" in' in runs(release)
     assert "=~" not in runs(release)
-    assert (
-        jobs(workflow)["build"]["outputs"]["tag"] == "${{ steps.version.outputs.tag }}"
-    )
 
 
 def test_release_jobs_build_without_the_shared_cache(workflow: dict[Any, Any]):

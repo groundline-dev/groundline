@@ -152,15 +152,19 @@ jobs:
           TAG: ${{ needs.build.outputs.tag }}
           PRERELEASE: ${{ needs.build.outputs.prerelease }}
         run: |
-          options=()
-          # A release candidate or other pre-release must not become "Latest".
-          if [ "$PRERELEASE" = true ]; then
-            options+=(--prerelease)
-          fi
-          # Notes from the previous published groundline-core release, not from
-          # whatever the repository released last (the SDK releases here too). No
-          # pipe, so a failed lookup fails the step.
-          previous="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 --exclude-drafts \
+          # A pre-release must not become "Latest". Only true or false is accepted,
+          # so a missing value stops the job instead of publishing it as final.
+          # A final release's notes start from the previous final release, so
+          # they cover everything since then, not just what followed an rc.
+          case "$PRERELEASE" in
+            true) options=(--prerelease); lookup=(--exclude-drafts) ;;
+            false) options=(); lookup=(--exclude-drafts --exclude-pre-releases) ;;
+            *) echo "prerelease is '$PRERELEASE', not true or false"; exit 1 ;;
+          esac
+          # Notes from the previous groundline-core release, not from whatever the
+          # repository released last (the SDK releases here too). No pipe, so a
+          # failed lookup fails the step.
+          previous="$(gh release list --repo "$GITHUB_REPOSITORY" --limit 100 "${lookup[@]}" \
             --json tagName --jq '[.[].tagName | select(startswith("groundline-core-v"))][0] // empty')"
           if [ -n "$previous" ]; then
             options+=(--notes-start-tag "$previous")

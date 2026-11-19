@@ -9,8 +9,8 @@ REPOSITORY = "https://github.com/groundline-dev/groundline"
 
 LINK_TARGET = re.compile(
     r"\]\(([^)\s]+)"  # [text](target) or ![alt](target)
-    r"|^\s*\[[^\]]+\]:\s*(\S+)"  # [label]: target
-    r"|<(?:a|img)\s[^>]*(?:href|src)=\"([^\"]+)\"",  # <a href> or <img src>
+    r"|^\s*\[[^\]^][^\]]*\]:\s*<?([^\s>]+)"  # [label]: target, not a footnote
+    r"|<(?:a|img)\s(?:[^>]*\s)?(?:href|src)=\"([^\"]+)\"",  # <a href>, <img src>
     re.MULTILINE,
 )
 """The target of a Markdown link, image or reference, or of an HTML link or image."""
