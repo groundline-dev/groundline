@@ -16,28 +16,68 @@ one: "They aren't medical advice or a clinical decision." Every check's response
 carries the full text in `metadata.disclaimer`: show it next to the result
 wherever people read it.
 
+## Install
+
+The SDK needs Python 3.13 or later. Install it from PyPI:
+
+<!-- not run: installs the package -->
+```sh
+pip install groundline-client
+```
+
+or, in a project managed with uv:
+
+<!-- not run: installs the package -->
+```sh
+uv add groundline-client
+```
+
+It installs only `attrs` and `httpx2`: no pipelines, no Anthropic SDK and no server.
+
+## SDK or library
+
+groundline has two Python packages. This one, the SDK, calls a groundline
+deployment over HTTP. The library, `groundline-core`, runs the checks inside your
+own process (see the
+[main README](https://github.com/groundline-dev/groundline#using-it-from-python)).
+The difference that matters most is who pays for the model calls:
+
+| | SDK (`groundline-client`) | Library (`groundline-core`) |
+| --- | --- | --- |
+| Where a check runs | On a groundline deployment that someone operates | In your own Python process |
+| Whose Anthropic API key pays | The deployment's. Its operator pays Anthropic for every check, and you need no Anthropic key | Yours. You set `ANTHROPIC_API_KEY`, and Anthropic bills you |
+| What you need | The deployment's URL and a groundline API key from its operator | An Anthropic API key |
+| What it installs | `attrs` and `httpx2` | The pipelines and the Anthropic SDK |
+
+Use the SDK when someone else runs groundline for you, or when several apps
+share one deployment. Use the library when you want checks inside your own app
+and are happy to pay Anthropic directly.
+
 ## Connect
 
 Give the client your deployment's URL and an API key. Either set the two
 environment variables:
 
+<!-- not run: sets environment variables in a shell -->
 ```sh
 export GROUNDLINE_API_URL="https://groundline.example.com"
 export GROUNDLINE_API_KEY="..."
 ```
 
+The client reads them when you create it, so `GroundlineClient()` needs no
+arguments (see [Run a check](#run-a-check)). Or pass them as arguments, which win
+over the environment variables:
+
+<!-- not run: only creates a client, so it makes no call -->
 ```python
-from groundline_client import GroundlineClient, OmissionsRequest
+import os
 
-with GroundlineClient() as client:
-    print(client.health())
-    result = client.evaluate_omissions(OmissionsRequest(source="...", summary="..."))
-```
+from groundline_client import GroundlineClient
 
-or pass them as arguments, which win over the environment variables:
-
-```python
-client = GroundlineClient(base_url="https://groundline.example.com", api_key=key)
+client = GroundlineClient(
+    base_url="https://groundline.example.com",
+    api_key=os.environ["GROUNDLINE_API_KEY"],
+)
 ```
 
 Don't write the API key as a literal in your code or type it on a command line:
@@ -55,6 +95,147 @@ tracebacks, including the local variables that tools such as pytest
 `--showlocals` and Sentry can print. Its tests check this, and that the key stays
 out of the logs of the libraries it uses. A variable of your own that holds the
 key can still show up in those tools, and that part is up to you.
+
+## Run a check
+
+Every example below reads the URL and API key from the environment variables
+above and runs as written. Start with `health()`: it fails fast when the URL is
+wrong, and prints `ok` when the deployment is up.
+
+```python
+from groundline_client import GroundlineClient
+
+with GroundlineClient() as client:
+    print(client.health()["status"])
+```
+
+### Omissions
+
+`evaluate_omissions` finds the facts in the source that the summary leaves out.
+
+```python
+from groundline_client import GroundlineClient, OmissionsRequest
+
+SOURCE = (
+    "Doctor: Any allergies? Patient: Penicillin, it gives me a rash. "
+    "Doctor: Your knee is sprained. Take Motrin 600 mg every 6 hours for a week, "
+    "and come back if it isn't better in two weeks."
+)
+SUMMARY = (
+    "Sprained knee. Motrin 600 mg every 6 hours for a week. "
+    "Return if not improving in two weeks."
+)
+
+with GroundlineClient() as client:
+    result = client.evaluate_omissions(OmissionsRequest(source=SOURCE, summary=SUMMARY))
+
+print("Flagged:", result.flagged)
+for finding in result.findings:
+    print(finding.verdict.value, finding.statement)
+```
+
+The async version has the same shape. Use `async with`:
+
+```python
+import asyncio
+
+from groundline_client import GroundlineClient, OmissionsRequest
+
+SOURCE = (
+    "Doctor: Any allergies? Patient: Penicillin, it gives me a rash. "
+    "Doctor: Your knee is sprained. Take Motrin 600 mg every 6 hours for a week, "
+    "and come back if it isn't better in two weeks."
+)
+SUMMARY = (
+    "Sprained knee. Motrin 600 mg every 6 hours for a week. "
+    "Return if not improving in two weeks."
+)
+
+
+async def main() -> None:
+    async with GroundlineClient() as client:
+        result = await client.evaluate_omissions_async(
+            OmissionsRequest(source=SOURCE, summary=SUMMARY)
+        )
+    print("Flagged:", result.flagged)
+    for finding in result.findings:
+        print(finding.verdict.value, finding.statement)
+
+
+asyncio.run(main())
+```
+
+### Commissions
+
+`evaluate_commissions` finds the claims in the summary that the source doesn't
+support. This summary says 800 mg where the source says 600 mg.
+
+```python
+from groundline_client import CommissionsRequest, GroundlineClient
+
+SOURCE = (
+    "Doctor: Any allergies? Patient: Penicillin, it gives me a rash. "
+    "Doctor: Your knee is sprained. Take Motrin 600 mg every 6 hours for a week, "
+    "and come back if it isn't better in two weeks."
+)
+SUMMARY = (
+    "Sprained knee. Allergic to penicillin. Motrin 800 mg every 6 hours for a week. "
+    "Return if not improving in two weeks."
+)
+
+with GroundlineClient() as client:
+    result = client.evaluate_commissions(
+        CommissionsRequest(source=SOURCE, summary=SUMMARY)
+    )
+
+print("Flagged:", result.flagged)
+for finding in result.findings:
+    print(finding.verdict.value, finding.statement)
+```
+
+and the async version:
+
+```python
+import asyncio
+
+from groundline_client import CommissionsRequest, GroundlineClient
+
+SOURCE = (
+    "Doctor: Any allergies? Patient: Penicillin, it gives me a rash. "
+    "Doctor: Your knee is sprained. Take Motrin 600 mg every 6 hours for a week, "
+    "and come back if it isn't better in two weeks."
+)
+SUMMARY = (
+    "Sprained knee. Allergic to penicillin. Motrin 800 mg every 6 hours for a week. "
+    "Return if not improving in two weeks."
+)
+
+
+async def main() -> None:
+    async with GroundlineClient() as client:
+        result = await client.evaluate_commissions_async(
+            CommissionsRequest(source=SOURCE, summary=SUMMARY)
+        )
+    print("Flagged:", result.flagged)
+    for finding in result.findings:
+        print(finding.verdict.value, finding.statement)
+
+
+asyncio.run(main())
+```
+
+A check that raises `ServerUnavailableError` means the API couldn't run it. The
+error also covers a 500, a 502 and a server that can't be reached, so look at
+`error.status_code`. A 503 has two usual causes: the API can't reach its API-key
+storage (the database), or its Anthropic API key is missing or was rejected. Call
+`ready()` first, since it checks the database and `health()` doesn't. If `ready()`
+works, look at the Anthropic key. Only the person who runs the API can fix either.
+The SDK retries a 503, so the error can arrive after up to 180 seconds (see
+[Retries and time limits](#retries-and-time-limits)).
+
+A check can take up to two minutes, because it makes several model calls. Read
+`flagged`, `score` and `findings` from the result, and show `metadata.disclaimer`
+next to them.
 
 ## Methods and connections
 
@@ -90,6 +271,16 @@ handle all of them, or catch a subclass to decide what to do:
 a `GroundlineError` too, and still a `ValueError`. An error that doesn't come
 from the HTTP layer, such as one in your own code, passes through as it is.
 
+### Handling a 429
+
+The API itself never sends a 429. One comes from something in front of it, such
+as a proxy or gateway with its own rate limit. The SDK has already retried it by
+then (see [Retries and time limits](#retries-and-time-limits)), honoring a
+`Retry-After` header, so a `RateLimitError` means it gave up. Wait
+`error.retry_after` seconds before you call again, and use a pause of your own
+when it is `None`:
+
+<!-- fake: 429 -->
 ```python
 from groundline_client import (
     GroundlineClient,
@@ -98,13 +289,17 @@ from groundline_client import (
     RateLimitError,
 )
 
+SOURCE = "Doctor: Take Motrin 600 mg every 6 hours for a week."
+SUMMARY = "Motrin 600 mg every 6 hours for a week."
+
 try:
     with GroundlineClient() as client:
         result = client.evaluate_omissions(
-            OmissionsRequest(source="...", summary="...")
+            OmissionsRequest(source=SOURCE, summary=SUMMARY)
         )
 except RateLimitError as error:
-    print(f"Too many requests: wait {error.retry_after} seconds")
+    wait = 60 if error.retry_after is None else error.retry_after
+    print(f"Too many requests: try again in {wait} seconds")
 except GroundlineError as error:
     print(error, error.status_code, error.detail)
 ```
@@ -151,7 +346,10 @@ You can change the limits when you create the client:
 | `connect_timeout_seconds` | 5 | Setting up the connection for one attempt. |
 
 ```python
-client = GroundlineClient(max_attempts=1, timeout_seconds=60)
+from groundline_client import GroundlineClient
+
+with GroundlineClient(max_attempts=1, timeout_seconds=60) as client:
+    print(client.health()["status"])
 ```
 
 Each attempt is also cut off at whatever is left of `max_retry_seconds`, and no
