@@ -1,6 +1,7 @@
-"""Choose the version the release workflow publishes.
+"""Choose the version a release workflow publishes.
 
-The release workflow's build job runs it and appends what it prints to
+Each release workflow's build job runs it with the name of its package (the
+library, groundline-core, when none is given) and appends what it prints to
 $GITHUB_OUTPUT.
 """
 
@@ -14,7 +15,13 @@ import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 
-PACKAGE = "groundline-core"
+LIBRARY = "groundline-core"
+PACKAGES = {
+    LIBRARY: Path("pyproject.toml"),
+    "groundline-client": Path("packages/groundline-client/pyproject.toml"),
+}
+"""Each package released from this repository, with the pyproject.toml that holds
+its version, relative to the repository's root."""
 MAIN_REF = "refs/heads/main"
 PYPI = "https://pypi.org"
 TESTPYPI = "https://test.pypi.org"
@@ -36,14 +43,15 @@ def is_prerelease(version: str) -> bool:
     return bool(match and match.group(4))
 
 
-def tag_for(version: str) -> str:
-    """The git tag for a release, named after the package so the SDK's own
-    releases can be tagged in the same repository."""
-    return f"{PACKAGE}-v{version}"
+def tag_for(package: str, version: str) -> str:
+    """The git tag for a release, named after the package so both packages can be
+    tagged in the same repository."""
+    return f"{package}-v{version}"
 
 
 def release_version(
     *,
+    package: str,
     version: str,
     ref: str,
     run_number: int,
@@ -70,7 +78,7 @@ def release_version(
         development = f"{version}.dev{run_number}"
         if on_testpypi(development):
             raise ReleaseRefused(
-                f"{PACKAGE} {development} is already on TestPyPI. Start a new "
+                f"{package} {development} is already on TestPyPI. Start a new "
                 "run: re-running all jobs reuses the run number."
             )
         return development
@@ -80,35 +88,41 @@ def release_version(
     )
     if on_pypi(version):
         raise ReleaseRefused(
-            f"{PACKAGE} {version} is already on PyPI. {bump} If that release's "
+            f"{package} {version} is already on PyPI. {bump} If that release's "
             "tag or GitHub release is missing, re-run the failed jobs of the run "
             "that published it instead."
         )
     if on_testpypi(version):
         raise ReleaseRefused(
-            f"{PACKAGE} {version} is already on TestPyPI from an earlier run that "
+            f"{package} {version} is already on TestPyPI from an earlier run that "
             f"stopped before PyPI, and TestPyPI won't take it again. {bump}"
         )
-    if tagged(tag_for(version)):
+    if tagged(tag_for(package, version)):
         raise ReleaseRefused(
-            f"the tag {tag_for(version)} already exists, but {version} isn't on "
-            "PyPI. Check whether an earlier release stopped partway."
+            f"the tag {tag_for(package, version)} already exists, but {version} "
+            "isn't on PyPI. Check whether an earlier release stopped partway."
         )
     return version
 
 
-def _on_index(index: str) -> Callable[[str], bool]:
-    def has(version: str) -> bool:
-        url = f"{index}/pypi/{PACKAGE}/{version}/json"
-        try:
-            with urllib.request.urlopen(url, timeout=30):
-                return True
-        except urllib.error.HTTPError as error:
-            if error.code == 404:
-                return False
-            raise
+def has_version(index: str, package: str, version: str) -> bool:
+    """Whether the package index at `index` (such as https://pypi.org) lists the
+    version. Only a 404 means no: any other error stops the run, so a failed
+    lookup can't pass for "not published yet"."""
+    url = f"{index}/pypi/{package}/{version}/json"
+    try:
+        with urllib.request.urlopen(url, timeout=30):
+            return True
+    except urllib.error.HTTPError as error:
+        if error.code == 404:
+            return False
+        raise
 
-    return has
+
+def project_version(package: str, root: Path) -> str:
+    """The version in the package's pyproject.toml, under the repository `root`."""
+    pyproject = tomllib.loads((root / PACKAGES[package]).read_text())
+    return pyproject["project"]["version"]
 
 
 def _tag_exists(tag: str) -> bool:
@@ -123,21 +137,27 @@ def _tag_exists(tag: str) -> bool:
 
 def main() -> None:
     """Print `version=…`, `tag=…` and `prerelease=…` for $GITHUB_OUTPUT, or stop
-    with a reason."""
-    pyproject = tomllib.loads(Path("pyproject.toml").read_text())
+    with a reason. The package is the first argument, and defaults to the
+    library, whose workflow predates the argument."""
+    package = sys.argv[1] if len(sys.argv) > 1 else LIBRARY
+    if package not in PACKAGES:
+        sys.exit(
+            f"unknown package {package!r}; the packages are: {', '.join(PACKAGES)}"
+        )
     try:
         chosen = release_version(
-            version=pyproject["project"]["version"],
+            package=package,
+            version=project_version(package, Path()),
             ref=os.environ["GITHUB_REF"],
             run_number=int(os.environ["GITHUB_RUN_NUMBER"]),
-            on_pypi=_on_index(PYPI),
-            on_testpypi=_on_index(TESTPYPI),
+            on_pypi=lambda version: has_version(PYPI, package, version),
+            on_testpypi=lambda version: has_version(TESTPYPI, package, version),
             tagged=_tag_exists,
         )
     except ReleaseRefused as refusal:
         sys.exit(f"release refused: {refusal}")
     print(f"version={chosen}")
-    print(f"tag={tag_for(chosen)}")
+    print(f"tag={tag_for(package, chosen)}")
     print(f"prerelease={str(is_prerelease(chosen)).lower()}")
 
 

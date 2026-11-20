@@ -3,13 +3,27 @@
 #   - `import groundline_client` works, and so do the generated functions
 #   - none of groundline-core's packages came with it: not groundline-core itself,
 #     the Anthropic SDK, the server or the command-line packages
-#   - the wheel holds the generated code, the LICENSE and the NOTICE
+#   - the wheel holds the generated code, py.typed, the LICENSE and the NOTICE
 #
-# It builds the wheel, then installs it into two new, empty environments: one
-# with pip and one with uv pip, since users may install with either.
+# Before installing built files, it also checks that the wheel and the sdist
+# hold only the package, its license, notice and readme, and the packaging
+# metadata (PKG-INFO, pyproject.toml): no .env, tests, fixtures, caches, backup
+# copies or other local files. It also checks that a wheel built from the sdist
+# has the same files as the wheel.
 #
-# Usage: scripts/sdk-install-check   (or make sdk-install-check)
+# It installs into new, empty environments: one with pip and one with uv pip,
+# since users may install with either.
+#
+# Usage:
+#   scripts/sdk-install-check                           build, then check (make sdk-install-check)
+#   scripts/sdk-install-check --dist DIR                check the wheel and sdist in DIR
+#   scripts/sdk-install-check --from-index URL VERSION  download only VERSION's wheel from
+#                                                       the index at URL, install it with
+#                                                       its dependencies from PyPI, and
+#                                                       check it
 set -euo pipefail
+# Where it was run from, so a relative --dist DIR means what the caller meant.
+called_from="$PWD"
 cd "$(dirname "$0")/.."
 
 work="$(mktemp -d)"
@@ -20,24 +34,131 @@ fail() {
   exit 1
 }
 
-uv build --package groundline-client --wheel --out-dir "$work/dist" --quiet
-wheels=("$work"/dist/groundline_client-*.whl)
-[ -f "${wheels[0]}" ] || fail "uv build made no groundline_client wheel: $(ls "$work/dist")"
-wheel="${wheels[0]}"
+mode=build
+case "${1:-}" in
+  "") ;;
+  --dist) [ $# = 2 ] || fail "usage: --dist DIR"; mode=dist; dist="$(cd "$called_from" && cd "$2" && pwd)" ;;
+  --from-index) [ $# = 3 ] || fail "usage: --from-index URL VERSION"; mode=index; index_url="$2"; version="$3" ;;
+  *) fail "unknown option: $1" ;;
+esac
 
-# Read the listing first: grep -q can end early and break the pipe under pipefail.
-listing="$(unzip -l "$wheel")"
-for member in groundline_client/py.typed \
-  groundline_client/_generated/api/v1/evaluate_omissions.py \
-  groundline_client/_generated/models/omissions_response.py; do
-  grep -q " $member\$" <<<"$listing" || fail "the wheel doesn't hold $member"
-done
-for member in LICENSE NOTICE; do
-  grep -Eq " groundline_client-[^/]*\\.dist-info/licenses/$member\$" <<<"$listing" \
-    || fail "the wheel's dist-info doesn't hold $member"
-done
-if grep -q "ruff_cache\|__pycache__" <<<"$listing"; then
-  fail "the wheel holds cache folders: $(grep "ruff_cache\|__pycache__" <<<"$listing")"
+if [ "$mode" = build ]; then
+  dist="$work/dist"
+  uv build --package groundline-client --out-dir "$dist" --quiet
+fi
+
+# Lists what a wheel or an sdist holds that it shouldn't: a file that is never
+# shipped, wherever it appears, or one outside what the package is made of. The
+# project's Python reads the files, so a broken python3 on PATH can't pass for a
+# clean package. Prints each offender to stderr and exits 1 if there is one.
+check_contents() {
+  uv run --quiet python -I - "$@" <<'EOF' \
+    || fail "the built files hold something they shouldn't (listed above)"
+import re
+import sys
+import tarfile
+import zipfile
+
+wheel = sys.argv[1]
+sdist = sys.argv[2] if len(sys.argv) > 2 else None
+# Never shipped, wherever they appear. uv_build keeps the original
+# pyproject.toml beside the normalized one in the sdist, as pyproject.toml.orig.
+FORBIDDEN = re.compile(
+    r"(^|/)(\.env|__pycache__|\.DS_Store|\.ruff_cache)"
+    r"|\.(pyc|bak|old|swp)$|(?<!pyproject\.toml)\.orig$"
+)
+WHEEL_PATHS = re.compile(
+    r"groundline_client/.+|groundline_client-[^/]+\.dist-info/.+"
+)
+SDIST_PATHS = re.compile(
+    r"groundline_client-[^/]+/(PKG-INFO|README\.md|LICENSE|NOTICE|pyproject\.toml"
+    r"|pyproject\.toml\.orig|src/groundline_client/.+)"
+)
+entries = [(n, WHEEL_PATHS) for n in zipfile.ZipFile(wheel).namelist()]
+if sdist:
+    entries += [
+        (m.name, SDIST_PATHS) for m in tarfile.open(sdist).getmembers() if m.isfile()
+    ]
+unexpected = [
+    name
+    for name, allowed in entries
+    if not name.endswith("/") and (FORBIDDEN.search(name) or not allowed.fullmatch(name))
+]
+for name in unexpected:
+    print(f"  unexpected: {name}", file=sys.stderr)
+sys.exit(1 if unexpected else 0)
+EOF
+}
+
+if [ "$mode" != index ]; then
+  wheels=("$dist"/groundline_client-*.whl)
+  sdists=("$dist"/groundline_client-*.tar.gz)
+  [ -f "${wheels[0]}" ] || fail "no groundline_client wheel in $dist: $(ls "$dist")"
+  [ -f "${sdists[0]}" ] || fail "no groundline_client sdist in $dist: $(ls "$dist")"
+  # More than one would leave it to chance which files get checked.
+  [ ${#wheels[@]} = 1 ] && [ ${#sdists[@]} = 1 ] \
+    || fail "more than one groundline_client build in $dist: $(ls "$dist")"
+  wheel="${wheels[0]}"
+  sdist="${sdists[0]}"
+
+  check_contents "$wheel" "$sdist"
+fi
+
+# The files that make it a working package, read from the wheel itself.
+check_wheel_has_the_package() {
+  # Read the listing first: grep -q can end early and break the pipe under pipefail.
+  local listing
+  listing="$(unzip -l "$1")"
+  for member in groundline_client/py.typed \
+    groundline_client/_generated/api/v1/evaluate_omissions.py \
+    groundline_client/_generated/models/omissions_response.py; do
+    grep -q " $member\$" <<<"$listing" || fail "the wheel doesn't hold $member"
+  done
+  for member in LICENSE NOTICE; do
+    grep -Eq " groundline_client-[^/]*\\.dist-info/licenses/$member\$" <<<"$listing" \
+      || fail "the wheel's dist-info doesn't hold $member"
+  done
+}
+
+if [ "$mode" != index ]; then
+  check_wheel_has_the_package "$wheel"
+
+  # pip falls back to the sdist where no wheel fits, and builds it itself.
+  uv build --wheel --out-dir "$work/from-sdist" --quiet "$sdist" \
+    || fail "a wheel can't be built from the sdist"
+  rebuilt=("$work"/from-sdist/groundline_client-*.whl)
+  uv run --quiet python -I - "$wheel" "${rebuilt[0]}" <<'EOF' \
+    || fail "a wheel built from the sdist has different files from the wheel"
+import sys
+import zipfile
+
+
+def files(path: str) -> set[str]:
+    return {n for n in zipfile.ZipFile(path).namelist() if not n.endswith("RECORD")}
+
+
+wheel, rebuilt = files(sys.argv[1]), files(sys.argv[2])
+for name in sorted(wheel ^ rebuilt):
+    where = "the wheel" if name in wheel else "the rebuilt wheel"
+    print(f"  only in {where}: {name}", file=sys.stderr)
+sys.exit(1 if wheel != rebuilt else 0)
+EOF
+fi
+
+uv venv --seed --quiet "$work/pip"
+
+if [ "$mode" = index ]; then
+  # Only groundline-client's own wheel comes from the index. Its dependencies come
+  # from PyPI alone: on a test index anyone can upload a package with a
+  # dependency's name and a higher version.
+  "$work/pip/bin/python" -m pip download --quiet --disable-pip-version-check \
+    --no-deps --only-binary :all: --dest "$work/from-index" \
+    --index-url "$index_url" "groundline-client==$version" \
+    || fail "couldn't download groundline-client $version from $index_url"
+  downloaded=("$work"/from-index/groundline_client-*.whl)
+  wheel="${downloaded[0]}"
+  check_contents "$wheel"
+  check_wheel_has_the_package "$wheel"
 fi
 
 # What groundline-core would bring, read here, where it is installed, so the list
@@ -95,7 +216,6 @@ PY
   echo "ok: $installer installs groundline-client without groundline-core's packages"
 }
 
-uv venv --seed --quiet "$work/pip"
 "$work/pip/bin/python" -m pip install --quiet --disable-pip-version-check "$wheel"
 check pip "$work/pip"
 

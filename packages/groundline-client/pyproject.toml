@@ -1,15 +1,29 @@
 [project]
 name = "groundline-client"
 version = "0.1.0"
-description = "Python SDK for the groundline API."
+description = "Python SDK for the groundline API: check AI-written summaries against their source for omissions and commissions."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
+# Names only: author entries are published with every version and can't be
+# changed afterwards. Questions go to the team's shared address.
 authors = [
-    { name = "Shannon Mulloy", email = "smulloy21@gmail.com" },
-    { name = "Avinash Darshan", email = "avidars2@gmail.com" },
-    { name = "Nathalia Gibson", email = "natgibson@gmail.com" },
-    { name = "Deborah (YY) Chang", email = "yydchang@gmail.com" },
+    { name = "Shannon Mulloy" },
+    { name = "Avinash Darshan" },
+    { name = "Nathalia Gibson" },
+    { name = "Deborah (YY) Chang" },
+]
+maintainers = [{ name = "groundline developers", email = "groundlinedevs@gmail.com" }]
+# No medical topic: groundline is not for clinical use, and a classifier is part
+# of how a package describes what it's for.
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Typing :: Typed",
 ]
 requires-python = ">=3.13"
 # Only what the generated code imports, so the SDK can sit in another app
@@ -18,6 +32,11 @@ dependencies = [
     "attrs>=22.2.0",
     "httpx2>=2.13.1,<3",
 ]
+
+[project.urls]
+Homepage = "https://github.com/groundline-dev/groundline"
+Source = "https://github.com/groundline-dev/groundline"
+Issues = "https://github.com/groundline-dev/groundline/issues"
 
 [build-system]
 requires = ["uv_build>=0.13.6,<0.14.0"]

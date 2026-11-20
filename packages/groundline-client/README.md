@@ -34,6 +34,24 @@ uv add groundline-client
 
 It installs only `attrs` and `httpx2`: no pipelines, no Anthropic SDK and no server.
 
+## Versions
+
+`groundline-client` has its own version, separate from `groundline-core`'s: the
+SDK and the library release on their own, and a new SDK doesn't need a new
+library release. It follows semantic versioning. Until 1.0, a minor release
+(0.1 to 0.2) may break your code and a patch release (0.1.0 to 0.1.1) never
+does, so pin a minor version, such as `groundline-client>=0.1,<0.2`.
+
+## Compatibility
+
+An SDK version calls one version of the API, the `/v1` in its paths. The
+deployment you call must serve it. The last column is the `groundline-core`
+release whose API description the SDK was generated from.
+
+| SDK version | API version | Generated from |
+| ----------- | ----------- | -------------- |
+| `0.1.x`     | `/v1`       | groundline-core 0.1.0 |
+
 ## SDK or library
 
 groundline has two Python packages. This one, the SDK, calls a groundline
