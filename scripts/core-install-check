@@ -89,8 +89,12 @@ import tarfile
 import zipfile
 
 wheel, sdist = sys.argv[1], sys.argv[2]
-# Never shipped, wherever they appear.
-FORBIDDEN = re.compile(r"(^|/)(\.env|__pycache__|\.DS_Store)|\.pyc$")
+# Never shipped, wherever they appear. uv_build keeps the original
+# pyproject.toml beside the normalized one in the sdist, as pyproject.toml.orig.
+FORBIDDEN = re.compile(
+    r"(^|/)(\.env|__pycache__|\.DS_Store|\.ruff_cache)"
+    r"|\.(pyc|bak|old|swp)$|(?<!pyproject\.toml)\.orig$"
+)
 WHEEL_PATHS = re.compile(r"groundline_core/.+|groundline_core-[^/]+\.dist-info/.+")
 # uv_build writes a normalized pyproject.toml into the sdist and keeps the
 # original beside it as pyproject.toml.orig.

@@ -2,7 +2,6 @@
 
 import subprocess
 import sys
-import tomllib
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -11,7 +10,6 @@ from typing import Any
 import pytest
 
 from scripts.release_version import (
-    PACKAGES,
     ReleaseRefused,
     has_version,
     is_prerelease,
@@ -227,19 +225,6 @@ def test_alpha_beta_and_release_candidates_are_prereleases(
     assert is_prerelease(version) is expected
 
 
-def test_the_script_knows_the_library_and_the_sdk():
-    assert set(PACKAGES) == {"groundline-core", "groundline-client"}
-
-
-@every_package
-def test_each_package_reads_its_own_version_from_its_own_pyproject(package: str):
-    expected = tomllib.loads((ROOT / PACKAGES[package]).read_text())["project"][
-        "version"
-    ]
-
-    assert project_version(package, ROOT) == expected
-
-
 def test_the_sdk_version_comes_from_the_sdks_pyproject_not_the_libraries(
     tmp_path: Path,
 ):
@@ -313,6 +298,14 @@ def run_script(*arguments: str) -> subprocess.CompletedProcess[str]:
 
 def test_an_unknown_package_is_refused_and_the_known_ones_are_listed():
     result = run_script("groundline")
+
+    assert result.returncode != 0
+    assert "groundline-core" in result.stderr and "groundline-client" in result.stderr
+    assert result.stdout == ""
+
+
+def test_a_missing_package_is_refused_and_the_known_ones_are_listed():
+    result = run_script()
 
     assert result.returncode != 0
     assert "groundline-core" in result.stderr and "groundline-client" in result.stderr

@@ -43,7 +43,7 @@ jobs:
       - name: Choose the version
         id: version
         # Standard library only, so no project environment to sync first.
-        run: uv run --quiet --no-project python scripts/release_version.py >> "$GITHUB_OUTPUT"
+        run: uv run --quiet --no-project python scripts/release_version.py groundline-core >> "$GITHUB_OUTPUT"
       - name: Use a development version for a run from a branch
         if: github.ref != 'refs/heads/main'
         env:

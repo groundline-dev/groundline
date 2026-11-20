@@ -202,11 +202,20 @@ def test_the_version_script_is_told_which_package_to_check(
 ):
     build = runs(jobs(workflow)["build"])
 
+    assert f"scripts/release_version.py {package}" in build
+
+
+def test_only_the_library_takes_the_latest_badge(
+    workflow: dict[Any, Any], package: str
+):
+    # Without --latest, the newest release by date is the repository's Latest, so
+    # the two workflows would take the badge, and `releases/latest`, from each other.
+    release = runs(jobs(workflow)["release"])
+
     if package == "groundline-client":
-        assert "scripts/release_version.py groundline-client" in build
+        assert "--latest=false" in release
     else:
-        # The library's workflow predates the argument, which defaults to it.
-        assert "scripts/release_version.py" in build
+        assert "--latest" not in release
 
 
 def test_the_upload_pages_and_wait_name_the_package(

@@ -15,9 +15,8 @@ import urllib.request
 from collections.abc import Callable
 from pathlib import Path
 
-LIBRARY = "groundline-core"
 PACKAGES = {
-    LIBRARY: Path("pyproject.toml"),
+    "groundline-core": Path("pyproject.toml"),
     "groundline-client": Path("packages/groundline-client/pyproject.toml"),
 }
 """Each package released from this repository, with the pyproject.toml that holds
@@ -137,9 +136,8 @@ def _tag_exists(tag: str) -> bool:
 
 def main() -> None:
     """Print `version=…`, `tag=…` and `prerelease=…` for $GITHUB_OUTPUT, or stop
-    with a reason. The package is the first argument, and defaults to the
-    library, whose workflow predates the argument."""
-    package = sys.argv[1] if len(sys.argv) > 1 else LIBRARY
+    with a reason. The package is the first argument."""
+    package = sys.argv[1] if len(sys.argv) > 1 else None
     if package not in PACKAGES:
         sys.exit(
             f"unknown package {package!r}; the packages are: {', '.join(PACKAGES)}"

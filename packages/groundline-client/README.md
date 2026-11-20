@@ -36,9 +36,8 @@ It installs only `attrs` and `httpx2`: no pipelines, no Anthropic SDK and no ser
 
 ## Versions
 
-`groundline-client` has its own version, separate from `groundline-core`'s: the
-SDK and the library release on their own, and a new SDK doesn't need a new
-library release. It follows semantic versioning. Until 1.0, a minor release
+`groundline-client` has its own version and releases separately from
+`groundline-core`. It follows semantic versioning. Until 1.0, a minor release
 (0.1 to 0.2) may break your code and a patch release (0.1.0 to 0.1.1) never
 does, so pin a minor version, such as `groundline-client>=0.1,<0.2`.
 

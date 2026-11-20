@@ -384,7 +384,7 @@ A run from `main` stops before uploading anything if the version is already on P
 - **After TestPyPI, before PyPI** (the check of the TestPyPI install failed, or the approval was rejected): the version stays on TestPyPI for good, so raise the version before running again. Skipping a version number this way is normal.
 - **During the PyPI upload, or in the last job** (the tag and GitHub release): use **Re-run failed jobs** on that same run, which uploads only the files PyPI doesn't have yet. A new run would be refused, because the version is already on TestPyPI, and perhaps on PyPI too.
 
-Start one run of a workflow at a time: GitHub keeps only one run waiting per branch, and a newer one cancels it. The two workflows have separate queues, so a library release waiting for approval doesn't hold up an SDK release.
+Start one run of a workflow at a time: GitHub keeps only one run waiting per branch, and a newer run cancels the waiting one. The two workflows have separate queues, so a library release waiting for approval doesn't hold up an SDK release.
 
 Started from any other branch, a workflow publishes a development version, such as `0.1.0.dev12` (the run number), to TestPyPI and stops there. Use it to try a change to the release process. Because TestPyPI never accepts the same version twice, the development version leaves the real one free for the release. To try again, start a new run: **Re-run all jobs** reuses the run number, and the run is refused. GitHub only lets you start a workflow once its file is on `main`, so a new release workflow can't be tried from its own branch.
 

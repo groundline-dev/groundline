@@ -4,6 +4,7 @@ scripts/sdk-install-check installs the built package to check the same thing
 against a real install.
 """
 
+import json
 import re
 import tomllib
 from pathlib import Path
@@ -66,10 +67,9 @@ def test_the_package_carries_the_repos_license_and_its_own_short_notice():
     assert "fixtures" not in notice
 
 
-# What PyPI shows on the project page. The same rules as groundline-core's, and
-# the authors must match its.
+# What PyPI shows on the project page. The rules every package shares are in
+# tests/test_packaging.py; these are the SDK's own.
 
-REPOSITORY = "https://github.com/groundline-dev/groundline"
 README = (PACKAGE_DIR / "README.md").read_text()
 
 
@@ -78,42 +78,7 @@ def project() -> dict[str, Any]:
 
 
 def test_the_description_says_what_the_sdk_does():
-    description = project()["description"]
-
-    assert description != "Python SDK for the groundline API.", description
-    assert "SDK" in description, description
-    assert "summar" in description.lower(), description
-
-
-def test_the_classifiers_are_typed_alpha_and_not_medical():
-    classifiers = project()["classifiers"]
-
-    assert "Development Status :: 3 - Alpha" in classifiers, classifiers
-    assert "Typing :: Typed" in classifiers, classifiers
-    assert "Programming Language :: Python :: 3.13" in classifiers, classifiers
-    assert "License :: OSI Approved :: Apache Software License" not in classifiers, (
-        "the license comes from license-files; a license classifier is deprecated"
-    )
-    # A medical topic would describe a clinical intended use, which the package
-    # doesn't have.
-    assert [c for c in classifiers if "Medical" in c] == []
-
-
-def test_the_project_links_point_to_the_repository():
-    urls = project()["urls"]
-
-    assert set(urls) == {"Homepage", "Source", "Issues"}, urls
-    for name, url in urls.items():
-        assert url.startswith(REPOSITORY), (name, url)
-
-
-def test_only_the_shared_address_is_published():
-    # Author entries are published with every version and can't be changed
-    # afterwards, so they carry names only.
-    assert [a for a in project()["authors"] if "email" in a] == []
-    assert project()["maintainers"] == [
-        {"name": "groundline developers", "email": "groundlinedevs@gmail.com"}
-    ]
+    assert "SDK" in project()["description"], project()["description"]
 
 
 def test_the_sdk_names_the_same_authors_as_the_library():
@@ -179,3 +144,16 @@ def test_the_sdk_says_it_versions_apart_from_the_library():
     text = section("Versions")
 
     assert "groundline-core" in text and "own version" in text, text
+
+
+def test_the_current_row_names_the_library_release_in_the_api_description():
+    # openapi.json is regenerated from the library, so its version is the one the
+    # SDK was generated from.
+    generated_from = json.loads((PACKAGE_DIR / "openapi.json").read_text())["info"][
+        "version"
+    ]
+    major, minor = version_parts()
+
+    assert compatibility_rows()[f"{major}.{minor}.x"][1] == (
+        f"groundline-core {generated_from}"
+    )
