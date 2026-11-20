@@ -224,13 +224,18 @@ async def main() -> None:
 asyncio.run(main())
 ```
 
-If `health()` works but a check raises `ServerUnavailableError` (a 503), the
-deployment is up and can't run checks. Its Anthropic API key is usually missing or
-was rejected, which only the person who runs it can fix.
+A check that raises `ServerUnavailableError` means the API couldn't run it. The
+error also covers a 500, a 502 and a server that can't be reached, so look at
+`error.status_code`. A 503 has two usual causes: the API can't reach its API-key
+storage (the database), or its Anthropic API key is missing or was rejected. Call
+`ready()` first, since it checks the database and `health()` doesn't. If `ready()`
+works, look at the Anthropic key. Only the person who runs the API can fix either.
+The SDK retries a 503, so the error can arrive after up to 180 seconds (see
+[Retries and time limits](#retries-and-time-limits)).
 
-A check can take up to two minutes, because it makes several model calls. A
-flagged summary is a normal result: read `flagged`, `score` and `findings`, and
-show `metadata.disclaimer` next to them.
+A check can take up to two minutes, because it makes several model calls. Read
+`flagged`, `score` and `findings` from the result, and show `metadata.disclaimer`
+next to them.
 
 ## Methods and connections
 
@@ -293,7 +298,7 @@ try:
             OmissionsRequest(source=SOURCE, summary=SUMMARY)
         )
 except RateLimitError as error:
-    wait = error.retry_after or 60
+    wait = 60 if error.retry_after is None else error.retry_after
     print(f"Too many requests: try again in {wait} seconds")
 except GroundlineError as error:
     print(error, error.status_code, error.detail)

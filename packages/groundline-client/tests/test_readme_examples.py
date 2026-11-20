@@ -22,13 +22,18 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
-from conftest import FakeServer
+from conftest import API_KEY_VARIABLE, URL_VARIABLE, FakeServer
+from groundline_client.client import DEFAULT_MAX_RETRY_SECONDS
 
 README = Path(__file__).resolve().parents[1] / "README.md"
 CHECK_PATHS = ["/v1/omissions", "/v1/commissions"]
 RETRY_AFTER_SECONDS = 200
 """Longer than a call's whole time limit, so the client stops at once and raises
 the error instead of waiting before a retry."""
+assert RETRY_AFTER_SECONDS > DEFAULT_MAX_RETRY_SECONDS, (
+    "the 429 example only fails fast while Retry-After is longer than the client's "
+    "default retry window; raise RETRY_AFTER_SECONDS"
+)
 
 MARKER = re.compile(r"^<!-- (?P<note>not run: .+|fake: 429) -->$")
 
@@ -62,8 +67,12 @@ def read_blocks(text: str) -> tuple[list[Block], list[int]]:
             heading = line.lstrip("#").strip()
         elif line.startswith("```"):
             end = index + 1
-            while not lines[end].startswith("```"):
+            while end < len(lines) and not lines[end].startswith("```"):
                 end += 1
+            if end == len(lines):
+                raise ValueError(
+                    f"the code block opened on line {index + 1} never closes"
+                )
             above = MARKER.match(lines[index - 1]) if index else None
             if above:
                 used.add(index - 1)
@@ -86,6 +95,14 @@ def read_blocks(text: str) -> tuple[list[Block], list[int]]:
     return blocks, stray
 
 
+def unmarked_non_python_blocks(blocks: list[Block]) -> list[str]:
+    return [
+        block.label
+        for block in blocks
+        if block.language != "python" and not (block.note or "").startswith("not run")
+    ]
+
+
 BLOCKS, STRAY_COMMENTS = read_blocks(README.read_text())
 PYTHON_BLOCKS = [block for block in BLOCKS if block.language == "python"]
 RUN_BLOCKS = [
@@ -102,14 +119,28 @@ def test_every_comment_in_the_readme_is_a_known_marker_above_a_code_block():
     )
 
 
-def test_every_shell_block_says_why_it_is_not_run():
-    unmarked = [
-        block.label
-        for block in BLOCKS
-        if block.language in ("sh", "bash", "shell", "console")
-        and not (block.note or "").startswith("not run")
-    ]
-    assert unmarked == [], "shell blocks need a `<!-- not run: why -->` line above"
+def test_every_block_that_is_not_python_says_why_it_is_not_run():
+    assert unmarked_non_python_blocks(BLOCKS) == [], (
+        "blocks that aren't python need a `<!-- not run: why -->` line above"
+    )
+
+
+@pytest.mark.parametrize("language", ["sh", "py", "toml", "text", "python3"])
+def test_a_block_in_any_language_but_python_is_flagged_until_it_has_a_reason(
+    language: str,
+):
+    text = f"# Title\n\n```{language}\nx = 1\n```\n"
+    marked = f"# Title\n\n<!-- not run: shown only -->\n```{language}\nx = 1\n```\n"
+
+    assert len(unmarked_non_python_blocks(read_blocks(text)[0])) == 1
+    assert unmarked_non_python_blocks(read_blocks(marked)[0]) == []
+
+
+def test_a_fence_left_open_names_the_line_it_opens_on():
+    text = "# Title\n\n```python\nprint(1)\n"
+
+    with pytest.raises(ValueError, match="line 3"):
+        read_blocks(text)
 
 
 def test_every_block_names_its_language():
@@ -165,8 +196,8 @@ def test_each_python_example_runs_as_written(
             cwd=tmp_path,
             env={
                 "PATH": os.environ.get("PATH", ""),
-                "GROUNDLINE_API_URL": fake_server.url,
-                "GROUNDLINE_API_KEY": api_key,
+                URL_VARIABLE: fake_server.url,
+                API_KEY_VARIABLE: api_key,
                 "NO_PROXY": "127.0.0.1",
             },
             capture_output=True,

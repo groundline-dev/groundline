@@ -65,7 +65,7 @@ def api_url(
 ) -> Iterator[str]:
     """The real app, listening on a free loopback port until the test ends."""
 
-    assert app.state.api_keys is keys  # the server checks keys against the fake
+    assert app.state.api_keys is keys, "the server must check keys against the fake"
     monkeypatch.setattr(app.state, "database", FakeDatabase(), raising=False)
     with socket.socket() as listener:
         listener.bind(("127.0.0.1", 0))
@@ -118,9 +118,10 @@ class CheckCase:
     the summary and one that doesn't."""
 
     method: str
-    request: Callable[[], Any]
+    request_for: Callable[[str], Any]
+    """Builds the request from a source text, paired with the fixed summary."""
     flagged_script: Callable[[], Callable[[str], str]]
-    clear_script: Callable[[], Callable[[str], str]]
+    not_flagged_script: Callable[[], Callable[[str], str]]
     pipeline: str
     flagged_finding_count: int
     clear_finding_count: int
@@ -130,9 +131,9 @@ CHECK_CASES = [
     pytest.param(
         CheckCase(
             method="evaluate_omissions",
-            request=lambda: OmissionsRequest(source=SOURCE, summary=SUMMARY),
+            request_for=lambda source: OmissionsRequest(source=source, summary=SUMMARY),
             flagged_script=flagged_script,
-            clear_script=not_flagged_script,
+            not_flagged_script=not_flagged_script,
             pipeline="omission_all_opus",
             flagged_finding_count=3,
             clear_finding_count=2,
@@ -142,13 +143,15 @@ CHECK_CASES = [
     pytest.param(
         CheckCase(
             method="evaluate_commissions",
-            request=lambda: CommissionsRequest(
-                source=SOURCE, summary=COMMISSION_SUMMARY
+            request_for=lambda source: CommissionsRequest(
+                source=source, summary=COMMISSION_SUMMARY
             ),
             flagged_script=lambda: CommissionScript(
                 commissions_check=issues_reply(DOSE_ISSUE, EXAM_ISSUE)
             ),
-            clear_script=lambda: CommissionScript(commissions_check=issues_reply()),
+            not_flagged_script=lambda: CommissionScript(
+                commissions_check=issues_reply()
+            ),
             pipeline="commission_quick",
             flagged_finding_count=2,
             clear_finding_count=0,
@@ -171,7 +174,7 @@ def test_a_flagged_summary_comes_back_as_a_result(
     sent = fake_anthropic(monkeypatch, check.flagged_script())
 
     result = call_through_client(
-        api_url, check.method, check.request(), is_async=is_async
+        api_url, check.method, check.request_for(SOURCE), is_async=is_async
     )
 
     assert result.flagged is True
@@ -192,10 +195,10 @@ def test_a_summary_that_is_not_flagged_comes_back_as_a_result(
     api_url: str,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    fake_anthropic(monkeypatch, check.clear_script())
+    fake_anthropic(monkeypatch, check.not_flagged_script())
 
     result = call_through_client(
-        api_url, check.method, check.request(), is_async=is_async
+        api_url, check.method, check.request_for(SOURCE), is_async=is_async
     )
 
     assert result.flagged is False
@@ -235,7 +238,7 @@ def test_a_wrong_api_key_raises_an_authentication_error_before_any_model_call(
         call_through_client(
             api_url,
             check.method,
-            check.request(),
+            check.request_for(SOURCE),
             is_async=is_async,
             api_key=WRONG_KEY,
         )
@@ -244,31 +247,19 @@ def test_a_wrong_api_key_raises_an_authentication_error_before_any_model_call(
     assert sent == []
 
 
-@pytest.mark.parametrize(
-    "request_class",
-    [OmissionsRequest, CommissionsRequest],
-    ids=["omissions", "commissions"],
-)
+@pytest.mark.parametrize("check", CHECK_CASES)
 @BOTH_WAYS
 def test_a_blank_source_raises_an_invalid_request_error_that_says_where(
-    request_class: type[OmissionsRequest] | type[CommissionsRequest],
+    check: CheckCase,
     is_async: bool,
     api_url: str,
     monkeypatch: pytest.MonkeyPatch,
 ):
-    sent = fake_anthropic(monkeypatch, not_flagged_script())
-    method = (
-        "evaluate_omissions"
-        if request_class is OmissionsRequest
-        else "evaluate_commissions"
-    )
+    sent = fake_anthropic(monkeypatch, check.not_flagged_script())
 
     with pytest.raises(InvalidRequestError) as raised:
         call_through_client(
-            api_url,
-            method,
-            request_class(source=" ", summary=SUMMARY),
-            is_async=is_async,
+            api_url, check.method, check.request_for(" "), is_async=is_async
         )
 
     assert raised.value.status_code == 422
