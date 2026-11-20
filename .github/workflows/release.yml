@@ -4,7 +4,7 @@ name: Release
 # there and check it, then, after a reviewer approves, upload the same files to
 # PyPI and tag the release. Only someone starting it by hand runs it. From a
 # branch other than main it stops after TestPyPI, with a development version.
-# DEVELOPMENT.md, "Releasing groundline-core", explains how to run it.
+# DEVELOPMENT.md, "Releasing", explains how to run it.
 
 on:
   workflow_dispatch:

@@ -92,7 +92,8 @@ jobs:
       - run: make sdk-check
 
   sdk-install:
-    # Install the SDK into clean environments, with pip and with uv pip, and
+    # Build the SDK and check that its wheel and sdist hold only the package,
+    # then install it into clean environments, with pip and with uv pip, and
     # check that it brings no pipeline, Anthropic or server packages
     # (scripts/sdk-install-check).
     runs-on: ubuntu-latest

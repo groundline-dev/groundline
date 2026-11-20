@@ -333,7 +333,7 @@ make generate-sdk
 
 It writes the API's description to `packages/groundline-client/openapi.json`, clears `_generated/`, and runs the generator, which is pinned in `uv.lock`. Changing the app's version also changes `openapi.json`, so regenerate then too. Upgrading the generator means changing its pin in `packages/groundline-client/pyproject.toml`, running `uv lock`, and regenerating, in one PR.
 
-CI guards the SDK with two jobs and with tests. `make sdk-check` regenerates the SDK into a temporary folder and fails if the result differs from the files on disk. It changes nothing in your working tree, so you can run it any time. `make sdk-install-check` builds the wheel, installs it into clean environments with pip and with uv pip, and fails if it pulls in `groundline-core`'s packages (the pipelines, the Anthropic SDK or the server). `tests/test_sdk_spec.py` checks that `openapi.json` is what the export writes from the app (the API's description with the default limits and without request-field defaults, so `/docs` shows defaults that the file doesn't), and the tests in `packages/groundline-client/tests/` check that every endpoint has a generated function and models. `tests/test_sdk_contract.py` runs the real app under uvicorn on a loopback port, with the model and the key storage faked, and calls it with the real `GroundlineClient` for both check endpoints, sync and async, so an API change that breaks the SDK fails there. It lives in `tests/` because the SDK package can't depend on `groundline-core`. `packages/groundline-client/tests/test_readme_examples.py` runs every Python block in the SDK README as written, against the SDK's fake server. A comment on the line above a block changes that: `<!-- not run: why -->` shows the block without running it (shell blocks must carry one), and `<!-- fake: 429 -->` makes the fake answer every check with a 429, so the example's `except RateLimitError` branch runs. When you add an example to the README, make it complete (imports and sample text included) so it runs as written.
+CI guards the SDK with two jobs and with tests. `make sdk-check` regenerates the SDK into a temporary folder and fails if the result differs from the files on disk. It changes nothing in your working tree, so you can run it any time. `make sdk-install-check` builds the wheel and the sdist, fails if either holds anything but the package (a `.env`, tests, caches, backup copies or other local files), installs the wheel into clean environments with pip and with uv pip, and fails if it pulls in `groundline-core`'s packages (the pipelines, the Anthropic SDK or the server). The release workflow runs the same script on its built files and on the wheel it downloads back from TestPyPI. `tests/test_sdk_spec.py` checks that `openapi.json` is what the export writes from the app (the API's description with the default limits and without request-field defaults, so `/docs` shows defaults that the file doesn't), and the tests in `packages/groundline-client/tests/` check that every endpoint has a generated function and models. `tests/test_sdk_contract.py` runs the real app under uvicorn on a loopback port, with the model and the key storage faked, and calls it with the real `GroundlineClient` for both check endpoints, sync and async, so an API change that breaks the SDK fails there. It lives in `tests/` because the SDK package can't depend on `groundline-core`. `packages/groundline-client/tests/test_readme_examples.py` runs every Python block in the SDK README as written, against the SDK's fake server. A comment on the line above a block changes that: `<!-- not run: why -->` shows the block without running it (shell blocks must carry one), and `<!-- fake: 429 -->` makes the fake answer every check with a 429, so the example's `except RateLimitError` branch runs. When you add an example to the README, make it complete (imports and sample text included) so it runs as written.
 
 The hand-written layer is `GroundlineClient` in `client.py` (the Client in `CONTEXT.md`). It reads the URL and API key from its arguments or from `GROUNDLINE_API_URL` and `GROUNDLINE_API_KEY`, and has a sync and an `_async` method for each operation. It also retries temporary failures and limits how long a call takes: the rules are in `_retry.py`, and `_http.py` holds the two `httpx2` clients (sync and async) that apply them by overriding `send`, which keeps proxies from the environment working. Its options and their defaults are in the SDK README. Two subclasses of those clients (`ErrorRaisingClient` and its async twin) turn every answer that isn't a success, and every failure to get one, into the SDK's own errors (`errors.py`, with the status mapping in `_error_mapping.py`), so the generated parsing only ever sees a 2xx. `client.py` turns anything the generated code can't parse into a plain `GroundlineError`. The errors never chain the `httpx2` error, because its request holds the API key. Keep it that way, and extend `tests/test_error_secrecy.py` when you add a path that raises. To add an operation:
 
@@ -351,20 +351,32 @@ To require an API key on a route, add `dependencies=[Depends(require_api_key)]` 
 
 Every route needs it except probes such as `/health` and `/ready` and the docs pages ([ADR 0012](docs/adr/0012-only-probes-and-docs-pages-are-public.md)). A test in `tests/test_api_auth.py` lists the public probes and fails if any other route lacks an API key.
 
-## Releasing groundline-core
+## Releasing
 
-`groundline-core` is published to PyPI by `.github/workflows/release.yml`, which runs only when a maintainer starts it.
+Two packages are published to PyPI from this repository, each by its own workflow. A workflow runs only when a maintainer starts it.
+
+| | Library | SDK |
+| --- | --- | --- |
+| PyPI project | `groundline-core` | `groundline-client` |
+| Workflow file | `release.yml` | `release-sdk.yml` |
+| Name in Actions | Release | Release SDK |
+| Version written in | `pyproject.toml` | `packages/groundline-client/pyproject.toml` |
+| Version policy | README's [Versions](README.md#versions) | SDK README's [Versions](packages/groundline-client/README.md#versions) |
+| Git tag | `groundline-core-v<version>` | `groundline-client-v<version>` |
+| Checks the built files | `scripts/core-install-check` | `scripts/sdk-install-check` |
+
+The two version lines are independent: releasing one doesn't need a release of the other. When the SDK's version changes, add a row for its minor line to the Compatibility table in the SDK README.
 
 ### Versions
 
-The version is written in `pyproject.toml` and follows the policy in the README's [Versions](README.md#versions) section. Write it in the normalized form PyPI uses, such as `0.2.0` or `0.2.0rc1`; the workflow refuses anything else. To release, raise the version in a pull request and merge it. Each version can be published only once.
+Write the version in the normalized form PyPI uses, such as `0.2.0` or `0.2.0rc1`; the workflow refuses anything else. To release, raise the version in a pull request and merge it. Each version can be published only once.
 
 ### Running a release
 
-1. In GitHub, open **Actions → Release → Run workflow** and choose `main`.
-2. The workflow builds the wheel and sdist once, checks their files (`scripts/core-install-check --dist`), uploads them to TestPyPI, installs the wheel back from there and checks it again. This takes about five minutes.
+1. In GitHub, open **Actions**, choose the package's workflow from the table, then **Run workflow** and choose `main`.
+2. The workflow builds the wheel and sdist once, checks their files (`--dist` of the package's check script), uploads them to TestPyPI, installs the wheel back from there and checks it again (`--from-index`). This takes about five minutes.
 3. The `pypi` job then waits for approval. Any of the `pypi` environment's reviewers except the person who started the run can approve it on the run's page.
-4. After approval, the workflow uploads the same files to PyPI, tags the commit `groundline-core-v<version>` and creates a GitHub release, with notes listing the merged pull requests.
+4. After approval, the workflow uploads the same files to PyPI, tags the commit with the package's tag and creates a GitHub release, with notes listing the merged pull requests since the package's previous release.
 
 A run from `main` stops before uploading anything if the version is already on PyPI or TestPyPI, or already tagged (`scripts/release_version.py`). If a run stops partway:
 
@@ -372,9 +384,9 @@ A run from `main` stops before uploading anything if the version is already on P
 - **After TestPyPI, before PyPI** (the check of the TestPyPI install failed, or the approval was rejected): the version stays on TestPyPI for good, so raise the version before running again. Skipping a version number this way is normal.
 - **During the PyPI upload, or in the last job** (the tag and GitHub release): use **Re-run failed jobs** on that same run, which uploads only the files PyPI doesn't have yet. A new run would be refused, because the version is already on TestPyPI, and perhaps on PyPI too.
 
-Start one run at a time: GitHub keeps only one run waiting per branch, and a newer one cancels it.
+Start one run of a workflow at a time: GitHub keeps only one run waiting per branch, and a newer one cancels it. The two workflows have separate queues, so a library release waiting for approval doesn't hold up an SDK release.
 
-Started from any other branch, the workflow publishes a development version, such as `0.1.0.dev12` (the run number), to TestPyPI and stops there. Use it to try a change to the release process. Because TestPyPI never accepts the same version twice, the development version leaves the real one free for the release. To try again, start a new run: **Re-run all jobs** reuses the run number, and the run is refused.
+Started from any other branch, a workflow publishes a development version, such as `0.1.0.dev12` (the run number), to TestPyPI and stops there. Use it to try a change to the release process. Because TestPyPI never accepts the same version twice, the development version leaves the real one free for the release. To try again, start a new run: **Re-run all jobs** reuses the run number, and the run is refused. GitHub only lets you start a workflow once its file is on `main`, so a new release workflow can't be tried from its own branch.
 
 ### If a release is wrong
 
@@ -382,20 +394,28 @@ Nobody can delete a version from PyPI and upload it again. Yank the bad version 
 
 ### One-time setup
 
-A PyPI account holder and a repository admin do this once, before the first release:
+A PyPI account holder and a repository admin do this once, before a package's first release:
 
-- On pypi.org and on test.pypi.org (separate accounts, each with two-factor authentication), add a pending publisher under **Account settings → Publishing**: project `groundline-core`, owner `groundline-dev`, repository `groundline`, workflow `release.yml`, and environment `pypi` on pypi.org or `testpypi` on test.pypi.org. Trusted publishing then lets the workflow upload without a stored token.
-- In the repository's **Settings → Environments**, create `testpypi` with no reviewers, and `pypi` with the team as required reviewers, **Prevent self-review** on, **Allow administrators to bypass configured protection rules** off (otherwise any admin can skip the approval), and **Deployment branches** limited to `main`. The branch limit is what stops a copy of the workflow pushed to another branch from publishing to PyPI.
+- On pypi.org and on test.pypi.org (separate accounts, each with two-factor authentication), add a pending publisher for each package under **Account settings → Publishing**. Trusted publishing then lets the workflow upload without a stored token. Use owner `groundline-dev` and repository `groundline`, with the project, workflow and environment from this table (the environment is `pypi` on pypi.org and `testpypi` on test.pypi.org):
+
+  | Project | Workflow |
+  | --- | --- |
+  | `groundline-core` | `release.yml` |
+  | `groundline-client` | `release-sdk.yml` |
+
+  A pending publisher doesn't reserve the project name. Add `groundline-client`'s on pypi.org just before its first release, so nobody else can register the name in between.
+- In the repository's **Settings → Environments**, create `testpypi` with no reviewers, and `pypi` with the team as required reviewers, **Prevent self-review** on, **Allow administrators to bypass configured protection rules** off (otherwise any admin can skip the approval), and **Deployment branches** limited to `main`. Both workflows use these two environments. The branch limit is what stops a copy of a workflow pushed to another branch from publishing to PyPI.
 - In the repository's **Settings → Security** (Advanced Security), keep **Private vulnerability reporting** on: SECURITY.md sends reports there.
-- After the first release, add at least one more owner to the project on PyPI, so that one lost login can't lock it.
+- After a package's first release, add at least one more owner to its project on PyPI, so that one lost login can't lock it.
 
 ## Layout
 
 ```
 .agents/skills/            agent skills (see AGENTS.md)
 .claude/skills/            links to .agents/skills/, so Claude Code finds the same skills
-.github/workflows/         ci.yml, the checks on every pull request, and release.yml, which publishes
-                           groundline-core (see Releasing groundline-core)
+.github/workflows/         ci.yml, the checks on every pull request, and release.yml and
+                           release-sdk.yml, which publish groundline-core and groundline-client
+                           (see Releasing)
 Dockerfile                 the app image
 compose.yaml               the stack: Postgres, the setup service and the app
 src/groundline_core/       a leading underscore marks the library's internals (ADR 0018)
