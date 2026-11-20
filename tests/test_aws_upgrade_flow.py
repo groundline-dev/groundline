@@ -17,7 +17,7 @@ from typing import Any
 import pytest
 
 from tests import aws_fakes
-from tests.test_aws_access_modes import checkout, invoke, stub_children
+from tests.test_aws_access_modes import checkout, invoke, settings, stub_children
 from tests.test_aws_lasting import RUNNING, lasting, upgrade_to
 
 __all__ = ["checkout"]  # the fixture, which pytest finds by its name here
@@ -422,3 +422,96 @@ def test_an_expired_disposable_deployment_shows_its_saved_settings(checkout: Pat
     assert "from your settings in infra/terraform.tfvars" in shown
     assert "2) Deployment name alice" in shown
     assert (checkout / "aws-deploy-called").exists()
+
+
+# --- One approval for a first deploy ---
+
+CREATE_DATA: dict[str, Any] = {
+    "variables": {},
+    "resource_changes": [
+        {
+            "mode": "managed",
+            "type": kind,
+            "change": {"actions": ["create"], "after": {"size": 5}},
+        }
+        for kind in ("aws_ebs_volume", "aws_eip")
+    ],
+}
+
+
+def first_deploy_world(server_plan: dict[str, Any], **fields: Any) -> dict[str, Any]:
+    """Nothing exists yet: the data plan creates the volume and address, and
+    applying each plan adds its outputs. FIELDS change any of that."""
+    defaults: dict[str, Any] = {
+        "data_outputs": {},
+        "data_plan": CREATE_DATA,
+        "data_pending_outputs": dict(aws_fakes.DATA_OUTPUTS),
+        "plan": server_plan,
+        "pending_outputs": {"instance_id": "i-new", "auto_terminate_hours": "8"},
+    }
+    defaults.update(fields)
+    return aws_fakes.new_world(**defaults)
+
+
+def applies(world: dict[str, Any]) -> list[str]:
+    return [
+        next(arg for arg in call if arg.startswith("-chdir="))
+        for call in world["calls"]
+        if call[0].endswith("terraform") and "apply" in call
+    ]
+
+
+def test_a_first_deploy_asks_once(checkout: Path):
+    settings(checkout, "restricted")
+
+    # One answer only: a second question would fail for want of one.
+    result, world = invoke(
+        checkout, "aws-deploy", first_deploy_world(CREATE_SERVER), "1\n"
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    shown = aws_fakes.flat(result.stdout)
+    assert (
+        "then create your server, running aaaaaaa, for about $0.024 an hour." in shown
+    )
+    assert (
+        "You approved this above, and it only creates things, so it goes ahead "
+        "without asking again."
+    ) in shown
+    assert applies(world) == ["-chdir=infra/data", "-chdir=infra"]
+
+
+def test_a_server_plan_that_replaces_something_still_asks(checkout: Path):
+    settings(checkout, "restricted")
+    replace: dict[str, Any] = {
+        "variables": {},
+        "resource_changes": [
+            {
+                "mode": "managed",
+                "type": "aws_security_group",
+                "change": {"actions": ["delete", "create"], "before": {"id": "sg-1"}},
+            }
+        ],
+    }
+
+    result, world = invoke(checkout, "aws-deploy", first_deploy_world(replace), "1\n")
+
+    assert result.returncode != 0
+    assert "goes ahead without asking again" not in result.stdout
+    assert applies(world) == ["-chdir=infra/data"]
+
+
+def test_a_running_server_still_asks_about_its_own_plan(checkout: Path):
+    settings(checkout, "restricted")
+    world = first_deploy_world(
+        CREATE_SERVER,
+        outputs={"instance_id": "i-test", "auto_terminate_hours": "8"},
+        existing={"i-test": "running"},
+        data_outputs=dict(aws_fakes.DATA_OUTPUTS),
+    )
+
+    result, world = invoke(checkout, "aws-deploy", world, "1\n")
+
+    assert result.returncode != 0
+    assert "then create your server" not in result.stdout
+    assert applies(world) == ["-chdir=infra/data"]

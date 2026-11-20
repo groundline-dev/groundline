@@ -116,8 +116,16 @@ saved_settings="$(saved_app_settings)"
 [ -n "$saved_settings" ] \
   || fail "the app_settings in infra/terraform.tfvars aren't valid (Terraform's error is above), so nothing was changed"
 data_args+=(-var "app_settings=$saved_settings")
-cancel_message="$(canceled_message "$name" "$state")" \
+# When there's no server yet, the data volume and address come first, then
+# the server, in plans of their own: the server's plan can't be made until
+# they exist. So the first question also says the server comes next, and the
+# server's plan then goes ahead without asking again if it only creates.
+server_next=""
+[ "$state" = running ] \
+  || server_next="then create your server, running ${commit:0:7}, for about \$$(server_hourly_cost) an hour."
+summary_next="$server_next" cancel_message="$(canceled_message "$name" "$state")" \
   plan_and_apply infra/data "the data volume and address are unchanged." "${data_args[@]}"
+data_approved="$plan_changed"
 
 # Cancelling the server's plan leaves the volume and address made above, and
 # they cost money, so it says so. (The server's plan can't come first: the
@@ -132,7 +140,8 @@ case "$state" in
 esac
 # A new Anthropic API key from make aws-up is stored once this plan is
 # approved, before the server that reads it is made or upgraded.
-before_apply=store_pending_key cancel_message="$canceled" plan_and_apply infra "Terraform configuration is unchanged for ${commit:0:7}; checking live HTTPS access next." \
+approved_in_advance="${server_next:+$data_approved}" \
+  before_apply=store_pending_key cancel_message="$canceled" plan_and_apply infra "Terraform configuration is unchanged for ${commit:0:7}; checking live HTTPS access next." \
   -var "region=$region" ${tester_args[@]+"${tester_args[@]}"} -var "git_ref=$commit" \
   -var "access_mode=$access_mode" \
   -var "repository_url=$repository_url"

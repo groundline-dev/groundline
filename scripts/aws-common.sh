@@ -1695,7 +1695,8 @@ show_plan() {
 # make_plan ROOT TERRAFORM_PLAN_ARGUMENTS...: plan the Terraform folder ROOT,
 # such as infra, and set $planned to the saved plan and $planned_summary to
 # what applying it does, in plain words. $planned is empty when there's nothing
-# to change. A plan that changes only outputs, such as one adding a new output,
+# to change. $planned_only_creates is yes when the plan creates resources and
+# changes or deletes none. A plan that changes only outputs, such as one adding a new output,
 # changes nothing in AWS, so it's applied at once, without asking.
 plan_dirs=()
 make_plan() {
@@ -1706,6 +1707,7 @@ make_plan() {
   # so it goes in a temporary folder that's deleted on exit, not in infra/. Each
   # plan's folder is kept in plan_dirs, so a second plan doesn't leave the
   # first one's behind.
+  planned_only_creates=no
   plan_dir="$(mktemp -d)"
   plan_dirs+=("$plan_dir")
   on_exit "rm -rf -- '$plan_dir'"
@@ -1729,6 +1731,10 @@ make_plan() {
     | select(.mode == "managed" and (.type == "aws_ebs_volume" or .type == "aws_eip")
       and (.change.actions | index("delete")))] | length > 0' <<<"$plan_json" >/dev/null; then
     fail "this plan would delete the deployment's data volume or address, so nothing was changed. FULL_PLAN=1 shows Terraform's whole plan."
+  fi
+  if jq -e '[.resource_changes[]? | select(.mode == "managed" and .change.actions != ["no-op"])
+    | .change.actions] | all(. == ["create"])' <<<"$plan_json" >/dev/null; then
+    planned_only_creates=yes
   fi
   planned_summary="$(describe_plan "$plan_json")"
   if [ -z "$planned_summary" ]; then
@@ -1773,7 +1779,9 @@ plan_label() {
 # the plans does (SUMMARY, from make_plan), ask once, and apply exactly those
 # plans, in order. An empty PLAN is skipped. Prints NOTHING_TO_DO instead when
 # every PLAN is empty. Sets $plan_changed to yes when it changed something in
-# AWS.
+# AWS. With approved_in_advance=yes, a plan that only creates (make_plan's
+# $planned_only_creates) goes ahead without asking: an earlier question in the
+# same run said it would come.
 apply_plans() {
   local nothing_to_do="$1" summary="$2" index
   shift 2
@@ -1793,6 +1801,10 @@ apply_plans() {
   if [ "${GROUNDLINE_PREAPPROVED:-}" = yes ]; then
     echo
     explain "The plan you approved said it would do this if the upgrade failed, so it goes ahead without asking."
+    answer=1
+  elif [ "${approved_in_advance:-}" = yes ] && [ "${planned_only_creates:-}" = yes ]; then
+    echo
+    explain "You approved this above, and it only creates things, so it goes ahead without asking again."
     answer=1
   else
     echo
@@ -1839,12 +1851,17 @@ apply_plans() {
 }
 
 # plan_and_apply ROOT NOTHING_TO_DO TERRAFORM_PLAN_ARGUMENTS...: make_plan and
-# apply_plans for one Terraform folder.
+# apply_plans for one Terraform folder. summary_next, if set, is one more
+# bullet for the summary: what a later plan in the same run does, so one
+# question covers both.
 plan_and_apply() {
   local root="$1" nothing_to_do="$2"
   shift 2
   doing "Working out what will change"
   make_plan "$root" "$@"
+  if [ -n "$planned_summary" ] && [ -n "${summary_next:-}" ]; then
+    planned_summary+=$'\n'"$(bullet "$summary_next")"
+  fi
   apply_plans "$nothing_to_do" "$planned_summary" "$root" "$planned"
 }
 
