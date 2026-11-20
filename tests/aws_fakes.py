@@ -511,6 +511,21 @@ def _reply(
                 return None
             world["lifecycle"]["reboots"] += 1
             return {}
+        case ("ec2", "describe-volumes") if "--volume-ids" not in options:
+            # The data volumes make aws-destroy kept, by deployment name.
+            return {
+                "Volumes": [
+                    {
+                        "VolumeId": f"vol-kept-{name}",
+                        "Tags": [
+                            {"Key": "app", "Value": "groundline"},
+                            {"Key": "deployment", "Value": name},
+                            {"Key": "role", "Value": "data"},
+                        ],
+                    }
+                    for name in world.get("kept_volumes", [])
+                ]
+            }
         case ("ec2", "describe-volumes"):
             volume_id = options.get("--volume-ids")
             if str(volume_id) not in existing:

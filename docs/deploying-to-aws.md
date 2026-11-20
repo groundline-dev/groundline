@@ -43,7 +43,7 @@ make aws-up        # set up what's missing, deploy, and check the server
 make aws-destroy   # when you're done
 ```
 
-On every run, `make aws-up` asks two questions:
+On later runs, `make aws-up` asks two questions; the first run shows both as rows of its summary instead:
 
 - **Which AWS project to deploy to.** It shows the project you're signed in to, such as `groundline (123456789012), in us-east-2`. Answer `y` to deploy there, or `n` to choose another. Choosing another, or signing in for the first time, asks you to sign in to the project in the AWS Management Console, then for its Region, and opens your browser, where you choose the project's session. When your sign-in has expired, it names the project's account ID and asks whether to sign in again to that project, which only opens your browser.
 - **Which code the server runs:** `main` from groundline-dev/groundline, or your current branch. A lasting deployment runs `main` unless you type its name to deploy your branch.
@@ -53,7 +53,7 @@ If your server is already running in that project, it says which commit it runs 
 Otherwise, it asks only about what isn't set up yet:
 
 1. It offers to install Terraform, the AWS CLI, `jq` and `uv` with Homebrew, if any is missing ([step 1](#1-install-the-tools)).
-2. The first time in a folder, it asks for your deployment's name and email address, **"Disposable or lasting?"**, a lasting deployment's budget, and the access mode ([step 3](#3-name-your-deployment)).
+2. The first time in a folder, it shows one summary of settings guessed from your AWS sign-in, your git settings and your branch: the AWS project, the deployment's name, the email address for alerts, its lifetime, its budget alert, who can reach it and the branch. Change a row by typing its number, or press Enter to keep them all. **On `main`, the guess is a lasting deployment called `production` that any IP can reach, with a $35 budget alert;** on another branch, it's a disposable deployment named after you, for this computer only, with a $5 alert. A name a server or kept data already uses in the project gets `-2` added ([step 3](#3-name-your-deployment)).
 3. It stores your Anthropic API key for this deployment ([step 4](#4-store-your-anthropic-api-key)).
 4. For your branch, it offers to push it if no GitHub remote has it yet, and warns you about uncommitted changes, because the server runs your last commit without them.
 
@@ -63,6 +63,7 @@ It then runs `make aws-deploy` and `make aws-smoke`.
 
 ```sh
 make aws-up                        # set up what's missing, then deploy and check
+make aws-settings                  # change its email alerts, budget alert or access, keeping its commit and data
 make aws-project                   # choose the AWS project the other commands act on
 make aws-deploy                    # create the server, or upgrade it in place; says what will change and asks first
 make aws-smoke                     # check it from here, without calling the model
@@ -142,7 +143,7 @@ Use a separate Anthropic API key, created in an Anthropic Console workspace with
 
 A lasting deployment keeps running until you delete it. Upgrading it to another commit, or changing its settings, keeps its database and API keys, its address, its HTTPS certificate and its server.
 
-**Choosing one.** The first `make aws-up` in a folder asks "Disposable or lasting?". Lasting saves `lifetime = "lasting"`, `auto_terminate_hours = 0` and `budget_amount` in `infra/terraform.tfvars`, and defaults to unrestricted access, since its callers aren't on your computer. Later runs in that folder upgrade the same deployment. A disposable deployment can't become lasting: a lasting deployment starts with its own data and API keys, so keys given out while testing never reach it.
+**Choosing one.** The first `make aws-up` in a folder guesses from your branch: lasting on `main`, disposable on any other. Change it in the summary's Lifetime row; the name, budget, access and branch rows you haven't changed follow it. Lasting saves `lifetime = "lasting"`, `auto_terminate_hours = 0` and `budget_amount` in `infra/terraform.tfvars`, and defaults to unrestricted access, since its callers aren't on your computer. Later runs in that folder upgrade the same deployment. A disposable deployment can't become lasting: a lasting deployment starts with its own data and API keys, so keys given out while testing never reach it.
 
 **One folder, one lasting deployment.** `infra/terraform.tfvars` is the same for every AWS project a folder deploys to, and a lasting deployment needs different settings from a disposable one. So a folder that holds a lasting deployment deploys nothing else, in any project, until `make aws-destroy DATA=delete` deletes its data. Run test deployments from another clone or worktree:
 

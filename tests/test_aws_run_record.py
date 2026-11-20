@@ -146,8 +146,8 @@ def test_the_anthropic_api_key_never_reaches_the_record_or_log(checkout: Path):
     (checkout / ".env").write_text(f"ANTHROPIC_API_KEY={secret}\n")
     world = aws_fakes.new_world(parameter_exists=False)
 
-    # Sign in, name, email, disposable, restricted, use the key from .env.
-    result, _ = invoke(checkout, "aws-up", world, "\nalice\nalerts@example.com\n\n\n\n")
+    # Name alice, Enter keeps the other settings, use the key from .env.
+    result, _ = invoke(checkout, "aws-up", world, "2\nalice\n\n\n")
 
     assert result.returncode == 0, result.stdout + result.stderr
     [path] = sorted((checkout / "infra/runs").glob("*_alice_up.json"))

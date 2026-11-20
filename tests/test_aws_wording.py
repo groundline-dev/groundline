@@ -12,15 +12,16 @@ from pathlib import Path
 from types import ModuleType
 
 from tests import aws_fakes
-from tests.test_aws_access_modes import checkout, invoke, stub_children
+from tests.test_aws_access_modes import checkout, invoke, settings, stub_children
 from tests.test_aws_lasting import DESTROYABLE, destroy, lasting
 
 __all__ = ["checkout"]  # the fixture, which pytest finds by its name here
 
 ROOT = Path(__file__).resolve().parents[1]
 
-# Sign in, name, email and lasting, then the budget, access and the stored key.
-LASTING_ANSWERS = "\nalice\nalerts@example.com\n2\n{budget}\n\n\n"
+# On main, the guess is lasting: change the budget (row 5), then Enter keeps the
+# rest and the stored key.
+LASTING_ANSWERS = "5\n{budget}\n\n\n"
 
 
 def https_check() -> ModuleType:
@@ -46,19 +47,17 @@ def test_a_formatted_budget_is_accepted_and_said_in_dollars(checkout: Path):
     assert result.returncode == 0, result.stdout + result.stderr
     assert 'budget_amount = "1000"' in (checkout / "infra/terraform.tfvars").read_text()
     assert (
-        "you'll get an email when this month's AWS costs reach $500, and again at "
-        "$1000." in aws_fakes.flat(result.stdout)
+        "$1000 a month: you'll get an email when this month's AWS costs reach $500, "
+        "and again at $1000" in aws_fakes.flat(result.stdout)
     )
 
 
 def test_the_default_budget_says_its_thresholds(checkout: Path):
     stub_children(checkout)
 
-    result, _ = invoke(
-        checkout, "aws-up", aws_fakes.new_world(), LASTING_ANSWERS.format(budget="")
-    )
+    result, _ = invoke(checkout, "aws-up", aws_fakes.new_world(), "\n\n")
 
-    assert "reach $17.50, and again at $35." in aws_fakes.flat(result.stdout)
+    assert "reach $17.50, and again at $35" in aws_fakes.flat(result.stdout)
 
 
 def test_a_budget_over_the_limit_says_the_limit(checkout: Path):
@@ -80,8 +79,10 @@ def test_a_budget_over_the_limit_says_the_limit(checkout: Path):
 
 def test_turning_down_the_project_asks_before_opening_the_browser(checkout: Path):
     stub_children(checkout)
+    settings(checkout, "restricted")
 
-    # No to the project you're signed in to, then Enter: don't change it.
+    # A later run: no to the project you're signed in to, then Enter: don't
+    # change it.
     result, world = invoke(checkout, "aws-up", aws_fakes.new_world(), "n\n\n")
 
     assert result.returncode != 0
@@ -90,15 +91,22 @@ def test_turning_down_the_project_asks_before_opening_the_browser(checkout: Path
     assert not any(call[1:2] == ["login"] for call in world["calls"])
 
 
+def test_changing_the_project_row_asks_before_opening_the_browser(checkout: Path):
+    stub_children(checkout)
+
+    # The first run's AWS project row (1), then Enter: don't change it.
+    result, world = invoke(checkout, "aws-up", aws_fakes.new_world(), "1\n\n\n\n")
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "In your browser" not in result.stdout
+    assert not any(call[1:2] == ["login"] for call in world["calls"])
+
+
 def test_the_access_choices_say_who_can_reach_it(checkout: Path):
     stub_children(checkout)
 
-    result, _ = invoke(
-        checkout,
-        "aws-up",
-        aws_fakes.new_world(),
-        "\nalice\nalerts@example.com\n\n\n\n",
-    )
+    # The Access row (6), keeping it, then Enter keeps the rest and the key.
+    result, _ = invoke(checkout, "aws-up", aws_fakes.new_world(), "6\n\n\n\n")
 
     assert "1) Only this computer can reach it (IP-restricted)" in result.stdout
     assert "2) Open to any IP over HTTPS; checks need an API key (unrestricted)" in (
@@ -110,10 +118,10 @@ def test_a_deploy_ends_saying_it_is_up_and_running(checkout: Path):
     stub_children(checkout)
     world = aws_fakes.new_world(outputs={"app_url": "https://203.0.113.7"})
 
-    result, _ = invoke(checkout, "aws-up", world, "\nalice\nalerts@example.com\n\n\n\n")
+    result, _ = invoke(checkout, "aws-up", world, "\n\n")
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert "ok: alice is up and running at https://203.0.113.7" in result.stdout
+    assert "ok: production is up and running at https://203.0.113.7" in result.stdout
 
 
 def test_status_with_nothing_running_ends_with_a_plain_verdict(checkout: Path):

@@ -130,10 +130,8 @@ def test_aws_up_hands_the_key_over_on_a_pipe_not_the_environment(checkout: Path)
     (checkout / ".env").write_text(f"ANTHROPIC_API_KEY={KEY}\n")
     world = aws_fakes.new_world(parameter_exists=False)
 
-    # Sign in, name, email, disposable, restricted, use the key from .env.
-    result, world = invoke(
-        checkout, "aws-up", world, "\nalice\nalerts@example.com\n\n\n\n"
-    )
+    # Name alice, Enter keeps the other settings, use the key from .env.
+    result, world = invoke(checkout, "aws-up", world, "2\nalice\n\n\n")
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert (checkout / "deploy-fd3").read_text() == KEY

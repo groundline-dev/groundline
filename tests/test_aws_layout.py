@@ -170,6 +170,27 @@ def test_options_line_up_under_their_text(shell: str):
 
 
 @pytest.mark.parametrize("shell", shells())
+@pytest.mark.parametrize("columns,hang", [(40, 5), (59, 5), (60, 22), (80, 22)])
+def test_summary_rows_make_a_column_when_there_is_room(
+    shell: str, columns: int, hang: int
+):
+    output = run(
+        shell,
+        f'summary_row 2 "Deployment name" "{LONG}"; summary_row - Lifetime "{LONG}"',
+        COLUMNS=str(columns),
+    )
+    lines = printed_lines(output)
+    starts = [index for index, line in enumerate(lines) if line[2] in "2·"]
+    assert len(starts) == 2, output
+    assert lines[0].startswith("  2) Deployment name")
+    assert lines[starts[1]].startswith("  ·  Lifetime")
+    for index, line in enumerate(lines):
+        assert fits(line, min(columns, 78), hang), (line, len(line))
+        if index not in starts:
+            assert line[:hang] == " " * hang and line[hang] != " ", (columns, line)
+
+
+@pytest.mark.parametrize("shell", shells())
 def test_without_a_terminal_it_wraps_at_78(shell: str):
     output = run(shell, f'explain "{LONG} {LONG}"')
     lines = printed_lines(output)

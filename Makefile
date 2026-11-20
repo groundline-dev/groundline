@@ -1,5 +1,5 @@
 .PHONY: setup dev db test-fast test-api test-db test-live check fix core-check docker-build docker-run docker-smoke https-smoke \
-	aws-https-smoke aws-upgrade-smoke infra-check aws-up aws-project aws-deploy aws-smoke aws-smoke-live aws-key aws-status aws-reset-deadline aws-destroy
+	aws-https-smoke aws-upgrade-smoke infra-check aws-up aws-settings aws-project aws-deploy aws-smoke aws-smoke-live aws-key aws-status aws-reset-deadline aws-destroy
 
 setup:
 	uv sync
@@ -80,6 +80,11 @@ infra-check:
 # Does whatever first-time setup is missing, then runs aws-deploy and aws-smoke.
 aws-up:
 	scripts/aws-up
+
+# Changes a running deployment's email alerts, budget alert or access, keeping
+# the commit it runs, its data and its address.
+aws-settings:
+	scripts/aws-settings
 
 # Chooses the AWS project the other aws-* targets act on, in the browser.
 aws-project:

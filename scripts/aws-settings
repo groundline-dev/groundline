@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+# Change a running deployment's settings: who gets its email alerts, its
+# monthly budget alert, and who can reach it. See docs/deploying-to-aws.md.
+#
+# Usage: scripts/aws-settings   (make aws-settings)
+#
+# It shows the settings saved in infra/terraform.tfvars as make aws-up's first
+# run does, with the AWS project, deployment name and lifetime locked, since
+# they can't change once the deployment exists. You change a row by its
+# number, and Enter keeps them all. A change is saved and applied through
+# scripts/aws-deploy on the commit the server already runs, so the server keeps
+# its code, data and address; scripts/aws-smoke-test then checks it. Stopping
+# before you approve the plan leaves infra/terraform.tfvars as it was.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+source scripts/aws-common.sh
+start_run
+
+[ -f infra/terraform.tfvars ] || fail "there's no deployment to change yet: run make aws-up first"
+use_project
+name="$(deployment_name)"
+[ -n "$name" ] || fail "infra/terraform.tfvars has no deployment_name: add one, such as deployment_name = \"alice\""
+instance="$(optional_output instance_id)"
+[ -n "$instance" ] || fail "$name has no server in $(project_label) to change: run make aws-up to deploy it"
+require_running
+running_ref="$(optional_output git_ref)"
+[ -n "$running_ref" ] \
+  || fail "the server doesn't say which commit it runs, so applying settings would change its code too. Run make aws-up instead."
+
+load_settings
+saved_email="$s_email" saved_budget="$s_budget" saved_access="$s_access"
+review_summary "$name's settings, as saved in infra/terraform.tfvars:" "email budget access" "project name lifetime"
+record_decision project "$(project_label), $region" previous
+record_decision deployment_name "$name" previous
+record_decision lifetime "$s_lifetime" previous
+record_decision budget_alert_email "$s_email" "$src_email"
+record_decision budget_amount "$s_budget" "$src_budget"
+record_decision access_mode "$s_access" "$src_access"
+record '.decisions.git_ref = {value: $v, name: "", source: "previous"}' --arg v "$running_ref"
+
+# access_words MODE: who can reach the server, in a few words.
+access_words() {
+  if [ "$1" = restricted ]; then echo "only this computer"; else echo "any IP over HTTPS"; fi
+}
+changes=()
+[ "$s_email" = "$saved_email" ] || changes+=("email alerts to: $saved_email → $s_email")
+[ "$s_budget" = "$saved_budget" ] || changes+=("budget: $(budget_threshold "$saved_budget" 100) → $(budget_threshold "$s_budget" 100) a month")
+[ "$s_access" = "$saved_access" ] || changes+=("access: $(access_words "$saved_access") → $(access_words "$s_access")")
+if [ "${#changes[@]}" = 0 ]; then
+  record '.plan.summary = ["nothing to change"]'
+  echo
+  ok "nothing changed: $name keeps its settings."
+  exit 0
+fi
+
+echo
+explain "You changed:"
+for change in "${changes[@]}"; do bullet "$change"; done
+bullet "$name keeps running ${running_ref:0:7}, with its data and address."
+
+# Saved now, since scripts/aws-deploy reads them from the file, and put back
+# if you stop before approving its plan. Once it's approved, they stay, so
+# running this again carries on.
+saved="$(mktemp)"
+on_exit "rm -f -- '$saved'"
+cp infra/terraform.tfvars "$saved"
+put_back() {
+  [ "$(jq -r '.plan.approved' "$GROUNDLINE_RUN_STATE" 2>/dev/null)" = true ] \
+    || cp "$saved" infra/terraform.tfvars
+}
+# Before finish_run, which deletes the record this reads.
+exit_actions=(put_back "${exit_actions[@]}")
+save_setting budget_alert_email "$s_email"
+save_setting budget_amount "$s_budget"
+save_access_mode "$s_access"
+
+REF="$running_ref" REF_NAME="the commit it runs now" REPOSITORY_URL="$(optional_output repository_url)" \
+  scripts/aws-deploy
+
+echo
+step "Checking the server"
+explain "Checking the running server, without calling the model."
+record_result smoke_test failed
+scripts/aws-smoke-test
+record_result smoke_test passed
+app_url="$(optional_output app_url)"
+echo
+ok "$name runs with its new settings${app_url:+ at $app_url}"

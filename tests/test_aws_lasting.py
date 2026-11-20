@@ -60,9 +60,9 @@ def calls(world: dict[str, Any], *command: str) -> list[list[str]]:
 
 def test_the_wizard_saves_a_lasting_deployment_with_no_time_limit(checkout: Path):
     stub_children(checkout)
-    # Project, name, email, lasting, budget (default), access (default), and
-    # no Anthropic API key to paste.
-    answers = "\nstaging\nalerts@example.com\n2\n\n\n\n"
+    # On main, the guess is lasting. Name staging, Enter keeps the rest, and no
+    # Anthropic API key to paste.
+    answers = "2\nstaging\n\n\n"
     world = aws_fakes.new_world(parameter_exists=False)
 
     result, _ = invoke(checkout, "aws-up", world, answers)
@@ -74,29 +74,30 @@ def test_the_wizard_saves_a_lasting_deployment_with_no_time_limit(checkout: Path
     assert 'budget_amount = "35"' in saved
     # Callers from anywhere need to reach a lasting deployment.
     assert 'access_mode = "unrestricted"' in saved
-    assert "about $18 a month" in result.stdout
     assert "monthly spend limit" in result.stdout
 
 
 def test_the_wizard_saves_nothing_if_stopped_after_the_lifetime(checkout: Path):
-    result, _ = invoke(
-        checkout, "aws-up", aws_fakes.new_world(), "\nstaging\nalerts@example.com\n2\n"
-    )
+    # Change the lifetime, then no answer to the summary.
+    result, _ = invoke(checkout, "aws-up", aws_fakes.new_world(), "4\n1\n")
 
     assert result.returncode != 0
     assert not (checkout / "infra/terraform.tfvars").exists()
 
 
-def test_a_disposable_deployment_is_the_default(checkout: Path):
+def test_a_disposable_deployment_saves_its_time_limit_and_default_budget(
+    checkout: Path,
+):
     stub_children(checkout)
 
-    result, _ = invoke(
-        checkout, "aws-up", aws_fakes.new_world(), "\nalice\nalerts@example.com\n\n\n\n"
-    )
+    # Change the lifetime to disposable; Enter keeps the rest and the key.
+    result, _ = invoke(checkout, "aws-up", aws_fakes.new_world(), "4\n1\n\n\n")
 
     assert result.returncode == 0, result.stdout + result.stderr
     saved = (checkout / "infra/terraform.tfvars").read_text()
     assert 'lifetime = "disposable"' in saved
+    assert 'access_mode = "restricted"' in saved
+    assert "auto_terminate_hours" not in saved.replace("# auto_terminate_hours", "")
     assert "budget_amount" not in saved
 
 

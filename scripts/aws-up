@@ -3,20 +3,20 @@
 # whatever first-time setup is missing, deploy, and check the server. See
 # docs/deploying-to-aws.md.
 #
-# The first run in a folder asks whether the deployment is disposable, for
-# trying a commit, or lasting, for staging or production, and saves the answer
-# in infra/terraform.tfvars. Later runs upgrade that deployment in place.
+# The first run in a folder shows one summary of settings guessed from your
+# AWS sign-in, git's settings and your branch: on main, a lasting deployment
+# called production that any IP can reach; on another branch, a disposable one
+# named after you, for this computer only. You change a row by its number, and
+# Enter keeps them all; they're saved in infra/terraform.tfvars. Later runs
+# upgrade that deployment in place, and make aws-settings changes its settings.
 #
 # Usage: scripts/aws-up   (make aws-up)
 #
-# On every run, it shows the AWS project you're signed in to, or asks you to
-# sign in again if that has expired, and lets you choose another in the
-# browser. It asks whether to deploy main or your current branch. It offers to
-# install missing tools with Homebrew, writes infra/terraform.tfvars, stores
-# your Anthropic API key and offers to push your branch, asking only about what
-# isn't set up yet. It then runs
-# scripts/aws-deploy, which says in plain words what will change and asks
-# first, and scripts/aws-smoke-test.
+# It signs you in if that has expired. It offers to install missing tools with
+# Homebrew, asks for your Anthropic API key, which is stored once you approve
+# the plan, and offers to push your branch, asking only about what isn't set up
+# yet. It then runs scripts/aws-deploy, which says in plain words what will
+# change and asks first, and scripts/aws-smoke-test.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -59,17 +59,26 @@ fi
 # --- The AWS project: the one you're signed in to, or one you choose ---
 
 export AWS_PROFILE="${AWS_PROFILE:-$wizard_profile}"
+# The first run in a folder shows the project as a row of its settings, so it
+# asks nothing about it here.
+first_run=""
+[ -f infra/terraform.tfvars ] || first_run=yes
+project_source=chosen s_project_why="the project you signed in to"
 if signed_in; then
   use_project
-  echo
-  explain "Your deployment will run in the AWS project you're signed in to:"
-  bullet "$(project_label), in $region"
-  if confirm "Deploy to $(project_label)?"; then
-    project_source="$answer_source"
-  elif confirm_no "Sign in to a different AWS project? Your browser opens to choose it."; then
-    choose_project
+  if [ -n "$first_run" ]; then
+    project_source=default s_project_why="the $AWS_PROFILE profile's sign-in"
   else
-    fail "canceled: nothing changed"
+    echo
+    explain "Your deployment will run in the AWS project you're signed in to:"
+    bullet "$(project_label), in $region"
+    if confirm "Deploy to $(project_label)?"; then
+      project_source="$answer_source"
+    elif confirm_no "Sign in to a different AWS project? Your browser opens to choose it."; then
+      choose_project
+    else
+      fail "canceled: nothing changed"
+    fi
   fi
 elif previous="$(previous_account)" && [ -n "$previous" ]; then
   echo
@@ -83,71 +92,42 @@ else
   choose_project
 fi
 use_project
-project="$(project_label)"
-answer_ok "deploying to $project in $region"
-record_decision project "$project, $region" "${project_source:-chosen}"
 
-# --- Your deployment's name and email address ---
+# --- The first run: a summary of guessed settings to confirm or change ---
 
-if [ ! -f infra/terraform.tfvars ]; then
+branch="$(git branch --show-current)"
+if [ -n "$first_run" ]; then
   fresh_settings=yes
-  echo
-  explain "Your deployment needs a name and an email address."
-  bullet "The name has to be unique in the projects you deploy to, such as your first name, or staging for a lasting deployment."
-  bullet "Email alerts, such as the monthly budget alert, go to the email address."
-  suggested="$(id -un | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9-' | cut -c1-20)"
-  [[ "$suggested" =~ ^[a-z] ]] || suggested=""
-  while :; do
-    ask "Deployment name (names its AWS resources)" "$suggested"
-    [[ "$answer" =~ ^[a-z][a-z0-9-]{0,19}$ ]] && break
-    hint "Use 1 to 20 lowercase letters, digits and hyphens, starting with a letter."
-  done
-  name="$answer"
-  record_decision deployment_name "$name" "$answer_source"
-  while :; do
-    ask "Email alerts to" "$(git config user.email || true)"
-    [[ "$answer" =~ ^[^@[:space:]\"\\]+@[^@[:space:]\"\\]+\.[^@[:space:]\"\\]+$ ]] && break
-    hint "That doesn't look like an email address."
-  done
-  email="$answer"
-  record_decision budget_alert_email "$email" "$answer_source"
-  echo
-  choose_lifetime
-  record_decision lifetime "$lifetime" "$answer_source"
-  budget="" access_default=1
-  if [ "$lifetime" = lasting ]; then
-    access_default=2
-    echo
-    explain "A lasting deployment costs about \$$(running_monthly_cost) a month while it runs, and about \$$(kept_data_cost "$(tfvars_value data_volume_gib)") a month for its data volume and address once make aws-destroy keeps them."
-    bullet "The budget alert emails you when the project's AWS costs this month reach half of a monthly amount, and again when they reach all of it."
-    bullet "It covers the whole AWS project, so a lasting deployment is best in a project of its own."
-    while :; do
-      ask "Monthly budget alert, in US dollars" 35
-      # $1,000 and 1 000 mean 1000.
-      answer="$(printf '%s' "$answer" | tr -d '$, ')"
-      [[ "$answer" =~ ^[1-9][0-9]{0,4}$ ]] && break
-      hint "Enter a whole number of dollars up to \$99,999, such as 35."
-    done
-    budget="$answer"
-    record_decision budget_amount "$budget" "$answer_source"
-    answer_ok "you'll get an email when this month's AWS costs reach $(budget_threshold "$budget" 50), and again at $(budget_threshold "$budget" 100)."
-  fi
-  echo
-  choose_access_mode "$access_default"
-  record_decision access_mode "$access_mode" "$answer_source"
-  # Written only once every question is answered, so stopping partway saves nothing.
-  awk -v name="$name" -v email="$email" '
+  taken="$(taken_names)"
+  guess_settings
+  [ -n "$s_email" ] || edit_setting email
+  review_summary "Here's what will be deployed, guessed from your AWS sign-in, your git settings and your branch:" \
+    "project name email lifetime budget access branch"
+  project="$(project_label)"
+  record_decision project "$project, $region" "$src_project"
+  record_decision deployment_name "$s_name" "$src_name"
+  record_decision budget_alert_email "$s_email" "$src_email"
+  record_decision lifetime "$s_lifetime" "$src_lifetime"
+  record_decision budget_amount "$s_budget" "$src_budget"
+  record_decision access_mode "$s_access" "$src_access"
+  guard_lasting_folder "$s_name" "$s_lifetime"
+  [ "$s_branch" = main ] || [ "$s_lifetime" != lasting ] || lasting_branch_guard "$s_name" "$branch" none
+  # Written only once the summary is accepted, so stopping before saves nothing.
+  awk -v name="$s_name" -v email="$s_email" '
     /^deployment_name[[:space:]]*=/ { print "deployment_name = \"" name "\""; next }
     /^budget_alert_email[[:space:]]*=/ { print "budget_alert_email = \"" email "\""; next }
     { print }
   ' infra/terraform.tfvars.example >infra/terraform.tfvars
-  save_access_mode "$access_mode"
-  save_setting lifetime "$lifetime"
-  if [ "$lifetime" = lasting ]; then
-    save_setting auto_terminate_hours 0
-    save_setting budget_amount "$budget"
-  fi
-  answer_ok "wrote infra/terraform.tfvars"
+  save_access_mode "$s_access"
+  save_setting lifetime "$s_lifetime"
+  [ "$s_lifetime" = disposable ] || save_setting auto_terminate_hours 0
+  # $5 is a disposable deployment's default, so it isn't written.
+  [ "$s_lifetime" = disposable ] && [ "$s_budget" = 5 ] || save_setting budget_amount "$s_budget"
+  answer_ok "saved your settings in infra/terraform.tfvars"
+else
+  project="$(project_label)"
+  answer_ok "deploying to $project in $region"
+  record_decision project "$project, $region" "$project_source"
 fi
 name="$(deployment_name)"
 access_mode="$(configured_access_mode ask)"
@@ -288,31 +268,29 @@ if [ -z "$keep" ]; then
 
   # --- The code the server runs ---
 
-  # On main there's nothing to choose.
-  branch="$(git branch --show-current)"
+  # The first run's summary chose it; on main there's nothing to choose.
   answer=1 ref_source=default
-  if [ -n "$branch" ] && [ "$branch" != main ]; then
+  if [ -n "${fresh_settings:-}" ]; then
+    [ "$s_branch" = main ] || answer=2
+    ref_source="$src_branch"
+  elif [ -n "$branch" ] && [ "$branch" != main ]; then
     echo
     explain "The server clones the code it runs from GitHub, so it runs a branch's last pushed commit."
     option 1 "main, from groundline-dev/groundline"
     option 2 "your branch $branch, at your last commit ($(git rev-parse --short HEAD))"
     choose "Which branch should the server run? (1 main, 2 your branch)" 2 1
     ref_source="$answer_source"
-    # Callers rely on a lasting deployment, so a branch goes to it only on purpose.
+    # Callers rely on a lasting deployment, so a branch goes to it only on
+    # purpose. The message on cancelling says what's there: a running server,
+    # data kept by make aws-destroy, or nothing.
     if [ "$answer" = 2 ] && [ "$lifetime" = lasting ]; then
-      echo
-      explain "$name is a lasting deployment, which callers rely on. Your branch puts code that isn't on main in front of them."
-      ask "To deploy $branch to it anyway, type the deployment's name ($name)"
-      if [ "$answer" != "$name" ]; then
-        # Say what's there: a running server, data kept by make aws-destroy, or nothing.
-        if [ -n "$running_server" ]; then
-          fail "canceled: $name keeps running what it runs now"
-        elif [ -n "$(optional_output volume_id infra/data)" ]; then
-          fail "canceled: no server was started. $name's data and address are unchanged."
-        else
-          fail "canceled: nothing was created."
-        fi
+      state=none
+      if [ -n "$running_server" ]; then
+        state=running
+      elif [ -n "$(optional_output volume_id infra/data)" ]; then
+        state=kept-data
       fi
+      lasting_branch_guard "$name" "$branch" "$state"
       answer=2
     fi
   fi

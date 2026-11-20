@@ -818,14 +818,16 @@ configured_access_mode() {
   esac
 }
 
-# choose_access_mode [DEFAULT]: ask who may reach the app and set
+# choose_access_mode [DEFAULT [current]]: ask who may reach the app and set
 # $access_mode. DEFAULT is 1 (IP-restricted, for testing) or 2 (unrestricted,
-# which a lasting deployment's callers need).
+# which a lasting deployment's callers need). It's marked as recommended,
+# unless "current" says it's only the value the setting has now.
 choose_access_mode() {
   local default="${1:-1}" first="" second=" (recommended)"
   if [ "$default" = 1 ]; then
     first=" (recommended)" second=""
   fi
+  [ "${2:-}" != current ] || first="" second=""
   option 1 "Only this computer can reach it (IP-restricted)$first"
   option 2 "Open to any IP over HTTPS; checks need an API key (unrestricted)$second"
   bullet "Both use HTTPS with an automatic certificate."
@@ -834,13 +836,14 @@ choose_access_mode() {
   [ "$answer" = 1 ] || access_mode=unrestricted
 }
 
-# choose_lifetime: ask whether the deployment is disposable or lasting, and set
-# $lifetime. It's asked once per folder: a folder that manages a lasting
-# deployment manages only that one.
+# choose_lifetime [DEFAULT]: ask whether the deployment is disposable or
+# lasting, and set $lifetime. DEFAULT is 1 (disposable) or 2 (lasting). It's
+# set once per folder: a folder that manages a lasting deployment manages only
+# that one.
 choose_lifetime() {
   option 1 "Disposable: for trying a commit. It terminates itself after 8 hours, and make aws-destroy deletes it with its data."
   option 2 "Lasting: for staging or production. It keeps running, and keeps its data, API keys, settings and address when you upgrade it, until you delete it."
-  choose "Disposable or lasting? (1 disposable, 2 lasting)" 2 1
+  choose "Disposable or lasting? (1 disposable, 2 lasting)" 2 "${1:-1}"
   lifetime=disposable
   [ "$answer" = 1 ] || lifetime=lasting
 }
@@ -853,6 +856,326 @@ configured_lifetime() {
   case "${lifetime:-disposable}" in
     disposable | lasting) echo "${lifetime:-disposable}" ;;
     *) fail "Unrecognized lifetime: $lifetime. Set lifetime = \"disposable\" or \"lasting\" in infra/terraform.tfvars." ;;
+  esac
+}
+
+# --- The settings summary: make aws-up's first run and make aws-settings ---
+#
+# Each setting is a row: project, name, email, lifetime, budget, access and
+# branch. Its value is in s_<row> (s_branch is main or branch), and where it
+# came from in src_<row>: default (guessed), chosen, or previous (saved by an
+# earlier run), as the run record says. mark_<row> is set when changing the
+# lifetime guessed the row again, until the summary has shown that.
+
+# taken_names: the deployment names already used in this AWS project, one a
+# line: by a server that's starting or running, or by a data volume that make
+# aws-destroy kept. A new deployment with one of them would share its
+# resources' names, and could pick up its kept data.
+taken_names() {
+  {
+    running_lifetimes 2>/dev/null | cut -d' ' -f1 || true
+    aws ec2 describe-volumes --region "$region" \
+      --filters Name=tag:app,Values=groundline Name=tag:role,Values=data --output json 2>/dev/null \
+      | jq -r '.Volumes[]? | (.Tags // [] | from_entries).deployment // empty' 2>/dev/null || true
+  } | sort -u
+}
+
+# name_taken NAME: whether NAME is in $taken (from taken_names).
+name_taken() { grep -qxF -- "$1" <<<"${taken:-}"; }
+
+# free_name BASE: BASE, or BASE-2, BASE-3 and so on, whichever isn't taken,
+# shortened to keep within the 20 characters a name can have.
+free_name() {
+  local base="$1" candidate="$1" number=1
+  while name_taken "$candidate"; do
+    number=$((number + 1))
+    candidate="${base:0:$((19 - ${#number}))}-$number"
+  done
+  echo "$candidate"
+}
+
+# guess_name LIFETIME: set s_name to the name to suggest: production for a
+# lasting deployment, or your username for a disposable one, made free with
+# free_name. s_name_taken is set to the name it had to avoid, if any.
+guess_name() {
+  local base=production
+  if [ "$1" != lasting ]; then
+    base="$(id -un | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9-' | cut -c1-20)"
+    [[ "$base" =~ ^[a-z] ]] || base=test
+  fi
+  s_name="$(free_name "$base")"
+  s_name_taken=""
+  [ "$s_name" = "$base" ] || s_name_taken="$base"
+}
+
+# on_main: whether the checkout is on main, or on no branch, which deploys
+# main too.
+on_main() { [ -z "$branch" ] || [ "$branch" = main ]; }
+
+# guess_settings: fill every row with its guess, from the AWS sign-in, git's
+# settings and the branch. On main it's a lasting deployment any IP can reach,
+# for callers; on another branch, a disposable one for trying it. Needs
+# $branch and $taken.
+guess_settings() {
+  s_lifetime=disposable s_lifetime_why="you're on $branch"
+  if [ "$branch" = main ]; then
+    s_lifetime=lasting s_lifetime_why="you're on main"
+  elif [ -z "$branch" ]; then
+    s_lifetime_why="you're not on a branch"
+  fi
+  # Empty without git's setting: make aws-up asks for it then.
+  s_email="$(git config user.email || true)" s_email_why="git config user.email"
+  src_project=default src_name=default src_email=default src_lifetime=default
+  src_budget=default src_access=default src_branch=default
+  s_name="" s_access="" s_budget="" s_branch=""
+  guess_for_lifetime
+  mark_name="" mark_access="" mark_budget="" mark_branch=""
+}
+
+# guess_for_lifetime: guess again each row that follows the lifetime and still
+# holds a guess, marking those that change. Rows you chose stay as they are.
+guess_for_lifetime() {
+  local before
+  if [ "$src_name" = default ]; then
+    before="${s_name:-}"
+    guess_name "$s_lifetime"
+    [ -z "$before" ] || [ "$s_name" = "$before" ] || mark_name=yes
+  fi
+  guess_row access "$([ "$s_lifetime" = lasting ] && echo unrestricted || echo restricted)"
+  guess_row budget "$([ "$s_lifetime" = lasting ] && echo 35 || echo 5)"
+  guess_row branch "$({ [ "$s_lifetime" = lasting ] || on_main; } && echo main || echo branch)"
+}
+
+# guess_row ROW VALUE: set s_ROW to VALUE if it holds a guess, marking it if it
+# had another one.
+guess_row() {
+  local value_var="s_$1" source_var="src_$1"
+  [ "${!source_var}" = default ] || return 0
+  if [ -n "${!value_var:-}" ] && [ "${!value_var}" != "$2" ]; then
+    printf -v "mark_$1" yes
+  fi
+  printf -v "s_$1" '%s' "$2"
+}
+
+# load_settings: fill every row from infra/terraform.tfvars, as previous.
+load_settings() {
+  s_name="$(deployment_name)" s_email="$(tfvars_value budget_alert_email)"
+  s_lifetime="$(configured_lifetime)" s_budget="$(tfvars_value budget_amount)"
+  s_access="$(configured_access_mode)" s_project_why="" s_name_taken="" s_lifetime_why=""
+  [ -n "$s_budget" ] || s_budget="$([ "$s_lifetime" = lasting ] && echo 35 || echo 5)"
+  src_project=previous src_name=previous src_email=previous src_lifetime=previous
+  src_budget=previous src_access=previous src_branch=previous
+  mark_name="" mark_access="" mark_budget="" mark_branch=""
+}
+
+# summary_label ROW: the row's name in the summary.
+summary_label() {
+  case "$1" in
+    project) echo "AWS project" ;;
+    name) echo "Deployment name" ;;
+    email) echo "Email alerts to" ;;
+    lifetime) echo "Lifetime" ;;
+    budget) echo "Budget" ;;
+    access) echo "Access" ;;
+    branch) echo "Branch" ;;
+  esac
+}
+
+# summary_text ROW: the row's value in words, with where a guess came from.
+summary_text() {
+  local source_var="src_$1" mark_var="mark_$1" text note="" source
+  source="${!source_var}"
+  case "$1" in
+    project)
+      text="$(project_label), in $region"
+      note="${s_project_why:-}"
+      ;;
+    name)
+      text="$s_name"
+      if [ "$source" = default ] && [ -n "$s_name_taken" ]; then
+        note="$s_name_taken is already used in this project"
+      elif [ "$source" = default ] && [ -z "${!mark_var:-}" ]; then
+        note="names its AWS resources, such as groundline-$s_name"
+      fi
+      ;;
+    email)
+      text="$s_email"
+      [ "$source" != default ] || note="$s_email_why"
+      ;;
+    lifetime)
+      if [ "$s_lifetime" = lasting ]; then
+        text="lasting: keeps running, with its data, until you delete it"
+      else
+        text="disposable: a test deployment that terminates itself, with its data, 8 hours after it starts"
+      fi
+      [ "$source" != default ] || [ -z "${s_lifetime_why:-}" ] || note="guessed because $s_lifetime_why"
+      ;;
+    budget)
+      text="$(budget_threshold "$s_budget" 100) a month: you'll get an email when this month's AWS costs reach $(budget_threshold "$s_budget" 50), and again at $(budget_threshold "$s_budget" 100)"
+      ;;
+    access)
+      if [ "$s_access" = restricted ]; then
+        text="only this computer can reach it (IP-restricted)"
+      else
+        text="open to any IP over HTTPS; checks need an API key"
+      fi
+      ;;
+    branch)
+      if [ "$s_branch" = main ]; then
+        text="main, from groundline-dev/groundline"
+      else
+        text="your branch $branch, at your last commit ($(git rev-parse --short HEAD))"
+      fi
+      ;;
+  esac
+  [ -z "${!mark_var:-}" ] || note="changed to match the lifetime${note:+; $note}"
+  echo "$text${note:+ ($note)}"
+}
+
+# summary_row LEAD LABEL TEXT: one row, LEAD being its number or - for a row
+# that can't change. Labels make a column when there's room for one.
+summary_row() {
+  local lead="  $1) "
+  [ "$1" != - ] || lead="  $dot  "
+  if [ "$out_width" -ge 60 ]; then
+    say "$out_width" 22 "$lead$(printf '%-17s' "$2")" "$3"
+  else
+    say "$out_width" 5 "$lead" "$2: $3"
+  fi
+}
+
+# review_summary INTRO ROWS [LOCKED_ROWS]: show the rows under INTRO, numbered,
+# and LOCKED_ROWS, which can't change, without numbers; let the developer
+# change rows by number until Enter keeps them all.
+review_summary() {
+  local intro="$1" key number count
+  local -a keys
+  set -f
+  # shellcheck disable=SC2206  # one row a word; globbing is off
+  keys=($2)
+  set +f
+  count="${#keys[@]}"
+  while :; do
+    echo
+    explain "$intro"
+    for key in ${3:-}; do
+      summary_row - "$(summary_label "$key")" "$(summary_text "$key") (can't change once the deployment exists)"
+    done
+    number=0
+    for key in "${keys[@]}"; do
+      number=$((number + 1))
+      summary_row "$number" "$(summary_label "$key")" "$(summary_text "$key")"
+      printf -v "mark_$key" ''
+    done
+    intro="Here they are with your change:"
+    while :; do
+      ask "Change one by number, or press Enter to keep them all"
+      [ -n "$answer" ] || return 0
+      [[ "$answer" =~ ^[0-9]+$ ]] && [ "$answer" -ge 1 ] && [ "$answer" -le "$count" ] && break
+      hint "Enter a number from 1 to $count, or press Enter."
+    done
+    edit_setting "${keys[answer - 1]}"
+  done
+}
+
+# edit_setting ROW: ask for the row's new value. Enter keeps the one it has.
+edit_setting() {
+  case "$1" in
+    project)
+      confirm_no "Sign in to a different AWS project? Your browser opens to choose it." || return 0
+      choose_project
+      use_project
+      s_project_why="the project you just signed in to" src_project=chosen
+      taken="$(taken_names)"
+      if [ "$src_name" = default ]; then
+        guess_name "$s_lifetime"
+      elif name_taken "$s_name"; then
+        answer_warn "$s_name is already used in $(project_label), so the name is a guess again."
+        src_name=default
+        guess_name "$s_lifetime"
+      fi
+      ;;
+    name)
+      echo
+      explain "The deployment name goes into its AWS resources' names, such as groundline-$s_name. It has to be unique in the AWS project, and can't change once the deployment exists."
+      while :; do
+        ask "Deployment name" "$s_name"
+        if ! [[ "$answer" =~ ^[a-z][a-z0-9-]{0,19}$ ]]; then
+          hint "Use 1 to 20 lowercase letters, digits and hyphens, starting with a letter."
+        elif name_taken "$answer"; then
+          hint "$answer is already used in this project: a server or kept data still has that name. Choose another, such as $(free_name "$answer")."
+        else
+          break
+        fi
+      done
+      [ "$answer" = "$s_name" ] || { s_name="$answer" src_name=chosen s_name_taken=""; }
+      ;;
+    email)
+      while :; do
+        ask "Email alerts to" "$s_email"
+        [[ "$answer" =~ ^[^@[:space:]\"\\]+@[^@[:space:]\"\\]+\.[^@[:space:]\"\\]+$ ]] && break
+        hint "That doesn't look like an email address."
+      done
+      [ "$answer" = "$s_email" ] || { s_email="$answer" src_email=chosen; }
+      ;;
+    lifetime)
+      echo
+      choose_lifetime "$([ "$s_lifetime" = lasting ] && echo 2 || echo 1)"
+      [ "$lifetime" != "$s_lifetime" ] || return 0
+      s_lifetime="$lifetime" src_lifetime=chosen
+      guess_for_lifetime
+      ;;
+    budget)
+      echo
+      explain "The budget alert covers the whole AWS project, so a lasting deployment is best in a project of its own."
+      while :; do
+        ask "Monthly budget alert, in US dollars" "$s_budget"
+        # $1,000 and 1 000 mean 1000.
+        answer="$(printf '%s' "$answer" | tr -d '$, ')"
+        [[ "$answer" =~ ^[1-9][0-9]{0,4}$ ]] && break
+        hint "Enter a whole number of dollars up to \$99,999, such as 35."
+      done
+      [ "$answer" = "$s_budget" ] || { s_budget="$answer" src_budget=chosen; }
+      ;;
+    access)
+      echo
+      choose_access_mode "$([ "$s_access" = unrestricted ] && echo 2 || echo 1)" current
+      [ "$access_mode" = "$s_access" ] || { s_access="$access_mode" src_access=chosen; }
+      ;;
+    branch)
+      if on_main; then
+        echo
+        explain "You're on main, so main is the only branch to deploy from this checkout. Once it runs, make aws-upgrade TO=<commit> deploys a specific commit."
+        return 0
+      fi
+      echo
+      option 1 "main, from groundline-dev/groundline"
+      option 2 "your branch $branch, at your last commit ($(git rev-parse --short HEAD))"
+      bullet "The server clones the branch's last pushed commit from GitHub, so uncommitted changes aren't included."
+      choose "Which branch should the server run? (1 main, 2 your branch)" 2 "$([ "$s_branch" = main ] && echo 1 || echo 2)"
+      answer="$([ "$answer" = 1 ] && echo main || echo branch)"
+      [ "$answer" = "$s_branch" ] || { s_branch="$answer" src_branch=chosen; }
+      ;;
+  esac
+}
+
+# lasting_branch_guard NAME BRANCH STATE: a lasting deployment's callers rely on
+# it, so a branch goes to it only once its name is typed. STATE says what
+# exists, for the message if it isn't: running, kept-data, or none.
+lasting_branch_guard() {
+  echo
+  explain "Callers rely on the lasting deployment $1. Deploying $2 puts code that isn't merged into main in front of them."
+  ask "To deploy $2 to it anyway, type the deployment's name ($1)"
+  [ "$answer" = "$1" ] || fail "$(canceled_message "$1" "$3")"
+}
+
+# canceled_message NAME STATE: what stopping now leaves, from what exists:
+# running (a server), kept-data (data make aws-destroy kept), or none.
+canceled_message() {
+  case "$2" in
+    running) echo "canceled: $1 keeps running what it runs now" ;;
+    kept-data) echo "canceled: no server was started. $1's data and address are unchanged." ;;
+    *) echo "canceled: nothing was created." ;;
   esac
 }
 

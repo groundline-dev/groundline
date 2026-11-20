@@ -126,7 +126,7 @@ def stub_children(checkout: Path):
         path.write_text(f'#!/bin/sh\ntouch "{checkout}/{script}-called"\n')
 
 
-@pytest.mark.parametrize("choice,mode", [("", "restricted"), ("2", "unrestricted")])
+@pytest.mark.parametrize("choice,mode", [("1", "restricted"), ("2", "unrestricted")])
 def test_new_wizard_asks_once_and_saves_choice(checkout: Path, choice: str, mode: str):
     stub_children(checkout)
     example = checkout / "infra/terraform.tfvars.example"
@@ -136,7 +136,8 @@ def test_new_wizard_asks_once_and_saves_choice(checkout: Path, choice: str, mode
             'access_mode = "restricted" # keep this comment',
         )
     )
-    answers = f"\nalice\nalerts@example.com\n\n{choice}\n\n"
+    # Change Access (row 6), then Enter keeps the rest and the stored key.
+    answers = f"6\n{choice}\n\n\n"
     result, _ = invoke(checkout, "aws-up", aws_fakes.new_world(), answers)
     assert result.returncode == 0, result.stdout + result.stderr
     saved = (checkout / "infra/terraform.tfvars").read_text()
@@ -148,9 +149,8 @@ def test_new_wizard_asks_once_and_saves_choice(checkout: Path, choice: str, mode
 
 
 def test_first_setup_eof_does_not_save_partial_configuration(checkout: Path):
-    result, _ = invoke(
-        checkout, "aws-up", aws_fakes.new_world(), "\nalice\nalerts@example.com\n"
-    )
+    # Change the name, then no answer to the summary.
+    result, _ = invoke(checkout, "aws-up", aws_fakes.new_world(), "2\nalice\n")
     assert result.returncode != 0
     assert not (checkout / "infra/terraform.tfvars").exists()
 
