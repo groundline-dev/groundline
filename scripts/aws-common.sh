@@ -1601,6 +1601,23 @@ join_names() {
     END { for (i = 1; i <= NR; i++) printf "%s%s", names[i], (i == NR ? "" : (i == NR - 1 ? " and " : ", ")) }'
 }
 
+# plan_changes: a jq filter for the resources a plan's JSON changes, as an
+# array. What counts as a change decides what's described, labelled and, in
+# make_plan, approved in advance, so it's written once.
+plan_changes='[.resource_changes[]? | select(.mode == "managed" and .change.actions != ["no-op"])]'
+
+# new_server_text: what creating the server does, as a sentence for a bullet.
+# Reads $commit and $previous_instance where they're set.
+new_server_text() {
+  local short="${commit:-}"
+  short="${short:0:7}"
+  if [ -n "${previous_instance:-}" ]; then
+    echo "create a new server running $short, for about \$$(server_hourly_cost) an hour, in place of $previous_instance, which has terminated."
+  else
+    echo "create your server, running $short, for about \$$(server_hourly_cost) an hour."
+  fi
+}
+
 # describe_plan PLAN_JSON: say in plain words what applying the plan does, so no
 # one types yes without knowing it deletes the server or its data. Reads
 # $commit and $previous_instance where they're set.
@@ -1638,11 +1655,7 @@ describe_plan() {
         bullet "release its address${address:+, $address}. Callers would need a new one."
         ;;
       aws_instance:create)
-        if [ -n "${previous_instance:-}" ]; then
-          bullet "create a new server running $short, for about \$$(server_hourly_cost) an hour, in place of $previous_instance, which has terminated."
-        else
-          bullet "create your server, running $short, for about \$$(server_hourly_cost) an hour."
-        fi
+        bullet "$(new_server_text)"
         describe_limit
         ;;
       aws_instance:delete+create | aws_instance:create+delete)
@@ -1664,8 +1677,7 @@ describe_plan() {
       *:delete) deleted+="$(friendly_name "$type")"$'\n' ;;
       *) bullet "replace its $(friendly_name "$type") ($id)." ;;
     esac
-  done < <(jq -r '.resource_changes[]
-    | select(.mode == "managed" and .change.actions != ["no-op"])
+  done < <(jq -r "$plan_changes"'[]
     | [.type, (.change.actions | join("+")), (.change.before.id // ""), (.change.before.cidr_ipv4 // ""), (.change.after.cidr_ipv4 // ""), (.change.before.from_port // ""), (.change.after.from_port // ""), ((.change.after.size // .change.before.size // "") | tostring), (.change.before.public_ip // ""), ((.change.before.size // "") | tostring)]
     | join("|")' <<<"$1")
   # Everything here except the server, the data volume and the address is free;
@@ -1696,8 +1708,8 @@ show_plan() {
 # such as infra, and set $planned to the saved plan and $planned_summary to
 # what applying it does, in plain words. $planned is empty when there's nothing
 # to change. $planned_only_creates is yes when the plan creates resources and
-# changes or deletes none. A plan that changes only outputs, such as one adding a new output,
-# changes nothing in AWS, so it's applied at once, without asking.
+# changes or deletes none. A plan that changes only outputs, such as one adding
+# a new output, changes nothing in AWS, so it's applied at once, without asking.
 plan_dirs=()
 make_plan() {
   local root="$1" plan plan_dir plan_json status=0
@@ -1732,8 +1744,7 @@ make_plan() {
       and (.change.actions | index("delete")))] | length > 0' <<<"$plan_json" >/dev/null; then
     fail "this plan would delete the deployment's data volume or address, so nothing was changed. FULL_PLAN=1 shows Terraform's whole plan."
   fi
-  if jq -e '[.resource_changes[]? | select(.mode == "managed" and .change.actions != ["no-op"])
-    | .change.actions] | all(. == ["create"])' <<<"$plan_json" >/dev/null; then
+  if jq -e "$plan_changes"' | all(.change.actions == ["create"])' <<<"$plan_json" >/dev/null; then
     planned_only_creates=yes
   fi
   planned_summary="$(describe_plan "$plan_json")"
@@ -1753,8 +1764,7 @@ make_plan() {
 # changes, so each Terraform folder's apply is a step of its own, such as
 # "Deleting the server and what it uses".
 plan_label() {
-  local root="$1" changes count server deleting
-  changes='[.resource_changes[]? | select(.mode == "managed" and .change.actions != ["no-op"])]'
+  local root="$1" changes="$plan_changes" count server deleting
   count="$(jq "$changes | length" <<<"$2")"
   deleting="$(jq "$changes | all(.change.actions == [\"delete\"])" <<<"$2")"
   server="$(jq -r "[$changes[] | select(.type == \"aws_instance\") | .change.actions | join(\"+\")][0] // \"\"" <<<"$2")"
@@ -1779,9 +1789,8 @@ plan_label() {
 # the plans does (SUMMARY, from make_plan), ask once, and apply exactly those
 # plans, in order. An empty PLAN is skipped. Prints NOTHING_TO_DO instead when
 # every PLAN is empty. Sets $plan_changed to yes when it changed something in
-# AWS. With approved_in_advance=yes, a plan that only creates (make_plan's
-# $planned_only_creates) goes ahead without asking: an earlier question in the
-# same run said it would come.
+# AWS. With preapproved set to a sentence saying why, it goes ahead without
+# asking.
 apply_plans() {
   local nothing_to_do="$1" summary="$2" index
   shift 2
@@ -1796,15 +1805,10 @@ apply_plans() {
   explain "Making these changes will:"
   echo "$summary"
   # No default: applying can delete the server and its data, so Enter alone
-  # doesn't approve it. A rollback was approved with the upgrade's plan, which
-  # said it would go back if the upgrade failed, so it doesn't ask again.
-  if [ "${GROUNDLINE_PREAPPROVED:-}" = yes ]; then
+  # doesn't approve it.
+  if [ -n "${preapproved:-}" ]; then
     echo
-    explain "The plan you approved said it would do this if the upgrade failed, so it goes ahead without asking."
-    answer=1
-  elif [ "${approved_in_advance:-}" = yes ] && [ "${planned_only_creates:-}" = yes ]; then
-    echo
-    explain "You approved this above, and it only creates things, so it goes ahead without asking again."
+    explain "$preapproved"
     answer=1
   else
     echo
@@ -1853,16 +1857,24 @@ apply_plans() {
 # plan_and_apply ROOT NOTHING_TO_DO TERRAFORM_PLAN_ARGUMENTS...: make_plan and
 # apply_plans for one Terraform folder. summary_next, if set, is one more
 # bullet for the summary: what a later plan in the same run does, so one
-# question covers both.
+# question covers both. That later plan then sets approved_in_advance=yes, and
+# goes ahead without asking if it only creates. With GROUNDLINE_PREAPPROVED=yes,
+# a rollback's plans go ahead without asking: the upgrade's plan said it would
+# go back if the upgrade failed.
 plan_and_apply() {
-  local root="$1" nothing_to_do="$2"
+  local root="$1" nothing_to_do="$2" why=""
   shift 2
   doing "Working out what will change"
   make_plan "$root" "$@"
   if [ -n "$planned_summary" ] && [ -n "${summary_next:-}" ]; then
     planned_summary+=$'\n'"$(bullet "$summary_next")"
   fi
-  apply_plans "$nothing_to_do" "$planned_summary" "$root" "$planned"
+  if [ "${GROUNDLINE_PREAPPROVED:-}" = yes ]; then
+    why="The plan you approved said it would do this if the upgrade failed, so it goes ahead without asking."
+  elif [ "${approved_in_advance:-}" = yes ] && [ "$planned_only_creates" = yes ]; then
+    why="You approved this above, and it only creates things, so it goes ahead without asking again."
+  fi
+  preapproved="$why" apply_plans "$nothing_to_do" "$planned_summary" "$root" "$planned"
 }
 
 # output NAME [ROOT]: read a required output of the Terraform folder ROOT

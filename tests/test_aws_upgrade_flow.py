@@ -439,26 +439,21 @@ CREATE_DATA: dict[str, Any] = {
 }
 
 
-def first_deploy_world(server_plan: dict[str, Any], **fields: Any) -> dict[str, Any]:
+def first_deploy_world(server_plan: dict[str, Any]) -> dict[str, Any]:
     """Nothing exists yet: the data plan creates the volume and address, and
-    applying each plan adds its outputs. FIELDS change any of that."""
-    defaults: dict[str, Any] = {
-        "data_outputs": {},
-        "data_plan": CREATE_DATA,
-        "data_pending_outputs": dict(aws_fakes.DATA_OUTPUTS),
-        "plan": server_plan,
-        "pending_outputs": {"instance_id": "i-new", "auto_terminate_hours": "8"},
-    }
-    defaults.update(fields)
-    return aws_fakes.new_world(**defaults)
+    applying each plan adds its outputs."""
+    return aws_fakes.new_world(
+        data_outputs={},
+        data_plan=CREATE_DATA,
+        data_pending_outputs=dict(aws_fakes.DATA_OUTPUTS),
+        plan=server_plan,
+        pending_outputs={"instance_id": "i-new", "auto_terminate_hours": "8"},
+    )
 
 
 def applies(world: dict[str, Any]) -> list[str]:
-    return [
-        next(arg for arg in call if arg.startswith("-chdir="))
-        for call in world["calls"]
-        if call[0].endswith("terraform") and "apply" in call
-    ]
+    """The folders applied, in order, as their -chdir= arguments."""
+    return [c[1] for c in world["calls"] if c[0] == "terraform" and "apply" in c]
 
 
 def test_a_first_deploy_asks_once(checkout: Path):
@@ -481,37 +476,44 @@ def test_a_first_deploy_asks_once(checkout: Path):
     assert applies(world) == ["-chdir=infra/data", "-chdir=infra"]
 
 
-def test_a_server_plan_that_replaces_something_still_asks(checkout: Path):
+REPLACE_SG: dict[str, Any] = {
+    "variables": {},
+    "resource_changes": [
+        {
+            "mode": "managed",
+            "type": "aws_security_group",
+            "change": {"actions": ["delete", "create"], "before": {"id": "sg-1"}},
+        }
+    ],
+}
+
+
+@pytest.mark.parametrize(
+    "world, absent",
+    [
+        # A server plan that replaces something wasn't what the first question
+        # promised.
+        (first_deploy_world(REPLACE_SG), "goes ahead without asking again"),
+        # With a server running, the data plan's question says nothing about
+        # the server.
+        (
+            aws_fakes.new_world(
+                data_plan=CREATE_DATA,
+                plan=CREATE_SERVER,
+                outputs={"instance_id": "i-test", "auto_terminate_hours": "8"},
+                existing={"i-test": "running"},
+            ),
+            "then create your server",
+        ),
+    ],
+    ids=["replaces something", "running server"],
+)
+def test_the_server_plan_still_asks(checkout: Path, world: dict[str, Any], absent: str):
     settings(checkout, "restricted")
-    replace: dict[str, Any] = {
-        "variables": {},
-        "resource_changes": [
-            {
-                "mode": "managed",
-                "type": "aws_security_group",
-                "change": {"actions": ["delete", "create"], "before": {"id": "sg-1"}},
-            }
-        ],
-    }
 
-    result, world = invoke(checkout, "aws-deploy", first_deploy_world(replace), "1\n")
-
-    assert result.returncode != 0
-    assert "goes ahead without asking again" not in result.stdout
-    assert applies(world) == ["-chdir=infra/data"]
-
-
-def test_a_running_server_still_asks_about_its_own_plan(checkout: Path):
-    settings(checkout, "restricted")
-    world = first_deploy_world(
-        CREATE_SERVER,
-        outputs={"instance_id": "i-test", "auto_terminate_hours": "8"},
-        existing={"i-test": "running"},
-        data_outputs=dict(aws_fakes.DATA_OUTPUTS),
-    )
-
+    # One answer only: the server's question fails for want of a second.
     result, world = invoke(checkout, "aws-deploy", world, "1\n")
 
     assert result.returncode != 0
-    assert "then create your server" not in result.stdout
+    assert absent not in result.stdout
     assert applies(world) == ["-chdir=infra/data"]
