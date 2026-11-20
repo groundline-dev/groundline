@@ -100,7 +100,7 @@ def call_through_client(
 ) -> Any:
     """Make one call the way the guide shows it: a sync call inside `with`, an
     async one inside `async with`. Any error is raised to the caller."""
-    client = GroundlineClient(base_url=api_url, api_key=api_key, **options)
+    client = GroundlineClient(api_url=api_url, api_key=api_key, **options)
     if not is_async:
         with client:
             return getattr(client, method)(*arguments)

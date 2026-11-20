@@ -75,7 +75,7 @@ import os
 from groundline_client import GroundlineClient
 
 client = GroundlineClient(
-    base_url="https://groundline.example.com",
+    api_url="https://groundline.example.com",
     api_key=os.environ["GROUNDLINE_API_KEY"],
 )
 ```

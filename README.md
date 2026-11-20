@@ -9,7 +9,7 @@ groundline checks an AI-written summary against its source. Its **omission check
 - **Python library:** import `groundline_core` to run checks inside a Python app (see [Using it from Python](#using-it-from-python)).
 - **Command line:** `groundline-core omissions` or `groundline-core commissions` checks files from a terminal or script (see [Checking for omissions](#checking-for-omissions) and [Checking for commissions](#checking-for-commissions)).
 - **HTTP API:** run the server when several apps, or apps in other languages, need to call groundline over HTTP (see [Using the API](#using-the-api)).
-- **Python SDK:** `groundline-client` calls a deployment's HTTP API from Python, with typed results, retries and typed errors, so the caller needs no Anthropic key (see the [SDK guide](packages/groundline-client/README.md)).
+- **Python SDK:** `groundline-client` calls a deployment's HTTP API from Python, with typed results, retries and typed errors, so the caller needs no Anthropic key (see the [SDK guide](https://github.com/groundline-dev/groundline/blob/main/packages/groundline-client/README.md)).
 
 ## How it works
 

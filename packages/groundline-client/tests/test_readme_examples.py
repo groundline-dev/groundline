@@ -185,3 +185,8 @@ def test_each_python_example_runs_as_written(
         assert str(RETRY_AFTER_SECONDS) in finished.stdout, (
             f"{block.label} didn't print the Retry-After wait from the 429"
         )
+
+
+def test_the_guide_names_the_url_argument_api_url():
+    assert "base_url" not in README.read_text()
+    assert any("api_url=" in block.code for block in BLOCKS)

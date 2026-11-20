@@ -166,7 +166,7 @@ def _option_problems(
 
 
 def _resolve_url_and_api_key(
-    base_url: str | None, api_key: str | None, problems: list[str]
+    api_url: str | None, api_key: str | None, problems: list[str]
 ) -> tuple[str, str] | GroundlineSetupError:
     """The URL and API key to use, or the error to raise, saying which is wrong.
 
@@ -174,16 +174,16 @@ def _resolve_url_and_api_key(
     too. The error is returned, not raised, so the API key is no longer a local
     variable of any frame in its traceback.
     """
-    chosen_url = _choose(base_url, URL_VARIABLE, "base_url", problems)
+    chosen_url = _choose(api_url, URL_VARIABLE, "api_url", problems)
     chosen_api_key = _choose(api_key, API_KEY_VARIABLE, "api_key", problems)
     if chosen_url is None:
-        if base_url is None:
-            problems.append(f"No API URL: pass base_url= or set {URL_VARIABLE}.")
+        if api_url is None:
+            problems.append(f"No API URL: pass api_url= or set {URL_VARIABLE}.")
     elif not _is_usable_url(chosen_url):
         problems.append(
             "The API URL must be an http:// or https:// address with a valid host "
             "and no user name, password, query or fragment "
-            f"(from base_url= or {URL_VARIABLE})."
+            f"(from api_url= or {URL_VARIABLE})."
         )
     if chosen_api_key is None:
         if api_key is None:
@@ -279,7 +279,7 @@ class GroundlineClient:
 
     def __init__(
         self,
-        base_url: str | None = None,
+        api_url: str | None = None,
         api_key: str | None = None,
         *,
         max_attempts: int = DEFAULT_MAX_ATTEMPTS,
@@ -290,15 +290,15 @@ class GroundlineClient:
         problems = _option_problems(
             max_attempts, max_retry_seconds, connect_timeout_seconds, timeout_seconds
         )
-        outcome = _resolve_url_and_api_key(base_url, api_key, problems)
+        outcome = _resolve_url_and_api_key(api_url, api_key, problems)
         # Tools that print a traceback's local variables would show the API key
         # in this frame, so drop the argument before raising.
         del api_key
         if isinstance(outcome, GroundlineSetupError):
             raise outcome
-        self._base_url, resolved_api_key = outcome
+        self._api_url, resolved_api_key = outcome
         self._client = _ApiKeyHidingClient(
-            base_url=self._base_url,
+            base_url=self._api_url,
             token=resolved_api_key,
             limits=Limits(
                 max_attempts=max_attempts,
@@ -309,7 +309,7 @@ class GroundlineClient:
         )
 
     def __repr__(self) -> str:
-        return f"GroundlineClient(base_url={self._base_url!r})"
+        return f"GroundlineClient(api_url={self._api_url!r})"
 
     def __enter__(self) -> Self:
         self._client.__enter__()

@@ -26,7 +26,7 @@ def test_each_method_calls_its_route_and_returns_the_parsed_reply(
     fake_server: FakeServer,
     api_key: str,
 ):
-    client: Any = sdk.GroundlineClient(base_url=fake_server.url, api_key=api_key)
+    client: Any = sdk.GroundlineClient(api_url=fake_server.url, api_key=api_key)
     request = request_for(fake_server, request_model)
 
     result = call(client, operation, request, is_async=is_async)
@@ -53,7 +53,7 @@ def test_every_call_sends_the_api_key_as_a_bearer_token(
     fake_server: FakeServer,
     api_key: str,
 ):
-    client: Any = sdk.GroundlineClient(base_url=fake_server.url, api_key=api_key)
+    client: Any = sdk.GroundlineClient(api_url=fake_server.url, api_key=api_key)
 
     call(client, operation, request_for(fake_server, request_model), is_async=is_async)
 
@@ -65,7 +65,7 @@ def test_an_error_answer_raises_instead_of_returning_the_error_body(
     is_async: bool, fake_server: FakeServer, api_key: str
 ):
     fake_server.reply("POST", "/v1/omissions", 401, {"detail": "Invalid API key."})
-    client: Any = sdk.GroundlineClient(base_url=fake_server.url, api_key=api_key)
+    client: Any = sdk.GroundlineClient(api_url=fake_server.url, api_key=api_key)
 
     with pytest.raises(sdk.AuthenticationError) as raised:
         call(

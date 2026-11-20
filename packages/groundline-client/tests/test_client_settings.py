@@ -39,7 +39,7 @@ def test_a_setup_error_is_a_value_error():
 
 
 def test_arguments_alone_are_enough(fake_server: FakeServer, api_key: str):
-    client: Any = sdk.GroundlineClient(base_url=fake_server.url, api_key=api_key)
+    client: Any = sdk.GroundlineClient(api_url=fake_server.url, api_key=api_key)
     client.health()
     assert fake_server.requests[-1].headers["authorization"] == f"Bearer {api_key}"
 
@@ -59,7 +59,7 @@ def test_arguments_win_over_environment_variables(
 ):
     monkeypatch.setenv(URL_VARIABLE, UNUSED_URL)
     monkeypatch.setenv(API_KEY_VARIABLE, "environment-key")
-    client: Any = sdk.GroundlineClient(base_url=fake_server.url, api_key=api_key)
+    client: Any = sdk.GroundlineClient(api_url=fake_server.url, api_key=api_key)
     client.health()
     assert fake_server.requests[-1].headers["authorization"] == f"Bearer {api_key}"
 
@@ -74,14 +74,14 @@ def test_a_blank_argument_raises_instead_of_using_the_environment_variable(
     monkeypatch.setenv(API_KEY_VARIABLE, api_key)
     with pytest.raises(sdk.GroundlineSetupError, match=r"api_key= is blank"):
         sdk.GroundlineClient(api_key=blank)
-    with pytest.raises(sdk.GroundlineSetupError, match=r"base_url= is blank"):
-        sdk.GroundlineClient(base_url=blank)
+    with pytest.raises(sdk.GroundlineSetupError, match=r"api_url= is blank"):
+        sdk.GroundlineClient(api_url=blank)
 
 
 def test_a_trailing_slash_on_the_url_is_tolerated(
     fake_server: FakeServer, api_key: str
 ):
-    client: Any = sdk.GroundlineClient(base_url=fake_server.url + "/", api_key=api_key)
+    client: Any = sdk.GroundlineClient(api_url=fake_server.url + "/", api_key=api_key)
     client.health()
     assert fake_server.requests[-1].path == "/health"
 
@@ -97,7 +97,7 @@ def test_a_missing_api_key_fails_at_once_and_names_only_the_api_key(
     fake_server: FakeServer,
 ):
     with pytest.raises(sdk.GroundlineSetupError) as raised:
-        sdk.GroundlineClient(base_url=fake_server.url)
+        sdk.GroundlineClient(api_url=fake_server.url)
     assert API_KEY_VARIABLE in str(raised.value)
     assert URL_VARIABLE not in str(raised.value)
 
@@ -114,9 +114,9 @@ def test_a_blank_argument_fails_at_once_even_with_no_variable_set(
     blank: str, fake_server: FakeServer, api_key: str
 ):
     with pytest.raises(sdk.GroundlineSetupError, match="api_key= is blank"):
-        sdk.GroundlineClient(base_url=fake_server.url, api_key=blank)
-    with pytest.raises(sdk.GroundlineSetupError, match="base_url= is blank"):
-        sdk.GroundlineClient(base_url=blank, api_key=api_key)
+        sdk.GroundlineClient(api_url=fake_server.url, api_key=blank)
+    with pytest.raises(sdk.GroundlineSetupError, match="api_url= is blank"):
+        sdk.GroundlineClient(api_url=blank, api_key=api_key)
 
 
 def test_a_blank_environment_variable_counts_as_missing(
@@ -134,7 +134,7 @@ def test_a_url_that_is_not_http_or_https_fails_without_echoing_it(
     bad_url: str, api_key: str
 ):
     with pytest.raises(sdk.GroundlineSetupError) as raised:
-        sdk.GroundlineClient(base_url=bad_url, api_key=api_key)
+        sdk.GroundlineClient(api_url=bad_url, api_key=api_key)
     assert URL_VARIABLE in str(raised.value)
     assert bad_url not in str(raised.value)
 
@@ -155,7 +155,7 @@ def test_a_url_that_a_request_would_reject_fails_at_creation_without_echoing_it(
     bad_url: str, api_key: str
 ):
     with pytest.raises(sdk.GroundlineSetupError) as raised:
-        sdk.GroundlineClient(base_url=bad_url, api_key=api_key)
+        sdk.GroundlineClient(api_url=bad_url, api_key=api_key)
     assert URL_VARIABLE in str(raised.value)
     assert "SENTINEL" not in str(raised.value)
     assert "SENTINEL" not in repr(raised.value)
@@ -163,7 +163,7 @@ def test_a_url_that_a_request_would_reject_fails_at_creation_without_echoing_it(
 
 def test_a_malformed_url_raises_a_setup_error_without_echoing_it(api_key: str):
     with pytest.raises(sdk.GroundlineSetupError) as raised:
-        sdk.GroundlineClient(base_url="http://[SENTINEL", api_key=api_key)
+        sdk.GroundlineClient(api_url="http://[SENTINEL", api_key=api_key)
     assert URL_VARIABLE in str(raised.value)
     assert "SENTINEL" not in str(raised.value)
 
@@ -173,7 +173,7 @@ def test_an_api_key_that_cannot_go_in_a_header_fails_at_creation_without_echoing
     bad_key: str, fake_server: FakeServer
 ):
     with pytest.raises(sdk.GroundlineSetupError) as raised:
-        sdk.GroundlineClient(base_url=fake_server.url, api_key=bad_key)
+        sdk.GroundlineClient(api_url=fake_server.url, api_key=bad_key)
     assert API_KEY_VARIABLE in str(raised.value)
     assert "SECRET" not in str(raised.value)
     assert "SECRET" not in repr(raised.value)
@@ -184,5 +184,38 @@ def test_an_environment_api_key_that_cannot_go_in_a_header_also_fails_at_creatio
 ):
     monkeypatch.setenv(API_KEY_VARIABLE, "kéy-SECRET")
     with pytest.raises(sdk.GroundlineSetupError) as raised:
-        sdk.GroundlineClient(base_url=fake_server.url)
+        sdk.GroundlineClient(api_url=fake_server.url)
     assert "SECRET" not in repr(raised.value)
+
+
+def test_the_url_argument_is_api_url_and_the_old_name_is_refused(
+    fake_server: FakeServer, api_key: str
+):
+    # Nothing is published yet, so base_url= has no alias: a caller still using
+    # it gets Python's own error instead of a silent second name.
+    client: Any = sdk.GroundlineClient(api_url=fake_server.url, api_key=api_key)
+    client.health()
+    with pytest.raises(TypeError, match="base_url"):
+        sdk.GroundlineClient(base_url=fake_server.url, api_key=api_key)  # pyright: ignore[reportCallIssue]
+
+
+def test_the_url_can_be_the_first_positional_argument(
+    fake_server: FakeServer, api_key: str
+):
+    client: Any = sdk.GroundlineClient(fake_server.url, api_key)
+    client.health()
+    assert fake_server.requests[-1].path == "/health"
+
+
+def test_a_missing_url_message_says_to_pass_api_url(api_key: str):
+    with pytest.raises(sdk.GroundlineSetupError) as raised:
+        sdk.GroundlineClient(api_key=api_key)
+    assert f"pass api_url= or set {URL_VARIABLE}" in str(raised.value)
+    assert "base_url" not in str(raised.value)
+
+
+def test_an_unusable_url_message_says_it_came_from_api_url(api_key: str):
+    with pytest.raises(sdk.GroundlineSetupError) as raised:
+        sdk.GroundlineClient(api_url="ftp://example.test", api_key=api_key)
+    assert f"from api_url= or {URL_VARIABLE}" in str(raised.value)
+    assert "base_url" not in str(raised.value)
