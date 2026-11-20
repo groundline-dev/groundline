@@ -355,9 +355,20 @@ def test_an_upgrade_stops_if_the_server_cant_say_what_it_runs(checkout: Path):
 @pytest.mark.parametrize(
     ("running", "newer", "says"),
     [
-        ("a" * 40, False, "It already runs aaaaaaa, so no snapshot is taken."),
-        ("b" * 40, False, "back from bbbbbbb to aaaaaaa, keeping the snapshot"),
-        ("b" * 40, True, "from bbbbbbb to aaaaaaa, after a snapshot of its data"),
+        ("a" * 40, False, "Already up to date: staging runs the latest main, aaaaaaa"),
+        (
+            "b" * 40,
+            False,
+            "aaaaaaa is an older commit. So no snapshot is taken: the snapshot from "
+            "before bbbbbbb is kept, for restoring.",
+        ),
+        (
+            "b" * 40,
+            True,
+            "It snapshots the data volume before moving the server to aaaaaaa; if the "
+            "snapshot fails, the server isn't upgraded. If the check fails afterwards, "
+            "it goes back to bbbbbbb automatically.",
+        ),
     ],
 )
 def test_aws_up_says_whether_an_upgrade_takes_a_snapshot(
@@ -376,40 +387,79 @@ def test_aws_up_says_whether_an_upgrade_takes_a_snapshot(
         newer_commit=newer,
     )
 
-    # Project, don't keep the server, keep the stored key; main is the only code.
-    result, _ = invoke(checkout, "aws-up", world, "\nn\n\n")
+    # Nothing to answer: running again upgrades to the latest main.
+    result, _ = invoke(checkout, "aws-up", world)
 
     assert result.returncode == 0, result.stdout + result.stderr
     assert says in aws_fakes.flat(result.stdout)
 
 
-@pytest.mark.parametrize(
-    ("fields", "says"),
-    [
-        (
-            {
-                "outputs": {**RUNNING, "access_mode": "unrestricted"},
-                "existing": {"i-test": "running"},
-            },
-            "canceled: staging keeps running what it runs now",
-        ),
-        # make aws-destroy kept the data; no server runs.
-        ({}, "canceled: no server was started. staging's data and address are"),
-        ({"data_outputs": {}}, "canceled: nothing was created."),
-    ],
-)
-def test_a_lasting_deployment_runs_main_unless_you_type_its_name(
-    checkout: Path, fields: dict[str, Any], says: str
+def upgrade_to(checkout: Path, commit: str) -> str:
+    """A script that runs make aws-upgrade TO=COMMIT, for invoke."""
+    wrapper = checkout / "scripts" / "upgrade-to"
+    wrapper.write_text(f'#!/bin/sh\nexec "$(dirname "$0")/aws-upgrade" --to {commit}\n')
+    wrapper.chmod(0o755)
+    return wrapper.name
+
+
+def test_running_again_on_a_branch_keeps_a_lasting_deployment_on_main(checkout: Path):
+    lasting(checkout)
+    stub_children(checkout)
+    world = aws_fakes.new_world(
+        branch="fix-thing",
+        outputs=dict(RUNNING, git_ref="b" * 40, access_mode="unrestricted"),
+        existing={"i-test": "running"},
+        newer_commit=True,
+    )
+
+    result, _ = invoke(checkout, "aws-up", world)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert "upgrading staging in Test project (123456789012) to aaaaaaa (main)" in (
+        aws_fakes.flat(result.stdout)
+    )
+    assert "fix-thing" not in result.stdout
+
+
+@pytest.mark.parametrize(("typed", "deployed"), [("stagin", False), ("staging", True)])
+def test_a_branch_goes_to_a_lasting_deployment_only_once_its_name_is_typed(
+    checkout: Path, typed: str, deployed: bool
 ):
     lasting(checkout)
     stub_children(checkout)
-    world = aws_fakes.new_world(branch="fix-thing", **fields)
+    # newer_commit: main doesn't have it.
+    world = aws_fakes.new_world(
+        outputs=dict(RUNNING, git_ref="b" * 40, access_mode="unrestricted"),
+        existing={"i-test": "running"},
+        newer_commit=True,
+    )
 
-    # Project, keep the stored key, choose the branch, mistype the name.
-    result, _ = invoke(checkout, "aws-up", world, "\n\n2\nstagin\n")
+    result, _ = invoke(checkout, upgrade_to(checkout, "fix-thing"), world, f"{typed}\n")
+
+    assert (result.returncode == 0) == deployed, result.stdout + result.stderr
+    assert (
+        "Callers rely on the lasting deployment staging. Deploying fix-thing puts code "
+        "that isn't merged into main in front of them."
+    ) in aws_fakes.flat(result.stdout)
+    assert (checkout / "aws-deploy-called").exists() == deployed
+    if not deployed:
+        assert "canceled: staging keeps running what it runs now" in result.stderr
+
+
+def test_upgrading_needs_a_running_server(checkout: Path):
+    lasting(checkout)
+    stub_children(checkout)
+
+    # make aws-destroy kept the data; no server runs.
+    result, _ = invoke(
+        checkout, upgrade_to(checkout, "fix-thing"), aws_fakes.new_world()
+    )
 
     assert result.returncode != 0
-    assert says in result.stderr, result.stdout + result.stderr
+    assert (
+        "staging has no server in Test project (123456789012) to upgrade: run make "
+        "aws-up to deploy it"
+    ) in aws_fakes.flat(result.stderr)
     assert not (checkout / "aws-deploy-called").exists()
 
 

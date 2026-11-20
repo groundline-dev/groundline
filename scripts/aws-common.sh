@@ -115,6 +115,8 @@ if [ -z "${GROUNDLINE_AWS_SCRIPT:-}" ]; then
   # The command you ran, such as make aws-up, for messages that say to run it
   # again, whichever script prints them.
   export GROUNDLINE_AWS_COMMAND="make $(basename "$0")"
+  # make aws-upgrade runs scripts/aws-up with the commit to deploy.
+  [ -z "${GROUNDLINE_UPGRADE_TO:-}" ] || GROUNDLINE_AWS_COMMAND="make aws-upgrade TO=$GROUNDLINE_UPGRADE_TO"
   trap 'echo; exit 130' INT
 fi
 
@@ -275,9 +277,12 @@ start_run() {
   local started command
   started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   command="${GROUNDLINE_AWS_COMMAND:-make $(basename "$0")}"
+  command="${command#make aws-}"
+  # Only the target's name, such as upgrade for make aws-upgrade TO=4f1e2a9.
+  command="${command%% *}"
   GROUNDLINE_RUN_STATE="$(mktemp)"
   export GROUNDLINE_RUN_STATE
-  jq -n --arg command "${command#make aws-}" --arg started "$started" --arg stamp "${started//:/-}" \
+  jq -n --arg command "$command" --arg started "$started" --arg stamp "${started//:/-}" \
     '{format_version: "1.0", command: $command, started_at: $started, stamp: $stamp,
       decisions: {}, plan: {approved: false, summary: []}, result: {}}' >"$GROUNDLINE_RUN_STATE"
   on_exit finish_run
@@ -306,6 +311,12 @@ run_value() {
   jq -r --arg k "$1" '.[$k] // empty' "$GROUNDLINE_RUN_STATE"
 }
 
+# run_result NAME: a result this run recorded, such as snapshot, or nothing.
+run_result() {
+  [ -n "${GROUNDLINE_RUN_STATE:-}" ] && [ -f "$GROUNDLINE_RUN_STATE" ] || return 0
+  jq -r --arg k "$1" '.result[$k] // empty' "$GROUNDLINE_RUN_STATE"
+}
+
 # run_base: infra/runs/<time>_<account>_<deployment>_<command>, with _2 and
 # so on added when a run already used it in the same second. The suffix starts
 # with _, which sorts after the . of .json, so a later run's record still sorts
@@ -316,6 +327,7 @@ run_base() {
   stamp="${stamp:-$(date -u +%Y-%m-%dT%H-%M-%SZ)}"
   command="${GROUNDLINE_AWS_COMMAND:-make $(basename "$0")}"
   command="${command#make aws-}"
+  command="${command%% *}"
   name="$(tfvars_value deployment_name)"
   base="$runs_dir/${stamp}_${account:-unknown}_${name:-new}_${command}"
   local candidate="$base"
@@ -368,7 +380,7 @@ finish_run() {
   rm -f "$GROUNDLINE_RUN_STATE"
   prune_runs "${account:-unknown}" "${name:-new}"
   label="Run record:"
-  [ "$outcome" != failed ] || [ -z "$log" ] || label="Log and run record:"
+  case "$outcome" in failed | rolled-back) [ -z "$log" ] || label="Log and run record:" ;; esac
   if [ "$outcome" = succeeded ]; then
     printf '%s %s\n\n' "$label" "$(file_link 1 "$path")"
   else
@@ -723,17 +735,6 @@ commit_change() {
   fi
 }
 
-# review_or_cancel WARNING EFFECT: say why keeping the running server would
-# leave the saved settings unapplied, and ask to review a plan or stop.
-review_or_cancel() {
-  answer_warn "$1 Keeping this server would not apply them."
-  bullet "$2"
-  option 1 "Review a deployment plan"
-  option 2 "Cancel and leave the running server unchanged"
-  choose "Review deployment changes? (1 review, 2 cancel)" 2
-  [ "$answer" = 1 ] || fail "canceled: running server unchanged"
-}
-
 # init_roots: terraform init in both folders, printing Terraform's output only
 # if it fails. A checkout that has never deployed from this version has no
 # infra/data/.terraform, and destroying needs it as much as deploying does.
@@ -957,11 +958,13 @@ guess_row() {
   printf -v "s_$1" '%s' "$2"
 }
 
-# load_settings: fill every row from infra/terraform.tfvars, as previous.
+# load_settings [fail|ask]: fill every row from infra/terraform.tfvars, as
+# previous. An unrecognized access_mode fails, or with ask, is asked about, as
+# configured_access_mode does.
 load_settings() {
   s_name="$(deployment_name)" s_email="$(tfvars_value budget_alert_email)"
   s_lifetime="$(configured_lifetime)" s_budget="$(tfvars_value budget_amount)"
-  s_access="$(configured_access_mode)" s_project_why="" s_name_taken="" s_lifetime_why=""
+  s_access="$(configured_access_mode "${1:-fail}")" s_project_why="" s_name_taken="" s_lifetime_why=""
   [ -n "$s_budget" ] || s_budget="$([ "$s_lifetime" = lasting ] && echo 35 || echo 5)"
   src_project=previous src_name=previous src_email=previous src_lifetime=previous
   src_budget=previous src_access=previous src_branch=previous
@@ -1159,6 +1162,54 @@ edit_setting() {
   esac
 }
 
+# deployment_state: what exists of this folder's deployment in this AWS
+# project, from its Terraform state and AWS: running (a server starting or
+# running), kept-data (a lasting deployment's data and address, which make
+# aws-destroy kept, with no server), expired-disposable (a disposable
+# deployment whose server has terminated, probably at its time limit), or none.
+deployment_state() {
+  local instance state
+  instance="$(optional_output instance_id)"
+  if [ -n "$instance" ]; then
+    state="$(aws ec2 describe-instances --region "$region" --instance-ids "$instance" \
+      --query 'Reservations[0].Instances[0].State.Name' --output text 2>/dev/null || true)"
+    case "$state" in pending | running) echo running && return ;; esac
+  fi
+  if [ -n "$(optional_output volume_id infra/data)" ] && [ "$(deployed_lifetime)" = lasting ]; then
+    echo kept-data
+  elif [ -n "$instance" ] || [ -n "$(optional_output volume_id infra/data)" ]; then
+    echo expired-disposable
+  else
+    echo none
+  fi
+}
+
+# commits_between FROM TO: the commits TO adds to FROM, one a line under the
+# text above, at most 10, then how many more. Nothing if git can't tell, such
+# as when FROM isn't in this clone.
+commits_between() {
+  local lines count
+  lines="$(git log --oneline --no-decorate "$1..$2" 2>/dev/null)" || return 0
+  [ -n "$lines" ] || return 0
+  count="$(printf '%s\n' "$lines" | wc -l | tr -d ' ')"
+  while IFS= read -r line; do detail "$line"; done < <(printf '%s\n' "$lines" | head -n 10)
+  [ "$count" -le 10 ] || detail "and $((count - 10)) more"
+}
+
+# commit_count FROM TO: how many commits TO adds to FROM, or nothing.
+commit_count() { git rev-list --count "$1..$2" 2>/dev/null || true; }
+
+# kept_since NAME: the day make aws-destroy kept deployment NAME's data, such
+# as 2026-11-12, from its run record; nothing if there's no record of it.
+kept_since() {
+  local path latest=""
+  for path in "$runs_dir"/*_"${account:-}"_"$1"_destroy*.json; do
+    [ -f "$path" ] && latest="$path"
+  done
+  [ -n "$latest" ] || return 0
+  jq -r 'select(.outcome == "succeeded") | .finished_at[0:10] // empty' "$latest" 2>/dev/null || true
+}
+
 # lasting_branch_guard NAME BRANCH STATE: a lasting deployment's callers rely on
 # it, so a branch goes to it only once its name is typed. STATE says what
 # exists, for the message if it isn't: running, kept-data, or none.
@@ -1175,6 +1226,7 @@ canceled_message() {
   case "$2" in
     running) echo "canceled: $1 keeps running what it runs now" ;;
     kept-data) echo "canceled: no server was started. $1's data and address are unchanged." ;;
+    expired-disposable) echo "canceled: no server was started." ;;
     *) echo "canceled: nothing was created." ;;
   esac
 }
@@ -1459,7 +1511,7 @@ what_next() {
   explain "What it costs, and how to change or stop it:"
   if [ "$(deployed_lifetime)" = lasting ]; then
     bullet "It costs about \$$(running_monthly_cost) a month while it runs. It's a lasting deployment, so it has no time limit."
-    bullet "make aws-up upgrades it to another commit or settings. It keeps its data and address."
+    bullet "make aws-up upgrades it to the latest main, make aws-upgrade TO=<commit> to a specific commit, and make aws-settings changes its settings. Each keeps its data and address."
     bullet "make aws-destroy deletes the server and keeps its data and address, for about \$$(kept_data_cost "$(optional_output data_volume_gib infra/data)") a month; make aws-destroy DATA=delete deletes those too."
     echo
     return
@@ -1736,12 +1788,19 @@ apply_plans() {
   explain "Making these changes will:"
   echo "$summary"
   # No default: applying can delete the server and its data, so Enter alone
-  # doesn't approve it.
-  echo
-  option 1 "Make these changes"
-  option 2 "Show Terraform's plan first"
-  option 3 "Cancel, changing nothing"
-  choose "Make the changes above? (1 make them, 2 show the plan, 3 cancel)" 3
+  # doesn't approve it. A rollback was approved with the upgrade's plan, which
+  # said it would go back if the upgrade failed, so it doesn't ask again.
+  if [ "${GROUNDLINE_PREAPPROVED:-}" = yes ]; then
+    echo
+    explain "The plan you approved said it would do this if the upgrade failed, so it goes ahead without asking."
+    answer=1
+  else
+    echo
+    option 1 "Make these changes"
+    option 2 "Show Terraform's plan first"
+    option 3 "Cancel, changing nothing"
+    choose "Make the changes above? (1 make them, 2 show the plan, 3 cancel)" 3
+  fi
   if [ "$answer" = 2 ]; then
     for ((index = 0; index + 1 < ${#pairs[@]}; index += 2)); do
       [ -z "${pairs[index + 1]}" ] || show_plan "${pairs[index]}" "${pairs[index + 1]}"

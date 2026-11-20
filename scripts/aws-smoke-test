@@ -72,6 +72,8 @@ health() {
 # still waiting.
 check_access_response() {
   if [ "$access_mode" = restricted ] && [ "$1" = 403 ]; then
+    # So make aws-up knows the upgrade isn't to blame, and doesn't roll it back.
+    record_result access_denied yes
     fail "restricted HTTPS denied this source IP (403). Review allowed_cidr and your current network; update the allowed IP with make aws-deploy using the deployed commit, then rerun make aws-smoke."
   fi
 }

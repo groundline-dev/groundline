@@ -59,7 +59,7 @@ def test_cancelling_the_plan_stores_nothing(checkout: Path):
     result, world = deploy_with_key(checkout, world, "3\n")
 
     assert result.returncode != 0
-    assert "canceled: nothing changed" in result.stderr
+    assert "canceled: nothing was created." in result.stderr
     assert not calls_named(world, "put-parameter")
     assert not world["parameter_exists"]
 

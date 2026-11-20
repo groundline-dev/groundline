@@ -22,7 +22,13 @@ def checkout(tmp_path: Path) -> Path:
     return tmp_path
 
 
-def invoke(checkout: Path, script: str, world: dict[str, Any], answer: str = ""):
+def invoke(
+    checkout: Path,
+    script: str,
+    world: dict[str, Any],
+    answer: str = "",
+    **extra_env: str,
+):
     world_file = checkout / "world.json"
     world_file.write_text(json.dumps(world))
     fake_env = aws_fakes.install(checkout / "bin", world_file)
@@ -48,6 +54,17 @@ esac
             source = source.replace(
                 "case", 'if [ "$1" = merge-base ]; then exit 1; fi\ncase', 1
             )
+        if name == "git" and world.get("commit_log"):
+            # git log --oneline and rev-list --count, for the commits an
+            # upgrade adds.
+            lines = world["commit_log"]
+            listed = " ".join(f"'{line}'" for line in lines)
+            source = source.replace(
+                'case "$*" in',
+                f"case \"$*\" in\n  log*) printf '%s\\n' {listed} ;;"
+                f"\n  rev-list*) echo {len(lines)} ;;",
+                1,
+            )
         if name == "git" and world.get("missing_apply"):
             source = source.replace(
                 "case",
@@ -64,6 +81,7 @@ esac
         FAKE_PUBLIC_IP=world.get("tester_ip", "198.51.100.20"),
         AWS_PROFILE="test",
         REPOSITORY_URL="https://github.com/example/groundline.git",
+        **extra_env,
     )
     env.pop("GROUNDLINE_AWS_SCRIPT", None)
     env.pop("AWS_REGION", None)
@@ -156,11 +174,10 @@ def test_first_setup_eof_does_not_save_partial_configuration(checkout: Path):
 
 
 @pytest.mark.parametrize(
-    "running_mode,answer,success",
-    [("restricted", "\n\n", True), ("unrestricted", "\n2\n", False)],
+    "running_mode,upgraded", [("restricted", False), ("unrestricted", True)]
 )
-def test_keep_requires_matching_mode(
-    checkout: Path, running_mode: str, answer: str, success: bool
+def test_a_matching_server_is_only_checked_and_another_mode_is_applied(
+    checkout: Path, running_mode: str, upgraded: bool
 ):
     settings(checkout, "restricted")
     stub_children(checkout)
@@ -174,23 +191,20 @@ def test_keep_requires_matching_mode(
         },
         existing={"i-test": "running"},
     )
-    result, _ = invoke(checkout, "aws-up", world, answer)
-    assert (result.returncode == 0) == success, result.stdout + result.stderr
-    assert not (checkout / "aws-deploy-called").exists()
-    assert (checkout / "aws-smoke-test-called").exists() == success
-    if not success:
-        assert (
-            "running access is unrestricted HTTPS; saved access is restricted HTTPS"
-            in aws_fakes.flat(result.stderr)
-        )
-        assert "updates the server in place. It keeps its data" in aws_fakes.flat(
-            result.stdout
-        )
-        assert "Keep your running server" not in result.stdout
+    # Nothing to answer: running again upgrades, or only checks.
+    result, _ = invoke(checkout, "aws-up", world)
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (checkout / "aws-deploy-called").exists() == upgraded
+    assert (checkout / "aws-smoke-test-called").exists()
+    shown = aws_fakes.flat(result.stdout)
+    if upgraded:
+        assert "Applying your settings to it keeps its code, data and address." in shown
+    else:
+        assert "Already up to date: alice runs the latest main, aaaaaaa" in shown
 
 
 @pytest.mark.parametrize(
-    "saved,running,offered",
+    "saved,running,matches",
     [
         ({"GROUNDLINE_MAX_SOURCE_CHARS": 150000}, {}, False),
         ({}, {"GROUNDLINE_MAX_SOURCE_CHARS": 150000}, False),
@@ -201,8 +215,8 @@ def test_keep_requires_matching_mode(
         ),
     ],
 )
-def test_keep_is_offered_only_when_the_settings_match(
-    checkout: Path, saved: dict[str, int], running: dict[str, int], offered: bool
+def test_saved_app_settings_that_differ_are_applied(
+    checkout: Path, saved: dict[str, int], running: dict[str, int], matches: bool
 ):
     settings(checkout, "restricted")
     if saved:
@@ -223,15 +237,11 @@ def test_keep_is_offered_only_when_the_settings_match(
         saved_app_settings=saved,
     )
 
-    # Enter keeps a server that matches, and doesn't answer the review question.
-    result, _ = invoke(checkout, "aws-up", world, "\n\n2\n")
+    result, _ = invoke(checkout, "aws-up", world)
 
-    assert (result.returncode == 0) == offered, result.stdout + result.stderr
-    assert (checkout / "aws-smoke-test-called").exists() == offered
-    assert not (checkout / "aws-deploy-called").exists()
-    if not offered:
-        assert "app_settings in infra/terraform.tfvars differ" in result.stderr
-        assert "canceled: running server unchanged" in result.stderr
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert (checkout / "aws-smoke-test-called").exists()
+    assert (checkout / "aws-deploy-called").exists() != matches
 
 
 def test_old_revision_cannot_be_deployed_in_https_mode(checkout: Path):
@@ -262,7 +272,7 @@ def test_cancelling_deployment_does_not_apply(checkout: Path):
     )
     result, world = invoke(checkout, "aws-deploy", world, "3\n")
     assert result.returncode != 0
-    assert "canceled: nothing changed" in result.stderr
+    assert "canceled: nothing was created." in result.stderr
     assert not any("apply" in call for call in world["calls"])
 
 
@@ -274,8 +284,8 @@ def test_failed_access_reload_is_not_success(checkout: Path):
     )
     result, _ = invoke(checkout, "aws-deploy", world)
     assert result.returncode != 0
-    assert (
-        "couldn't upgrade the server; do not report deployment success" in result.stderr
+    assert "couldn't upgrade the server to aaaaaaa. Retry make aws-deploy" in (
+        aws_fakes.flat(result.stderr)
     )
     assert (
         "Terraform configuration is unchanged" in result.stdout
@@ -304,7 +314,8 @@ def test_invalid_wizard_mode_requires_selection_and_preserves_comments(
     path = checkout / "infra/terraform.tfvars"
     path.write_text(path.read_text().rstrip() + " # keep this comment\n")
     stub_children(checkout)
-    result, _ = invoke(checkout, "aws-up", aws_fakes.new_world(), f"\n{choice}\n\n")
+    # The access mode, then Enter keeps the summary.
+    result, _ = invoke(checkout, "aws-up", aws_fakes.new_world(), f"{choice}\n\n")
     assert result.returncode == 0, result.stdout + result.stderr
     assert "unrecognized" in result.stderr
     assert f'access_mode = "{mode}"' in path.read_text()
@@ -317,7 +328,7 @@ def test_invalid_wizard_eof_preserves_settings_and_does_not_deploy(checkout: Pat
     settings(checkout, "unrestriced")
     original = (checkout / "infra/terraform.tfvars").read_bytes()
     stub_children(checkout)
-    result, world = invoke(checkout, "aws-up", aws_fakes.new_world(), "\n")
+    result, world = invoke(checkout, "aws-up", aws_fakes.new_world(), "")
     assert result.returncode != 0
     assert (checkout / "infra/terraform.tfvars").read_bytes() == original
     assert not (checkout / "aws-deploy-called").exists()
@@ -372,9 +383,7 @@ def test_configured_mode_separates_value_from_notices(
 
 
 @pytest.mark.parametrize("allowed", ["198.51.100.19/32", "unavailable"])
-def test_changed_or_undiscoverable_ip_stops_after_choosing_keep(
-    checkout: Path, allowed: str
-):
+def test_a_changed_ip_is_applied_and_an_unknown_one_stops(checkout: Path, allowed: str):
     settings(checkout, "restricted")
     stub_children(checkout)
     world = aws_fakes.new_world(
@@ -389,18 +398,20 @@ def test_changed_or_undiscoverable_ip_stops_after_choosing_keep(
     if allowed == "unavailable":
         # The command is installed by invoke; change its output at the env boundary.
         world["tester_ip"] = "unavailable"
-    result, world = invoke(checkout, "aws-up", world, "\n\n")
-    assert result.returncode != 0
-    assert not (checkout / "aws-deploy-called").exists()
-    assert not (checkout / "aws-smoke-test-called").exists()
+    result, world = invoke(checkout, "aws-up", world)
     assert not world["commands"]
     if allowed == "unavailable":
+        assert result.returncode != 0
         assert "couldn't find" in result.stderr
+        assert not (checkout / "aws-deploy-called").exists()
     else:
-        assert "REF=" + "a" * 40 + " make aws-deploy" in result.stderr
+        # The server allows only its old IP, so it's updated in place.
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert (checkout / "aws-deploy-called").exists()
+        assert (checkout / "aws-smoke-test-called").exists()
 
 
-def test_changed_ip_can_decline_keep_and_deploy_new_code(checkout: Path):
+def test_a_changed_ip_and_new_code_are_one_upgrade(checkout: Path):
     settings(checkout, "restricted")
     (checkout / "scripts/aws-smoke-test").write_text(
         f'#!/bin/sh\ntouch "{checkout}/aws-smoke-test-called"\n'
@@ -415,8 +426,8 @@ def test_changed_ip_can_decline_keep_and_deploy_new_code(checkout: Path):
         },
         existing={"i-test": "running"},
     )
-    # Confirm the project, decline keeping the server, and keep the stored key.
-    result, world = invoke(checkout, "aws-up", world, "\nn\n\n")
+    # Nothing to answer: Terraform's plan changes only what it shows.
+    result, world = invoke(checkout, "aws-up", world)
     assert result.returncode == 0, result.stdout + result.stderr
     plans = server_plans(world)
     assert len(plans) == 1

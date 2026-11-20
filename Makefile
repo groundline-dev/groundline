@@ -1,5 +1,5 @@
 .PHONY: setup dev db test-fast test-api test-db test-live check fix core-check docker-build docker-run docker-smoke https-smoke \
-	aws-https-smoke aws-upgrade-smoke infra-check aws-up aws-settings aws-project aws-deploy aws-smoke aws-smoke-live aws-key aws-status aws-reset-deadline aws-destroy
+	aws-https-smoke aws-upgrade-smoke infra-check aws-up aws-upgrade aws-settings aws-project aws-deploy aws-smoke aws-smoke-live aws-key aws-status aws-reset-deadline aws-destroy
 
 setup:
 	uv sync
@@ -77,9 +77,15 @@ infra-check:
 # Your AWS test deployment (see DEVELOPMENT.md, "Deploying to AWS"). It costs money
 # while it runs: make aws-destroy when you're done.
 
-# Does whatever first-time setup is missing, then runs aws-deploy and aws-smoke.
+# Deploys the first time, and upgrades every time after: a lasting deployment to
+# the latest main, a disposable one to your branch. Then runs aws-smoke.
 aws-up:
 	scripts/aws-up
+
+# Deploys one commit to the running deployment, newer or older: TO=<commit>.
+# make aws-up upgrades to the latest.
+aws-upgrade:
+	scripts/aws-upgrade $(if $(TO),--to "$(TO)")
 
 # Changes a running deployment's email alerts, budget alert or access, keeping
 # the commit it runs, its data and its address.

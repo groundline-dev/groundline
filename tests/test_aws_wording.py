@@ -12,7 +12,7 @@ from pathlib import Path
 from types import ModuleType
 
 from tests import aws_fakes
-from tests.test_aws_access_modes import checkout, invoke, settings, stub_children
+from tests.test_aws_access_modes import checkout, invoke, stub_children
 from tests.test_aws_lasting import DESTROYABLE, destroy, lasting
 
 __all__ = ["checkout"]  # the fixture, which pytest finds by its name here
@@ -75,20 +75,6 @@ def test_a_budget_over_the_limit_says_the_limit(checkout: Path):
         aws_fakes.flat(result.stdout)
     )
     assert 'budget_amount = "35"' in (checkout / "infra/terraform.tfvars").read_text()
-
-
-def test_turning_down_the_project_asks_before_opening_the_browser(checkout: Path):
-    stub_children(checkout)
-    settings(checkout, "restricted")
-
-    # A later run: no to the project you're signed in to, then Enter: don't
-    # change it.
-    result, world = invoke(checkout, "aws-up", aws_fakes.new_world(), "n\n\n")
-
-    assert result.returncode != 0
-    assert "canceled: nothing changed" in result.stderr
-    assert "In your browser" not in result.stdout
-    assert not any(call[1:2] == ["login"] for call in world["calls"])
 
 
 def test_changing_the_project_row_asks_before_opening_the_browser(checkout: Path):

@@ -1,22 +1,33 @@
 #!/usr/bin/env bash
-# Run a deployment with one command: choose the AWS project and the code, do
-# whatever first-time setup is missing, deploy, and check the server. See
-# docs/deploying-to-aws.md.
+# Run a deployment with one command: deploy it the first time, upgrade it
+# every time after, and check the server. See docs/deploying-to-aws.md.
+#
+# Usage: scripts/aws-up   (make aws-up)
+#        make aws-upgrade TO=<commit>, which runs this with that commit
 #
 # The first run in a folder shows one summary of settings guessed from your
 # AWS sign-in, git's settings and your branch: on main, a lasting deployment
 # called production that any IP can reach; on another branch, a disposable one
 # named after you, for this computer only. You change a row by its number, and
-# Enter keeps them all; they're saved in infra/terraform.tfvars. Later runs
-# upgrade that deployment in place, and make aws-settings changes its settings.
+# Enter keeps them all; they're saved in infra/terraform.tfvars.
 #
-# Usage: scripts/aws-up   (make aws-up)
+# Run again, it works from what exists in the AWS project you're signed in to:
+# - A running server is upgraded: a lasting deployment to the latest main, a
+#   disposable one to your branch's last pushed commit, or with make
+#   aws-upgrade, to TO. If nothing differs, it says it's already up to date and
+#   only checks the server. If an upgrade of a lasting deployment fails, it goes
+#   back to the commit that ran before, as the plan says, and exits with 1.
+# - A lasting deployment whose data make aws-destroy kept gets a new server,
+#   with that data, after a summary of its saved settings.
+# - Otherwise, such as after a disposable server's time limit, it shows the
+#   saved settings to confirm, then deploys.
 #
-# It signs you in if that has expired. It offers to install missing tools with
-# Homebrew, asks for your Anthropic API key, which is stored once you approve
-# the plan, and offers to push your branch, asking only about what isn't set up
-# yet. It then runs scripts/aws-deploy, which says in plain words what will
-# change and asks first, and scripts/aws-smoke-test.
+# It signs you in if that has expired, offers to install missing tools with
+# Homebrew, asks for an Anthropic API key when none is stored (REPLACE_KEY=1
+# asks for a new one), and offers to push your branch. It then runs
+# scripts/aws-deploy, which says in plain words what will change and asks
+# first, and scripts/aws-smoke-test. make aws-settings changes the settings of
+# a running deployment.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -30,6 +41,9 @@ dotenv_value() {
   sed -n "s/^[[:space:]]*\(export[[:space:]][[:space:]]*\)\{0,1\}$1[[:space:]]*=[[:space:]]*//p" .env \
     | tail -n 1 | sed -e 's/[[:space:]]*$//' -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'$/\1/"
 }
+
+# The commit make aws-upgrade TO= deploys; empty for make aws-up.
+upgrade_to="${GROUNDLINE_UPGRADE_TO:-}"
 
 step "Step 1 of 3: setup"
 explain "Where to deploy and what to run. It skips what's already set up."
@@ -56,30 +70,18 @@ if [ "$major" -lt 1 ] || { [ "$major" = 1 ] && [ "$minor" -lt 17 ]; }; then
   fail "Terraform $terraform_version is too old: this needs 1.17 or later (brew upgrade hashicorp/tap/terraform)"
 fi
 
-# --- The AWS project: the one you're signed in to, or one you choose ---
+# --- The AWS project: the one you're signed in to ---
 
 export AWS_PROFILE="${AWS_PROFILE:-$wizard_profile}"
-# The first run in a folder shows the project as a row of its settings, so it
-# asks nothing about it here.
 first_run=""
 [ -f infra/terraform.tfvars ] || first_run=yes
+[ -z "$upgrade_to" ] || [ -z "$first_run" ] || fail "there's no deployment to upgrade yet: run make aws-up first"
+# The summary shows the project as a row, which can change it; a deployment
+# that exists can't move, so make aws-project chooses another project.
 project_source=chosen s_project_why="the project you signed in to"
 if signed_in; then
   use_project
-  if [ -n "$first_run" ]; then
-    project_source=default s_project_why="the $AWS_PROFILE profile's sign-in"
-  else
-    echo
-    explain "Your deployment will run in the AWS project you're signed in to:"
-    bullet "$(project_label), in $region"
-    if confirm "Deploy to $(project_label)?"; then
-      project_source="$answer_source"
-    elif confirm_no "Sign in to a different AWS project? Your browser opens to choose it."; then
-      choose_project
-    else
-      fail "canceled: nothing changed"
-    fi
-  fi
+  project_source=default s_project_why="the $AWS_PROFILE profile's sign-in"
 elif previous="$(previous_account)" && [ -n "$previous" ]; then
   echo
   explain "Your sign-in to project $previous has expired. To sign in again, your browser opens and you choose that project's session."
@@ -92,276 +94,426 @@ else
   choose_project
 fi
 use_project
-
-# --- The first run: a summary of guessed settings to confirm or change ---
-
 branch="$(git branch --show-current)"
-if [ -n "$first_run" ]; then
-  fresh_settings=yes
-  taken="$(taken_names)"
-  guess_settings
-  [ -n "$s_email" ] || edit_setting email
-  review_summary "Here's what will be deployed, guessed from your AWS sign-in, your git settings and your branch:" \
-    "project name email lifetime budget access branch"
-  project="$(project_label)"
-  record_decision project "$project, $region" "$src_project"
+
+# --- What exists already, and the settings ---
+
+state=none
+[ -n "$first_run" ] || state="$(deployment_state)"
+[ -z "$upgrade_to" ] || [ "$state" = running ] \
+  || fail "$(deployment_name) has no server in $(project_label) to upgrade: run make aws-up to deploy it"
+
+# save_summary: save the summary's rows in infra/terraform.tfvars. The first
+# run writes it from infra/terraform.tfvars.example; later ones change only
+# these settings, keeping the rest.
+save_summary() {
+  if [ -n "$first_run" ]; then
+    awk -v name="$s_name" -v email="$s_email" '
+      /^deployment_name[[:space:]]*=/ { print "deployment_name = \"" name "\""; next }
+      /^budget_alert_email[[:space:]]*=/ { print "budget_alert_email = \"" email "\""; next }
+      { print }
+    ' infra/terraform.tfvars.example >infra/terraform.tfvars
+  else
+    save_setting deployment_name "$s_name"
+    save_setting budget_alert_email "$s_email"
+  fi
+  save_access_mode "$s_access"
+  save_setting lifetime "$s_lifetime"
+  if [ "$s_lifetime" = lasting ]; then
+    save_setting auto_terminate_hours 0
+  elif [ "$(tfvars_value auto_terminate_hours)" = 0 ]; then
+    save_setting auto_terminate_hours 8
+  fi
+  # $5 is a disposable deployment's default, so it isn't written unless set.
+  if [ "$s_lifetime" = lasting ] || [ "$s_budget" != 5 ] || [ -n "$(tfvars_value budget_amount)" ]; then
+    save_setting budget_amount "$s_budget"
+  fi
+}
+
+# record_settings: the summary's rows in the run record.
+record_settings() {
+  record_decision project "$(project_label), $region" "$src_project"
   record_decision deployment_name "$s_name" "$src_name"
   record_decision budget_alert_email "$s_email" "$src_email"
   record_decision lifetime "$s_lifetime" "$src_lifetime"
   record_decision budget_amount "$s_budget" "$src_budget"
   record_decision access_mode "$s_access" "$src_access"
-  guard_lasting_folder "$s_name" "$s_lifetime"
-  [ "$s_branch" = main ] || [ "$s_lifetime" != lasting ] || lasting_branch_guard "$s_name" "$branch" none
-  # Written only once the summary is accepted, so stopping before saves nothing.
-  awk -v name="$s_name" -v email="$s_email" '
-    /^deployment_name[[:space:]]*=/ { print "deployment_name = \"" name "\""; next }
-    /^budget_alert_email[[:space:]]*=/ { print "budget_alert_email = \"" email "\""; next }
-    { print }
-  ' infra/terraform.tfvars.example >infra/terraform.tfvars
-  save_access_mode "$s_access"
-  save_setting lifetime "$s_lifetime"
-  [ "$s_lifetime" = disposable ] || save_setting auto_terminate_hours 0
-  # $5 is a disposable deployment's default, so it isn't written.
-  [ "$s_lifetime" = disposable ] && [ "$s_budget" = 5 ] || save_setting budget_amount "$s_budget"
-  answer_ok "saved your settings in infra/terraform.tfvars"
-else
-  project="$(project_label)"
-  answer_ok "deploying to $project in $region"
-  record_decision project "$project, $region" "$project_source"
-fi
+}
+
+case "$state" in
+  none | expired-disposable)
+    taken="$(taken_names)"
+    if [ -n "$first_run" ]; then
+      guess_settings
+      src_project="$project_source"
+      [ -n "$s_email" ] || edit_setting email
+      intro="Here's what will be deployed, guessed from your AWS sign-in, your git settings and your branch:"
+    else
+      load_settings ask
+      src_project="$project_source"
+      # The folder's own deployment doesn't count as using its name.
+      taken="$(grep -vxF -- "$s_name" <<<"$taken" || true)"
+      s_branch=branch src_branch=default
+      { [ "$s_lifetime" != lasting ] && ! on_main; } || s_branch=main
+      if [ "$state" = expired-disposable ]; then
+        echo
+        explain "$s_name's server has terminated, probably because its time limit passed. Enter deploys it again with these settings."
+      fi
+      intro="Here's what will be deployed, from your settings in infra/terraform.tfvars:"
+    fi
+    review_summary "$intro" "project name email lifetime budget access branch"
+    record_settings
+    guard_lasting_folder "$s_name" "$s_lifetime"
+    [ "$s_branch" = main ] || [ "$s_lifetime" != lasting ] || lasting_branch_guard "$s_name" "$branch" none
+    # Saved only once the summary is accepted, so stopping before saves nothing.
+    save_summary
+    answer_ok "saved your settings in infra/terraform.tfvars"
+    want="$s_branch" ref_source="$src_branch"
+    ;;
+  running)
+    load_settings ask
+    src_project=previous
+    record_settings
+    answer_ok "$s_name runs in $(project_label), in $region"
+    if [ -n "$upgrade_to" ]; then
+      want=commit ref_source=chosen
+    elif [ "$s_lifetime" = lasting ] || on_main; then
+      want=main ref_source=default
+    else
+      want=branch ref_source=default
+    fi
+    ;;
+  kept-data)
+    load_settings ask
+    since="$(kept_since "$s_name")"
+    echo
+    explain "$s_name has no server. Its data volume and address were kept${since:+ on $since}, for about \$$(kept_data_cost "$(optional_output data_volume_gib infra/data)") a month."
+    review_summary "$s_name's settings, as saved in infra/terraform.tfvars:" "email budget access" "project name lifetime"
+    src_project=previous
+    record_settings
+    save_summary
+    # A lasting deployment follows main.
+    want=main ref_source=default
+    ;;
+esac
+project="$(project_label)"
 name="$(deployment_name)"
-access_mode="$(configured_access_mode ask)"
-[ -n "$name" ] || fail "infra/terraform.tfvars has no deployment_name: add one, such as deployment_name = \"alice\""
+access_mode="$(configured_access_mode)"
 lifetime="$(configured_lifetime)"
 guard_lasting_folder "$name" "$lifetime"
-# Settings an earlier run saved count as previous answers in the run record.
-if [ -z "${fresh_settings:-}" ]; then
-  record_decision deployment_name "$name" previous
-  record_decision budget_alert_email "$(tfvars_value budget_alert_email)" previous
-  record_decision lifetime "$lifetime" previous
-  record_decision access_mode "$access_mode" previous
-fi
 # The groundline servers running in this project, as "name lifetime" lines.
 running="$(running_lifetimes 2>/dev/null || true)"
 shared_project_warning "$name" "$lifetime" "$running"
 
-# --- A server of yours that's already running ---
+# --- Your Anthropic API key, stored for this deployment only ---
 
-# The Terraform state names your server, if you have one in this project. Its
-# git_ref output says which commit it runs; servers deployed before that output
-# existed don't have it, so they can't be kept from here.
-keep="" running_server=""
-instance="$(optional_output instance_id)"
-if [ -n "$instance" ] \
-  && instance_state="$(aws ec2 describe-instances --region "$region" --instance-ids "$instance" \
-    --query 'Reservations[0].Instances[0].State.Name' --output text 2>/dev/null)" \
-  && [[ "$instance_state" =~ ^(pending|running)$ ]]; then
-  running_server=yes
-  running_ref="$(optional_output git_ref)"
-  running_repository="$(optional_output repository_url)"
-  echo
-  explain "Your deployment $name is already running in $project."
-  [ -z "$running_ref" ] || bullet "It runs ${running_ref:0:7}, from $running_repository."
-  if [ "$lifetime" = lasting ]; then
-    bullet "It's a lasting deployment: it costs money until make aws-destroy."
-  else
-    bullet "It costs money until make aws-destroy, or until it terminates itself."
-  fi
-  bullet "Deploying other code upgrades it in place. It keeps its data and address."
-  running_mode="$(deployed_access_mode)"
-  # Keeping the server applies nothing, so changed settings mean deploying.
-  saved_settings="$(saved_app_settings)"
-  running_settings="$(deployed_app_settings)"
-  if [ -n "$saved_settings" ] && [ "$saved_settings" != "$running_settings" ]; then
-    review_or_cancel "the app_settings in infra/terraform.tfvars differ from the running server's." \
-      "Applying them updates the server in place. It keeps its data and address."
-  elif [ "$access_mode" != "$running_mode" ]; then
-    review_or_cancel "running access is $running_mode HTTPS; saved access is $access_mode HTTPS." \
-      "Switching modes updates the server in place. It keeps its data and address."
-  else
-    if [ -n "$running_ref" ] && confirm "Keep your running server and check it?"; then
-      if [ "$running_mode" = restricted ]; then
-        current_ip="$(public_ipv4)"
-        allowed_cidr="$(output allowed_cidr)"
-        [ "$current_ip/32" = "$allowed_cidr" ] || fail "this server allows $allowed_cidr, but your current public IP is $current_ip. To update access without replacing the server, run REF=$running_ref make aws-deploy, then make aws-smoke."
-      fi
-      keep=yes ref_source=previous
-      record_decision keep_server yes "$answer_source"
-      REF="$running_ref" REF_NAME=""
-      answer_ok "keeping $instance, running ${running_ref:0:7} in $running_mode HTTPS mode"
-    fi
-  fi
-fi
-
-if [ -z "$keep" ]; then
-  # --- Your Anthropic API key, stored for this deployment only ---
-
-  anthropic_parameter="$(anthropic_parameter "$name")"
-  # Checks only that the parameter exists: its value never leaves AWS.
-  stored="" replace=yes
-  if errors="$(aws ssm get-parameter --region "$region" --name "$anthropic_parameter" 2>&1 >/dev/null)"; then
-    stored=yes
-    echo
-    explain "Your server will use the Anthropic API key you gave on an earlier run."
-    bullet "It's stored in AWS, encrypted, in $project's Parameter Store as $anthropic_parameter, not in this repository."
-    if [ "$lifetime" = lasting ]; then
-      bullet "make aws-destroy keeps it; make aws-destroy DATA=delete deletes it."
-    else
-      bullet "make aws-destroy deletes it."
-    fi
-    confirm "Keep the Anthropic API key you gave on an earlier run?" && replace="" && record_decision anthropic_key kept "$answer_source"
-  else
-    case "$errors" in
-      *ParameterNotFound*) ;;
-      *) fail "couldn't check $anthropic_parameter: $errors" ;;
-    esac
-  fi
-  if [ -n "$replace" ]; then
-    others="$(awk -v name="$name" '$1 != name { print $1 }' <<<"$running" | join_names)"
-    echo
-    explain "Your server needs an Anthropic API key to call Claude."
-    if [ "$lifetime" = lasting ]; then
-      bullet "Everyone with access to $project can read it while the deployment exists."
-      bullet "Use a key from an Anthropic Console workspace with a monthly spend limit, so this deployment's model calls can't cost more than you planned."
-    else
-      bullet "Everyone with access to $project can read it until make aws-destroy."
-      bullet "To keep it private, deploy to a project only you own."
-      bullet "In a shared project, use a key from an Anthropic Console workspace with a low spend limit, so anyone who copies it can't spend more than that."
-      [ -z "$others" ] || bullet "Other deployments running in this project now: $others."
-    fi
-    key="" key_source=chosen
-    for variable in AWS_ANTHROPIC_API_KEY ANTHROPIC_API_KEY; do
-      candidate="$(dotenv_value "$variable")"
-      [ -n "$candidate" ] || continue
-      if confirm "Use $variable from .env (ending ${candidate: -4}) as the server's Anthropic API key?"; then
-        key="$candidate" key_source="$answer_source"
-        break
-      fi
-    done
-    unset candidate
-    if [ -z "$key" ]; then
-      echo
-      # -s keeps the Anthropic API key off the screen and out of your shell history.
-      read -rsp "  Paste an Anthropic API key for the server, or press Enter to skip: " key || key=""
-      echo
-    fi
-    if [ -n "$key" ]; then
-      # Kept in this shell until step 2, which stores it once you approve the
-      # plan (store_pending_key), so cancelling stores nothing.
-      pending_key=yes
-      answer_ok "your Anthropic API key is stored once you approve the plan in step 2"
-      # Only what happens to the key: the key itself never goes in the record.
-      record_decision anthropic_key "$([ -n "$stored" ] && echo replaced || echo stored)" "$key_source"
-      # The server reads the key when it starts and when it's upgraded, which
-      # step 2 does.
-      if [ -n "$stored" ] && cut -d' ' -f1 <<<"$running" | grep -qx "$name"; then
-        bullet "Your running server switches to the new key when it's upgraded, in step 2."
-      fi
-    elif [ -n "$stored" ]; then
-      answer_ok "kept the Anthropic API key you gave on an earlier run"
-      record_decision anthropic_key kept chosen
-    else
-      answer_warn "no Anthropic API key: the server starts and make aws-smoke passes, but every model call fails with 503."
-      record_decision anthropic_key none chosen
-    fi
-  fi
-
-  # --- The code the server runs ---
-
-  # The first run's summary chose it; on main there's nothing to choose.
-  answer=1 ref_source=default
-  if [ -n "${fresh_settings:-}" ]; then
-    [ "$s_branch" = main ] || answer=2
-    ref_source="$src_branch"
-  elif [ -n "$branch" ] && [ "$branch" != main ]; then
-    echo
-    explain "The server clones the code it runs from GitHub, so it runs a branch's last pushed commit."
-    option 1 "main, from groundline-dev/groundline"
-    option 2 "your branch $branch, at your last commit ($(git rev-parse --short HEAD))"
-    choose "Which branch should the server run? (1 main, 2 your branch)" 2 1
-    ref_source="$answer_source"
-    # Callers rely on a lasting deployment, so a branch goes to it only on
-    # purpose. The message on cancelling says what's there: a running server,
-    # data kept by make aws-destroy, or nothing.
-    if [ "$answer" = 2 ] && [ "$lifetime" = lasting ]; then
-      state=none
-      if [ -n "$running_server" ]; then
-        state=running
-      elif [ -n "$(optional_output volume_id infra/data)" ]; then
-        state=kept-data
-      fi
-      lasting_branch_guard "$name" "$branch" "$state"
-      answer=2
-    fi
-  fi
-  if [ "$answer" = 1 ]; then
-    git fetch --quiet "$main_repository" main
-    REF="$(git rev-parse FETCH_HEAD)"
-    REF_NAME=main
-    REPOSITORY_URL="$main_repository"
-    export REPOSITORY_URL
-  else
-    if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
-      echo
-      explain "You have uncommitted changes. The server gets its code from GitHub, so it runs your last commit, $(git rev-parse --short HEAD), without them."
-      bullet "Changes in scripts/ and infra/ still apply: they run on your Mac, not the server."
-      bullet "To run your other changes on the server, commit them and run make aws-up again. It then offers to push them to GitHub."
-      confirm "Deploy $(git rev-parse --short HEAD) without your uncommitted changes?" \
-        || fail "commit your changes, then run make aws-up again"
-    fi
-    # The server clones the branch from whichever GitHub remote has it, such as
-    # your fork, so nobody needs to push to groundline-dev/groundline.
-    git fetch --quiet --all --prune
-    if ! remote_with HEAD >/dev/null; then
-      remote="$(git config "branch.$branch.remote" || echo origin)"
-      echo
-      explain "The server gets its code from GitHub, but your last commit, $(git rev-parse --short HEAD), isn't pushed yet."
-      bullet "Pushing sends $branch to $remote: $(git remote get-url "$remote")"
-      bullet "If $branch has an open pull request, its new commits show up there."
-      confirm "Push $branch to $remote, so the server can clone it?" \
-        || fail "push $branch to a public GitHub repository, such as your fork, then run this again"
-      git push --set-upstream "$remote" "$branch"
-    fi
-    REF="$(git rev-parse HEAD)"
-    REF_NAME="$branch"
-    unset REPOSITORY_URL
-  fi
-fi
-export REF REF_NAME
-record '.decisions.git_ref = {value: $v, name: $n, source: $s}' --arg v "$REF" --arg n "${REF_NAME:-}" --arg s "$ref_source"
-answer_ok "step 1 done: deployment $name in $project, running ${REF:0:7}${REF_NAME:+ ($REF_NAME)}"
-if [ -z "$keep" ] && [ "$lifetime" = lasting ] && [ -n "${running_ref:-}" ]; then
-  # scripts/aws-deploy decides from what the server runs; this says what to expect.
-  case "$(commit_change "$running_ref" "$REF")" in
-    same) bullet "It applies your settings to the lasting deployment $name. It already runs ${REF:0:7}, so no snapshot is taken." ;;
-    rollback) bullet "It rolls the lasting deployment $name back from ${running_ref:0:7} to ${REF:0:7}, keeping the snapshot from before ${running_ref:0:7}, for restoring." ;;
-    forward) bullet "It upgrades the lasting deployment $name from ${running_ref:0:7} to ${REF:0:7}, after a snapshot of its data." ;;
+anthropic_parameter="$(anthropic_parameter "$name")"
+# Checks only that the parameter exists: its value never leaves AWS.
+stored=""
+if errors="$(aws ssm get-parameter --region "$region" --name "$anthropic_parameter" 2>&1 >/dev/null)"; then
+  stored=yes
+else
+  case "$errors" in
+    *ParameterNotFound*) ;;
+    *) fail "couldn't check $anthropic_parameter: $errors" ;;
   esac
 fi
+if [ -n "$stored" ] && [ -z "${REPLACE_KEY:-}" ]; then
+  if [ "$lifetime" = lasting ]; then
+    answer_ok "using the Anthropic API key stored for $name: make aws-destroy keeps it; make aws-destroy DATA=delete deletes it."
+  else
+    answer_ok "using the Anthropic API key stored for $name: make aws-destroy deletes it."
+  fi
+  bullet "To use another key, run $GROUNDLINE_AWS_COMMAND REPLACE_KEY=1."
+  record_decision anthropic_key kept previous
+else
+  others="$(awk -v name="$name" '$1 != name { print $1 }' <<<"$running" | join_names)"
+  echo
+  explain "Your server needs an Anthropic API key to call Claude. It's stored encrypted in $project's Parameter Store as $anthropic_parameter, once you approve the plan."
+  if [ "$lifetime" = lasting ]; then
+    bullet "Everyone with access to $project can read it while it's stored."
+    bullet "Use a key from an Anthropic Console workspace with a monthly spend limit, so this deployment's model calls can't cost more than you planned."
+  else
+    bullet "Everyone with access to $project can read it until make aws-destroy."
+    bullet "To keep it private, deploy to a project only you own."
+    bullet "In a shared project, use a key from an Anthropic Console workspace with a low spend limit, so anyone who copies it can't spend more than that."
+    [ -z "$others" ] || bullet "Other deployments running in this project now: $others."
+  fi
+  key="" key_source=chosen
+  for variable in AWS_ANTHROPIC_API_KEY ANTHROPIC_API_KEY; do
+    candidate="$(dotenv_value "$variable")"
+    [ -n "$candidate" ] || continue
+    if confirm "Use $variable from .env (ending ${candidate: -4}) as the server's Anthropic API key?"; then
+      key="$candidate" key_source="$answer_source"
+      break
+    fi
+  done
+  unset candidate
+  if [ -z "$key" ]; then
+    echo
+    # -s keeps the Anthropic API key off the screen and out of your shell history.
+    read -rsp "  Paste an Anthropic API key for the server, or press Enter to skip: " key || key=""
+    echo
+  fi
+  if [ -n "$key" ]; then
+    # Kept in this shell until step 2, which stores it once you approve the
+    # plan (store_pending_key), so cancelling stores nothing.
+    pending_key=yes
+    answer_ok "your Anthropic API key is stored once you approve the plan in step 2"
+    # Only what happens to the key: the key itself never goes in the record.
+    record_decision anthropic_key "$([ -n "$stored" ] && echo replaced || echo stored)" "$key_source"
+    # The server reads the key when it starts and when it's upgraded, which
+    # step 2 does.
+    [ -z "$stored" ] || [ "$state" != running ] \
+      || bullet "Your running server switches to the new key when it's upgraded, in step 2."
+  elif [ -n "$stored" ]; then
+    answer_ok "kept the Anthropic API key stored for $name"
+    record_decision anthropic_key kept chosen
+  else
+    answer_warn "no Anthropic API key: the server starts and make aws-smoke passes, but every model call fails with 503."
+    record_decision anthropic_key none chosen
+  fi
+fi
+
+# --- The code the server runs ---
+
+# target_main: the latest commit on main, from groundline-dev/groundline.
+target_main() {
+  git fetch --quiet "$main_repository" main
+  REF="$(git rev-parse FETCH_HEAD)" REF_NAME=main REPOSITORY_URL="$main_repository"
+  export REPOSITORY_URL
+}
+
+# target_branch: your branch's last commit, pushed first if it isn't yet. The
+# server clones it from whichever GitHub remote has it, such as your fork, so
+# nobody needs to push to groundline-dev/groundline.
+target_branch() {
+  if [ -n "$(git status --porcelain --untracked-files=no)" ]; then
+    echo
+    explain "You have uncommitted changes. The server gets its code from GitHub, so it runs your last commit, $(git rev-parse --short HEAD), without them."
+    bullet "Changes in scripts/ and infra/ still apply: they run on your Mac, not the server."
+    bullet "To run your other changes on the server, commit them and run make aws-up again. It then offers to push them to GitHub."
+    confirm "Deploy $(git rev-parse --short HEAD) without your uncommitted changes?" \
+      || fail "commit your changes, then run make aws-up again"
+  fi
+  git fetch --quiet --all --prune
+  if ! remote_with HEAD >/dev/null; then
+    remote="$(git config "branch.$branch.remote" || echo origin)"
+    echo
+    explain "The server gets its code from GitHub, but your last commit, $(git rev-parse --short HEAD), isn't pushed yet."
+    bullet "Pushing sends $branch to $remote: $(git remote get-url "$remote")"
+    bullet "If $branch has an open pull request, its new commits show up there."
+    confirm "Push $branch to $remote, so the server can clone it?" \
+      || fail "push $branch to a public GitHub repository, such as your fork, then run this again"
+    git push --set-upstream "$remote" "$branch"
+  fi
+  REF="$(git rev-parse HEAD)" REF_NAME="$branch"
+  unset REPOSITORY_URL
+}
+
+# target_commit COMMIT: the commit make aws-upgrade TO= names. It's cloned
+# from groundline-dev/groundline if main has it, or else from whichever GitHub
+# remote does. Sets on_main_branch to yes if main has it.
+target_commit() {
+  local main_head
+  git fetch --quiet "$main_repository" main
+  main_head="$(git rev-parse FETCH_HEAD)"
+  git fetch --quiet --all --prune
+  REF="$(git rev-parse --verify --quiet "$1^{commit}")" \
+    || fail "$1 isn't a commit this clone knows: fetch it, or check its name"
+  REF_NAME="$1" on_main_branch=""
+  if git merge-base --is-ancestor "$REF" "$main_head" 2>/dev/null; then
+    on_main_branch=yes REPOSITORY_URL="$main_repository"
+    export REPOSITORY_URL
+  else
+    unset REPOSITORY_URL
+  fi
+}
+
+case "$want" in
+  main) target_main ;;
+  branch) target_branch ;;
+  commit)
+    target_commit "$upgrade_to"
+    # Callers rely on a lasting deployment, so code that isn't on main goes to
+    # it only once its name is typed (U6).
+    [ -n "$on_main_branch" ] || [ "$lifetime" != lasting ] || lasting_branch_guard "$name" "$upgrade_to" running
+    ;;
+esac
+export REF REF_NAME
+record '.decisions.git_ref = {value: $v, name: $n, source: $s}' --arg v "$REF" --arg n "${REF_NAME:-}" --arg s "$ref_source"
+
+# --- What this run does: create a server, upgrade it, or nothing ---
+
+# kind: new (a server is created), upgraded, or same (already up to date).
+kind=new running_ref="" rolls_back=""
+if [ "$state" = running ]; then
+  kind=upgraded
+  # Its git_ref output says which commit it runs; a server deployed before
+  # that output existed doesn't have it.
+  running_ref="$(optional_output git_ref)"
+  running_repository="$(optional_output repository_url)"
+  differs=""
+  [ "$REF" = "$running_ref" ] || differs=yes
+  [ "$access_mode" = "$(optional_output access_mode)" ] || differs=yes
+  saved_settings="$(saved_app_settings)"
+  [ -n "$saved_settings" ] && [ "$saved_settings" = "$(deployed_app_settings)" ] || differs=yes
+  [ -z "${pending_key:-}" ] || differs=yes
+  # Restricted access allows one IP, so a new IP needs it updated.
+  if [ "$access_mode" = restricted ] && [ -z "$differs" ]; then
+    # Assigned first, so failing to find the IP stops here.
+    current_ip="$(public_ipv4)"
+    [ "$current_ip/32" = "$(optional_output allowed_cidr)" ] || differs=yes
+  fi
+  [ -n "$differs" ] || kind=same
+fi
+
+# target_words: the commit this run deploys, in words, for what it says.
+# target_close ends it before more of the sentence, after an aside.
+target_close=","
+case "$want" in
+  main) target_words="the latest main, ${REF:0:7}" ;;
+  branch) target_words="${REF:0:7}, your branch's last pushed commit" ;;
+  *) target_words="${REF:0:7}" target_close="" ;;
+esac
+
+if [ "$kind" = same ]; then
+  echo
+  if [ "$want" = commit ]; then
+    ok "Already up to date: $name runs ${REF:0:7}, and infra/terraform.tfvars matches the server."
+  else
+    ok "Already up to date: $name runs $target_words, and infra/terraform.tfvars matches the server."
+  fi
+elif [ "$kind" = upgraded ]; then
+  answer_ok "step 1 done: upgrading $name in $project to ${REF:0:7}${REF_NAME:+ ($REF_NAME)}"
+  lead="$name runs ${running_ref:0:7}."
+  [ "$lifetime" != lasting ] || lead="$name is a lasting deployment running ${running_ref:0:7}."
+  echo
+  if [ -z "$running_ref" ]; then
+    explain "$name doesn't say which commit it runs. Upgrading it to $target_words:"
+  else
+    case "$(commit_change "$running_ref" "$REF")" in
+      same)
+        explain "$lead Applying your settings to it keeps its code, data and address."
+        ;;
+      rollback)
+        count="$(commit_count "$REF" "$running_ref")"
+        explain "$lead ${REF:0:7} is an older commit${count:+, $count commit$([ "$count" = 1 ] || echo s) behind it}."
+        if [ "$lifetime" = lasting ]; then
+          explain "So no snapshot is taken: the snapshot from before ${running_ref:0:7} is kept, for restoring. Without a new snapshot, it won't go back automatically if the check fails."
+        fi
+        ;;
+      forward)
+        count="$(commit_count "$running_ref" "$REF")"
+        if [ -n "$count" ] && [ "$count" != 0 ]; then
+          explain "$lead Upgrading it to $target_words$target_close adds $count commit$([ "$count" = 1 ] || echo s):"
+          commits_between "$running_ref" "$REF"
+        else
+          explain "$lead Upgrading it to $target_words:"
+        fi
+        if [ "$lifetime" = lasting ]; then
+          rolls_back=yes
+          echo
+          explain "It snapshots the data volume before moving the server to ${REF:0:7}; if the snapshot fails, the server isn't upgraded. If the check fails afterwards, it goes back to ${running_ref:0:7} automatically. The app is down for a minute or two while it restarts."
+        fi
+        ;;
+    esac
+  fi
+  [ -n "$upgrade_to" ] || bullet "A specific commit: make aws-upgrade TO=<commit>. Settings: make aws-settings."
+elif [ "$state" = kept-data ]; then
+  answer_ok "step 1 done: a new server for $name in $project, running ${REF:0:7} (main)"
+  echo
+  explain "This creates a new server for $name and reattaches its kept data and address${since:+ (kept since $since)}."
+else
+  answer_ok "step 1 done: deployment $name in $project, running ${REF:0:7}${REF_NAME:+ ($REF_NAME)}"
+fi
+
+# roll_back WHY: go back to the commit the server ran before a failed upgrade
+# of a lasting deployment, without asking, since the plan said it would, then
+# check it. It changes the code only. If that fails too, it stops there.
+roll_back() {
+  local why="$1" snapshot status=0
+  snapshot="$(run_result snapshot)"
+  step "Going back to ${running_ref:0:7}"
+  explain "$why, so it goes back to ${running_ref:0:7}, as the plan said. Only the code changes: the data stays as it is."
+  record_result rolled_back_to "$running_ref"
+  REF="$running_ref" REF_NAME="the commit it ran before" REPOSITORY_URL="$running_repository" \
+    GROUNDLINE_PREAPPROVED=yes GROUNDLINE_ROLLS_BACK="" scripts/aws-deploy </dev/null || status=$?
+  if [ "$status" = 0 ]; then
+    scripts/aws-smoke-test </dev/null || status=$?
+  fi
+  if [ "$status" != 0 ]; then
+    record_result rollback failed
+    fail "going back to ${running_ref:0:7} failed too, so it stopped there rather than try again. The server may run either commit: make aws-status shows which. The snapshot $snapshot from before the upgrade is kept; docs/deploying-to-aws.md, \"Rolling back\", says how to restore it."
+  fi
+  record_result rollback succeeded
+  record '.outcome = "rolled-back"'
+  echo >&2
+  error "rolled back to ${running_ref:0:7}: the upgrade to ${REF:0:7} failed. If ${REF:0:7} changed the database, ${running_ref:0:7} may not work with it. The snapshot $snapshot from before the upgrade is kept; docs/deploying-to-aws.md, \"Rolling back\", says how to restore it."
+  echo >&2
+  exit 1
+}
+
+# rollback_ready: whether a failed upgrade goes back on its own: only a
+# lasting deployment moving forward, once its snapshot is taken.
+rollback_ready() { [ -n "$rolls_back" ] && [ -n "$(run_result snapshot)" ]; }
 
 step "Step 2 of 3: deploy"
-if [ -n "$keep" ]; then
-  ok "kept the running server and its access settings"
-elif [ -n "${pending_key:-}" ]; then
-  # The key goes to aws-deploy on a pipe (file descriptor 3): not in an
-  # argument, an environment variable or a file. Questions use stdin, so it
-  # can't go there. printf is a builtin, so no process gets it as an argument.
-  GROUNDLINE_KEY_ON_FD3=yes GROUNDLINE_KEY_OVERWRITE="${stored:+yes}" \
-    scripts/aws-deploy 3< <(printf '%s' "$key")
-  unset key
+if [ "$kind" = same ]; then
+  ok "nothing to deploy"
 else
-  scripts/aws-deploy
+  status=0
+  if [ -n "${pending_key:-}" ]; then
+    # The key goes to aws-deploy on a pipe (file descriptor 3): not in an
+    # argument, an environment variable or a file. Questions use stdin, so it
+    # can't go there. printf is a builtin, so no process gets it as an argument.
+    GROUNDLINE_ROLLS_BACK="$rolls_back" GROUNDLINE_KEY_ON_FD3=yes GROUNDLINE_KEY_OVERWRITE="${stored:+yes}" \
+      scripts/aws-deploy 3< <(printf '%s' "$key") || status=$?
+  else
+    GROUNDLINE_ROLLS_BACK="$rolls_back" scripts/aws-deploy || status=$?
+  fi
+  unset key
+  if [ "$status" != 0 ]; then
+    # Ctrl-C (130) stops it, as asked; the next run carries on.
+    [ "$status" = 130 ] || ! rollback_ready || roll_back "The upgrade to ${REF:0:7} didn't finish"
+    exit "$status"
+  fi
 fi
 
 step "Step 3 of 3: check the server"
-explain "A new server takes about 5 to 10 minutes to start. Then a few requests check that it works, without calling the model."
+case "$kind" in
+  new) explain "A new server takes about 5 to 10 minutes to start. Then a few requests check that it works, without calling the model." ;;
+  upgraded) explain "Waiting for the upgraded app to answer, then checking that it works without calling the model." ;;
+  same) explain "Checking the running server, without calling the model." ;;
+esac
 record_result smoke_test failed
-scripts/aws-smoke-test
+status=0
+scripts/aws-smoke-test || status=$?
+if [ "$status" != 0 ]; then
+  if [ "$status" != 130 ] && [ "$(run_result access_denied)" = yes ] && [ "$kind" = upgraded ]; then
+    # A 403 means this computer's IP changed, not that the upgrade broke it.
+    echo >&2
+    error "$name runs ${REF:0:7}, but the check couldn't reach it from this computer's IP. That isn't the upgrade's fault, so it wasn't rolled back. To allow your current IP, run make aws-up again."
+    echo >&2
+  elif [ "$status" != 130 ] && rollback_ready; then
+    roll_back "The upgrade to ${REF:0:7} failed its check"
+  elif [ "$status" != 130 ] && [ "$kind" = upgraded ] && [ "$lifetime" = lasting ] && [ -n "$running_ref" ] \
+    && [ "$(commit_change "$running_ref" "$REF")" = rollback ]; then
+    echo >&2
+    error "${REF:0:7} failed its check, and $name runs it. It wasn't rolled back, because this moved to an older commit and took no snapshot. To go back to ${running_ref:0:7}, run make aws-upgrade TO=${running_ref:0:7}."
+    echo >&2
+  fi
+  exit "$status"
+fi
 record_result smoke_test passed
 
 app_url="$(optional_output app_url)"
 if [ -n "$app_url" ]; then
   echo
-  ok "$name is up and running at $app_url"
+  case "$kind" in
+    new) ok "$name is up and running at $app_url" ;;
+    upgraded) ok "$name is up and running ${REF:0:7} at $app_url" ;;
+    same) ok "all good: $name runs ${REF:0:7} at $app_url" ;;
+  esac
 fi
 what_next

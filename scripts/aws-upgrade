@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+# Deploy one commit to your running deployment, newer or older, keeping its
+# data and address. See docs/deploying-to-aws.md.
+#
+# Usage: scripts/aws-upgrade --to <commit>   (make aws-upgrade TO=<commit>)
+#
+# It's make aws-up with a fixed target, so it shows the commits between, takes
+# a snapshot before moving a lasting deployment forward, and goes back on its
+# own if that upgrade fails. Code that isn't on main goes to a lasting
+# deployment only once you type its name. To upgrade to the latest, run make
+# aws-up.
+set -euo pipefail
+cd "$(dirname "$0")/.."
+
+to=""
+case "${1:-}" in
+  --to) to="${2:-}" ;;
+  "") ;;
+  *)
+    echo "usage: $0 --to <commit>" >&2
+    exit 2
+    ;;
+esac
+if [ -z "$to" ]; then
+  source scripts/aws-common.sh
+  echo >&2
+  error "make aws-upgrade needs TO=<commit>. To upgrade to the latest, run make aws-up."
+  echo >&2
+  exit 2
+fi
+GROUNDLINE_UPGRADE_TO="$to" exec scripts/aws-up
