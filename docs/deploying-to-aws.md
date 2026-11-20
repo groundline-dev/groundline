@@ -7,8 +7,8 @@ A deployment runs groundline's Compose stack, at a commit you choose, on one EC2
 
 Either way, the server serves `https://<public-IPv4>`, with automatic publicly trusted certificates and no domain or DNS setup, in one of two access modes:
 
-- **`restricted`:** application routes are accessible only from the public IPv4 address you deploy from, including health probes and API documentation. It's the default for a disposable deployment.
-- **`unrestricted`:** application routes accept callers from any IP. Health probes and API documentation need no API key. It's the default for a lasting deployment.
+- **`restricted`:** application routes are accessible only from the public IPv4 address you deploy from, including health probes and API documentation. `make aws-up` guesses it for a disposable deployment.
+- **`unrestricted`:** application routes accept callers from any IP. Health probes and API documentation need no API key. `make aws-up` guesses it for a lasting deployment.
 
 Protected API endpoints require groundline API keys in both modes. HTTP deployment is no longer supported. In restricted mode, Caddy rejects application requests from other source IPs with 403. TCP/TLS connections on 443 remain public so the certificate authority can validate and renew the certificate; the restriction applies to application requests, not TLS connectivity. Computers sharing the allowed public IP also share this network access.
 
@@ -39,33 +39,75 @@ You need:
 ## Quick start
 
 ```sh
-make aws-up        # set up what's missing, deploy, and check the server
+make aws-up        # deploy the first time, upgrade every time after, and check the server
 make aws-destroy   # when you're done
 ```
 
-On later runs, `make aws-up` asks two questions; the first run shows both as rows of its summary instead:
-
-- **Which AWS project to deploy to.** It shows the project you're signed in to, such as `groundline (123456789012), in us-east-2`. Answer `y` to deploy there, or `n` to choose another. Choosing another, or signing in for the first time, asks you to sign in to the project in the AWS Management Console, then for its Region, and opens your browser, where you choose the project's session. When your sign-in has expired, it names the project's account ID and asks whether to sign in again to that project, which only opens your browser.
-- **Which code the server runs:** `main` from groundline-dev/groundline, or your current branch. A lasting deployment runs `main` unless you type its name to deploy your branch.
-
-If your server is already running in that project, it says which commit it runs and asks whether to keep it. The option to keep and check the server is available only when the deployed access mode matches the saved mode. If they differ, it explains the difference and offers a deployment plan or cancellation. If you choose to keep a restricted server, the wizard checks the developer's public IP against the allowed IP. A mismatch stops the check and provides an update command targeting the deployed commit. Declining to keep the server proceeds to code selection and an upgrade in place, which uses the current public IP.
-
-Otherwise, it asks only about what isn't set up yet:
+**The first run** in a folder goes like this:
 
 1. It offers to install Terraform, the AWS CLI, `jq` and `uv` with Homebrew, if any is missing ([step 1](#1-install-the-tools)).
-2. The first time in a folder, it shows one summary of settings guessed from your AWS sign-in, your git settings and your branch: the AWS project, the deployment's name, the email address for alerts, its lifetime, its budget alert, who can reach it and the branch. Change a row by typing its number, or press Enter to keep them all. **On `main`, the guess is a lasting deployment called `production` that any IP can reach, with a $35 budget alert;** on another branch, it's a disposable deployment named after you, for this computer only, with a $5 alert. A name a server or kept data already uses in the project gets `-2` added ([step 3](#3-name-your-deployment)).
-3. It stores your Anthropic API key for this deployment ([step 4](#4-store-your-anthropic-api-key)).
-4. For your branch, it offers to push it if no GitHub remote has it yet, and warns you about uncommitted changes, because the server runs your last commit without them.
+2. If you aren't signed in to an AWS project, it asks you to sign in to one in the AWS Management Console, then for its Region, and opens your browser, where you choose the project's session. When your sign-in has expired, it names the project's account ID and asks whether to sign in again to that project, which only opens your browser.
+3. It shows one summary of settings, guessed from your AWS sign-in, your git settings and your branch ([The summary](#the-summary)). Change a row by typing its number, or press Enter to keep them all. Nothing is saved until you do.
+4. It asks for your Anthropic API key, unless one is already stored for this deployment ([step 4](#4-store-your-anthropic-api-key)).
+5. For your branch, it offers to push it if no GitHub remote has it yet, and warns you about uncommitted changes, because the server runs your last commit without them.
+6. It says in plain words what it will create, and asks once. Then it creates the server and checks it, which takes about 5 to 10 minutes.
 
-It then runs `make aws-deploy` and `make aws-smoke`.
+**Every later run** upgrades the deployment, asking nothing before the plan ([Upgrading](#upgrading)). What it does depends on what exists in the AWS project you're signed in to:
+
+- **A running server** is upgraded: a lasting deployment to the latest `main`, and a disposable one to your branch's last pushed commit, or to `main` if you're on it. If nothing differs, it says "Already up to date" and only checks the server.
+- **A lasting deployment whose data `make aws-destroy` kept** gets a new server with that data, after a summary of its saved settings.
+- **No server**, such as after a disposable deployment's time limit: it shows the summary again with your saved settings, then deploys.
+
+Every run ends with the path of its [run record](#run-records).
+
+### The summary
+
+The first `make aws-up` in a folder shows its settings as one numbered list:
+
+```text
+Here's what will be deployed, guessed from your AWS sign-in, your git settings
+and your branch:
+  1) AWS project      groundline (123456789012), in us-east-2 (the
+                      groundline-deploy profile's sign-in)
+  2) Deployment name  production (names its AWS resources, such as
+                      groundline-production)
+  3) Email alerts to  you@example.com (git config user.email)
+  4) Lifetime         lasting: keeps running, with its data, until you delete
+                      it (guessed because you're on main)
+  5) Budget           $35 a month: you'll get an email when this month's AWS
+                      costs reach $17.50, and again at $35
+  6) Access           open to any IP over HTTPS; checks need an API key
+  7) Branch           main, from groundline-dev/groundline
+```
+
+The guesses follow your branch:
+
+| Row | On `main` | On another branch |
+| --- | --- | --- |
+| Lifetime | lasting | disposable |
+| Deployment name | `production` | your username |
+| Budget | $35 | $5 |
+| Access | unrestricted | restricted |
+| Branch | `main` | your branch |
+
+**On `main`, the guess is now a lasting deployment.** It used to be disposable on every branch. To try a commit instead, change the Lifetime row to disposable, or run `make aws-up` from another branch.
+
+- Changing the lifetime guesses again the rows you haven't changed: the name, budget, access and branch. The summary marks the ones that change. Rows you changed stay as you set them.
+- A name already in use in the project, by a running server or by data `make aws-destroy` kept, isn't guessed: `production` becomes `production-2`, with a note saying why. If you type one, it's refused, so a new deployment can't pick up another one's data.
+- Changing the AWS project asks first, since it opens your browser.
+- A lasting deployment runs `main`. If you change its Branch row to your branch, it asks you to type the deployment's name, since its callers would get code that isn't merged into `main`.
+
+`make aws-settings` shows the same summary for a running deployment ([Changing settings](#changing-settings)).
 
 ## Commands
 
 ```sh
-make aws-up                        # set up what's missing, then deploy and check
+make aws-up                        # deploy the first time, upgrade every time after, and check the server
+make aws-up REPLACE_KEY=1          # the same, asking for a new Anthropic API key
+make aws-upgrade TO=<commit>       # deploy one commit, newer or older
 make aws-settings                  # change its email alerts, budget alert or access, keeping its commit and data
 make aws-project                   # choose the AWS project the other commands act on
-make aws-deploy                    # create the server, or upgrade it in place; says what will change and asks first
+make aws-deploy                    # the step the commands above run; deploys the commit you have checked out, or REF
 make aws-smoke                     # check it from here, without calling the model
 make aws-smoke-live                # also send one real commission check
 make aws-upgrade-smoke REF=<commit> # upgrade to REF, and check it kept its API keys, address and certificate
@@ -75,6 +117,39 @@ make aws-reset-deadline            # move that to 8 hours from now (HOURS=n for 
 make aws-destroy                   # delete it, then check that everything is gone
 make aws-destroy DATA=delete       # also delete a lasting deployment's data, address and snapshot
 ```
+
+The commands wrap what they print to your terminal's width, up to 78 columns. `NO_COLOR=1` turns colour off.
+
+### Run records
+
+Each run of `make aws-up`, `make aws-upgrade`, `make aws-settings`, `make aws-deploy` and `make aws-destroy` ends by printing the path of its run record, such as `infra/runs/2026-11-19T14-02-11Z_123456789012_production_up.json`. A terminal that supports links shows the path as one. The record is JSON, with a `format_version` of `1.0`, and holds:
+
+- each decision, with where it came from: `default` (a guess, or Enter at a question), `chosen` (you typed it) or `previous` (saved by an earlier run)
+- the plan, in the words the screen used, and whether you approved it
+- what the run did, such as the server, the commit, the snapshot and whether the check passed
+- its outcome: `succeeded`, `failed`, `canceled` or `rolled-back`
+- the scripts' commit, the Terraform and AWS CLI versions, the AWS account and Region, and the deployment's name
+
+While Terraform works, the screen shows one line for each step and then how long it took. Terraform's own output goes to a log beside the record, with the same name ending in `.log`. When a step fails, the screen shows the log's last lines, and the run ends with "Log and run record:" instead.
+
+The record never holds your Anthropic API key, only what happened to it: `stored`, `replaced`, `kept` or `none`. The log can hold your email address and IP, which Terraform prints, so only you can read either file, and git ignores `infra/runs/`. The scripts keep the newest 10 runs for each AWS account and deployment.
+
+### Stopping
+
+Ctrl-C at a question cancels, changing nothing, and says what exists: a running server, kept data, or nothing.
+
+While Terraform is changing AWS, the first Ctrl-C lets it finish the change it's making, so nothing is left half-made; run the command again to carry on. A second Ctrl-C stops Terraform at once, which can leave a change half-made. While the server upgrades itself, Ctrl-C stops only the waiting: the server carries on, and `make aws-status` shows what it runs.
+
+### Exit codes
+
+| Code | Meaning |
+| --- | --- |
+| 0 | It did what you asked, including "Already up to date" and "nothing changed". |
+| 1 | It failed, you canceled at a question, or a failed upgrade went back to the previous commit. The run record's outcome says which: `failed`, `canceled` or `rolled-back`. |
+| 2 | It was run wrongly, such as `make aws-upgrade` without `TO=`. |
+| 130 | You stopped it with Ctrl-C. |
+
+These are the scripts' own exit codes. `make` exits with 2 whenever its command fails, so to tell them apart, run the script itself, such as `scripts/aws-up` or `scripts/aws-upgrade --to <commit>`, or read the run record's outcome.
 
 ## Setting up by hand
 
@@ -119,9 +194,11 @@ For a lasting deployment, also set `lifetime = "lasting"` and `auto_terminate_ho
 
 To make model calls, your server needs your Anthropic API key in Parameter Store, as `/groundline/<deployment_name>/anthropic-api-key`. Its IAM role can read only that parameter. Without it, the server still starts and `make aws-smoke` still passes, but every model call fails with 503. `make aws-destroy` deletes a disposable deployment's parameter, so each new one needs it stored again. A lasting deployment's parameter stays until `make aws-destroy DATA=delete`.
 
-`make aws-up` stores it for you. It first offers to reuse a key already stored for this deployment in AWS. If there's none, or you choose to replace it, it offers `AWS_ANTHROPIC_API_KEY` from your `.env`, then `ANTHROPIC_API_KEY`, showing each key's last 4 characters. If you accept neither, it asks you to paste one. Set `AWS_ANTHROPIC_API_KEY` to use a separate key for deployments alongside your everyday one.
+`make aws-up` stores it for you. If a key is already stored for this deployment, it uses that one without asking. Otherwise it offers `AWS_ANTHROPIC_API_KEY` from your `.env`, then `ANTHROPIC_API_KEY`, showing each key's last 4 characters, and if you accept neither, asks you to paste one. Set `AWS_ANTHROPIC_API_KEY` to use a separate key for deployments alongside your everyday one.
 
-When a key is already stored, `make aws-up` asks whether to keep it. If you answer no, it asks for a new key and overwrites the stored one. The server reads the key when it starts and on every upgrade, so the running server switches to the new key when `make aws-up` upgrades it.
+It stores the key only once you approve the plan, so cancelling stores nothing, and a canceled run that would replace a key keeps the old one. Until then the key stays in the script's memory, and it never goes in a file, an environment variable or a command's arguments.
+
+To replace a stored key, run `make aws-up REPLACE_KEY=1`. It asks for a new key as above, and overwrites the stored one once you approve the plan. The server reads the key when it starts and on every upgrade, so it switches to the new key in the same run.
 
 To store it by hand, `read -rs` keeps the Anthropic API key off the screen and out of your shell history, and piping it to `--value file:///dev/stdin` keeps it out of the command's arguments, which other processes can read:
 
@@ -157,33 +234,43 @@ git worktree add ../groundline-staging   # then make aws-up there, choosing last
 
 ### Budgets
 
-The budget alert emails you when the AWS project's costs this month pass half its amount, and again at all of it. Its amount is $5 for a disposable deployment, to catch a forgotten server, and by default $35 for a lasting one, about twice what it costs. Set `budget_amount` in `infra/terraform.tfvars` to change it.
+The budget alert emails you when the AWS project's costs this month pass half its amount, and again at all of it. Its amount is $5 for a disposable deployment, to catch a forgotten server, and by default $35 for a lasting one, about twice what it costs. Change it in the summary's Budget row, or for a running deployment, with `make aws-settings`.
 
 The alert covers the whole AWS project, so it counts every deployment in it. A lasting deployment's cost sets off the $5 alerts of disposable deployments in the same project, and theirs counts toward its budget. `make aws-up` warns when a lasting deployment shares a project with other deployments. Give each lasting deployment an AWS project of its own, and keep test deployments in another.
 
 ## Settings
 
+### Changing settings
+
+`make aws-settings` shows a running deployment's settings as the summary does, from `infra/terraform.tfvars`. Email alerts, Budget and Access can change. The AWS project, deployment name and lifetime are shown without numbers, since they can't change once the deployment exists. If you change something, it lists the changes, saves them and applies them through `make aws-deploy`, which shows its plan and asks. The server keeps the commit it runs, its data and its address, and `make aws-smoke` then checks it. If you don't approve the plan, `infra/terraform.tfvars` goes back to how it was.
+
+To change anything else, edit `infra/terraform.tfvars`. `make aws-up` notices a changed `access_mode` or `app_settings` and applies it, even when there's no new commit. Other settings, such as `instance_type` or `data_volume_gib`, wait for the next upgrade. To apply them now, run `REF=<the commit it runs> make aws-deploy` (`make aws-status` shows the commit).
+
+### All the settings
+
 | Setting | Default | Where to set it |
 | --- | --- | --- |
-| AWS project | The one the scripts' profile is signed in to | `make aws-up` or `make aws-project`, which open your browser to choose it |
+| AWS project | The one the scripts' profile is signed in to | The summary's AWS project row, or `make aws-project`; both open your browser to choose it |
 | AWS CLI profile | `groundline-deploy` | `AWS_PROFILE`, to use one of your own profiles |
 | Region | The Region saved in the profile | `make aws-up` or `make aws-project` ask for it; `AWS_REGION` overrides it |
-| `deployment_name` | None; required | `infra/terraform.tfvars`, which `make aws-up` fills in |
-| `budget_alert_email` | None; required | `infra/terraform.tfvars`, which `make aws-up` fills in |
-| `lifetime` | `disposable`; `lasting` keeps the deployment's data across upgrades and teardown | `infra/terraform.tfvars`, which `make aws-up` fills in once |
-| `access_mode` | `restricted` | One literal `access_mode = "restricted"` or `"unrestricted"` in `infra/terraform.tfvars` |
+| `deployment_name` | `production` on `main`, your username elsewhere | The summary, which saves it in `infra/terraform.tfvars`; it can't change once the deployment exists |
+| `budget_alert_email` | `git config user.email` | The summary, or `make aws-settings` |
+| `lifetime` | `lasting` on `main`, `disposable` elsewhere; `lasting` keeps the deployment's data across upgrades and teardown | The summary; it can't change once the deployment exists |
+| `access_mode` | `unrestricted` on `main`, `restricted` elsewhere; `restricted` if it's missing from the file | The summary, or `make aws-settings`; in the file, one literal `access_mode = "restricted"` or `"unrestricted"` |
 | `auto_terminate_hours` | `8`; `0` turns the time limit off, as a lasting deployment needs | `infra/terraform.tfvars` |
-| `budget_amount` | `5` for disposable, `35` for lasting | `infra/terraform.tfvars` |
+| `budget_amount` | `5` for disposable, `35` for lasting | The summary, or `make aws-settings` |
 | `app_settings` | The app's defaults | `infra/terraform.tfvars` ([App settings](#app-settings)) |
 | `instance_type` | `t4g.small` | `infra/terraform.tfvars` |
-| `data_volume_gib` | `5` | `infra/terraform.tfvars`; a larger size takes effect on the next `make aws-up`, which grows the volume and its filesystem. It can't shrink |
-| `REF` | The commit you have checked out | `REF=<branch, tag or commit> make aws-deploy`; `make aws-up` asks instead |
+| `data_volume_gib` | `5` | `infra/terraform.tfvars`; a larger size takes effect on the next upgrade, which grows the volume and its filesystem. It can't shrink |
+| `TO` | None; required | `make aws-upgrade TO=<branch, tag or commit>` |
+| `REF` | The commit you have checked out | `REF=<branch, tag or commit> make aws-deploy`; `make aws-up` follows the summary's Branch row instead |
 | `REPOSITORY_URL` | The GitHub remote that has the commit; `main` comes from groundline-dev/groundline | `REPOSITORY_URL=<https URL> make aws-deploy` |
 | `AWS_ANTHROPIC_API_KEY` | `ANTHROPIC_API_KEY` from `.env`, or a key you paste | `.env` ([step 4](#4-store-your-anthropic-api-key)) |
 | `FULL_PLAN` | Off, so only a short plan is shown | `FULL_PLAN=1 make aws-deploy` |
+| `REPLACE_KEY` | Unset, so a stored Anthropic API key is reused | `make aws-up REPLACE_KEY=1` |
 | `DATA` | Unset, so `make aws-destroy` keeps a lasting deployment's data | `make aws-destroy DATA=delete` |
 
-`infra/terraform.tfvars.example` lists the `terraform.tfvars` settings, and `.env.example` lists `AWS_ANTHROPIC_API_KEY` next to the local settings. `make aws-deploy` fills in the rest of Terraform's variables: the Region, the selected mode, the developer's public IP only for restricted mode, and the commit. Missing settings are saved as restricted HTTPS. For an unrecognized saved value, `make aws-up` presents the two supported modes and saves your selection; cancellation or EOF preserves the setting. Direct `make aws-deploy` stops with instructions to choose through the wizard or correct the file. Deployment scripts pass the supported mode explicitly, so environment or auto-tfvars overrides cannot silently broaden access. This corrects local settings; it does not change a running server until deployment changes are approved and applied. Calling Terraform directly requires valid input values.
+`infra/terraform.tfvars.example` lists the `terraform.tfvars` settings, and `.env.example` lists `AWS_ANTHROPIC_API_KEY` next to the local settings. `make aws-deploy` fills in the rest of Terraform's variables: the Region, the selected mode, the developer's public IP only for restricted mode, and the commit. Missing settings are saved as restricted HTTPS. For an unrecognized saved value, `make aws-up` presents the two supported modes and saves your selection; cancellation or EOF preserves the setting. `make aws-deploy` and `make aws-settings` stop with instructions to choose through `make aws-up` or correct the file. Deployment scripts pass the supported mode explicitly, so environment or auto-tfvars overrides cannot silently broaden access. This corrects local settings; it does not change a running server until deployment changes are approved and applied. Calling Terraform directly requires valid input values.
 
 ### App settings
 
@@ -216,17 +303,32 @@ There are no database passwords to set. The first time a deployment's server sta
 
 The server clones the code from GitHub without signing in. `main` comes from groundline-dev/groundline, so deploying it needs no push and no fork. A branch comes from whichever GitHub remote has it, such as your fork, which has to be public. You don't need permission to push to groundline-dev/groundline.
 
-`make aws-deploy` runs the commit you have checked out. To run another, use `REF=<branch, tag or commit> make aws-deploy`. It first creates the deployment's data volume and Elastic IP, if they don't exist yet, then the server. Before changing anything, it says in plain words what will change and asks you to choose 1 to go ahead. Choosing 2 first shows a short version of Terraform's plan: which resources change, which settings change and what forces a replacement. To see every setting of every resource instead, run it with `FULL_PLAN=1`, such as `FULL_PLAN=1 make aws-up`. It refuses any plan that would delete or replace the data volume or the Elastic IP; only `make aws-destroy` deletes those.
+`make aws-up`, `make aws-upgrade` and `make aws-settings` run `make aws-deploy` for you. Run on its own, it deploys the commit you have checked out. To run another, use `REF=<branch, tag or commit> make aws-deploy`. It first creates the deployment's data volume and Elastic IP, if they don't exist yet, then the server. Before changing anything, it says in plain words what will change and asks you to choose 1 to go ahead. Choosing 2 first shows a short version of Terraform's plan: which resources change, which settings change and what forces a replacement. To see every setting of every resource instead, run it with `FULL_PLAN=1`, such as `FULL_PLAN=1 make aws-up`. It refuses any plan that would delete or replace the data volume or the Elastic IP; only `make aws-destroy` deletes those.
 
 A new server takes about 5 to 10 minutes to build the image and start.
 
 ### Upgrading
 
+Running `make aws-up` again upgrades a running deployment: a lasting one to the latest `main`, and a disposable one to your branch's last pushed commit, or to `main` if you're on it. Before the plan, it says which commit the server runs and which it moves to, and lists the commits in between, up to 10. To deploy a specific commit, newer or older, run `make aws-upgrade TO=<commit>`; the commit has to be on GitHub. A commit that isn't on `main` goes to a lasting deployment only once you type the deployment's name, since its callers would get it.
+
+If the commit, the access mode, the app settings and, for restricted access, your IP all match the server, `make aws-up` says "Already up to date" and only checks the server.
+
 Deploying another commit to a running server upgrades it in place, over SSM. The server checks out the commit, rewrites its `.env` (reading the Anthropic API key again), rebuilds the image, restarts what changed, runs any database migrations and reloads Caddy. It keeps its data, API keys, address and HTTPS certificate. An upgrade takes a few minutes, during which the API may not answer; if the image doesn't build, the old version keeps running. `make aws-deploy` checks that the server reports running the new commit.
 
 On a lasting deployment, each upgrade to a newer commit first takes a snapshot of the data volume, tagged `groundline-pre-upgrade`, waits for it to complete, then deletes the older one. A run that doesn't move to a newer commit keeps the snapshot it has: one that changes only settings, a retry of an upgrade that failed after checking out the commit, and a rollback, since its snapshot of the data from before the newer commit is the one to restore. `make aws-deploy` asks the server which commit it runs to tell these apart, and says which snapshot it kept, or that there's none yet. A second rollback goes back further than the snapshot does, so it warns that restoring the snapshot brings back the data from before the commit the snapshot was taken for. The plan says which commit the server moves to.
 
-**Rolling back.** To go back to an earlier commit, deploy it: `REF=<commit> make aws-deploy`. The plan warns that it's older than the running commit, and the rollback keeps the pre-upgrade snapshot. If the newer commit ran a database migration the older one doesn't understand, restore that snapshot first:
+**Going back on its own.** When an upgrade moves a lasting deployment to a newer commit, the plan says it will go back if the upgrade fails. If the upgrade step fails, or `make aws-smoke` fails afterwards, `make aws-up` deploys the commit the server ran before without asking again, checks it, and exits with 1; the run record's outcome is `rolled-back`. Only the code goes back: the data stays as the new commit left it, and the pre-upgrade snapshot is kept. If the new commit changed the database, the old one may not work with it; restore the snapshot as below.
+
+It doesn't go back:
+
+- for a disposable deployment, which takes no snapshot;
+- when the upgrade moved to an older commit, which takes no snapshot either; it says how to go forward again;
+- when restricted access turns the check away with 403, a sign that your IP changed; run `make aws-up` again to allow your new IP;
+- when you stop it with Ctrl-C.
+
+It tries going back once. If that fails too, it stops and says so, and `make aws-status` shows which commit runs.
+
+**Rolling back.** To go back to an earlier commit yourself, run `make aws-upgrade TO=<commit>`. The plan warns that it's older than the running commit, and the rollback keeps the pre-upgrade snapshot. If the newer commit ran a database migration the older one doesn't understand, restore that snapshot first:
 
 1. In the EC2 console, create a volume from the snapshot: gp3, encrypted, the same size as the data volume (`terraform -chdir=infra/data output -raw data_volume_gib`), in its Availability Zone (`terraform -chdir=infra/data output -raw availability_zone`). A volume that differs would be replaced by the next plan, which `make aws-deploy` refuses.
 2. Run `make aws-destroy`, which keeps a lasting deployment's data volume.
@@ -253,19 +355,15 @@ Each disposable server shuts itself down 8 hours after it first starts, and AWS 
 
 `make aws-reset-deadline` moves the deadline to 8 hours from now, or to `HOURS=n` hours from now for fewer. It never moves it earlier, and never more than 8 hours ahead, so a server outlasts the limit only while someone keeps resetting its deadline. To change the limit, set `auto_terminate_hours` in `infra/terraform.tfvars` and redeploy; 0 turns it off. A lasting deployment has no time limit.
 
-Terminating removes the server, its data and its address. Its security group, IAM role, instance profile and budget stay, and a later deployment with the same `deployment_name` fails until they're gone. `make aws-status` and `make aws-smoke` tell you when the server has terminated: run `make aws-destroy` to remove what's left, or `make aws-deploy` for a new server.
+Terminating removes the server, its data and its address. Its security group, IAM role, instance profile and budget stay, and a later deployment with the same `deployment_name` fails until they're gone. `make aws-status` and `make aws-smoke` tell you when the server has terminated: run `make aws-destroy` to remove what's left, or `make aws-up`, which shows your saved settings and deploys a new server.
 
 ## Selecting and switching HTTPS access
 
-1. Set `access_mode = "restricted"` or `"unrestricted"` in `infra/terraform.tfvars`. The wizard uses restricted HTTPS by default for a disposable deployment, and unrestricted for a lasting one. Missing values default to `restricted`; unrecognized values require a choice in the wizard. Choose unrestricted explicitly if callers use other public IPs.
-2. Run `make aws-up` and confirm the AWS project and a commit supporting both HTTPS access modes.
-3. If a running deployment has another access mode, the wizard offers a deployment plan or cancellation instead of keeping it unchanged.
-4. Review the plan. Switching modes updates the server in place; it keeps its database, API keys and address.
-5. Wait for deployment and smoke checks to pass, then use the printed HTTPS URL.
+The first `make aws-up` guesses unrestricted on `main` and restricted on any other branch, and the summary's Access row changes it. To switch a running deployment, run `make aws-settings` and change Access, then review the plan. Switching updates the server in place; it keeps its database, API keys and address. A missing `access_mode` means `restricted`, and an unrecognized one makes `make aws-up` ask which to use. Choose unrestricted if callers use other public IPs.
 
 HTTPS ingress opens during Terraform apply, before the smoke checks run. Wait for those checks to pass before giving callers the endpoint and API keys; the checks do not gate network access.
 
-When the developer's public IP changes, rerun `make aws-deploy` with the same deployed commit and mode. It updates the allowed-IP tag and upgrades the server in place, which reloads Caddy, while preserving the server, database, API keys and certificate. It retries metadata reconciliation within a bounded window and reports failure if the approved access configuration cannot be loaded. Do not consider that deployment successful until a retry and smoke checks pass.
+When your public IP changes, a restricted deployment turns your requests away with 403. Run `make aws-up` again: it notices that the allowed IP differs and updates it, along with any upgrade it would make anyway. To update only the IP, run `REF=<the commit it runs> make aws-deploy` (`make aws-status` shows the commit). Either way, it updates the allowed-IP tag and upgrades the server in place, which reloads Caddy, while preserving the server, database, API keys and certificate. It retries metadata reconciliation within a bounded window and reports failure if the approved access configuration cannot be loaded. Do not consider that deployment successful until a retry and smoke checks pass.
 
 ## HTTPS and certificate lifecycle
 
@@ -374,11 +472,11 @@ A server costs about $0.025 an hour, with its data volume and address, so a disp
 ## Troubleshooting
 
 - **`make aws-smoke` times out:** it prints the end of the server's startup log (`/var/log/groundline-bootstrap.log`) and the containers' status and logs. A failed startup also leaves `/var/lib/groundline/bootstrap-failed`. A new server waits for its Elastic IP and its data volume before it downloads anything; the log says if either never arrived.
-- **Restricted HTTPS returns 403 from a new network:** smoke checks report the access denial immediately. Your public IP may have changed. Rerun `make aws-deploy` with the same deployed commit and mode, review the allowed-IP update, then run `make aws-smoke`. The server and data are preserved.
-- **`make aws-deploy` fails because a role or budget already exists:** someone else in the AWS project uses the same `deployment_name`. Pick another one in `infra/terraform.tfvars`.
+- **Restricted HTTPS returns 403 from a new network:** smoke checks report the access denial immediately. Your public IP may have changed. Run `make aws-up` again, or `REF=<the commit it runs> make aws-deploy` to keep the code as it is, and review the allowed-IP update ([Selecting and switching HTTPS access](#selecting-and-switching-https-access)). The server and data are preserved.
+- **`make aws-deploy` fails because a role or budget already exists:** something in the AWS project still uses the same `deployment_name`, such as what's left of a terminated server. Run `make aws-destroy`, or pick another name in `infra/terraform.tfvars`.
 - **`make aws-deploy` says your server was made before deployments kept their data on a data volume:** its database is on its own disk, which a data volume can't adopt. Run `make aws-destroy`, then `make aws-up` for a new one.
 - **`make aws-up` says this folder manages a lasting deployment:** the folder deploys only that one. Use another clone or worktree ([Lasting deployments](#lasting-deployments)).
-- **An upgrade fails:** `make aws-deploy` says so and doesn't report success. Run it again, or deploy the previous commit ([Rolling back](#upgrading)).
+- **An upgrade fails:** a lasting deployment that moved forward goes back to the previous commit on its own ([Upgrading](#upgrading)). Otherwise it says so and doesn't report success: run `make aws-up` again, or `make aws-upgrade TO=<the previous commit>`.
 - **AWS calls that worked start failing with Access Denied:** your project may have reached its spend limit, which pauses it. Check in AWS Settings, under Billing.
 - **HTTPS certificate errors:** check that the URL uses the deployment's Elastic IP, TCP 443 is open, outbound ACME access works, and the host clock is correct. Smoke-test failure output preserves curl's TLS error and Caddy's logs. Do not disable verification or open the app port to work around issuance failure.
 - **Docker fails after a reboot:** inspect `journalctl -u docker` through SSM and the `groundline-https` ExecStartPre step. Docker needs the data volume mounted, and missing or invalid public-IP/access metadata blocks it deliberately. Fix the mount or address discovery, then restart Docker; keep the Caddy data volume.
@@ -388,7 +486,7 @@ A server costs about $0.025 an hour, with its data volume and address, so a disp
 `make aws-destroy` says in plain words what it will delete and asks before deleting anything:
 
 - **A disposable deployment** loses everything: its server, data volume, Elastic IP and Anthropic API key. It then asks AWS whether the instance, security group, IAM role, instance profile, budget, data volume and Elastic IP are gone, and fails if any is still there or AWS can't say.
-- **A lasting deployment** loses only its server and what goes with it. Its data volume, Elastic IP, pre-upgrade snapshot and Anthropic API key stay, for about $4 a month, so `make aws-up` can bring it back with its data, API keys and address.
+- **A lasting deployment** loses only its server and what goes with it. Its data volume, Elastic IP, pre-upgrade snapshot and Anthropic API key stay, for about $4 a month, so `make aws-up` can bring it back with its data, API keys and address, after a summary of its saved settings.
 - **`make aws-destroy DATA=delete`** deletes a lasting deployment's data volume, Elastic IP, snapshot and Anthropic API key too, once you've typed its name. Nothing can bring that data back.
 
 When it deletes your Anthropic API key from Parameter Store, remember that anyone else with access to the AWS project could have copied it, so revoke it in the Anthropic Console if that matters to you.

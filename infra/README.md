@@ -78,7 +78,7 @@ The mock provider doesn't apply `default_tags` and can't list every resource of 
 
 `make https-smoke` first checks actual Compose app-first network allocation with production address relationships translated onto a Docker-reserved test subnet of the same size, then runs real Caddy and Pebble in isolated Docker containers: TLS-ALPN IP issuance from a CA outside the application allowlist, NAT and no-SNI selection, trust and identity rejection, allowed and denied callers and forwarded-header spoofing, retained certificates and restrictions on restart, automatic renewal under restriction with a changed served fingerprint, a response after 125 seconds of silence, and expiry and recovery during a CA outage. Only the fixture trusts its test root; it never contacts a public CA. It removes its containers, network and volume on completion. CI runs it separately. This proves the lifecycle, not public trust: `make aws-smoke` must still pass against a fresh EC2 endpoint with ordinary trust stores.
 
-`tests/test_https_bootstrap.py` executes the renderer against fake IMDS responses. `tests/test_aws_access_modes.py` exercises first setup, remembered and missing modes, selection for unrecognized settings and rejected direct deployments, cancellation, keeping an existing server, the data volume and in-place upgrades. `tests/test_aws_lasting.py` covers lasting deployments: the lifetime question, the folder guard, snapshots and teardown that keeps the data. `tests/test_aws_upgrade_smoke.py` covers `make aws-upgrade-smoke`. These tests reach no AWS services.
+`tests/test_https_bootstrap.py` executes the renderer against fake IMDS responses. `tests/test_aws_access_modes.py` exercises first setup, remembered and missing modes, selection for unrecognized settings and rejected direct deployments, cancellation, re-runs that only check or apply changed settings, the data volume and in-place upgrades. `tests/test_aws_lasting.py` covers lasting deployments: the folder guard, snapshots and teardown that keeps the data. `tests/test_aws_summary.py` covers the first run's summary and `make aws-settings`, and `tests/test_aws_upgrade_flow.py` re-runs, `make aws-upgrade`, going back after a failed upgrade, rebuilding from kept data and what cancelling says. `tests/test_aws_upgrade_smoke.py` covers `make aws-upgrade-smoke`. These tests reach no AWS services.
 
 ### Repeatable HTTPS lifecycle checks
 
@@ -88,9 +88,9 @@ The command records the certificate fingerprint and the named certificate volume
 
 ### Testing `make aws-up`
 
-After changing the wizard or the scripts it runs, test it as a new developer would, from the repository root. You run it with your own settings moved aside, so it asks every question, then delete what it created. The server costs about $0.024 an hour while it runs.
+After changing the wizard or the scripts it runs, test it as a new developer would, from the repository root. You run it with your own settings moved aside, so it shows the first run's summary, then delete what it created. The server costs about $0.024 an hour while it runs.
 
-1. Move your settings file aside, so the wizard asks for your deployment name and email address. Git ignores the copy, since it holds your email address:
+1. Move your settings file aside, so the wizard guesses your settings again. Git ignores the copy, since it holds your email address:
 
    ```sh
    mv infra/terraform.tfvars infra/terraform.tfvars.bak
@@ -102,25 +102,23 @@ After changing the wizard or the scripts it runs, test it as a new developer wou
    make aws-up
    ```
 
-3. Answer its questions:
-   - **AWS project:** check that it shows the project's name and account ID, then answer `n` to choose a project.
-   - **Signing in to the project:** check that the wizard waits for Enter before it asks for the Region.
-   - **Region code:** first type something that isn't a Region code, such as `Ohio`, which it should reject, then paste your Region's code.
-   - **Browser:** check that the wizard waits for Enter before opening it, and that it prints only the sign-in link. Choose the session of the project you signed in to.
-   - **Deployment name and email address:** enter the same ones as before, so your resources keep their names.
-   - **Disposable or lasting:** choose disposable. A lasting deployment would keep this folder for itself; test that from a separate worktree, then delete it with `make aws-destroy DATA=delete`.
+3. Run it from your branch, and work through the summary:
+   - **The guesses:** check that it guesses a disposable deployment named after you, for this computer only, with a $5 budget alert and your branch, and that each row says where its guess came from. Stay on your branch: from `main` it would guess a lasting deployment, which keeps this folder for itself. Test that from a separate worktree, then delete it with `make aws-destroy DATA=delete`.
+   - **AWS project (row 1):** check that it asks before opening the browser, then answer `y`. Check that the wizard waits for Enter before it asks for the Region, and first type something that isn't a Region code, such as `Ohio`, which it should reject, then paste your Region's code. Check that it waits for Enter before opening the browser, and that it prints only the sign-in link. Choose the session of the project you signed in to.
+   - **Deployment name (row 2):** enter the same one as before, so your resources keep their names.
+   - **Lifetime (row 4):** change it to lasting and check that the name, budget, access and branch rows change and are marked, then change it back to disposable and press Enter to keep the rows.
    - **Anthropic API key:** check that the warning names the project and that it offers the key from `.env`, showing only its last 4 characters.
-   - **Code:** choose your branch, to test finding the remote that has it.
    - **Terraform plan summary:** check that it says what you expect, then choose 1 to go ahead.
-4. Wait for the smoke test, about 5 to 10 minutes. Read each step's output as a newcomer would: anything unclear, any long wait with no sign of progress, or any surprising question is worth fixing.
-5. Compare the new settings file with your old one, then delete the old one. `diff` prints only the lines that differ, so `deployment_name` and `budget_alert_email` appear only if they changed or moved; the comments may differ too.
+4. Wait for the smoke test, about 5 to 10 minutes. Read each step's output as a newcomer would: anything unclear, any long wait with no sign of progress, or any surprising question is worth fixing. Check that it ends with the path of its run record, and open it.
+5. Run `make aws-up` again. It should ask nothing, say "Already up to date" and only check the server.
+6. Compare the new settings file with your old one, then delete the old one. `diff` prints only the lines that differ, so `deployment_name` and `budget_alert_email` appear only if they changed or moved; the comments may differ too.
 
    ```sh
    diff infra/terraform.tfvars.bak infra/terraform.tfvars
    rm infra/terraform.tfvars.bak
    ```
 
-6. Delete the server, and choose 1 when it asks. Check that it deletes your Anthropic API key's parameter:
+7. Delete the server, and choose 1 when it asks. Check that it deletes your Anthropic API key's parameter:
 
    ```sh
    make aws-destroy

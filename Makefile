@@ -96,6 +96,8 @@ aws-settings:
 aws-project:
 	scripts/aws-project
 
+# The step aws-up, aws-upgrade and aws-settings run. On its own, it deploys the
+# commit you have checked out, or REF=<commit>, saying what will change first.
 aws-deploy:
 	scripts/aws-deploy
 

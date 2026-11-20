@@ -358,10 +358,10 @@ Error responses and server logs never include the source or summary text. Logs r
 
 ## Deploying to AWS
 
-A disposable deployment runs the Compose stack on one EC2 server in your AWS project. Both access modes use HTTPS on the server's IPv4, with automatic publicly trusted certificates and no domain required. The default restricts application access to your public IP; unrestricted mode allows callers from any IP. Protected API endpoints require API keys in both modes. Both modes use synthetic test data only and delete the server and its data after eight hours by default. The tools are Terraform, the AWS CLI, `jq`, `uv`, Git and `make`; Docker is installed on the server.
+A deployment runs the Compose stack on one EC2 server in your AWS project. It's either disposable, for trying a commit, and deletes itself and its data after eight hours, or lasting, and keeps running with its data until you delete it. Run from `main`, `make aws-up` guesses a lasting deployment that any IP can reach; from another branch, a disposable one that only your public IP can reach. Both access modes use HTTPS on the server's IPv4, with automatic publicly trusted certificates and no domain required, and protected API endpoints require API keys in both. Every deployment uses synthetic test data only. The tools are Terraform, the AWS CLI, `jq`, `uv`, Git and `make`; Docker is installed on the server.
 
 ```sh
-make aws-up        # choose the project and the code, deploy, and check the server
+make aws-up        # deploy the first time, upgrade every time after, and check the server
 make aws-destroy   # when you're done
 ```
 

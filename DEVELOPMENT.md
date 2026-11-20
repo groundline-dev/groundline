@@ -208,11 +208,11 @@ See the [deployment guide](docs/deploying-to-aws.md) for access modes, prerequis
 **2. Each time you test:**
 
 ```sh
-make aws-up        # choose the project and the code, deploy, and check the server
+make aws-up        # deploy the first time, upgrade every time after, and check the server
 make aws-destroy   # when you're done
 ```
 
-[docs/deploying-to-aws.md](docs/deploying-to-aws.md) explains what `make aws-up` asks, the other `make aws-*` commands, costs and troubleshooting. To change the Terraform or the scripts, see [infra/README.md](infra/README.md).
+[docs/deploying-to-aws.md](docs/deploying-to-aws.md) explains what `make aws-up` shows and asks, upgrades, the other `make aws-*` commands, costs and troubleshooting. To change the Terraform or the scripts, see [infra/README.md](infra/README.md).
 
 ## Database
 
