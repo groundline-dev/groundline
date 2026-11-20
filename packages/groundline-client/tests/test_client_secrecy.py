@@ -21,8 +21,8 @@ def with_locals(error: BaseException) -> str:
     )
 
 
-def make_client(base_url: str, api_key: str) -> Any:
-    return sdk.GroundlineClient(base_url=base_url, api_key=api_key)
+def make_client(api_url: str, api_key: str) -> Any:
+    return sdk.GroundlineClient(api_url=api_url, api_key=api_key)
 
 
 def test_the_client_shows_its_url_but_not_the_api_key(
@@ -32,6 +32,7 @@ def test_the_client_shows_its_url_but_not_the_api_key(
     assert api_key not in repr(client)
     assert api_key not in str(client)
     assert fake_server.url in repr(client)
+    assert repr(client).startswith("GroundlineClient(api_url=")
 
 
 def test_the_client_still_hides_the_api_key_after_a_call(
@@ -101,7 +102,7 @@ def test_logs_at_debug_level_never_contain_the_key(
 
 def test_the_message_for_a_missing_key_names_the_variable_not_a_value():
     with pytest.raises(sdk.GroundlineSetupError) as raised:
-        sdk.GroundlineClient(base_url="http://example.test")
+        sdk.GroundlineClient(api_url="http://example.test")
     assert API_KEY_VARIABLE in str(raised.value)
 
 

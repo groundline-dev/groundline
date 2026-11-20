@@ -26,7 +26,7 @@ OMISSIONS = OPERATIONS[0]
 
 def make_client(fake_server: FakeServer, api_key: str, **options: Any) -> Any:
     options.setdefault("max_attempts", 1)
-    return sdk.GroundlineClient(base_url=fake_server.url, api_key=api_key, **options)
+    return sdk.GroundlineClient(api_url=fake_server.url, api_key=api_key, **options)
 
 
 def call(
@@ -306,7 +306,7 @@ def test_a_refused_connection_raises_a_server_unavailable_error(
     is_async: bool, api_key: str, closed_port: int
 ):
     client: Any = sdk.GroundlineClient(
-        base_url=f"http://127.0.0.1:{closed_port}", api_key=api_key, max_attempts=1
+        api_url=f"http://127.0.0.1:{closed_port}", api_key=api_key, max_attempts=1
     )
 
     with pytest.raises(sdk.GroundlineError) as raised:

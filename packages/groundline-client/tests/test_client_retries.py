@@ -655,7 +655,7 @@ def test_a_refused_connection_is_retried_then_raised(
 ):
     caplog.set_level(logging.INFO, logger=RETRY_LOGGER)
     client: Any = sdk.GroundlineClient(
-        base_url=f"http://127.0.0.1:{closed_port}", api_key=api_key, max_attempts=3
+        api_url=f"http://127.0.0.1:{closed_port}", api_key=api_key, max_attempts=3
     )
 
     with pytest.raises(sdk.ServerUnavailableError):
@@ -680,7 +680,7 @@ def test_a_proxy_set_in_the_environment_is_still_used(
     monkeypatch.delenv("NO_PROXY", raising=False)
     monkeypatch.delenv("no_proxy", raising=False)
     client: Any = sdk.GroundlineClient(
-        base_url="http://api.test.invalid", api_key=api_key
+        api_url="http://api.test.invalid", api_key=api_key
     )
 
     # The fake server has no route for that path, so the call raises; only the

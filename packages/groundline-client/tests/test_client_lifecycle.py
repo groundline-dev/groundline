@@ -9,7 +9,7 @@ from conftest import FakeServer
 
 
 def make_client(fake_server: FakeServer, api_key: str) -> Any:
-    return sdk.GroundlineClient(base_url=fake_server.url, api_key=api_key)
+    return sdk.GroundlineClient(api_url=fake_server.url, api_key=api_key)
 
 
 def http_clients(client: Any) -> tuple[Any, Any]:

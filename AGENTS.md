@@ -37,7 +37,7 @@ A server started with `make aws-deploy` costs money until `make aws-destroy` del
 
 ## Releases
 
-Starting the Release workflow (`.github/workflows/release.yml`) can publish to PyPI, and a published version can't be removed or replaced. Don't start it, and don't change the PyPI publishers or the `pypi` environment, unless the developer asks (see DEVELOPMENT.md, "Releasing groundline-core").
+Starting a release workflow (`.github/workflows/release.yml` or `.github/workflows/release-sdk.yml`) can publish to PyPI, and a published version can't be removed or replaced. Don't start either, and don't change the PyPI publishers or the `pypi` environment, unless the developer asks (see DEVELOPMENT.md, "Releasing").
 
 ## Skills
 

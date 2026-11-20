@@ -4,7 +4,7 @@ name: Release
 # there and check it, then, after a reviewer approves, upload the same files to
 # PyPI and tag the release. Only someone starting it by hand runs it. From a
 # branch other than main it stops after TestPyPI, with a development version.
-# DEVELOPMENT.md, "Releasing groundline-core", explains how to run it.
+# DEVELOPMENT.md, "Releasing", explains how to run it.
 
 on:
   workflow_dispatch:
@@ -43,7 +43,7 @@ jobs:
       - name: Choose the version
         id: version
         # Standard library only, so no project environment to sync first.
-        run: uv run --quiet --no-project python scripts/release_version.py >> "$GITHUB_OUTPUT"
+        run: uv run --quiet --no-project python scripts/release_version.py groundline-core >> "$GITHUB_OUTPUT"
       - name: Use a development version for a run from a branch
         if: github.ref != 'refs/heads/main'
         env:

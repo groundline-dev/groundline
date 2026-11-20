@@ -60,7 +60,7 @@ def test_an_error_for_a_status_shows_neither_the_key_nor_the_request(
 ):
     fake_server.reply("GET", "/health", status, {"detail": "x"})
     client = sdk.GroundlineClient(
-        base_url=fake_server.url, api_key=SECRET_KEY, max_attempts=1
+        api_url=fake_server.url, api_key=SECRET_KEY, max_attempts=1
     )
 
     assert_safe(trigger(client, "health", is_async))
@@ -78,7 +78,7 @@ def test_a_422_does_not_repeat_the_text_it_rejected_in_a_message(
     }
     fake_server.reply("GET", "/health", 422, body)
     client = sdk.GroundlineClient(
-        base_url=fake_server.url, api_key=SECRET_KEY, max_attempts=1
+        api_url=fake_server.url, api_key=SECRET_KEY, max_attempts=1
     )
 
     error = trigger(client, "health", is_async)
@@ -94,7 +94,7 @@ def test_an_error_for_a_refused_connection_shows_neither_the_key_nor_the_request
     is_async: bool, closed_port: int
 ):
     client = sdk.GroundlineClient(
-        base_url=f"http://127.0.0.1:{closed_port}", api_key=SECRET_KEY, max_attempts=1
+        api_url=f"http://127.0.0.1:{closed_port}", api_key=SECRET_KEY, max_attempts=1
     )
 
     assert_safe(trigger(client, "health", is_async))
@@ -106,7 +106,7 @@ def test_an_error_for_a_timeout_shows_neither_the_key_nor_the_request(
 ):
     fake_server.hang("GET", "/health")
     client = sdk.GroundlineClient(
-        base_url=fake_server.url,
+        api_url=fake_server.url,
         api_key=SECRET_KEY,
         max_attempts=1,
         timeout_seconds=0.05,
@@ -121,7 +121,7 @@ def test_an_error_for_an_unreadable_success_shows_neither_the_key_nor_the_reques
 ):
     fake_server.reply("GET", "/health", 200, b"<html>not json</html>")
     client = sdk.GroundlineClient(
-        base_url=fake_server.url, api_key=SECRET_KEY, max_attempts=1
+        api_url=fake_server.url, api_key=SECRET_KEY, max_attempts=1
     )
 
     assert_safe(trigger(client, "health", is_async))
@@ -134,7 +134,7 @@ def test_a_key_in_the_servers_detail_is_redacted_in_the_error(
     echoed = "sk-ant-api03-" + "Zz9Yy8Xx" * 6
     fake_server.reply("GET", "/health", 502, {"detail": f"upstream said {echoed}"})
     client = sdk.GroundlineClient(
-        base_url=fake_server.url, api_key=SECRET_KEY, max_attempts=1
+        api_url=fake_server.url, api_key=SECRET_KEY, max_attempts=1
     )
 
     error = trigger(client, "health", is_async)
@@ -159,7 +159,7 @@ def test_the_clients_own_key_echoed_in_the_servers_detail_is_redacted(
     # own knowledge of it can hide it.
     fake_server.reply("GET", "/health", 502, {"detail": f"upstream echoed {echo}"})
     client = sdk.GroundlineClient(
-        base_url=fake_server.url, api_key=SECRET_KEY, max_attempts=1
+        api_url=fake_server.url, api_key=SECRET_KEY, max_attempts=1
     )
 
     error = trigger(client, "health", is_async)
@@ -176,7 +176,7 @@ def test_a_key_that_contains_a_space_is_hidden_whole_when_echoed(
     spaced = "a key with spaces 123"
     fake_server.reply("GET", "/health", 502, {"detail": f"upstream echoed {spaced}"})
     client = sdk.GroundlineClient(
-        base_url=fake_server.url, api_key=spaced, max_attempts=1
+        api_url=fake_server.url, api_key=spaced, max_attempts=1
     )
 
     error = trigger(client, "health", is_async)
@@ -191,7 +191,7 @@ def test_a_key_in_a_proxys_error_page_never_reaches_the_error(
     echoed = "gl_" + "A1b2C3d4" * 6
     fake_server.reply("GET", "/health", 502, f"<p>{echoed}</p>".encode())
     client = sdk.GroundlineClient(
-        base_url=fake_server.url, api_key=SECRET_KEY, max_attempts=1
+        api_url=fake_server.url, api_key=SECRET_KEY, max_attempts=1
     )
 
     error = trigger(client, "health", is_async)
@@ -201,6 +201,6 @@ def test_a_key_in_a_proxys_error_page_never_reaches_the_error(
 
 def test_a_setup_error_does_not_chain_or_hold_the_key():
     with pytest.raises(sdk.GroundlineSetupError) as raised:
-        sdk.GroundlineClient(base_url="not-a-url", api_key=SECRET_KEY)
+        sdk.GroundlineClient(api_url="not-a-url", api_key=SECRET_KEY)
 
     assert SECRET_KEY not in everything_visible_about(raised.value)

@@ -9,7 +9,8 @@
   run as groundline-core, so nothing clashes with the unrelated `groundline`
   project on PyPI.
 - What PyPI shows on the project page: a real description, classifiers with
-  no medical topic, links to the repository, and no personal email addresses.
+  no medical topic, links to the repository, and no personal email addresses,
+  for both packages.
 
 scripts/core-install-check installs the built package to check the same lists
 against a real install.
@@ -97,44 +98,60 @@ def test_the_package_is_imported_as_groundline_core():
     assert not (ROOT / "src" / "groundline").exists()
 
 
-# What PyPI shows on the project page.
+# What PyPI shows on the project page, for each package.
 
 REPOSITORY = "https://github.com/groundline-dev/groundline"
 
+PACKAGE_PYPROJECTS = {
+    "groundline-core": "pyproject.toml",
+    "groundline-client": "packages/groundline-client/pyproject.toml",
+}
+every_package = pytest.mark.parametrize("package", PACKAGE_PYPROJECTS)
 
-def test_the_description_says_what_the_package_does(pyproject: dict[str, Any]):
-    description = pyproject["project"]["description"]
+
+def project(package: str) -> dict[str, Any]:
+    path = ROOT / PACKAGE_PYPROJECTS[package]
+    return tomllib.loads(path.read_text())["project"]
+
+
+@every_package
+def test_the_description_says_what_the_package_does(package: str):
+    description = project(package)["description"]
 
     assert "Add your description here" not in description, description
     assert "summar" in description.lower(), description
 
 
-def test_the_classifiers_are_typed_alpha_and_not_medical(pyproject: dict[str, Any]):
-    classifiers = pyproject["project"]["classifiers"]
+@every_package
+def test_the_classifiers_are_typed_alpha_and_not_medical(package: str):
+    classifiers = project(package)["classifiers"]
 
     assert "Development Status :: 3 - Alpha" in classifiers, classifiers
     assert "Typing :: Typed" in classifiers, classifiers
     assert "Programming Language :: Python :: 3.13" in classifiers, classifiers
+    # The license comes from license-files; a license classifier is deprecated.
+    assert [c for c in classifiers if c.startswith("License ::")] == []
     # A medical topic would describe a clinical intended use, which the package
     # doesn't have.
-    medical = [c for c in classifiers if "Medical" in c]
-    assert medical == [], medical
+    assert [c for c in classifiers if "Medical" in c] == []
 
 
-def test_the_project_links_point_to_the_repository(pyproject: dict[str, Any]):
-    urls = pyproject["project"]["urls"]
+@every_package
+def test_the_project_links_point_to_the_repository(package: str):
+    urls = project(package)["urls"]
 
     assert set(urls) == {"Homepage", "Source", "Issues"}, urls
     for name, url in urls.items():
         assert url.startswith(REPOSITORY), (name, url)
 
 
-def test_only_the_shared_address_is_published(pyproject: dict[str, Any]):
+@every_package
+def test_only_the_shared_address_is_published(package: str):
     # Author entries are published with every version and can't be changed
     # afterwards, so they carry names only.
-    with_email = [a for a in pyproject["project"]["authors"] if "email" in a]
+    with_email = [a for a in project(package)["authors"] if "email" in a]
 
     assert with_email == []
-    assert pyproject["project"]["maintainers"] == [
+    assert project(package)["maintainers"] == [
         {"name": "groundline developers", "email": "groundlinedevs@gmail.com"}
     ]
