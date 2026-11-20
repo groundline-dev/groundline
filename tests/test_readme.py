@@ -9,7 +9,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 REPOSITORY = "https://github.com/groundline-dev/groundline"
 SDK_README = ROOT / "packages/groundline-client/README.md"
-PYPI_READMES = pytest.mark.parametrize(
+every_pypi_readme = pytest.mark.parametrize(
     "readme", [ROOT / "README.md", SDK_README], ids=["library", "sdk"]
 )
 
@@ -26,7 +26,7 @@ def link_targets(text: str) -> list[str]:
     return [next(g for g in m.groups() if g) for m in LINK_TARGET.finditer(text)]
 
 
-@PYPI_READMES
+@every_pypi_readme
 def test_the_readme_has_no_relative_links(readme: Path):
     # PyPI shows the README without the repository around it, so a relative
     # link there leads nowhere. Links within the page (#name) work on both: PyPI
@@ -56,7 +56,7 @@ def heading_ids(markdown: str) -> set[str]:
     return ids
 
 
-@PYPI_READMES
+@every_pypi_readme
 def test_each_link_within_the_readme_has_a_heading_to_go_to(readme: Path):
     text = readme.read_text()
     ids = heading_ids(text)
@@ -94,7 +94,7 @@ def test_security_reports_go_to_the_shared_address_privately():
     ), "the README doesn't link to SECURITY.md"
 
 
-@PYPI_READMES
+@every_pypi_readme
 def test_each_link_into_the_repository_has_a_file_and_heading_to_go_to(readme: Path):
     # The README's links into the repository are absolute and pinned to main,
     # so a moved file or a renamed heading would break them silently.

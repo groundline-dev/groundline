@@ -178,6 +178,35 @@ def test_a_prerelease_in_normalized_form_is_accepted():
     assert chosen == "0.2.0rc1"
 
 
+def test_a_refusal_names_the_pyproject_of_the_package_to_edit():
+    # There is one pyproject.toml per package, so "pyproject.toml" alone would
+    # send a maintainer to the wrong one.
+    with pytest.raises(
+        ReleaseRefused, match="packages/groundline-client/pyproject.toml"
+    ):
+        release_version(
+            package="groundline-client",
+            version="0.1.0",
+            ref=MAIN,
+            run_number=7,
+            on_pypi=lambda version: True,
+            on_testpypi=never,
+            tagged=never,
+        )
+    with pytest.raises(
+        ReleaseRefused, match="packages/groundline-client/pyproject.toml"
+    ):
+        release_version(
+            package="groundline-client",
+            version="0.1.0-rc1",
+            ref=MAIN,
+            run_number=7,
+            on_pypi=never,
+            on_testpypi=never,
+            tagged=never,
+        )
+
+
 def test_a_release_is_tagged_with_the_package_name():
     assert tag_for("groundline-core", "0.1.0") == "groundline-core-v0.1.0"
     assert tag_for("groundline-client", "0.1.0") == "groundline-client-v0.1.0"

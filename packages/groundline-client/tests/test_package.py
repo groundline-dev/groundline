@@ -66,7 +66,8 @@ def test_the_package_carries_the_repos_license_and_its_own_short_notice():
     assert "fixtures" not in notice
 
 
-# What PyPI shows on the project page, kept the same as groundline-core's.
+# What PyPI shows on the project page. The same rules as groundline-core's, and
+# the authors must match its.
 
 REPOSITORY = "https://github.com/groundline-dev/groundline"
 README = (PACKAGE_DIR / "README.md").read_text()

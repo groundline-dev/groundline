@@ -258,7 +258,7 @@ There are three test suites. They differ in what they use for Postgres and Claud
 
 None of them starts the Docker stack, runs `terraform test` or touches AWS: `make docker-smoke`, `make infra-check` and `make aws-smoke` do that.
 
-`make core-check` builds the wheel and the sdist and checks that they hold only the package, its license, notice and readme, and the packaging metadata (no `.env`, tests or other local files), and that a wheel built from the sdist has the same files. Anything inside `src/groundline_core/` counts as package, so on your own machine an untracked scratch file there is built in without a complaint; release runs build from a clean checkout. It then installs the wheel with no extras, once with pip and once with uv pip, and checks that every built-in preset and profile loads (which reads every prompt and rubric), that both schema files are there, that the library loads without the server or CLI packages, and that the command and the API say which extra to install. It also type-checks `scripts/library_typing_check.py`, a file that uses only the public names, with pyright strict against each install, so a public name or result field whose type callers can't see fails it. Run it when you change the dependencies in `pyproject.toml`, what `groundline_core` imports when it loads, the public interface, or the files the package ships. CI runs it on every PR, and the release workflow runs it on the files it uploads (`--dist`) and on the copy it installs back from TestPyPI (`--from-index`).
+`make core-check` builds the wheel and the sdist and checks that they hold only the package, its license, notice and readme, and the packaging metadata (no `.env`, tests or other local files), and that a wheel built from the sdist has the same files. Anything inside `src/groundline_core/` counts as package, so on your own machine an untracked scratch file there is built in without a complaint; release runs build from a clean checkout. It then installs the wheel with no extras, once with pip and once with uv pip, and checks that every built-in preset and profile loads (which reads every prompt and rubric), that both schema files are there, that the library loads without the server or CLI packages, and that the command and the API say which extra to install. It also type-checks `scripts/library_typing_check.py`, a file that uses only the public names, with pyright strict against each install, so a public name or result field whose type callers can't see fails it. Run it when you change the dependencies in `pyproject.toml`, what `groundline_core` imports when it loads, the public interface, or the files the package ships. CI runs it on every PR, and the library's release workflow runs it on the files it uploads (`--dist`) and on the copy it installs back from TestPyPI (`--from-index`).
 
 CI runs the fast and database tests on every PR, but never the live tests.
 
@@ -444,7 +444,7 @@ packages/groundline-client/  the SDK: its pyproject.toml, openapi.json, src/ (th
                            in _generated/) and tests/
 scripts/                   db-setup, the stack check behind make docker-smoke, the install check
                            behind make core-check, make generate-sdk and the SDK install check, the
-                           release's version check, and the AWS scripts behind make aws-deploy,
+                           releases' version check, and the AWS scripts behind make aws-deploy,
                            aws-smoke, aws-smoke-live and aws-destroy
 tests/                     the tests
 ```

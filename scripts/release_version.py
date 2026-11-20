@@ -70,7 +70,7 @@ def release_version(
     """
     if not NORMALIZED_VERSION.fullmatch(version):
         raise ReleaseRefused(
-            f"the version {version!r} in pyproject.toml isn't in the normalized "
+            f"the version {version!r} in {PACKAGES[package]} isn't in the normalized "
             "form PyPI uses, such as 0.2.0 or 0.2.0rc1. Write it that way, with "
             "no development or local part."
         )
@@ -83,8 +83,8 @@ def release_version(
             )
         return development
     bump = (
-        "Bump the version in pyproject.toml in a pull request, then run the "
-        "release again."
+        f"Bump the version in {PACKAGES[package]} in a pull request, then run "
+        "the release again."
     )
     if on_pypi(version):
         raise ReleaseRefused(
