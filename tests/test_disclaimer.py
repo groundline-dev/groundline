@@ -88,6 +88,6 @@ def test_the_short_disclaimer_links_to_the_readmes_disclaimer_section():
 
 
 def test_the_readme_has_one_disclaimer_section():
-    headings = (ROOT / "README.md").read_text().splitlines()
+    lines = (ROOT / "README.md").read_text().splitlines()
 
-    assert headings.count("## Disclaimer") == 1, "a second copy came back"
+    assert lines.count("## Disclaimer") == 1, "a second copy came back"

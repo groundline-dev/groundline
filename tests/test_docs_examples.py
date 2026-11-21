@@ -9,12 +9,14 @@ machine. The examples read transcript.txt and note.txt, which the test fills
 with the sample consultation in tests/omission_helpers.py, and the fake answers
 each step with replies that quote it.
 
-Each way of giving the check an Anthropic API key gets its own made-up key, so
-a block passes only if the key it names is the one sent: ANTHROPIC_API_KEY in the
-environment, the anthropic_api_key argument (read from MY_APP_ANTHROPIC_API_KEY,
-as the guide's example does), or config/groundline.env, the env_file the guide
-names. The environment outranks env_file, so the env_file example runs without
-ANTHROPIC_API_KEY.
+Each way of giving the check an Anthropic API key gets its own made-up
+Anthropic API key, so a block passes only if the one it names is the one sent:
+ANTHROPIC_API_KEY in the environment, the anthropic_api_key argument (read from
+MY_APP_ANTHROPIC_API_KEY, as the guide's example does), or
+config/groundline.env, the env_file the guide names. The environment outranks
+env_file, so the env_file example runs without ANTHROPIC_API_KEY. A ./.env with
+yet another one sits in every block's folder, which the library must never read
+unless it is named.
 
 In the guide, a block that isn't Python must have a comment on the line right
 above its opening fence saying why it isn't run, so a new example can't be left
@@ -42,17 +44,22 @@ import pytest
 import groundline_core
 from tests.anthropic_helpers import message
 from tests.commissions_helpers import issue, issues_reply
-from tests.omission_helpers import SOURCE, SUMMARY, not_flagged_script
-from tests.test_readme import REPOSITORY, heading_ids, link_targets
+from tests.markdown_helpers import REPOSITORY, broken_links, link_targets
+from tests.omission_helpers import SOURCE, SUMMARY, Script, not_flagged_script
 
 ROOT = Path(__file__).resolve().parents[1]
 GUIDE = ROOT / "docs" / "library.md"
 README = ROOT / "README.md"
 GUIDE_URL = f"{REPOSITORY}/blob/main/docs/library.md"
-ENVIRONMENT_KEY = "sk-ant-fake-key-in-the-environment"
-ARGUMENT_KEY = "sk-ant-fake-key-passed-as-an-argument"
-ENV_FILE_KEY = "sk-ant-fake-key-in-an-env-file"
+ENVIRONMENT_ANTHROPIC_API_KEY = "sk-ant-fake-key-in-the-environment"
+ARGUMENT_ANTHROPIC_API_KEY = "sk-ant-fake-key-passed-as-an-argument"
+ENV_FILE_ANTHROPIC_API_KEY = "sk-ant-fake-key-in-an-env-file"
+UNNAMED_ENV_FILE_ANTHROPIC_API_KEY = "sk-ant-fake-key-in-a-dot-env-nobody-named"
+PYTHON = {"python", "py", "python3"}
+"""The fence languages of a Python block."""
 NOT_RUN = re.compile(r"<!-- not run: \S.* -->")
+FENCE = re.compile(r"(`{3,}|~{3,})(.*)")
+"""An opening fence: three or more backticks or tildes, then the language."""
 QUICK_COMMISSIONS_REPLY = issues_reply(
     # The transcript says the finger "bent back", never which one.
     issue("hyperextended her right index finger", "unsupported", 70, "supporting")
@@ -84,13 +91,15 @@ def read_blocks(path: Path, text: str) -> list[Block]:
     blocks: list[Block] = []
     index = 0
     while index < len(lines):
-        fence = lines[index].strip()
-        if not fence.startswith("```"):
+        opening = FENCE.match(lines[index].strip())
+        if not opening:
             index += 1
             continue
+        fence, language = opening.groups()
+        closing = re.compile(rf"{re.escape(fence[0])}{{{len(fence)},}}")
         opened = index
         index += 1
-        while index < len(lines) and lines[index].strip() != "```":
+        while index < len(lines) and not closing.fullmatch(lines[index].strip()):
             index += 1
         if index == len(lines):
             raise ValueError(f"the code block opened on line {opened + 1} never closes")
@@ -99,7 +108,7 @@ def read_blocks(path: Path, text: str) -> list[Block]:
             Block(
                 path=path,
                 line=opened + 1,
-                language=fence.removeprefix("```").strip(),
+                language=language.strip(),
                 code="\n".join(lines[opened + 1 : index]) + "\n",
                 marked_not_run=bool(NOT_RUN.fullmatch(above)),
             )
@@ -115,7 +124,7 @@ def guide_blocks() -> list[Block]:
 def python_blocks() -> list[Block]:
     """The Python blocks the test runs, from the README and the guide."""
     blocks = read_blocks(README, README.read_text()) + guide_blocks()
-    return [b for b in blocks if b.language == "python" and not b.marked_not_run]
+    return [b for b in blocks if b.language in PYTHON and not b.marked_not_run]
 
 
 def guide_python_code() -> list[str]:
@@ -134,7 +143,7 @@ def section(text: str, heading: str) -> str:
 # --- a fake of Anthropic's Messages API -----------------------------------------
 
 
-def reply_for(prompt: str) -> str:
+def reply_for(prompt: str, omission_script: Script) -> str:
     """The scripted reply for one step of the default omission or commission
     check. The quick commission check's prompt is the only one with both the
     transcript and the note. The omission steps get the replies of a full run
@@ -143,7 +152,7 @@ def reply_for(prompt: str) -> str:
     omission check's extract and rank prompts, which hold the transcript.)"""
     if "<note>" in prompt and "<transcript>" in prompt:
         return QUICK_COMMISSIONS_REPLY
-    return not_flagged_script()(prompt)
+    return omission_script(prompt)
 
 
 @dataclass
@@ -161,16 +170,20 @@ class FakeAnthropic:
 def fake_anthropic() -> Iterator[FakeAnthropic]:
     keys: list[str] = []
     problems: list[str] = []
+    omission_script = not_flagged_script()
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:
             keys.append(self.headers.get("authorization", "").removeprefix("Bearer "))
             try:
+                if self.path.split("?")[0] != "/v1/messages":
+                    raise ValueError("only the Messages API is faked")
                 body = json.loads(self.rfile.read(int(self.headers["content-length"])))
                 prompt = body["messages"][0]["content"]
                 if not isinstance(prompt, str):
                     prompt = "".join(part["text"] for part in prompt)
-                answer = message(content=[{"type": "text", "text": reply_for(prompt)}])
+                reply = reply_for(prompt, omission_script)
+                answer = message(content=[{"type": "text", "text": reply}])
                 status = 200
             except Exception as error:  # a 400, which the check doesn't retry
                 problems.append(f"{self.path}: {error!r}")
@@ -209,28 +222,32 @@ def fake_anthropic() -> Iterator[FakeAnthropic]:
 def test_each_python_example_runs_as_written(
     block: Block, fake_anthropic: FakeAnthropic, tmp_path: Path
 ):
-    # The folder the example runs in has the files the examples read, and the
-    # config/groundline.env the guide's env_file example names.
+    # The folder the example runs in has the files the examples read, the
+    # config/groundline.env the guide's env_file example names, and a ./.env
+    # nobody names.
     (tmp_path / "transcript.txt").write_text(SOURCE)
     (tmp_path / "note.txt").write_text(SUMMARY)
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "groundline.env").write_text(
-        f"ANTHROPIC_API_KEY={ENV_FILE_KEY}\n"
+        f"ANTHROPIC_API_KEY={ENV_FILE_ANTHROPIC_API_KEY}\n"
+    )
+    (tmp_path / ".env").write_text(
+        f"ANTHROPIC_API_KEY={UNNAMED_ENV_FILE_ANTHROPIC_API_KEY}\n"
     )
     environment = {
         "PATH": os.environ.get("PATH", ""),
         "HOME": str(tmp_path),
         "ANTHROPIC_BASE_URL": fake_anthropic.url,
-        "MY_APP_ANTHROPIC_API_KEY": ARGUMENT_KEY,
+        "MY_APP_ANTHROPIC_API_KEY": ARGUMENT_ANTHROPIC_API_KEY,
     }
+    if "env_file=" not in block.code:
+        environment["ANTHROPIC_API_KEY"] = ENVIRONMENT_ANTHROPIC_API_KEY
     if "anthropic_api_key=" in block.code:
-        expected_key = ARGUMENT_KEY  # it wins over the environment, which is set
-        environment["ANTHROPIC_API_KEY"] = ENVIRONMENT_KEY
+        expected_key = ARGUMENT_ANTHROPIC_API_KEY
     elif "env_file=" in block.code:
-        expected_key = ENV_FILE_KEY  # only without the environment, which wins
+        expected_key = ENV_FILE_ANTHROPIC_API_KEY
     else:
-        expected_key = ENVIRONMENT_KEY
-        environment["ANTHROPIC_API_KEY"] = ENVIRONMENT_KEY
+        expected_key = ENVIRONMENT_ANTHROPIC_API_KEY
 
     result = subprocess.run(
         [sys.executable, "-I", "-c", block.code],
@@ -315,17 +332,13 @@ def test_the_public_interface_table_lists_every_public_name():
 
 
 def test_each_link_in_the_guide_has_a_file_and_heading_to_go_to():
-    broken: list[str] = []
-    for target in link_targets(GUIDE.read_text()):
+    def file_for(target: str) -> Path | None:
         if target.startswith(("https://", "http://", "mailto:")):
-            continue
-        path, _, anchor = target.partition("#")
-        file = (GUIDE.parent / path).resolve() if path else GUIDE
-        if not file.is_file():
-            broken.append(target)
-        elif anchor and anchor not in heading_ids(file.read_text()):
-            broken.append(target)
-    assert broken == []
+            return None
+        path = target.partition("#")[0]
+        return (GUIDE.parent / path).resolve() if path else GUIDE
+
+    assert broken_links(link_targets(GUIDE.read_text()), file_for) == []
 
 
 def test_every_guide_block_that_is_not_python_says_why_it_is_not_run():
@@ -371,3 +384,17 @@ def test_a_not_run_reason_applies_only_to_the_block_right_below_it():
 def test_an_unclosed_code_block_names_the_line_it_opened_on():
     with pytest.raises(ValueError, match="opened on line 3 never closes"):
         read_blocks(ROOT / "x.md", "text\n\n```python\nprint('hi')\n")
+
+
+def test_tilde_and_longer_fences_hold_a_block_up_to_their_own_closing_fence():
+    text = (
+        "~~~python\nprint('tildes')\n~~~\n"
+        "````markdown\n```python\nprint('inside')\n```\n````\n"
+    )
+
+    blocks = read_blocks(ROOT / "x.md", text)
+
+    assert [(b.language, b.code) for b in blocks] == [
+        ("python", "print('tildes')\n"),
+        ("markdown", "```python\nprint('inside')\n```\n"),
+    ]

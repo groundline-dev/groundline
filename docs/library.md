@@ -4,7 +4,7 @@ The `groundline-core` package runs groundline's checks inside your own Python co
 
 groundline is research code, **not for clinical use**, and must not be used with real patient data yet.
 
-This guide follows the latest code. For the version you installed, open `docs/library.md` at its release tag, such as `groundline-core-v0.2.0`.
+This guide follows the latest code, which can be newer than the version you installed (see [Versions](../README.md#versions)).
 
 ## Library, CLI or API
 
@@ -13,7 +13,7 @@ groundline can be used three ways, and they differ in who pays for the model cal
 | | Who pays for the model calls | Where your text goes |
 |---|---|---|
 | Library (`groundline_core` in your Python code) | You, with your own Anthropic API key | From your process to Anthropic, or wherever your model client sends it |
-| CLI (`groundline-core omissions` or `commissions`) | You, with your own Anthropic API key | From your machine to Anthropic. Also onto your disk: into a cache if you pass `--cache`, and into the report file if you pass `--json` |
+| CLI (`groundline-core omissions` or `commissions`) | You, with your own Anthropic API key | From your machine to Anthropic. Also onto your disk: into a cache if you pass `--cache`, and into the `--json` file if you pass one |
 | API (over HTTP, or from Python with the [SDK](../packages/groundline-client/README.md)) | Whoever runs the deployment, with its Anthropic API key | From your app to the deployment, and from there to Anthropic. The deployment's database holds API-key hashes and metadata, not your text ([ADR 0009](adr/0009-the-database-holds-no-patient-data.md)) |
 
 Use the library when a Python app should run checks with its own Anthropic API key, the CLI to check files from a terminal or a script, and the API when several apps, or apps in other languages, should share one deployment and its Anthropic API key.
@@ -88,7 +88,7 @@ for finding in result.findings:
     print(finding.severity, finding.verdict, finding.confidence, finding.statement)
 ```
 
-`DEFAULT_COMMISSIONS_PRESET` is the quick check. To run the lean one, which costs about $0.14 a note, pass `load_preset("commission_reverse_lean")`.
+`DEFAULT_COMMISSIONS_PRESET` is the quick check. To run the lean one, pass `load_preset("commission_reverse_lean")`. It costs about $0.14 a note and isn't confirmed to its pre-registered standard (see the [README](../README.md#how-it-works)).
 
 ### From async code
 

@@ -1,30 +1,18 @@
 """The README is also the package's page on PyPI, and SECURITY.md says where to
 report a vulnerability."""
 
-import re
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parents[1]
-REPOSITORY = "https://github.com/groundline-dev/groundline"
+from tests.markdown_helpers import REPOSITORY, ROOT, broken_links, link_targets
 
-LINK_TARGET = re.compile(
-    r"\]\(([^)\s]+)"  # [text](target) or ![alt](target)
-    r"|^\s*\[[^\]^][^\]]*\]:\s*<?([^\s>]+)"  # [label]: target, not a footnote
-    r"|<(?:a|img)\s(?:[^>]*\s)?(?:href|src)=\"([^\"]+)\"",  # <a href>, <img src>
-    re.MULTILINE,
-)
-"""The target of a Markdown link, image or reference, or of an HTML link or image."""
-
-
-def link_targets(text: str) -> list[str]:
-    return [next(g for g in m.groups() if g) for m in LINK_TARGET.finditer(text)]
+README = ROOT / "README.md"
 
 
 def test_the_readme_has_no_relative_links():
     # PyPI shows the README without the repository around it, so a relative
     # link there leads nowhere. Links within the page (#name) work on both: PyPI
     # rewrites them to the user-content- ids it gives headings, as GitHub does.
-    targets = link_targets((ROOT / "README.md").read_text())
+    targets = link_targets(README.read_text())
 
     relative = [
         target
@@ -34,36 +22,14 @@ def test_the_readme_has_no_relative_links():
     assert relative == []
 
 
-def heading_ids(markdown: str) -> set[str]:
-    """The ids GitHub and PyPI give the headings: lowercase, punctuation dropped,
-    spaces as hyphens, and -1, -2 for repeats."""
-    ids: set[str] = set()
-    for line in markdown.splitlines():
-        if match := re.match(r"#{1,6} (.+)", line):
-            slug = re.sub(r"[^\w\- ]", "", match.group(1).lower()).replace(" ", "-")
-            unique, n = slug, 0
-            while unique in ids:
-                n += 1
-                unique = f"{slug}-{n}"
-            ids.add(unique)
-    return ids
-
-
 def test_each_link_within_the_readme_has_a_heading_to_go_to():
-    text = (ROOT / "README.md").read_text()
-    ids = heading_ids(text)
+    targets = link_targets(README.read_text())
 
-    missing = [
-        target
-        for target in link_targets(text)
-        if target.startswith("#")
-        if target[1:] not in ids
-    ]
-    assert missing == []
+    assert broken_links(targets, lambda t: README if t.startswith("#") else None) == []
 
 
 def test_the_readme_says_to_install_from_pypi():
-    text = (ROOT / "README.md").read_text()
+    text = README.read_text()
 
     assert "pip install groundline-core" in text
     assert "isn't on PyPI yet" not in text
@@ -73,23 +39,19 @@ def test_security_reports_go_to_the_shared_address_privately():
     security = (ROOT / "SECURITY.md").read_text()
 
     assert "groundlinedevs@gmail.com" in security
-    assert f"{REPOSITORY}/blob/main/SECURITY.md" in link_targets(
-        (ROOT / "README.md").read_text()
-    ), "the README doesn't link to SECURITY.md"
+    assert f"{REPOSITORY}/blob/main/SECURITY.md" in link_targets(README.read_text()), (
+        "the README doesn't link to SECURITY.md"
+    )
 
 
 def test_each_link_into_the_repository_has_a_file_and_heading_to_go_to():
     # The README's links into the repository are absolute and pinned to main,
     # so a moved file or a renamed heading would break them silently.
     prefix = f"{REPOSITORY}/blob/main/"
-    broken: list[str] = []
-    for target in link_targets((ROOT / "README.md").read_text()):
+
+    def file_for(target: str) -> Path | None:
         if not target.startswith(prefix):
-            continue
-        path, _, anchor = target.removeprefix(prefix).partition("#")
-        file = ROOT / path
-        if not file.is_file():
-            broken.append(target)
-        elif anchor and anchor not in heading_ids(file.read_text()):
-            broken.append(target)
-    assert broken == []
+            return None
+        return ROOT / target.removeprefix(prefix).partition("#")[0]
+
+    assert broken_links(link_targets(README.read_text()), file_for) == []
