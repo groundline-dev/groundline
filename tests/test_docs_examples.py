@@ -9,6 +9,13 @@ machine. The examples read transcript.txt and note.txt, which the test fills
 with the sample consultation in tests/omission_helpers.py, and the fake answers
 each step with replies that quote it.
 
+Each way of giving the check an Anthropic API key gets its own made-up key, so
+a block passes only if the key it names is the one sent: ANTHROPIC_API_KEY in the
+environment, the anthropic_api_key argument (read from MY_APP_ANTHROPIC_API_KEY,
+as the guide's example does), or config/groundline.env, the env_file the guide
+names. The environment outranks env_file, so the env_file example runs without
+ANTHROPIC_API_KEY.
+
 In the guide, a block that isn't Python must have a comment on the line right
 above its opening fence saying why it isn't run, so a new example can't be left
 out of the tests unnoticed:
@@ -32,36 +39,25 @@ from pathlib import Path
 
 import pytest
 
+import groundline_core
 from tests.anthropic_helpers import message
 from tests.commissions_helpers import issue, issues_reply
-from tests.omission_helpers import (
-    EXTRACTED,
-    RANKED,
-    SOURCE,
-    SUMMARY,
-    check_reply,
-    refute_reply,
-    step_of,
-)
+from tests.omission_helpers import SOURCE, SUMMARY, not_flagged_script
+from tests.test_readme import REPOSITORY, heading_ids, link_targets
 
 ROOT = Path(__file__).resolve().parents[1]
 GUIDE = ROOT / "docs" / "library.md"
 README = ROOT / "README.md"
-GUIDE_URL = "https://github.com/groundline-dev/groundline/blob/main/docs/library.md"
-FAKE_ANTHROPIC_API_KEY = "sk-ant-fake-key-for-the-docs-examples"
+GUIDE_URL = f"{REPOSITORY}/blob/main/docs/library.md"
+ENVIRONMENT_KEY = "sk-ant-fake-key-in-the-environment"
+ARGUMENT_KEY = "sk-ant-fake-key-passed-as-an-argument"
+ENV_FILE_KEY = "sk-ant-fake-key-in-an-env-file"
 NOT_RUN = re.compile(r"<!-- not run: \S.* -->")
 QUICK_COMMISSIONS_REPLY = issues_reply(
     # The transcript says the finger "bent back", never which one.
     issue("hyperextended her right index finger", "unsupported", 70, "supporting")
 )
 """The quick commission check's one reply, quoting the sample note."""
-OMISSION_REPLIES = {
-    "extract": EXTRACTED,
-    "rank": RANKED,
-    "check": check_reply(),
-    "refute": refute_reply(("f1", "no", None), ("f2", "no", None)),
-}
-"""The omission check's reply for each step, quoting the sample."""
 
 
 # --- reading the code blocks ---------------------------------------------------
@@ -141,38 +137,48 @@ def section(text: str, heading: str) -> str:
 def reply_for(prompt: str) -> str:
     """The scripted reply for one step of the default omission or commission
     check. The quick commission check's prompt is the only one with both the
-    transcript and the note; the omission steps are told apart as their own tests
-    do."""
+    transcript and the note. The omission steps get the replies of a full run
+    that doesn't flag the sample, told apart as the omission tests do.
+    (commissions_helpers.step_of can't help here: it would also claim the
+    omission check's extract and rank prompts, which hold the transcript.)"""
     if "<note>" in prompt and "<transcript>" in prompt:
         return QUICK_COMMISSIONS_REPLY
-    return OMISSION_REPLIES[step_of(prompt)]
+    return not_flagged_script()(prompt)
 
 
 @dataclass
 class FakeAnthropic:
     url: str
     keys: list[str]
-    """The Anthropic API key each request carried, in order. The SDK sends it as
-    a Bearer token."""
+    """The Anthropic API key each request carried, in order. The Anthropic SDK
+    sends it as a Bearer token."""
+    problems: list[str]
+    """What the fake couldn't answer, so a test fails with the reason rather
+    than waiting while the check retries."""
 
 
 @pytest.fixture
 def fake_anthropic() -> Iterator[FakeAnthropic]:
     keys: list[str] = []
+    problems: list[str] = []
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:
-            body = json.loads(self.rfile.read(int(self.headers["content-length"])))
             keys.append(self.headers.get("authorization", "").removeprefix("Bearer "))
-            if self.path.split("?")[0] == "/v1/messages":
+            try:
+                body = json.loads(self.rfile.read(int(self.headers["content-length"])))
                 prompt = body["messages"][0]["content"]
                 if not isinstance(prompt, str):
                     prompt = "".join(part["text"] for part in prompt)
                 answer = message(content=[{"type": "text", "text": reply_for(prompt)}])
                 status = 200
-            else:
-                answer = {"type": "error", "error": {"type": "not_found_error"}}
-                status = 404
+            except Exception as error:  # a 400, which the check doesn't retry
+                problems.append(f"{self.path}: {error!r}")
+                answer = {
+                    "type": "error",
+                    "error": {"type": "invalid_request_error", "message": repr(error)},
+                }
+                status = 400
             data = json.dumps(answer).encode()
             self.send_response(status)
             self.send_header("content-type", "application/json")
@@ -189,7 +195,7 @@ def fake_anthropic() -> Iterator[FakeAnthropic]:
     )
     thread.start()
     try:
-        yield FakeAnthropic(f"http://127.0.0.1:{server.server_port}", keys)
+        yield FakeAnthropic(f"http://127.0.0.1:{server.server_port}", keys, problems)
     finally:
         server.shutdown()
         server.server_close()
@@ -204,20 +210,27 @@ def test_each_python_example_runs_as_written(
     block: Block, fake_anthropic: FakeAnthropic, tmp_path: Path
 ):
     # The folder the example runs in has the files the examples read, and the
-    # config/groundline.env the guide's env_file example names, holding the same
-    # made-up key.
+    # config/groundline.env the guide's env_file example names.
     (tmp_path / "transcript.txt").write_text(SOURCE)
     (tmp_path / "note.txt").write_text(SUMMARY)
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "groundline.env").write_text(
-        f"ANTHROPIC_API_KEY={FAKE_ANTHROPIC_API_KEY}\n"
+        f"ANTHROPIC_API_KEY={ENV_FILE_KEY}\n"
     )
     environment = {
         "PATH": os.environ.get("PATH", ""),
         "HOME": str(tmp_path),
         "ANTHROPIC_BASE_URL": fake_anthropic.url,
-        "ANTHROPIC_API_KEY": FAKE_ANTHROPIC_API_KEY,
+        "MY_APP_ANTHROPIC_API_KEY": ARGUMENT_KEY,
     }
+    if "anthropic_api_key=" in block.code:
+        expected_key = ARGUMENT_KEY  # it wins over the environment, which is set
+        environment["ANTHROPIC_API_KEY"] = ENVIRONMENT_KEY
+    elif "env_file=" in block.code:
+        expected_key = ENV_FILE_KEY  # only without the environment, which wins
+    else:
+        expected_key = ENVIRONMENT_KEY
+        environment["ANTHROPIC_API_KEY"] = ENVIRONMENT_KEY
 
     result = subprocess.run(
         [sys.executable, "-I", "-c", block.code],
@@ -229,9 +242,10 @@ def test_each_python_example_runs_as_written(
         timeout=60,
     )
 
+    assert fake_anthropic.problems == [], fake_anthropic.problems
     assert result.returncode == 0, f"{block.label} failed:\n{result.stderr}"
     assert fake_anthropic.keys, f"{block.label} never called the model"
-    assert set(fake_anthropic.keys) == {FAKE_ANTHROPIC_API_KEY}, fake_anthropic.keys
+    assert set(fake_anthropic.keys) == {expected_key}, fake_anthropic.keys
 
 
 # --- what the guide must cover -------------------------------------------------
@@ -248,23 +262,14 @@ def test_the_guide_names_each_install_extra():
         assert line in text, f"the Install section lacks {line!r}"
 
 
-@pytest.mark.parametrize(
-    ("check", "call"),
-    [
-        ("omissions", "evaluate_sync("),
-        ("omissions", "await evaluate("),
-        ("commissions", "evaluate_sync("),
-        ("commissions", "await evaluate("),
-    ],
-)
+@pytest.mark.parametrize("check", ["omissions", "commissions"])
+@pytest.mark.parametrize("call", ["evaluate_sync(", "await evaluate("])
 def test_the_guide_runs_each_check_sync_and_async(check: str, call: str):
-    def is_commissions(code: str) -> bool:
-        return "DEFAULT_COMMISSIONS_PRESET" in code
-
     found = [
         code
         for code in guide_python_code()
-        if call in code and is_commissions(code) == (check == "commissions")
+        if call in code
+        and ("DEFAULT_COMMISSIONS_PRESET" in code) == (check == "commissions")
     ]
 
     assert found, f"no example that is run calls {call} for the {check} check"
@@ -293,7 +298,34 @@ def test_the_cache_warning_says_it_is_off_by_default_and_keeps_text_on_disk():
 
     assert "off by default" in text, text
     assert "on disk" in text, text
-    assert "../README.md#caching-and-sensitive-data" in text, text
+    assert "../README.md#caching-and-sensitive-data" in link_targets(text), text
+
+
+def test_the_public_interface_table_lists_every_public_name():
+    text = section(GUIDE.read_text(), "Public interface")
+    first_cells = [
+        row.strip("|").split("|")[0] for row in text.splitlines() if row.startswith("|")
+    ]
+    listed = {name for cell in first_cells for name in re.findall(r"`(\w+)`", cell)}
+
+    assert listed == set(groundline_core.__all__), (
+        f"in the table only: {sorted(listed - set(groundline_core.__all__))}, "
+        f"public but not in the table: {sorted(set(groundline_core.__all__) - listed)}"
+    )
+
+
+def test_each_link_in_the_guide_has_a_file_and_heading_to_go_to():
+    broken: list[str] = []
+    for target in link_targets(GUIDE.read_text()):
+        if target.startswith(("https://", "http://", "mailto:")):
+            continue
+        path, _, anchor = target.partition("#")
+        file = (GUIDE.parent / path).resolve() if path else GUIDE
+        if not file.is_file():
+            broken.append(target)
+        elif anchor and anchor not in heading_ids(file.read_text()):
+            broken.append(target)
+    assert broken == []
 
 
 def test_every_guide_block_that_is_not_python_says_why_it_is_not_run():

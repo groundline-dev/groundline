@@ -2,6 +2,10 @@
 
 The `groundline-core` package runs groundline's checks inside your own Python code: the omission check, which reports the important facts a summary leaves out, and the commission check, which reports the claims in a summary that its source doesn't support. The [README](../README.md) explains how each check works and how well it did on its benchmark. Read its [Disclaimer](../README.md#disclaimer) before relying on a result.
 
+groundline is research code, **not for clinical use**, and must not be used with real patient data yet.
+
+This guide follows the latest code. For the version you installed, open `docs/library.md` at its release tag, such as `groundline-core-v0.2.0`.
+
 ## Library, CLI or API
 
 groundline can be used three ways, and they differ in who pays for the model calls and where your text goes:
@@ -9,10 +13,10 @@ groundline can be used three ways, and they differ in who pays for the model cal
 | | Who pays for the model calls | Where your text goes |
 |---|---|---|
 | Library (`groundline_core` in your Python code) | You, with your own Anthropic API key | From your process to Anthropic, or wherever your model client sends it |
-| CLI (`groundline-core omissions` or `commissions`) | You, with your own Anthropic API key | From your machine to Anthropic, and into a cache on your disk if you pass `--cache` |
+| CLI (`groundline-core omissions` or `commissions`) | You, with your own Anthropic API key | From your machine to Anthropic. Also onto your disk: into a cache if you pass `--cache`, and into the report file if you pass `--json` |
 | API (over HTTP, or from Python with the [SDK](../packages/groundline-client/README.md)) | Whoever runs the deployment, with its Anthropic API key | From your app to the deployment, and from there to Anthropic. The deployment's database holds API-key hashes and metadata, not your text ([ADR 0009](adr/0009-the-database-holds-no-patient-data.md)) |
 
-Use the library when a Python app should run checks with its own Anthropic API key, the CLI to check files from a terminal or a script, and the API when several apps, or apps in other languages, should share one deployment and its key.
+Use the library when a Python app should run checks with its own Anthropic API key, the CLI to check files from a terminal or a script, and the API when several apps, or apps in other languages, should share one deployment and its Anthropic API key.
 
 ## Install
 
@@ -21,7 +25,7 @@ The package needs Python 3.13 or later. A plain install brings only what the che
 <!-- not run: installs the package -->
 ```sh
 pip install groundline-core              # the library only
-pip install "groundline-core[cli]"       # plus the groundline-core command and key management
+pip install "groundline-core[cli]"       # plus the groundline-core command and API key management
 pip install "groundline-core[server]"    # plus the API
 ```
 
@@ -84,7 +88,7 @@ for finding in result.findings:
     print(finding.severity, finding.verdict, finding.confidence, finding.statement)
 ```
 
-`DEFAULT_COMMISSIONS_PRESET` is the quick check. To run the lean one, pass `load_preset("commission_reverse_lean")`.
+`DEFAULT_COMMISSIONS_PRESET` is the quick check. To run the lean one, which costs about $0.14 a note, pass `load_preset("commission_reverse_lean")`.
 
 ### From async code
 
@@ -146,7 +150,7 @@ from pathlib import Path
 
 from groundline_core import evaluate_sync
 
-my_key = os.environ["ANTHROPIC_API_KEY"]  # or read it from your own secret store
+my_key = os.environ["MY_APP_ANTHROPIC_API_KEY"]  # or from your own secret store
 transcript_text = Path("transcript.txt").read_text()
 note_text = Path("note.txt").read_text()
 
@@ -174,24 +178,25 @@ To make the model calls yourself, pass a model client as `client`. It is any obj
 
 ```python
 from pathlib import Path
+from typing import Literal
 
 from anthropic import AsyncAnthropic
 from groundline_core import ModelFailureError, ModelReply, evaluate_sync
 
+Effort = Literal["low", "medium", "high", "xhigh", "max"]
+
 
 class LoggingModelClient:
-    def __init__(self) -> None:
-        self._anthropic = AsyncAnthropic()  # reads ANTHROPIC_API_KEY
-
     async def complete(
-        self, prompt: str, *, model: str, effort: str, max_tokens: int
+        self, prompt: str, *, model: str, effort: Effort, max_tokens: int
     ) -> ModelReply:
-        message = await self._anthropic.messages.create(
-            model=model,
-            max_tokens=max_tokens,
-            messages=[{"role": "user", "content": prompt}],
-            output_config={"effort": effort},
-        )
+        async with AsyncAnthropic() as anthropic:  # reads ANTHROPIC_API_KEY
+            message = await anthropic.messages.create(
+                model=model,
+                max_tokens=max_tokens,
+                messages=[{"role": "user", "content": prompt}],
+                output_config={"effort": effort},
+            )
         print(f"{model}: {message.usage.input_tokens} tokens in")
         if message.stop_reason != "end_turn":  # such as a refusal, or cut off
             raise ModelFailureError(f"the model stopped early: {message.stop_reason}")
@@ -236,12 +241,14 @@ note_text = Path("note.txt").read_text()
 
 try:
     result = evaluate_sync(transcript_text, note_text)
-except ModelFailureError as error:
-    print("try again later:", error.step)  # the step that failed, such as "extract"
-except SetupError as error:
-    print("fix the setup:", error, error.path)  # path is the file at fault, or None
+except ModelFailureError as error:  # error.step is the step that failed, or None
+    raise SystemExit(f"try again later: {error}")
+except SetupError as error:  # error.path is the file at fault, or None
+    raise SystemExit(f"fix the setup: {error}")
 except InvalidInputError as error:
-    print("the source or summary can't be checked:", error)
+    raise SystemExit(f"the source or summary can't be checked: {error}")
+
+print(result.flagged, result.score)
 ```
 
 A message is safe to log or show: it never quotes the source, the summary, the Anthropic API key or Anthropic's own error text, and it names a file only by its name. It does quote names from a spec or profile, such as an unknown step, with anything shaped like an Anthropic or groundline API key replaced by `<redacted key>`; other kinds of secret aren't recognized. When groundline's error comes from another library's error, such as YAML's, pydantic's or the Anthropic SDK's, a traceback doesn't print that original, since its text could quote a file, a setting or the request. `SetupError.path` holds the file's full path, and the CLI prints it on a `File:` line of its own. `SpecError`, `ProfileError` and `InvalidInputError` are also `ValueError`s, but `ModelTimeoutError` isn't a `TimeoutError`.

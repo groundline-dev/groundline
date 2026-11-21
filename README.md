@@ -56,7 +56,7 @@ make setup
 
 `make` targets sync automatically; run `uv sync` after a pull if your editor shows missing imports. Use `uv run <command>` to run anything else inside the environment without activating it. The examples in this README run from a clone like this; if you installed the package with pip instead, leave out `uv run`, as in `groundline-core omissions transcript.txt note.txt`.
 
-Model calls need an Anthropic API key. Copy `.env.example` to `.env` and add your key, or export `ANTHROPIC_API_KEY`. groundline stores its own API-key hashes and metadata in PostgreSQL. HTTP checks require PostgreSQL for authentication; CLI and Python checks do not. [DEVELOPMENT.md](https://github.com/groundline-dev/groundline/blob/main/DEVELOPMENT.md#getting-started) explains how to set it up. `.env` is git-ignored; never commit a key. The CLI and the API read `.env` from the folder you run them in, so run commands from the repo root. The Python library reads a `.env` file only if you name one (see [The Anthropic API key](https://github.com/groundline-dev/groundline/blob/main/docs/library.md#the-anthropic-api-key) in the library guide). A missing or rejected Anthropic API key produces an error saying where groundline looked and how to fix it, before any paid call.
+Model calls need an Anthropic API key. Copy `.env.example` to `.env` and add your Anthropic API key, or export `ANTHROPIC_API_KEY`. groundline stores its own API-key hashes and metadata in PostgreSQL. HTTP checks require PostgreSQL for authentication; CLI and Python checks do not. [DEVELOPMENT.md](https://github.com/groundline-dev/groundline/blob/main/DEVELOPMENT.md#getting-started) explains how to set it up. `.env` is git-ignored; never commit an Anthropic API key. The CLI and the API read `.env` from the folder you run them in, so run commands from the repo root. The Python library reads a `.env` file only if you name one (see [The Anthropic API key](https://github.com/groundline-dev/groundline/blob/main/docs/library.md#the-anthropic-api-key) in the library guide). A missing or rejected Anthropic API key produces an error saying where groundline looked and how to fix it, before any paid call.
 
 **Live calls cost money.** A typical clinical note costs about $0.21 for the omission check, and about $0.001 for the quick commission check or $0.14 for the lean one. Agree a budget with your team before running anything at scale.
 
@@ -173,13 +173,13 @@ To use groundline inside your own app, install the `groundline-core` package fro
 
 ```sh
 pip install groundline-core              # the library only
-pip install "groundline-core[cli]"       # plus the groundline-core command and key management
+pip install "groundline-core[cli]"       # plus the groundline-core command and API key management
 pip install "groundline-core[server]"    # plus the API
 ```
 
 `uv pip install` takes the same arguments, and `uv add` adds it to a uv project. The package is installed as `groundline-core`, imported as `groundline_core` and run as `groundline-core`, because an unrelated project already uses the name `groundline` on PyPI ([ADR 0016](https://github.com/groundline-dev/groundline/blob/main/docs/adr/0016-published-as-groundline-core.md)). Without the `cli` extra, the `groundline-core` command says which extra to install, and so does importing `groundline_core.app` without the `server` extra.
 
-With `ANTHROPIC_API_KEY` set, this runs the omission check on a consultation in `transcript.txt` and the note written from it in `note.txt`:
+With `ANTHROPIC_API_KEY` set, this runs the omission check on the summary in `note.txt` against its source in `transcript.txt`, as for the built-in clinical profile:
 
 ```python
 from pathlib import Path
