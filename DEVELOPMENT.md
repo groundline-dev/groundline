@@ -260,6 +260,8 @@ None of them starts the Docker stack, runs `terraform test` or touches AWS: `mak
 
 `make core-check` builds the wheel and the sdist and checks that they hold only the package, its license, notice and readme, and the packaging metadata (no `.env`, tests or other local files), and that a wheel built from the sdist has the same files. Anything inside `src/groundline_core/` counts as package, so on your own machine an untracked scratch file there is built in without a complaint; release runs build from a clean checkout. It then installs the wheel with no extras, once with pip and once with uv pip, and checks that every built-in preset and profile loads (which reads every prompt and rubric), that both schema files are there, that the library loads without the server or CLI packages, and that the command and the API say which extra to install. It also type-checks `scripts/library_typing_check.py`, a file that uses only the public names, with pyright strict against each install, so a public name or result field whose type callers can't see fails it. Run it when you change the dependencies in `pyproject.toml`, what `groundline_core` imports when it loads, the public interface, or the files the package ships. CI runs it on every PR, and the release workflow runs it on the files it uploads (`--dist`) and on the copy it installs back from TestPyPI (`--from-index`).
 
+`tests/test_docs_examples.py` runs every Python block in the library guide (`docs/library.md`) and the README as written, each in its own `python -I` process, against a local fake of Anthropic's Messages API (`ANTHROPIC_BASE_URL`), so it costs nothing. The examples read `transcript.txt` and `note.txt`, which the test fills with the sample consultation in `tests/omission_helpers.py`, and the fake's replies quote it. In the guide, a block that isn't Python needs `<!-- not run: why -->` on the line above it. When you add an example, make it complete, imports included, so it runs as written.
+
 CI runs the fast and database tests on every PR, but never the live tests.
 
 `tests/https_smoke.py` is an executable integration harness, invoked by `make https-smoke`, rather than a pytest suite. It lives beside the other Docker smoke harness and uses the runtime Python image pinned in `Dockerfile`.
@@ -397,6 +399,8 @@ A PyPI account holder and a repository admin do this once, before the first rele
 .github/workflows/         ci.yml, the checks on every pull request, and release.yml, which publishes
                            groundline-core (see Releasing groundline-core)
 Dockerfile                 the app image
+docs/                      the library guide (library.md), the AWS guide, decision records (adr/)
+                           and plans
 compose.yaml               the stack: Postgres, the setup service and the app
 src/groundline_core/       a leading underscore marks the library's internals (ADR 0018)
   _core/                   the pipeline framework: steps, registry, specs, runner, cache, costs

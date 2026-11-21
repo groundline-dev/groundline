@@ -56,7 +56,7 @@ make setup
 
 `make` targets sync automatically; run `uv sync` after a pull if your editor shows missing imports. Use `uv run <command>` to run anything else inside the environment without activating it. The examples in this README run from a clone like this; if you installed the package with pip instead, leave out `uv run`, as in `groundline-core omissions transcript.txt note.txt`.
 
-Model calls need an Anthropic API key. Copy `.env.example` to `.env` and add your key, or export `ANTHROPIC_API_KEY`. groundline stores its own API-key hashes and metadata in PostgreSQL. HTTP checks require PostgreSQL for authentication; CLI and Python checks do not. [DEVELOPMENT.md](https://github.com/groundline-dev/groundline/blob/main/DEVELOPMENT.md#getting-started) explains how to set it up. `.env` is git-ignored; never commit a key. The CLI and the API read `.env` from the folder you run them in, so run commands from the repo root. The Python library reads a `.env` file only if you name one (see [The Anthropic API key in your code](#the-anthropic-api-key-in-your-code)). A missing or rejected Anthropic API key produces an error saying where groundline looked and how to fix it, before any paid call.
+Model calls need an Anthropic API key. Copy `.env.example` to `.env` and add your key, or export `ANTHROPIC_API_KEY`. groundline stores its own API-key hashes and metadata in PostgreSQL. HTTP checks require PostgreSQL for authentication; CLI and Python checks do not. [DEVELOPMENT.md](https://github.com/groundline-dev/groundline/blob/main/DEVELOPMENT.md#getting-started) explains how to set it up. `.env` is git-ignored; never commit a key. The CLI and the API read `.env` from the folder you run them in, so run commands from the repo root. The Python library reads a `.env` file only if you name one (see [The Anthropic API key](https://github.com/groundline-dev/groundline/blob/main/docs/library.md#the-anthropic-api-key) in the library guide). A missing or rejected Anthropic API key produces an error saying where groundline looked and how to fix it, before any paid call.
 
 **Live calls cost money.** A typical clinical note costs about $0.21 for the omission check, and about $0.001 for the quick commission check or $0.14 for the lean one. Agree a budget with your team before running anything at scale.
 
@@ -179,96 +179,25 @@ pip install "groundline-core[server]"    # plus the API
 
 `uv pip install` takes the same arguments, and `uv add` adds it to a uv project. The package is installed as `groundline-core`, imported as `groundline_core` and run as `groundline-core`, because an unrelated project already uses the name `groundline` on PyPI ([ADR 0016](https://github.com/groundline-dev/groundline/blob/main/docs/adr/0016-published-as-groundline-core.md)). Without the `cli` extra, the `groundline-core` command says which extra to install, and so does importing `groundline_core.app` without the `server` extra.
 
+With `ANTHROPIC_API_KEY` set, this runs the omission check on a consultation in `transcript.txt` and the note written from it in `note.txt`:
+
+```python
+from pathlib import Path
+
+from groundline_core import evaluate_sync
+
+result = evaluate_sync(Path("transcript.txt").read_text(), Path("note.txt").read_text())
+
+print(result.flagged, result.score)  # for example: True 0.15
+for finding in result.findings:
+    print(finding.severity, finding.verdict, finding.statement)
+```
+
+The [library guide](https://github.com/groundline-dev/groundline/blob/main/docs/library.md) covers the rest: the commission check, async code, the Anthropic API key, your own model client, errors and the public interface. It also compares the library with the CLI and the API.
+
 ### Versions
 
 `groundline-core` follows semantic versioning. Until 1.0, a minor release (0.1 to 0.2) may break your code and a patch release (0.1.0 to 0.1.1) never does, so pin a minor version, such as `groundline-core>=0.1,<0.2`.
-
-### The Anthropic API key in your code
-
-The library takes the Anthropic API key from the `anthropic_api_key` argument, or else from `ANTHROPIC_API_KEY` in the environment. It reads a `.env` file only when you name one with `env_file`, so it doesn't matter which folder your app runs from:
-
-```python
-result = evaluate_sync(transcript_text, note_text, anthropic_api_key=my_key)
-result = evaluate_sync(transcript_text, note_text, env_file="config/groundline.env")
-```
-
-The argument wins over the environment, and the environment wins over `env_file`. A blank argument raises an error; it doesn't fall back to the environment or `env_file`. With no key, `evaluate_sync` raises `MissingAPIKeyError` before any paid call. Its message names an `env_file` only by its name; the error's `path` holds the full path. The key never appears in logs, errors or the result.
-
-### Running a check
-
-```python
-from groundline_core import evaluate_sync
-
-result = evaluate_sync(transcript_text, note_text)
-
-print(result.flagged, result.score)  # True 0.15
-for finding in result.findings:
-    print(finding.severity, finding.verdict, finding.confidence, finding.statement)
-print(result.counts)  # total=35 present=29 partial=3 absent=3
-print(result.alarm)  # score=0.97 threshold=0.9 level='strict'
-print(result.validated_preset)  # "omission_all_opus", or None if anything that affects the check was changed
-print(result.usage.cost_usd)
-```
-
-For the commission check, pass its preset as the `spec`. The result has the same fields, and `counts` is `None`:
-
-```python
-from groundline_core import DEFAULT_COMMISSIONS_PRESET, evaluate_sync, load_preset
-
-result = evaluate_sync(
-    transcript_text, note_text, spec=load_preset(DEFAULT_COMMISSIONS_PRESET)
-)
-```
-
-The fields mean what the API's do (see [Findings](#findings) and [Scores](#scores)), and `None` stands for the API's `null`. What the API puts in `metadata` is in separate fields in Python: `alarm`, `usage`, `pipeline` (the name of the pipeline that ran), `validated_preset` (the preset it matched) and `disclaimer` (the [Disclaimer](#disclaimer), to show with the result). `result.run` holds every step's output for inspection; its shape follows the pipeline's steps and may change without notice.
-
-`evaluate()` is the async version, for FastAPI or other async code. Both take a `spec`, a `client` (your own `ModelClient`, such as a fake one so your app's tests cost nothing) and `anthropic_api_key` or `env_file` for the key. Pass `client` or `anthropic_api_key`, not both: a `client` brings its own key. They also accept `profile`, `cache` and `registry`, but those take internal types, so they aren't part of the public interface yet.
-
-A spec has to make one full check: the alarm step, plus the steps one check's findings come from. Anything else raises `SpecError` before the key is looked up or a model is called.
-
-### Errors
-
-Every error groundline raises on purpose is a `GroundlineError`, of one of three kinds:
-
-| Error | Raised when | What to do |
-|---|---|---|
-| `SetupError` | The setup stops the check: an invalid spec (`SpecError`) or a domain profile it can't load (`ProfileError`), a missing key (`MissingAPIKeyError`), a rejected key (`APIKeyRejectedError`), a model the Anthropic API doesn't have, settings that can't be read (`SettingsError`), or both `client` and `anthropic_api_key` passed. | Fix the setup. Trying again won't help. |
-| `InvalidInputError` | The source or summary isn't text, or is empty or only whitespace. It's raised before the key is looked up or a model is called. | Fix the input. |
-| `ModelFailureError` | Anthropic's API kept failing, the model declined, or its reply stayed unusable. `ModelTimeoutError`, a kind of `ModelFailureError`, means a time limit ran out. `step` names the step that failed, or is `None` when the whole check ran out of time between steps. | Try again later. |
-
-```python
-from groundline_core import InvalidInputError, ModelFailureError, SetupError, evaluate_sync
-
-try:
-    result = evaluate_sync(transcript_text, note_text)
-except ModelFailureError as error:
-    ...  # error.step is the step that failed, such as "extract"
-except SetupError as error:
-    ...  # error.path is the file at fault, or None
-except InvalidInputError:
-    ...  # the source or summary can't be checked
-```
-
-A message is safe to log or show: it never quotes the source, the summary, the key or Anthropic's own error text, and it names a file only by its name. It does quote names from a spec or profile, such as an unknown step, with anything shaped like an Anthropic or groundline API key replaced by `<redacted key>`; other kinds of secret aren't recognized. When groundline's error comes from another library's error, such as YAML's, pydantic's or the Anthropic SDK's, a traceback doesn't print that original, since its text could quote a file, a setting or the request. `SetupError.path` holds the file's full path, and the CLI prints it on a `File:` line of its own. `SpecError`, `ProfileError` and `InvalidInputError` are also `ValueError`s, but `ModelTimeoutError` isn't a `TimeoutError`.
-
-An exception from your own `client`, or from a bug in groundline, comes out as it was raised rather than as a `GroundlineError` ([ADR 0020](https://github.com/groundline-dev/groundline/blob/main/docs/adr/0020-only-groundlines-own-failures-are-groundline-errors.md)), and it doesn't say what the check had spent. To report your model's failure as a `ModelFailureError`, your client can raise one itself.
-
-### Public interface
-
-Import from `groundline_core` itself. Its names, and the documented fields of the result types, keep working across upgrades. Everything else, including the modules whose names start with an underscore (such as `groundline_core._core`) and `result.run`, is internal and may change without notice.
-
-| Name | What it is |
-|---|---|
-| `evaluate`, `evaluate_sync` | Run a check. |
-| `load_preset`, `builtin_presets` | Load a built-in preset by name, and list the names. |
-| `DEFAULT_PRESET`, `DEFAULT_COMMISSIONS_PRESET`, `CommissionPreset` | The default omission and commission presets, and the commission presets' names as a type. |
-| `PipelineSpec` | A pipeline spec, as `load_preset` returns it. |
-| `ModelClient`, `ModelReply` | What a `client` implements (an async `complete(prompt, *, model, effort, max_tokens)`), and what it returns. |
-| `EvaluationResult`, `Finding`, `Counts`, `Alarm`, `Usage` | The result and its parts. |
-| `GroundlineError`, `SetupError`, `SpecError`, `ProfileError`, `MissingAPIKeyError`, `APIKeyRejectedError`, `SettingsError`, `InvalidInputError`, `ModelFailureError`, `ModelTimeoutError` | What a check raises (see [Errors](#errors)). |
-| `EvaluationType`, `Severity` | The types of `evaluation_type` (`omissions` or `commissions`) and of a finding's `severity` (`critical`, `supporting` or `peripheral`). |
-
-The package includes its type information, so type checkers such as pyright and mypy check your code against these names.
 
 ## Using the API
 
@@ -442,12 +371,6 @@ To report a vulnerability, see [SECURITY.md](https://github.com/groundline-dev/g
 ## Data attribution
 
 The test fixtures in `tests/fixtures/parity/` are rows of OmissionBench (Composo AI, CC BY 4.0), derived from PriMock57 (Babylon Health, CC BY 4.0). Full credits are in each fixture's ATTRIBUTION.md, such as [this one](https://github.com/groundline-dev/groundline/blob/main/tests/fixtures/parity/primock__day2_consultation05__omit/ATTRIBUTION.md).
-
-## Disclaimer
-
-groundline's results help a person review a summary. A summary that isn't flagged can still leave out or misstate important facts, so check it before relying on it. You're responsible for any decision made using groundline's results. groundline is provided "as is", and its authors accept no liability for outcomes from its use (see sections 7 and 8 of the Apache License 2.0).
-
-Each domain profile can add a disclaimer sentence after the first one. The built-in clinical profile adds "They aren't medical advice or a clinical decision." Every result carries the full text: in `metadata.disclaimer` in an API response, in `result.disclaimer` in Python, and in the CLI's `--json` file. Each CLI report ends with the full text, and the `--help` of `groundline-core` and of its two checks ends with a short version.
 
 ## Disclaimer
 

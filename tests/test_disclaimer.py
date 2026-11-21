@@ -84,4 +84,4 @@ def test_the_readmes_example_reports_end_with_the_clinical_disclaimer():
 def test_the_short_disclaimer_links_to_the_readmes_disclaimer_section():
     assert "https://github.com/groundline-dev/groundline#disclaimer" in SHORT_DISCLAIMER
     headings = (ROOT / "README.md").read_text().splitlines()
-    assert "## Disclaimer" in headings
+    assert headings.count("## Disclaimer") == 1, "the README needs one Disclaimer"
