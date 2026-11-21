@@ -41,6 +41,7 @@ from tests.omission_helpers import (
     SUMMARY,
     check_reply,
     refute_reply,
+    step_of,
 )
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -49,11 +50,18 @@ README = ROOT / "README.md"
 GUIDE_URL = "https://github.com/groundline-dev/groundline/blob/main/docs/library.md"
 FAKE_ANTHROPIC_API_KEY = "sk-ant-fake-key-for-the-docs-examples"
 NOT_RUN = re.compile(r"<!-- not run: \S.* -->")
-COMMISSIONS = issues_reply(
+QUICK_COMMISSIONS_REPLY = issues_reply(
     # The transcript says the finger "bent back", never which one.
     issue("hyperextended her right index finger", "unsupported", 70, "supporting")
 )
-"""The quick commission check's reply, quoting the sample note."""
+"""The quick commission check's one reply, quoting the sample note."""
+OMISSION_REPLIES = {
+    "extract": EXTRACTED,
+    "rank": RANKED,
+    "check": check_reply(),
+    "refute": refute_reply(("f1", "no", None), ("f2", "no", None)),
+}
+"""The omission check's reply for each step, quoting the sample."""
 
 
 # --- reading the code blocks ---------------------------------------------------
@@ -66,7 +74,7 @@ class Block:
     """The line of the opening fence, counted from 1."""
     language: str
     code: str
-    not_run_reason: bool
+    marked_not_run: bool
     """Whether the line right above the fence says why the block isn't run."""
 
     @property
@@ -97,7 +105,7 @@ def read_blocks(path: Path, text: str) -> list[Block]:
                 line=opened + 1,
                 language=fence.removeprefix("```").strip(),
                 code="\n".join(lines[opened + 1 : index]) + "\n",
-                not_run_reason=bool(NOT_RUN.fullmatch(above)),
+                marked_not_run=bool(NOT_RUN.fullmatch(above)),
             )
         )
         index += 1
@@ -105,32 +113,26 @@ def read_blocks(path: Path, text: str) -> list[Block]:
 
 
 def guide_blocks() -> list[Block]:
-    assert GUIDE.exists(), "docs/library.md, the library guide, doesn't exist yet"
     return read_blocks(GUIDE, GUIDE.read_text())
 
 
 def python_blocks() -> list[Block]:
-    blocks = read_blocks(README, README.read_text())
-    if GUIDE.exists():
-        blocks += read_blocks(GUIDE, GUIDE.read_text())
-    return [b for b in blocks if b.language == "python" and not b.not_run_reason]
+    """The Python blocks the test runs, from the README and the guide."""
+    blocks = read_blocks(README, README.read_text()) + guide_blocks()
+    return [b for b in blocks if b.language == "python" and not b.marked_not_run]
 
 
 def guide_python_code() -> list[str]:
-    return [
-        b.code
-        for b in guide_blocks()
-        if b.language == "python" and not b.not_run_reason
-    ]
+    return [b.code for b in python_blocks() if b.path == GUIDE]
 
 
 def section(text: str, heading: str) -> str:
     """The text under `## heading`, up to the next `## ` heading."""
-    found = re.search(
+    match = re.search(
         rf"^## {re.escape(heading)}\n(.*?)(?=^## |\Z)", text, re.MULTILINE | re.DOTALL
     )
-    assert found, f"no '## {heading}' section"
-    return found.group(1)
+    assert match, f"no '## {heading}' section"
+    return match.group(1)
 
 
 # --- a fake of Anthropic's Messages API -----------------------------------------
@@ -138,18 +140,12 @@ def section(text: str, heading: str) -> str:
 
 def reply_for(prompt: str) -> str:
     """The scripted reply for one step of the default omission or commission
-    check, told apart by the tags in the clinical prompts."""
-    if "<flagged_facts>" in prompt:
-        return refute_reply(("f1", "no", None), ("f2", "no", None))
-    if "<rubric>" in prompt:
-        return RANKED
-    if "<facts>" in prompt:
-        return check_reply()
+    check. The quick commission check's prompt is the only one with both the
+    transcript and the note; the omission steps are told apart as their own tests
+    do."""
     if "<note>" in prompt and "<transcript>" in prompt:
-        return COMMISSIONS  # the quick commission check's one call
-    if "<transcript>" in prompt:
-        return EXTRACTED
-    raise AssertionError(f"the fake has no reply for this prompt: {prompt[:200]!r}")
+        return QUICK_COMMISSIONS_REPLY
+    return OMISSION_REPLIES[step_of(prompt)]
 
 
 @dataclass
@@ -242,7 +238,7 @@ def test_each_python_example_runs_as_written(
 
 
 def test_the_guide_names_each_install_extra():
-    text = section(GUIDE.read_text() if GUIDE.exists() else "", "Install")
+    text = section(GUIDE.read_text(), "Install")
 
     for line in (
         "pip install groundline-core",
@@ -282,7 +278,7 @@ def test_the_guide_shows_each_way_to_give_the_check_its_model_access(argument: s
 
 
 def test_the_comparison_says_who_pays_and_where_the_text_goes():
-    text = section(GUIDE.read_text() if GUIDE.exists() else "", "Library, CLI or API")
+    text = section(GUIDE.read_text(), "Library, CLI or API")
     rows = [line for line in text.splitlines() if line.startswith("|")]
 
     assert rows, "the comparison has no table"
@@ -293,21 +289,18 @@ def test_the_comparison_says_who_pays_and_where_the_text_goes():
 
 
 def test_the_cache_warning_says_it_is_off_by_default_and_keeps_text_on_disk():
-    text = section(GUIDE.read_text() if GUIDE.exists() else "", "Caching")
+    text = section(GUIDE.read_text(), "Caching")
 
     assert "off by default" in text, text
     assert "on disk" in text, text
-    readme_section = (
-        "https://github.com/groundline-dev/groundline#caching-and-sensitive-data"
-    )
-    assert readme_section in text, text
+    assert "../README.md#caching-and-sensitive-data" in text, text
 
 
 def test_every_guide_block_that_is_not_python_says_why_it_is_not_run():
     unmarked = [
         b.label
         for b in guide_blocks()
-        if b.language != "python" and not b.not_run_reason
+        if b.language != "python" and not b.marked_not_run
     ]
 
     assert unmarked == [], f"no <!-- not run: why --> above: {unmarked}"
@@ -336,7 +329,7 @@ def test_a_not_run_reason_applies_only_to_the_block_right_below_it():
 
     blocks = read_blocks(ROOT / "x.md", text)
 
-    assert [(b.language, b.not_run_reason) for b in blocks] == [
+    assert [(b.language, b.marked_not_run) for b in blocks] == [
         ("sh", True),
         ("sh", False),
         ("toml", False),
