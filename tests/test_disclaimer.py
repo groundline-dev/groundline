@@ -85,3 +85,9 @@ def test_the_short_disclaimer_links_to_the_readmes_disclaimer_section():
     assert "https://github.com/groundline-dev/groundline#disclaimer" in SHORT_DISCLAIMER
     headings = (ROOT / "README.md").read_text().splitlines()
     assert "## Disclaimer" in headings
+
+
+def test_the_readme_has_one_disclaimer_section():
+    lines = (ROOT / "README.md").read_text().splitlines()
+
+    assert lines.count("## Disclaimer") == 1, "a second copy came back"

@@ -191,3 +191,7 @@ _Avoid_: library (that is `groundline-core`, which runs checks in-process), API 
 **Client**:
 The one object a developer creates to use the SDK, given a deployment's address and an API key. `groundline-client` is only the SDK's package name; it is not a **Client**.
 _Avoid_: connection, session, wrapper
+
+**Model client**:
+What a caller of the library can pass to make the model calls itself, in place of groundline's own calls to Claude with an Anthropic API key. A fake one lets an app's tests run checks without paying for them.
+_Avoid_: client (on its own), custom client
