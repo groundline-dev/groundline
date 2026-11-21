@@ -3,9 +3,7 @@ report a vulnerability."""
 
 from pathlib import Path
 
-from tests.markdown_helpers import REPOSITORY, ROOT, broken_links, link_targets
-
-README = ROOT / "README.md"
+from tests.markdown_helpers import README, REPOSITORY, ROOT, broken_links, link_targets
 
 
 def test_the_readme_has_no_relative_links():
@@ -25,7 +23,7 @@ def test_the_readme_has_no_relative_links():
 def test_each_link_within_the_readme_has_a_heading_to_go_to():
     targets = link_targets(README.read_text())
 
-    assert broken_links(targets, lambda t: README if t.startswith("#") else None) == []
+    assert broken_links(targets, lambda path: None if path else README) == []
 
 
 def test_the_readme_says_to_install_from_pypi():
@@ -49,9 +47,7 @@ def test_each_link_into_the_repository_has_a_file_and_heading_to_go_to():
     # so a moved file or a renamed heading would break them silently.
     prefix = f"{REPOSITORY}/blob/main/"
 
-    def file_for(target: str) -> Path | None:
-        if not target.startswith(prefix):
-            return None
-        return ROOT / target.removeprefix(prefix).partition("#")[0]
+    def file_for(path: str) -> Path | None:
+        return ROOT / path.removeprefix(prefix) if path.startswith(prefix) else None
 
     assert broken_links(link_targets(README.read_text()), file_for) == []

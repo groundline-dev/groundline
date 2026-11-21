@@ -4,7 +4,7 @@ The `groundline-core` package runs groundline's checks inside your own Python co
 
 groundline is research code, **not for clinical use**, and must not be used with real patient data yet.
 
-This guide follows the latest code, which can be newer than the version you installed (see [Versions](../README.md#versions)).
+This guide follows the latest code, which can be newer than the version you installed (see [Versions](../README.md#versions)); there's no copy of it per release yet.
 
 ## Library, CLI or API
 

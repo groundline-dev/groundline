@@ -14,9 +14,8 @@ Anthropic API key, so a block passes only if the one it names is the one sent:
 ANTHROPIC_API_KEY in the environment, the anthropic_api_key argument (read from
 MY_APP_ANTHROPIC_API_KEY, as the guide's example does), or
 config/groundline.env, the env_file the guide names. The environment outranks
-env_file, so the env_file example runs without ANTHROPIC_API_KEY. A ./.env with
-yet another one sits in every block's folder, which the library must never read
-unless it is named.
+env_file, so the env_file example runs without ANTHROPIC_API_KEY.
+(test_evaluate_anthropic_key.py checks that an unnamed ./.env is never read.)
 
 In the guide, a block that isn't Python must have a comment on the line right
 above its opening fence saying why it isn't run, so a new example can't be left
@@ -44,22 +43,26 @@ import pytest
 import groundline_core
 from tests.anthropic_helpers import message
 from tests.commissions_helpers import issue, issues_reply
-from tests.markdown_helpers import REPOSITORY, broken_links, link_targets
+from tests.markdown_helpers import (
+    README,
+    REPOSITORY,
+    ROOT,
+    broken_links,
+    fences,
+    heading_ids,
+    link_targets,
+)
 from tests.omission_helpers import SOURCE, SUMMARY, Script, not_flagged_script
 
-ROOT = Path(__file__).resolve().parents[1]
 GUIDE = ROOT / "docs" / "library.md"
-README = ROOT / "README.md"
 GUIDE_URL = f"{REPOSITORY}/blob/main/docs/library.md"
 ENVIRONMENT_ANTHROPIC_API_KEY = "sk-ant-fake-key-in-the-environment"
 ARGUMENT_ANTHROPIC_API_KEY = "sk-ant-fake-key-passed-as-an-argument"
 ENV_FILE_ANTHROPIC_API_KEY = "sk-ant-fake-key-in-an-env-file"
-UNNAMED_ENV_FILE_ANTHROPIC_API_KEY = "sk-ant-fake-key-in-a-dot-env-nobody-named"
 PYTHON = {"python", "py", "python3"}
-"""The fence languages of a Python block."""
+"""The languages that make a block a Python block, as the first word of its
+fence's info string, in any case."""
 NOT_RUN = re.compile(r"<!-- not run: \S.* -->")
-FENCE = re.compile(r"(`{3,}|~{3,})(.*)")
-"""An opening fence: three or more backticks or tildes, then the language."""
 QUICK_COMMISSIONS_REPLY = issues_reply(
     # The transcript says the finger "bent back", never which one.
     issue("hyperextended her right index finger", "unsupported", 70, "supporting")
@@ -89,31 +92,17 @@ def read_blocks(path: Path, text: str) -> list[Block]:
     """The fenced code blocks in Markdown `text`, in order."""
     lines = text.splitlines()
     blocks: list[Block] = []
-    index = 0
-    while index < len(lines):
-        opening = FENCE.match(lines[index].strip())
-        if not opening:
-            index += 1
-            continue
-        fence, language = opening.groups()
-        closing = re.compile(rf"{re.escape(fence[0])}{{{len(fence)},}}")
-        opened = index
-        index += 1
-        while index < len(lines) and not closing.fullmatch(lines[index].strip()):
-            index += 1
-        if index == len(lines):
-            raise ValueError(f"the code block opened on line {opened + 1} never closes")
+    for opened, closed, info in fences(lines):
         above = lines[opened - 1].strip() if opened > 0 else ""
         blocks.append(
             Block(
                 path=path,
                 line=opened + 1,
-                language=language.strip(),
-                code="\n".join(lines[opened + 1 : index]) + "\n",
+                language=info.split()[0].lower() if info else "",
+                code="\n".join(lines[opened + 1 : closed]) + "\n",
                 marked_not_run=bool(NOT_RUN.fullmatch(above)),
             )
         )
-        index += 1
     return blocks
 
 
@@ -158,7 +147,7 @@ def reply_for(prompt: str, omission_script: Script) -> str:
 @dataclass
 class FakeAnthropic:
     url: str
-    keys: list[str]
+    anthropic_api_keys: list[str]
     """The Anthropic API key each request carried, in order. The Anthropic SDK
     sends it as a Bearer token."""
     problems: list[str]
@@ -168,13 +157,15 @@ class FakeAnthropic:
 
 @pytest.fixture
 def fake_anthropic() -> Iterator[FakeAnthropic]:
-    keys: list[str] = []
+    anthropic_api_keys: list[str] = []
     problems: list[str] = []
     omission_script = not_flagged_script()
 
     class Handler(BaseHTTPRequestHandler):
         def do_POST(self) -> None:
-            keys.append(self.headers.get("authorization", "").removeprefix("Bearer "))
+            anthropic_api_keys.append(
+                self.headers.get("authorization", "").removeprefix("Bearer ")
+            )
             try:
                 if self.path.split("?")[0] != "/v1/messages":
                     raise ValueError("only the Messages API is faked")
@@ -208,7 +199,9 @@ def fake_anthropic() -> Iterator[FakeAnthropic]:
     )
     thread.start()
     try:
-        yield FakeAnthropic(f"http://127.0.0.1:{server.server_port}", keys, problems)
+        yield FakeAnthropic(
+            f"http://127.0.0.1:{server.server_port}", anthropic_api_keys, problems
+        )
     finally:
         server.shutdown()
         server.server_close()
@@ -222,17 +215,13 @@ def fake_anthropic() -> Iterator[FakeAnthropic]:
 def test_each_python_example_runs_as_written(
     block: Block, fake_anthropic: FakeAnthropic, tmp_path: Path
 ):
-    # The folder the example runs in has the files the examples read, the
-    # config/groundline.env the guide's env_file example names, and a ./.env
-    # nobody names.
+    # The folder the example runs in has the files the examples read, and the
+    # config/groundline.env the guide's env_file example names.
     (tmp_path / "transcript.txt").write_text(SOURCE)
     (tmp_path / "note.txt").write_text(SUMMARY)
     (tmp_path / "config").mkdir()
     (tmp_path / "config" / "groundline.env").write_text(
         f"ANTHROPIC_API_KEY={ENV_FILE_ANTHROPIC_API_KEY}\n"
-    )
-    (tmp_path / ".env").write_text(
-        f"ANTHROPIC_API_KEY={UNNAMED_ENV_FILE_ANTHROPIC_API_KEY}\n"
     )
     environment = {
         "PATH": os.environ.get("PATH", ""),
@@ -240,14 +229,14 @@ def test_each_python_example_runs_as_written(
         "ANTHROPIC_BASE_URL": fake_anthropic.url,
         "MY_APP_ANTHROPIC_API_KEY": ARGUMENT_ANTHROPIC_API_KEY,
     }
-    if "env_file=" not in block.code:
+    if "anthropic_api_key=" in block.code:  # the argument outranks the rest
         environment["ANTHROPIC_API_KEY"] = ENVIRONMENT_ANTHROPIC_API_KEY
-    if "anthropic_api_key=" in block.code:
-        expected_key = ARGUMENT_ANTHROPIC_API_KEY
-    elif "env_file=" in block.code:
-        expected_key = ENV_FILE_ANTHROPIC_API_KEY
+        expected_anthropic_api_key = ARGUMENT_ANTHROPIC_API_KEY
+    elif "env_file=" in block.code:  # only without the environment, which wins
+        expected_anthropic_api_key = ENV_FILE_ANTHROPIC_API_KEY
     else:
-        expected_key = ENVIRONMENT_ANTHROPIC_API_KEY
+        environment["ANTHROPIC_API_KEY"] = ENVIRONMENT_ANTHROPIC_API_KEY
+        expected_anthropic_api_key = ENVIRONMENT_ANTHROPIC_API_KEY
 
     result = subprocess.run(
         [sys.executable, "-I", "-c", block.code],
@@ -261,8 +250,9 @@ def test_each_python_example_runs_as_written(
 
     assert fake_anthropic.problems == [], fake_anthropic.problems
     assert result.returncode == 0, f"{block.label} failed:\n{result.stderr}"
-    assert fake_anthropic.keys, f"{block.label} never called the model"
-    assert set(fake_anthropic.keys) == {expected_key}, fake_anthropic.keys
+    sent = fake_anthropic.anthropic_api_keys
+    assert sent, f"{block.label} never called the model"
+    assert set(sent) == {expected_anthropic_api_key}, sent
 
 
 # --- what the guide must cover -------------------------------------------------
@@ -332,10 +322,9 @@ def test_the_public_interface_table_lists_every_public_name():
 
 
 def test_each_link_in_the_guide_has_a_file_and_heading_to_go_to():
-    def file_for(target: str) -> Path | None:
-        if target.startswith(("https://", "http://", "mailto:")):
+    def file_for(path: str) -> Path | None:
+        if path.startswith(("https://", "http://", "mailto:")):
             return None
-        path = target.partition("#")[0]
         return (GUIDE.parent / path).resolve() if path else GUIDE
 
     assert broken_links(link_targets(GUIDE.read_text()), file_for) == []
@@ -345,7 +334,7 @@ def test_every_guide_block_that_is_not_python_says_why_it_is_not_run():
     unmarked = [
         b.label
         for b in guide_blocks()
-        if b.language != "python" and not b.marked_not_run
+        if b.language not in PYTHON and not b.marked_not_run
     ]
 
     assert unmarked == [], f"no <!-- not run: why --> above: {unmarked}"
@@ -398,3 +387,15 @@ def test_tilde_and_longer_fences_hold_a_block_up_to_their_own_closing_fence():
         ("python", "print('tildes')\n"),
         ("markdown", "```python\nprint('inside')\n```\n"),
     ]
+
+
+def test_a_blocks_language_is_the_first_word_of_its_info_string_in_any_case():
+    text = '```Python title="example.py"\nprint("hi")\n```\n'
+
+    assert [b.language for b in read_blocks(ROOT / "x.md", text)] == ["python"]
+
+
+def test_a_comment_line_in_a_code_block_is_not_a_heading():
+    text = "## Setup\n\n```sh\n# install it first\n```\n"
+
+    assert heading_ids(text) == {"setup"}
