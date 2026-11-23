@@ -7,7 +7,7 @@ repos:
         exclude: ^uv\.lock$
 
   - repo: https://github.com/betterleaks/betterleaks
-    rev: 8d77e1712fb06fd14444cc648686f1d5655e28a8 # v1.10.0; CI uses these hooks too
+    rev: 39d5bdcf34db54e944facac5cf6e8b03db5e2b99 # v1.10.1; CI uses these hooks too
     hooks:
       - id: betterleaks
         name: Check staged files for secrets
